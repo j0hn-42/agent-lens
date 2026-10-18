@@ -264,3 +264,44 @@ for (const [w, h] of [[320, 256], [256, 320]] as Array<[number, number]>) {
     }
   })
 }
+
+/** Name of the focused element, or <body> */
+const focusedName = async (page: Page) => (await page.evaluate(FOCUSED) as Focused | null)?.name ?? '<body>'
+
+test('canvas controls, resize: the focus follows a fold or an unfold from a control, and stays put after a click elsewhere (#515, 2.4.3, 3.2.1)', { timeout: 120_000 }, async () => {
+  const page = await open(640, 512)
+  try {
+    // Unfolded -> folded with the focus on Zoom in: the control is gone, the focus goes to the button that holds it
+    await page.getByRole('button', { name: 'Zoom in', exact: true }).focus()
+    await page.setViewportSize({ width: 320, height: 256 })
+    await page.getByRole('button', { name: MENU, exact: true }).waitFor()
+    await waitForStableLayout(page)
+    assert.equal(await focusedName(page), MENU, 'folded: the focus moves to the folded button')
+    // Folded -> unfolded with the focus on that button: the focus goes to View, the last of the six
+    await page.setViewportSize({ width: 640, height: 512 })
+    await page.getByRole('button', { name: 'View', exact: true }).waitFor()
+    await waitForStableLayout(page)
+    assert.equal(await focusedName(page), 'View', 'unfolded: the focus moves to View')
+    // A click on a spot of the top bar that cannot take the focus sends the focus to <body> without any focusin: a
+    // later fold must not pull the focus back to the controls (the graph surface itself is focusable)
+    await page.getByRole('button', { name: 'Zoom in', exact: true }).focus()
+    const spot = await page.evaluate(`(() => {
+      const r = document.querySelector('header').getBoundingClientRect()
+      for (let y = r.top + 2; y < r.bottom; y += 4) for (let x = r.left + 2; x < r.right; x += 4) {
+        const hit = document.elementFromPoint(x, y)
+        if (hit && hit.closest('header') && !hit.closest('button, a, input, select, textarea, summary, [tabindex], [contenteditable]')) return { x, y }
+      }
+      return null
+    })()`) as { x: number; y: number } | null
+    assert.ok(spot, 'a spot of the top bar that cannot take the focus')
+    await page.mouse.click(spot.x, spot.y)
+    const after = await focusedName(page)
+    assert.equal(after, '<body>', 'the click on the badge moved the focus to <body>')
+    await page.setViewportSize({ width: 320, height: 256 })
+    await page.getByRole('button', { name: MENU, exact: true }).waitFor()
+    await waitForStableLayout(page)
+    assert.equal(await focusedName(page), after, 'folded after a click elsewhere: the focus is not moved')
+  } finally {
+    await page.context().close()
+  }
+})
