@@ -13,7 +13,7 @@ import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
 import { canvasControlsFit, useCanvasControlsSlot } from './canvas-controls-slot'
-import { useTourBridge } from './guided-tour-context'
+import { useTourBridge, CANVAS_CONTROLS_MENU_ID } from './guided-tour-context'
 
 const CONTROL_BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
@@ -269,6 +269,7 @@ export function CanvasControls({
       <div ref={menuRef} lang={locale} className="ml-auto shrink-0">
         <button
           ref={menuButtonRef}
+          id={CANVAS_CONTROLS_MENU_ID}
           type="button"
           aria-label={t('controls.canvasMenu')}
           title={t('controls.canvasMenu')}

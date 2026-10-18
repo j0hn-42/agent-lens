@@ -6,7 +6,7 @@ import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { TourStep } from '@/lib/guided-steps'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
+import { guidedTourButton } from './guided-tour-context'
 
 interface GuidedTourCardProps {
   steps: readonly TourStep[]
@@ -44,8 +44,8 @@ export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, on
     return () => {
       if (trigger?.isConnected) { trigger.focus({ preventScroll: true }); return }
       // Opener gone (the Guided tour button is unmounted during the tour) or none (auto-started demo):
-      // the Guided tour button, rendered again once the tour has ended
-      requestAnimationFrame(() => document.getElementById(GUIDED_TOUR_BUTTON_ID)?.focus({ preventScroll: true }))
+      // the Guided tour button, rendered again once the tour has ended (or the folded "Canvas controls" button that holds it, #515)
+      requestAnimationFrame(() => guidedTourButton()?.focus({ preventScroll: true }))
     }
   }, [])
 
