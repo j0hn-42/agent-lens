@@ -7,7 +7,7 @@ import { USAGE_LABELS, formatCostUsage, formatCtxTokenUsage, type UsageTotal } f
 import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
-import { truncateText } from './draw-misc'
+import { truncateText, fitHeaderTokens } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercent } from './draw-agents'
@@ -158,20 +158,6 @@ const HEADER_WRAP_H = 14
 /** Vrai quand coût et tokens ne tiennent pas côte à côte dans le panneau : les tokens passent alors sur une seconde ligne (#116) */
 export function costHeaderWraps(costW: number, tokensW: number): boolean {
   return COST_PANEL.contentPadding * 2 + costW + HEADER_GAP + tokensW > COST_PANEL.width
-}
-
-const HEADER_TOKENS_FONT_MAX = 11
-const HEADER_TOKENS_FONT_MIN = 9
-
-/** The token line of the header, measured with the canvas: the whole sentence at the largest size (11 px down to 9 px) that
- *  fits maxWidth, so the qualifiers ("at least", "estimated") are never lost; cut with an ellipsis only below that (#545 review). */
-export function fitHeaderTokens(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): { text: string; font: string } {
-  for (let size = HEADER_TOKENS_FONT_MAX; size >= HEADER_TOKENS_FONT_MIN; size -= 0.5) {
-    ctx.font = `${size}px monospace`
-    if (ctx.measureText(text).width <= maxWidth) return { text, font: ctx.font }
-  }
-  ctx.font = `${HEADER_TOKENS_FONT_MIN}px monospace`
-  return { text: truncateText(ctx, text, maxWidth), font: ctx.font }
 }
 
 function readTopbarH(): string {

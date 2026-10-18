@@ -3,7 +3,8 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 
-import { costPanelTop, costHeaderWraps, fitHeaderTokens } from '@/components/agent-visualizer/canvas/draw-cost'
+import { costPanelTop, costHeaderWraps } from '@/components/agent-visualizer/canvas/draw-cost'
+import { fitHeaderTokens } from '@/components/agent-visualizer/canvas/draw-misc'
 import { COST_PANEL } from '@/lib/canvas-constants'
 
 test('cost panel top follows the published top bar height', () => {
