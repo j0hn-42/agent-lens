@@ -6,7 +6,7 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import {
-  dockStore, dockServerSnapshot, placePopup, POPUP_MIN_H, dockWidthBounds, dockWidthForDrag, clampDockWidth,
+  dockStore, dockServerSnapshot, placePopup, dockWidthBounds, dockWidthForDrag, clampDockWidth,
   SHEET_BREAKPOINT, bottom as rectBottom, type PanelId, type Rect, type DockSnapshot,
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
@@ -75,6 +75,8 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
 // Focus the container on open, restore focus on close, close on Escape (non-modal
 // popups). Moving focus outside closes only when a caller opts in (closeOnFocusOutside);
 // every current dialog opts out, since focus moving is not a request to close (WCAG 3.2.2 / 2.4.3).
+// The one exception is DetailPopup's own focusin listener: it closes when focus enters a permission card the popup
+// covers, because the focused button would be hidden (WCAG 2.4.7, #536).
 
 /**
  * Marks the controls tied to the inspector (Sessions button and panel, #115). Since #380 nothing closes the
@@ -148,8 +150,7 @@ export function dialogEscapeHandler(onClose: () => void) {
 interface DetailPopupProps {
   position: { x: number; y: number }
   width: number
-  /** Height the content is expected to take; defaults to the smallest height a popup keeps (POPUP_MIN_H) */
-  estimatedHeight?: number
+  estimatedHeight: number
   onClose: () => void
   /** id of the heading element (PanelHeader titleId) labelling the dialog */
   titleId: string
@@ -158,14 +159,15 @@ interface DetailPopupProps {
   children: ReactNode
 }
 
-export function DetailPopup({ position, width, estimatedHeight = POPUP_MIN_H, onClose, titleId, children, sensitive }: DetailPopupProps) {
+export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children, sensitive }: DetailPopupProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { env } = useDockSnapshot()
   // Between the top bar and the control bar, inside the viewport (never over either bar)
   const placed = placePopup(position, { w: width, h: estimatedHeight }, env)
 
   useClickOutside(ref, onClose)
-  // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do.
+  // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do. The only
+  // exception is below: focus entering a permission card that this popup covers.
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   // Over the lower part of the permission cards (height floor), the popup would hide a button that takes focus: it
   // closes when focus enters a card (WCAG 2.4.7, #536). Elsewhere, tabbing away stays harmless.
