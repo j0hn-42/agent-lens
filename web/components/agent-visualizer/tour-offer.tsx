@@ -5,7 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
+import { guidedTourButton } from './guided-tour-context'
 import { useDockSnapshot } from './shared-ui'
 
 const TITLE = 'New to Agent Lens?'
@@ -39,7 +39,7 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
     heldFocusRef.current = false
     onDismiss()
     if (!hadFocus) return
-    const target = document.getElementById(GUIDED_TOUR_BUTTON_ID) ?? document.getElementById('visualizer-main')
+    const target = guidedTourButton() ?? document.getElementById('visualizer-main')
     target?.focus({ preventScroll: true })
   }
   // Closed by something else while it held the focus (under 600 px, presentation, full screen): the focus would
@@ -59,7 +59,7 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
     heldFocusRef.current = false
     const active = document.activeElement
     if (active && active !== document.body && active.isConnected) return
-    const target = document.getElementById(GUIDED_TOUR_BUTTON_ID) ?? document.getElementById('visualizer-main')
+    const target = guidedTourButton() ?? document.getElementById('visualizer-main')
     target?.focus({ preventScroll: true })
   }, [open])
 

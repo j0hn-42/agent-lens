@@ -634,6 +634,7 @@ const fr = {
   'palette.keywords.cost': 'jetons|dépenses',
   'palette.keywords.all-sessions': 'union|flotte',
   'palette.keywords.theme': 'apparence|couleurs',
+  'controls.canvasMenu': 'Contrôles du canvas',
   // Columns, agent rows and the stop-reporting announcement of the Sessions panel (#502)
   'cols.name': 'Nom',
   'cols.model': 'Modèle',
@@ -1303,6 +1304,7 @@ const en: Record<MessageKey, string> = {
   'palette.keywords.cost': 'tokens|spend',
   'palette.keywords.all-sessions': 'union|fleet',
   'palette.keywords.theme': 'appearance|colors|colours',
+  'controls.canvasMenu': 'Canvas controls',
   // Columns, agent rows and the stop-reporting announcement of the Sessions panel (#502)
   'cols.name': 'Name',
   'cols.model': 'Model',
