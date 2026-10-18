@@ -8,6 +8,7 @@
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
+import { AxeBuilder } from '@axe-core/playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
 import { waitForStableLayout } from './stable-layout'
 
@@ -52,10 +53,10 @@ const MEASURE = (names: string[]) => `(() => {
 const overlaps = (a: Box, b: Box) => a.l < b.r - 1 && b.l < a.r - 1 && a.t < b.b - 1 && b.t < a.b - 1
 const show = (o: Box) => `${Math.round(o.l)},${Math.round(o.t)}-${Math.round(o.r)},${Math.round(o.b)}`
 
-async function open(w: number, h: number): Promise<Page> {
+async function open(w: number, h: number, path = ''): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h }, reducedMotion: 'reduce' })
   const page = await context.newPage()
-  await page.goto(server.url, { waitUntil: 'networkidle' })
+  await page.goto(`${server.url}${path}`, { waitUntil: 'networkidle' })
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   // The guided tour button comes with the demo session; folded, the "Canvas controls" button stands for it
   await page.waitForFunction(`!!(document.getElementById('guided-tour-start') || document.querySelector('[data-canvas-controls-slot] button'))`)
@@ -155,6 +156,80 @@ for (const [w, h] of [[320, 256], [256, 320], [320, 568], [390, 844], [640, 512]
       assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'Escape closes it')
       assert.equal((await page.evaluate(FOCUSED) as Focused | null)?.name, MENU, 'the focus goes back to it')
       assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
+    } finally {
+      await page.context().close()
+    }
+  })
+}
+
+/**
+ * axe in a real browser on the folded states (the jsdom axe tests never fold: they have no layout, so no slot is drawn).
+ * Scoped to the playback bar, where the folded button and its open block live; every violation counts, not only the
+ * serious ones, and nothing is allow-listed.
+ */
+async function axeOnPlaybackBar(page: Page, scenario: string) {
+  const results = await new AxeBuilder({ page })
+    .include('[data-control-bar]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'])
+    .analyze()
+  assert.deepEqual(
+    results.violations.map(v => `${v.id} (${v.impact}): ${v.nodes.slice(0, 3).map(n => n.target.join(' ')).join(' | ')}`),
+    [],
+    `[${scenario}] axe violations in the playback bar`,
+  )
+}
+
+for (const [w, h] of [[320, 256], [256, 320]] as Array<[number, number]>) {
+  test(`canvas controls ${w}x${h}, folded: axe finds nothing folded, open, with the Legend and with View open (#515)`, { timeout: 120_000 }, async () => {
+    const page = await open(w, h)
+    try {
+      const toggle = page.getByRole('button', { name: MENU, exact: true })
+      await toggle.waitFor()
+      await axeOnPlaybackBar(page, `${w}x${h} folded`)
+      await toggle.click()
+      await page.locator('#guided-tour-start').waitFor()
+      await axeOnPlaybackBar(page, `${w}x${h} open`)
+      const legend = page.getByRole('button', { name: 'Legend', exact: true })
+      if (await legend.getAttribute('aria-expanded') !== 'true') await legend.click()
+      await page.getByRole('region', { name: 'Graph legend' }).waitFor()
+      await axeOnPlaybackBar(page, `${w}x${h} open, legend shown`)
+      await page.getByRole('button', { name: 'View', exact: true }).click()
+      await page.getByRole('dialog', { name: 'View settings' }).waitFor()
+      await axeOnPlaybackBar(page, `${w}x${h} open, View open`)
+    } finally {
+      await page.context().close()
+    }
+  })
+
+  test(`canvas controls ${w}x${h}, folded: the guided tour started from the folded block gives the focus back to "${MENU}" (#515, 2.4.3)`, { timeout: 120_000 }, async () => {
+    const page = await open(w, h)
+    try {
+      const toggle = page.getByRole('button', { name: MENU, exact: true })
+      const card = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Exit tour' }) })
+      // Pointer: start it from the block, click in its card (outside the block, which closes), then end it with Escape
+      // (at 320x256 the card is taller than the room above the playback bar and its Exit tour button is above the window)
+      await toggle.click()
+      await page.locator('#guided-tour-start').click()
+      await card.waitFor()
+      await card.getByRole('button', { name: 'Next' }).click()
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false', `[${w}x${h}] a click in the card closes the folded block`)
+      await page.keyboard.press('Escape')
+      await card.waitFor({ state: 'detached' })
+      await page.waitForFunction(`document.activeElement && document.activeElement !== document.body`, undefined, { timeout: 2_000 }).catch(() => {})
+      assert.equal((await page.evaluate(FOCUSED) as Focused | null)?.name ?? '<body>', MENU, `[${w}x${h}] pointer: the focus after the tour`)
+
+      // Keyboard: Enter opens the block, Tab to the tour button, Enter starts it (its card takes the focus), Escape ends it
+      await toggle.focus()
+      await page.keyboard.press('Enter')
+      await page.locator('#guided-tour-start').waitFor()
+      for (let i = 0; i < 6 && await page.evaluate(`document.activeElement?.id`) !== 'guided-tour-start'; i++) await page.keyboard.press('Tab')
+      await page.keyboard.press('Enter')
+      await card.waitFor()
+      await page.waitForFunction(`!!document.activeElement?.closest('[role="dialog"]')`)
+      await page.keyboard.press('Escape')
+      await card.waitFor({ state: 'detached' })
+      await page.waitForFunction(`document.activeElement && document.activeElement !== document.body`, undefined, { timeout: 2_000 }).catch(() => {})
+      assert.equal((await page.evaluate(FOCUSED) as Focused | null)?.name ?? '<body>', MENU, `[${w}x${h}] keyboard: the focus after the tour`)
     } finally {
       await page.context().close()
     }
