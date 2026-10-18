@@ -693,6 +693,7 @@ const fr = {
   'topbar.context.costMissing': 'coût non communiqué',
   'topbar.context.unattributed': 'dont {cost} non attribués',
   'cost.totals.region': 'Totaux du coût',
+  'cost.totals.unattributed': 'dont {tokens} jetons non attribués (environ {cost})',
   'scope.group': 'Portée',
   'scope.select': 'Portée des sessions',
   'scope.title': 'Portée des sessions : cet espace de travail, un projet ou tous les espaces de travail',
@@ -1571,6 +1572,8 @@ const en: Record<MessageKey, string> = {
   'topbar.context.costMissing': 'cost not reported',
   'topbar.context.unattributed': 'including {cost} unattributed',
   'cost.totals.region': 'Cost totals',
+  // The unattributed row of the Cost panel (`900k · ~$X estimated`): "~" read as "about", the model being unknown (#555)
+  'cost.totals.unattributed': 'including {tokens} unattributed tokens (about {cost})',
   'scope.group': 'Scope',
   'scope.select': 'Session scope',
   'scope.title': 'Scope of the sessions: this workspace, one project, or all workspaces',

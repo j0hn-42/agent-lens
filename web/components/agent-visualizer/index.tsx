@@ -48,7 +48,6 @@ import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { CostTotalsText } from "./cost-totals-text"
-import { ALL_SESSIONS_ID } from "@/lib/bridge-types"
 import { TruncationBanner, TruncationAnnouncer } from "./truncation-banner"
 import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
 import { isUnionSelection } from "@/lib/bridge-types"
@@ -347,7 +346,8 @@ export function AgentVisualizer() {
         <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
       )}
 
-      {showCostOverlay && !immersive && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} unattributedCost={usage.summary.unattributedCost} isAllMode={bridge.selectedSessionId === ALL_SESSIONS_ID} />}
+      {/* In full screen too: the canvas still draws the Cost panel there, and the region is sr-only (no visual footprint) */}
+      {showCostOverlay && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} />}
 
       {/* Canvas fills everything */}
       <AgentCanvas
