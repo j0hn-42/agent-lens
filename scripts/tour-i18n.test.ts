@@ -56,7 +56,7 @@ const NAME_KEY = {
   timeline: 'topbar.panel.timeline.name', stats: 'topbar.panel.stats.name', conversation: 'topbar.panel.conversation.name',
 } as const
 
-test('a panel has one name in a language: the palette, the top bar button and the panel say the same word (WCAG 3.2.4)', () => {
+test('the palette and the top bar button give a panel the same name (WCAG 3.2.4); the rendered panels are checked in i18n-no-mixed-languages.test.tsx', () => {
   for (const l of LOCALES as readonly Locale[]) {
     for (const id of Object.keys(PANEL_NAMES) as (keyof typeof PANEL_NAMES)[]) {
       const buttonName = MESSAGES[l][NAME_KEY[id]].replace(/ \([A-Z]\)$/, '').replace(/^\$/, '')
