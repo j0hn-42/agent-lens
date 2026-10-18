@@ -235,7 +235,7 @@ test('shell: top bar with the attention counter and the notification option (#12
       attention={{ waiting: 2, errors: 1 }} onJumpToAttention={noop} notifyState="off" onToggleNotify={noop}
     />,
   )
-  getByRole('button', { name: /2 waiting \/ 1 error/ })
+  getByRole('button', { name: /2 agents waiting \/ 1 agent in error/ })
   getByRole('button', { name: 'Notifications' })
   await check('top-bar-attention', container)
 })

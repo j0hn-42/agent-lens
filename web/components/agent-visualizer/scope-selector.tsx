@@ -6,6 +6,8 @@ import { TOUCH_TARGET } from "@/lib/mobile-view"
 import type { SessionInfo } from "@/lib/bridge-types"
 import { parseScopeValue, scopeNotices, scopeOptions, scopeSummary, scopeValue, type RelayScopeState, type ScopeChoice } from "@/lib/relay-scope"
 import { projectOptions } from "@/lib/session-filter"
+import { useLocale } from "@/lib/locale"
+import { translate } from "@/lib/messages"
 
 export interface ScopeSelectorProps {
   /** What the relay reports it scans (GET /status); null = no relay, nothing to choose and nothing to claim */
@@ -26,20 +28,23 @@ export interface ScopeSelectorProps {
  * in a polite live region, the discovery ceilings that were hit. Colours come from the theme tokens; nothing moves.
  */
 export function ScopeSelector({ state, sessions, projectId, pending, error, onChoose }: ScopeSelectorProps) {
+  const { locale } = useLocale()
   if (!state) return null
-  const options = scopeOptions(sessions)
+  const options = scopeOptions(sessions, locale)
   // A project that no session belongs to any more is not offered, so it is not shown as selected either
   const known = projectId !== null && projectOptions(sessions).some(p => p.projectId === projectId)
   const value = scopeValue(state.scope, known ? projectId : null)
-  const summary = scopeSummary(state)
-  const notices = scopeNotices(state)
-  const live = [...(error ? [error] : []), ...notices]
+  const summary = scopeSummary(state, locale)
+  // The ceilings are worded here, in the language. What the relay or the link wrote (a runtime problem, a failed change) is
+  // English data: it keeps its own lang instead of passing for the page language (WCAG 3.1.2).
+  const notices = scopeNotices({ ...state, runtimeProblems: [] }, locale)
+  const relayTexts = [...(error ? [error] : []), ...(state.runtimeProblems ?? []).map(p => p.message)]
   return (
-    <div role="group" aria-label="Scope" className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0" data-scope-selector>
+    <div role="group" aria-label={translate(locale, 'scope.group')} lang={locale} className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0" data-scope-selector>
       <select
-        aria-label="Session scope"
+        aria-label={translate(locale, 'scope.select')}
         aria-busy={pending}
-        title="Scope of the sessions: this workspace, one project, or all workspaces"
+        title={translate(locale, 'scope.title')}
         value={value}
         onChange={e => { const choice = parseScopeValue(e.target.value); if (choice) onChoose(choice) }}
         className={`min-h-6 ${TOUCH_TARGET} px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer max-w-[14rem] ${FOCUS_RING}`}
@@ -51,7 +56,8 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
       </select>
       {summary && <span style={{ color: COLORS.textMuted }}>{summary}</span>}
       <span role="status" data-scope-notices className="min-w-0" style={{ color: error ? COLORS.error : COLORS.textMuted }}>
-        {live.join(' ')}
+        {relayTexts.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt="">{i > 0 && ' '}{text}</span>)}
+        {notices.length > 0 && `${relayTexts.length > 0 ? ' ' : ''}${notices.join(' ')}`}
       </span>
     </div>
   )
