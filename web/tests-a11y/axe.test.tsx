@@ -33,7 +33,7 @@ import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import type { AgentLink } from '@/hooks/simulation/types'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import type { Agent, FileAttention, TimelineEntry, TimelineEvent } from '@/lib/agent-types'
-import type { SessionInfo } from '@/lib/bridge-types'
+import type { SessionInfo, QuotaSnapshotView } from '@/lib/bridge-types'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { compareViolations, validateKnownViolations, type KnownViolation } from './axe-compare'
 
@@ -256,7 +256,8 @@ test('shell: top bar with the quota gauges (ok, low, critical, aged), tooltip op
 })
 
 test('shell: top bar with the quota unknown, not available and without subscription', async () => {
-  const unknown = render(<><TopBar {...topBarProps} quota={null} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  const expired: QuotaSnapshotView = { fiveHour: null, sevenDay: null, receivedAt: Date.now() - 31 * 60_000 }
+  const unknown = render(<><TopBar {...topBarProps} quota={expired} selectedRuntime="claude" /><main id="visualizer-main" /></>)
   await act(async () => { fireEvent.focus(unknown.container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
   assert.ok(unknown.container.querySelector('[role="tooltip"]'))
   await check('top-bar-quota-unknown', unknown.container)

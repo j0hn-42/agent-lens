@@ -226,7 +226,11 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 /** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
 function getScenarioName(): string | null {
   if (typeof window === 'undefined') return null
-  return new URLSearchParams(window.location.search).get('scenario') || process.env.NEXT_PUBLIC_DEMO_SCENARIO || null
+  // `process` does not exist in a browser bundle that does not define the variable (#534): never read it bare.
+  // The bundler replaces the literal `process.env.NEXT_PUBLIC_DEMO_SCENARIO`; the try only covers a build that does not.
+  let fromEnv: string | undefined
+  try { fromEnv = process.env.NEXT_PUBLIC_DEMO_SCENARIO } catch { fromEnv = undefined }
+  return new URLSearchParams(window.location.search).get('scenario') || fromEnv || null
 }
 
 const WORKFLOW_MEMBERS: Array<{ name: string; phase: string }> = [

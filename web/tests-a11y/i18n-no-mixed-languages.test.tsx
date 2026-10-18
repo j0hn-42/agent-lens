@@ -134,7 +134,7 @@ for (const locale of LOCALES) {
     for (const key of ['settings.notify.unsupported', 'settings.notify.denied', 'settings.notify.rulesPending', 'settings.notify.invalid'] as MessageKey[]) {
       assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
     }
-    for (const key of ['settings.section.announcements', 'settings.announce.level', 'settings.announce.level.all', 'settings.announce.level.important', 'settings.announce.help', 'settings.quota', 'settings.quota.help'] as MessageKey[]) {
+    for (const key of ['settings.section.announcements', 'settings.announce.level', 'settings.announce.level.all', 'settings.announce.level.important', 'settings.announce.help', 'settings.quota', 'settings.quota.help', 'settings.quota.setup'] as MessageKey[]) {
       assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
     }
     assert.ok(strings.length > 20, 'the dialog was rendered')
