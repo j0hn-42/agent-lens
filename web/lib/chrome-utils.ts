@@ -34,6 +34,21 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal, locale: 
   }
 }
 
+/**
+ * The unattributed row of the Cost panel in words (#555, #576), the one wording of the top bar and of the "Cost totals"
+ * region. It follows the drawing (`drawCostSummaryPanel`): the tokens, then the cost read "about" for the drawn "~" (priced
+ * at the default rate, the model being unknown), plus "estimated" when one part of it is an estimate. Null when the drawing
+ * draws no row (no unattributed tokens): never a bare figure, never a "$0".
+ */
+export function unattributedRestText(tokens: number, cost: number, estimated: boolean, locale: Locale = 'en'): string | null {
+  if (!(tokens > 0)) return null
+  const v = formatCost(cost)
+  return translate(locale, 'topbar.context.unattributed', {
+    tokens: formatTokens(tokens),
+    cost: estimated ? translate(locale, 'usage.estimated', { v }) : v,
+  })
+}
+
 /** Time the pointer has to go from a top bar button to its tooltip, below it (WCAG 1.4.13, #523). */
 export const TOOLTIP_CLOSE_DELAY_MS = 300
 

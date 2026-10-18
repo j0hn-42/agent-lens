@@ -38,7 +38,7 @@ const partialTokens = { value: 33000, status: 'partial', estimated: true } as co
 const partialCost = { value: 0.312, status: 'partial', estimated: true } as const
 
 test('the bar draws no token total, no cost and no summary popover', () => {
-  const { container } = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} unattributedCost={0.03} />)
+  const { container } = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} unattributedTokens={900_000} unattributedCost={0.03} />)
   const header = container.querySelector('header')!
   const drawn = drawnText(header)
   assert.doesNotMatch(drawn, /tokens|ctx/, `no token total drawn: "${drawn}"`)
@@ -66,11 +66,11 @@ test('screen readers still get the agent counts in the bar, in the full wording,
 })
 
 test('screen readers still get the token and cost totals of the view, qualified, with the unattributed part', () => {
-  const { getByTestId } = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} unattributedCost={0.03} />)
+  const { getByTestId } = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} unattributedTokens={900_000} unattributedCost={0.03} unattributedEstimated />)
   const spoken = getByTestId('topbar-spoken-totals').textContent!
   assert.match(spoken, /at least 33k estimated tokens in context/)
   assert.ok(spoken.includes(`${COST_LABELS.name} at least $0.312 estimated`), spoken)
-  assert.match(spoken, /including .*\$0\.030.* unattributed/)
+  assert.match(spoken, /including 900k unattributed tokens \(about \$0\.030 estimated\)/, spoken)
 })
 
 test('a total the runtime does not report is named as missing for screen readers (#383)', () => {
@@ -87,4 +87,40 @@ test('All mode: sessions, agents and the cost said in words to screen readers on
   const { getByTestId } = render(<TopBar {...base} selectedSessionId={ALL_SESSIONS_ID} allSessionCount={3} costUsage={cost} />)
   const spoken = getByTestId('topbar-spoken-totals').textContent!
   assert.ok(spoken.includes(`3 sessions, 30 agents, ${COST_LABELS.name} $1.23`), spoken)
+})
+
+// #576: the bar says the unattributed part with the rule and the qualifiers of the drawing of the Cost panel (draw-cost.ts)
+// and of its "Cost totals" region (#573): tokens, "about" for the drawn "~", "estimated" when one part is an estimate, and
+// in every view, All included, never a bare exact-looking figure.
+test('#576 the unattributed part is not a bare figure: tokens and "about" (not an estimate: no "estimated")', () => {
+  const { getByTestId } = render(<TopBar {...base} unattributedTokens={900_000} unattributedCost={5.4} />)
+  const spoken = getByTestId('topbar-spoken-totals').textContent!
+  assert.ok(spoken.includes('including 900k unattributed tokens (about $5.40)'), spoken)
+  assert.doesNotMatch(spoken, /including \$[\d.]+ unattributed/)
+})
+
+test('#576 All view: the unattributed part is read too, as the drawing shows its row in every mode', () => {
+  const { getByTestId } = render(<TopBar {...base} selectedSessionId={ALL_SESSIONS_ID} allSessionCount={3} unattributedTokens={900_000} unattributedCost={5.4} unattributedEstimated />)
+  const spoken = getByTestId('topbar-spoken-totals').textContent!
+  assert.ok(spoken.includes('including 900k unattributed tokens (about $5.40 estimated)'), spoken)
+})
+
+test('#576 no unattributed tokens: nothing is said (the drawing draws no row), even with a cost figure', () => {
+  const { getByTestId } = render(<TopBar {...base} unattributedTokens={0} unattributedCost={0.5} />)
+  assert.doesNotMatch(getByTestId('topbar-spoken-totals').textContent!, /unattributed/)
+})
+
+test('#576 the unattributed part does not depend on costReported: a partial cost (a lower bound) still says it', () => {
+  // A cost of "unavailable" with unattributed tokens cannot happen in the app (the rest is priced at the default rate as
+  // soon as it has tokens), so the case is not pinned; a partial cost is the realistic one
+  const { getByTestId } = render(<TopBar {...base} costUsage={partialCost} unattributedTokens={900_000} unattributedCost={5.4} />)
+  assert.match(getByTestId('topbar-spoken-totals').textContent!, /including 900k unattributed tokens \(about \$5\.40\)/)
+})
+
+test('#576 reading order: counts, cost, tokens, then the unattributed part, as the Cost region reads it', () => {
+  const { getByTestId } = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} unattributedTokens={900_000} unattributedCost={0.03} />)
+  const spoken = getByTestId('topbar-spoken-totals').textContent!
+  const at = (re: RegExp) => spoken.search(re)
+  assert.ok(at(/tokens in context/) >= 0 && at(/at least \$0\.312/) < at(/tokens in context/), spoken)
+  assert.ok(at(/tokens in context/) < at(/including 900k unattributed/), spoken)
 })

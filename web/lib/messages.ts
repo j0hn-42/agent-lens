@@ -680,9 +680,9 @@ const fr = {
   'topbar.context.tokensMissing': 'jetons non communiqués',
   'topbar.context.costName': 'estimation du coût du contexte',
   'topbar.context.costMissing': 'coût non communiqué',
-  'topbar.context.unattributed': 'dont {cost} non attribués',
+  // La part non attribuée, avec les qualificatifs du dessin du panneau Cost : « environ » pour le « ~ », « estimé » ajouté dans {cost} (#555, #576)
+  'topbar.context.unattributed': 'dont {tokens} jetons non attribués (environ {cost})',
   'cost.totals.region': 'Totaux du coût',
-  'cost.totals.unattributed': 'dont {tokens} jetons non attribués (environ {cost})',
   'scope.group': 'Portée',
   'scope.select': 'Portée des sessions',
   'scope.title': 'Portée des sessions : cet espace de travail, un projet ou tous les espaces de travail',
@@ -1570,10 +1570,9 @@ const en: Record<MessageKey, string> = {
   'topbar.context.tokensMissing': 'tokens not reported',
   'topbar.context.costName': COST_LABELS.name,
   'topbar.context.costMissing': 'cost not reported',
-  'topbar.context.unattributed': 'including {cost} unattributed',
+  // The unattributed row of the Cost panel (`900k · ~$X estimated`): "~" read as "about", the model being unknown; "estimated" is added inside {cost} (#555, #576)
+  'topbar.context.unattributed': 'including {tokens} unattributed tokens (about {cost})',
   'cost.totals.region': 'Cost totals',
-  // The unattributed row of the Cost panel (`900k · ~$X estimated`): "~" read as "about", the model being unknown (#555)
-  'cost.totals.unattributed': 'including {tokens} unattributed tokens (about {cost})',
   'scope.group': 'Scope',
   'scope.select': 'Session scope',
   'scope.title': 'Scope of the sessions: this workspace, one project, or all workspaces',

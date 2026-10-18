@@ -195,6 +195,7 @@ export function AgentVisualizer() {
 
   // Events the relay could not replay, per session (#366): qualifies the numbers the canvas draws and the totals read aloud
   const replayLostBySession = useMemo(() => new Map(Object.entries(bridge.eventLoss?.evicted ?? {})), [bridge.eventLoss])
+  const unattributedEstimated = useMemo(() => Array.from(unattributed.values()).some(u => u.estimated === true), [unattributed])
   const shownUsage = useMemo(() => {
     // The sessions of the agents and of the usage that belongs to no agent: both are in the totals
     const lost = replayLostForAgents(replayLostBySession, [...agents.values(), ...unattributed.values()])
@@ -332,7 +333,7 @@ export function AgentVisualizer() {
         connectionDetail={bridge.connectionDetail} onRetryConnection={bridge.relayOrigin !== null ? bridge.retryRelay : undefined} onExitDemo={bridge.exitDemo}
         activeAgentCount={activeAgentCount} staleAgentCount={staleAgentCount} idleAgentCount={idleAgentCount} errorAgentCount={errorAgentCount} doneAgentCount={doneAgentCount}
         totalTokens={usage.summary.sessionTokens} totalCost={usage.summary.sessionCost} tokenUsage={shownUsage.tokens} costUsage={shownUsage.cost}
-        unattributedCost={usage.summary.unattributedCost}
+        unattributedTokens={usage.summary.unattributedTokens} unattributedCost={usage.summary.unattributedCost} unattributedEstimated={unattributedEstimated}
         showFileAttention={showFileAttention} showConversation={showConversation} showContext={showContext} showSystem={showSystem}
         showCostOverlay={showCostOverlay} showTimeline={showTimeline} showStats={showStats} isMuted={isMuted}
         onToggleStats={() => setShowStats(prev => !prev)}

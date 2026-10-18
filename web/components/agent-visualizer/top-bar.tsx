@@ -3,11 +3,10 @@
 import { Fragment, memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
-import { formatCost } from "@/lib/utils"
 import type { UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { observeTopbarHeight, viewCountsText, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, viewCountsText, topBarContextText, unattributedRestText, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { sessionStatusHelp } from "@/lib/card-text"
 import {
@@ -256,8 +255,12 @@ export interface TopBarProps {
   totalCost: number
   /** Qualified cost total; overrides `totalCost` when given */
   costUsage?: UsageTotal
-  /** Part of totalCost (and of totalTokens) that belongs to no single agent; shown apart when above zero */
+  /** Tokens tied to no agent, as the Cost panel draws them (#576); read after the cost and the tokens */
+  unattributedTokens?: number
+  /** Cost of those tokens at the default rate */
   unattributedCost?: number
+  /** True when a part of the unattributed usage is an estimate */
+  unattributedEstimated?: boolean
   // Panel toggles
   showFileAttention: boolean
   showConversation: boolean
@@ -304,7 +307,7 @@ export const TopBar = memo(function TopBar({
   showSessions, onToggleSessions,
   allSessionCount, lossMarked = false, showMode = 'all', onChangeShowMode, finishedSessionCount = 0,
   isVSCode, connectionStatus, isDemo = false, connectionDetail, onRetryConnection, onExitDemo,
-  activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
+  activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedTokens = 0, unattributedCost = 0, unattributedEstimated = false,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
@@ -392,13 +395,13 @@ export const TopBar = memo(function TopBar({
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
     locale,
   )
-  const costReported = (costUsage?.value ?? totalCost) !== null && costUsage?.status !== 'unavailable'
   const spokenTotals = [
     // Full wording ("last known state"); screen readers skip the "-" (#364)
     counts.spoken,
     contextText.spoken,
-    !isAllMode && unattributedCost > 0 && costReported ? t('topbar.context.unattributed', { cost: formatCost(unattributedCost) }) : null,
     contextText.tokens,
+    // Same rule, qualifiers and order as the Cost panel text region (#576): cost, tokens, then the unattributed part, in every view
+    unattributedRestText(unattributedTokens, unattributedCost, unattributedEstimated, locale),
   ].filter((part): part is string => part !== null).join(', ')
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording

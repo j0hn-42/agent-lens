@@ -231,3 +231,22 @@ test('French: a cost the runtime does not report reads "coût non communiqué" (
   assert.match(text, /jetons non communiqués/, text)
   assert.doesNotMatch(text, /\$0/)
 })
+
+// ─── #576: the bar says the unattributed part like the drawing and the region, in every view ───
+
+test('#576 single session: the bar reads the unattributed part with the same tokens and qualifiers as the region', async () => {
+  const r = await mount(null, true, { row: 1, events: [...TOOL_AND_CONTEXT, ORPHAN] })
+  assert.match(spoken(r), UNATTRIBUTED_EN, spoken(r))
+  assert.doesNotMatch(spoken(r), /including \$[\d.]+ unattributed/)
+})
+
+test('#576 All sessions: the bar reads it too (it used to leave it out), without "estimated" for a reading', async () => {
+  const r = await mount(null, true, { events: [...TOOL_AND_CONTEXT, ORPHAN_READING] })
+  assert.match(spoken(r), /including 900k unattributed tokens \(about \$[\d.]+\)/, spoken(r))
+})
+
+test('#576 French: the bar reads "environ" and "estimé" like the region', async () => {
+  setLocaleChoice('fr')
+  const r = await mount(null, true, { row: 1, events: [...TOOL_AND_CONTEXT, ORPHAN] })
+  assert.match(spoken(r), /dont 900k jetons non attribués \(environ \$[\d.]+ estimé\)/, spoken(r))
+})
