@@ -1,7 +1,8 @@
 // #378 (suite): while the scene grows, the automatic framing catches up with what it frames instead of
 // trailing it. On develop @ 03da64a the camera closed 6 % of the gap to its fit target per frame whatever
-// the target: a new agent spawned outside the frame stayed (partly) outside for about a second (tour demo at
-// 1024 x 768: up to 75 px under the controls row, 390 x 844: 39 px).
+// the target: something that appeared outside the frame stayed (partly) outside for a while (bench of
+// autoframe-grow.e2e.ts on the tour demo: longest run 657 ms and worst item 241 px off at 1024 x 768, 468 ms and
+// 121 px at 390 x 844). The "Fit to view" button sets the same kind of target and takes the same catch-up.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, cleanup } from '@testing-library/react'
@@ -86,4 +87,21 @@ test('under reduced motion the fit target is still reached in one frame (#380)',
   agents.set('far', agent('far', 1600, 300))
   frames(2)
   assert.equal(outside(agents, cam.current.transformRef.current), 0)
+})
+
+test('"Fit to view" from a zoom-in takes the same catch-up: the content off screen comes back within 15 frames (#378)', () => {
+  const { cam, agents, frames } = mount()
+  agents.set('far', agent('far', 1600, 300))
+  frames(600)
+  const fitted = cam.current.transformRef.current
+  cam.current.zoomBy(4)
+  assert.ok(outside(agents, cam.current.transformRef.current) > 50, 'precondition: zoomed in, part of the content is off the safe area')
+  cam.current.doZoomToFit()
+  const zoomed = cam.current.transformRef.current
+  frames(1)
+  const share = (zoomed.scale - cam.current.transformRef.current.scale) / (zoomed.scale - fitted.scale)
+  assert.ok(share > ANIM.autoFitLerp + 1e-6, `first step closed ${(share * 100).toFixed(1)} % of the zoom gap (catch-up is ${ANIM.autoFitCatchUpLerp * 100} %)`)
+  frames(14)
+  const out = outside(agents, cam.current.transformRef.current)
+  assert.equal(Math.round(out * 10) / 10, 0, `still ${out.toFixed(1)} px outside the safe area 15 frames after "Fit to view"`)
 })
