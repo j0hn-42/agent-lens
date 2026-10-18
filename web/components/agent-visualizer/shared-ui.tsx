@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
@@ -393,6 +393,11 @@ interface SlidingPanelProps {
   attrs?: Record<string, string>
   /** Accessible name of the mobile drawer when no heading id is given (`labelledBy` wins) */
   label?: string
+  /**
+   * Language of `label`. An aria-label cannot declare its language (WCAG 3.1.2), so with this the drawer is named by a
+   * visually hidden element carrying lang instead. The drawer itself gets no lang: its body may still be in another language.
+   */
+  labelLang?: string
   children: ReactNode
 }
 
@@ -456,13 +461,15 @@ const DRAWER_BELOW_CARD = '[html[data-permission-open]_&]:max-h-[calc(100dvh-var
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
-  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, label, children,
+  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, label, labelLang, children,
 }: SlidingPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<PanelFocusController | null>(null)
   const autoFocusRef = useRef(autoFocus)
   autoFocusRef.current = autoFocus
   const drawer = useMobileView() && visible
+  const labelId = useId()
+  const langLabel = drawer && !labelledBy && label && labelLang ? label : undefined
   useDrawerKeys(ref, drawer)
 
   // Focus management lives here (not in the parent) so it works for every panel and does
@@ -500,7 +507,7 @@ export function SlidingPanel({
 
   // Mobile drawer: a named dialog spanning the viewport width (8 px gutters, like a sheet of the dock layout)
   const drawerProps = drawer
-    ? { role: 'dialog', 'aria-labelledby': labelledBy, 'aria-label': labelledBy ? undefined : label, 'data-mobile-drawer': '' }
+    ? { role: 'dialog', 'aria-labelledby': labelledBy ?? (langLabel ? labelId : undefined), 'aria-label': labelledBy || langLabel ? undefined : label, 'data-mobile-drawer': '' }
     : { role: labelledBy ? 'region' : undefined, 'aria-labelledby': labelledBy }
   const drawerStyle: React.CSSProperties | undefined = drawer
     ? { left: 8, right: 'auto', marginTop: `var(${PERMISSION_HEIGHT_VAR}, 0px)`, width: 'calc(100vw - 16px)', maxWidth: 'calc(100vw - 16px)' }
@@ -527,6 +534,7 @@ export function SlidingPanel({
         ...drawerStyle,
       }}
     >
+      {langLabel && <span id={labelId} lang={labelLang} className="sr-only">{langLabel}</span>}
       {children}
     </div>
   )

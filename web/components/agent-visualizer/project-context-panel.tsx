@@ -11,7 +11,9 @@ import { CapabilitiesSection } from './capabilities-section'
 import { ResumeSection } from './resume-section'
 import type { ResumableSession } from '@/lib/resume-command'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
-import { PANEL_NAMES } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
+import { panelName } from '@/lib/command-palette'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
 const LIMIT_KB = 64
@@ -85,6 +87,7 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
 function ContextDock({ children }: { children: (maxHeight: number | string) => ReactNode }) {
   const dock = useDockPanel('files', true)
   const { rect } = dock
+  const { locale } = useLocale()
   return (
     <SlidingPanel
       visible
@@ -92,7 +95,8 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
       zIndex={Z.sidePanel}
       width={rect?.w ?? 360}
       attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
-      label={PANEL_NAMES.context}
+      label={panelName(locale, 'context')}
+      labelLang={locale}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       {children(rect?.h ?? '70vh')}
@@ -104,6 +108,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
   // Loads only while the panel is open, for one selected session, when the relay can be reached
   const canLoad = !unavailableReason && sessionId !== null
   const { state, refresh } = useProjectContext(fetchContext, sessionId, visible && canLoad)
+  const { locale } = useLocale()
 
   if (!visible) return null
 
@@ -130,7 +135,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
             </button>
           )}
         >
-          <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>PROJECT CONTEXT</span>
+          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>{translate(locale, 'panel.heading.context')}</span>
         </PanelHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>

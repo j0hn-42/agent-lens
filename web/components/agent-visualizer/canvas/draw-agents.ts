@@ -6,7 +6,7 @@ import {
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness } from '../../../hooks/simulation/freshness'
-import { alphaHex, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
+import { alphaHex, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './draw-misc'
@@ -15,6 +15,7 @@ import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, labelScaleForZoom, textHoldSca
 import { DEFAULT_THEME, type ThemeId } from '../../../lib/theme-tokens'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor, contextPercentLabel, contextPercentColor, contextAlertLevel } from './overlay-metrics'
+import { statsLabel } from './loss-labels'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
@@ -782,15 +783,17 @@ export function hasContextPercent(agent: Agent): boolean {
   return hasContextPercentFor(agent)
 }
 
-function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined) {
+function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined, replayLost?: ReadonlyMap<string, number>) {
   const scene = scenePalette(theme)
   const sy = agent.y - r - statsTop
   // Held at LOD.minTextPx on screen: the stack above the node (stats, cost) is enlarged as a whole around the
   // top of the node, so the box and the pill keep their order without overlapping, as the overlay plan reserves them
   scaleAbout(ctx, agent.x, agent.y - r, textScale)
+  // A tool count that is a lower bound says so (#366): the box widens to hold it, the plan reserves the same width
+  const { text, width: boxW } = statsLabel(agent, replayLost)
   ctx.fillStyle = scene.cardBgDark
   ctx.beginPath()
-  ctx.roundRect(agent.x - STATS_OVERLAY.boxWidth / 2, sy, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
+  ctx.roundRect(agent.x - boxW / 2, sy, boxW, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
   ctx.fill()
   ctx.strokeStyle = sceneColor(theme, 'mark', scene.glassBorder)
   ctx.lineWidth = 0.5
@@ -799,7 +802,7 @@ function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number
   ctx.font = `${STATS_OVERLAY.fontSize}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.fillText(`${pluralize(agent.toolCalls, 'tool')} \u00B7 ${formatDuration(agent.timeAlive)}`, agent.x, sy + STATS_OVERLAY.textPaddingY)
+  ctx.fillText(text, agent.x, sy + STATS_OVERLAY.textPaddingY)
 }
 
 export function drawAgents(
@@ -901,7 +904,7 @@ export function drawAgents(
       if (layout.statsTop != null && place.visible) {
         ctx.save()
         ctx.translate(place.dx, place.dy)
-        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom), sceneTheme)
+        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom), sceneTheme, opts.replayLost)
         ctx.restore()
       }
     }

@@ -369,6 +369,8 @@ export const STATS_OVERLAY = {
   /** Y offset above agent radius (legacy; the live layout comes from overlay-layout.ts) */
   yOffset: 25,
   boxWidth: 124,
+  /** Widest the box grows for a qualified text ("at least 99 tools · 1:02:33"); a longer line drops its duration (#366) */
+  maxBoxWidth: 240,
   boxHeight: 20,
   borderRadius: 3,
   fontSize: 11,

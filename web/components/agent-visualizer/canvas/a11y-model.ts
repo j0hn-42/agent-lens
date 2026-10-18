@@ -8,7 +8,8 @@ import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
-import { agentCostUsage } from '../../../lib/cost'
+import { boundedCount } from '../../../lib/event-loss'
+import { agentReplayLost, agentCostUsageUnderLoss } from './loss-labels'
 import { listedFileText } from '../../../lib/ui-glossary'
 import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
@@ -158,6 +159,8 @@ export interface A11yAgentItem {
   /** "context cost estimate $0.12" (#364) */
   cost: string
   toolCalls: number
+  /** "13 tool calls", "at least 13 tool calls" or "no tool call observed (incomplete)" when the relay lost events of the agent's session (#366) */
+  toolCallsText: string
   isMain: boolean
   parentId: string | null
   /** "child of X" / "main agent" */
@@ -293,6 +296,8 @@ export interface A11yExtras {
   fileAttention?: ReadonlyMap<string, FileAttention>
   /** Loop / repeat marks of the drawn agents (lib/repeat-marks), the same map the canvas draws */
   repeatMarks?: ReadonlyMap<string, RepeatMark>
+  /** Events the relay could not replay, per session id (#366): the tool count and cost of an agent of such a session are lower bounds, like on the canvas */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 /**
@@ -372,8 +377,9 @@ export function buildA11yModel(
       model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : a.runtime === 'opencode' ? 'OpenCode' : 'Claude',
       tokens: tokenSummary(a),
-      cost: spokenCostUsage(agentCostUsage(a)),
+      cost: spokenCostUsage(agentCostUsageUnderLoss(a, extras.replayLost)),
       toolCalls: a.toolCalls,
+      toolCallsText: boundedCount(a.toolCalls, agentReplayLost(extras.replayLost, a), 'tool call'),
       isMain: a.isMain,
       parentId: a.parentId,
       relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ` (unverified link${unverifiedChildren.get(a.id) ? `: ${unverifiedChildren.get(a.id)}` : ''})` : ''}` : a.isMain ? 'main agent' : 'no parent',

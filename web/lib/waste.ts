@@ -259,8 +259,9 @@ export function wasteUsage(item: WasteItem): UsageTotal {
 }
 
 /** What was observed, as a fact (no verdict: a repeat may be intended). */
-export function describeWaste(item: WasteItem): string {
-  const times = `${item.repeats} ${item.repeats === 1 ? 'time' : 'times'}`
+export function describeWaste(item: WasteItem, lost = 0): string {
+  // Events the relay could not replay (#366): a repeat that is shown is proven, their number is a lower bound
+  const times = `${lost > 0 ? 'at least ' : ''}${item.repeats} ${item.repeats === 1 ? 'time' : 'times'}`
   if (item.kind === 'reread') return `read again ${times}, no edit seen in between`
   if (item.toolName === 'Glob') return `same Glob run again ${times}, no edit seen in between`
   return `same ${item.toolName} command run again ${times}, right after itself`

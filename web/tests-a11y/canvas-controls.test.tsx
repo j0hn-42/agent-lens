@@ -5,6 +5,7 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
+import { canvasControlsFit } from '@/components/agent-visualizer/canvas-controls-slot'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 import { SHORTCUTS } from '@/lib/shortcuts'
 import { CAMERA } from '@/lib/canvas-constants'
@@ -172,4 +173,18 @@ test('in French the labels, names and tooltips come from the catalog', () => {
   assert.ok(view.getByRole('button', { name: 'Garder les cartes affichées' }))
   assert.ok(view.getByRole('combobox', { name: /^Masquer les appels sans réponse après/ }))
   assert.equal(view.getByRole('button', { name: 'Affichage' }).closest('[lang]')?.getAttribute('lang'), 'fr')
+})
+
+// #515: the controls fold into the playback bar when the two bars leave less than their rows. Values measured in Chromium
+// on develop @ 270534c (--topbar-h, height of the playback bar): at 320 x 256 the bars leave 18 px, at 256 x 320 38 px.
+test('the controls fit between the bars at 320x568, 390x844 and 640x512, not at 320x256 nor 256x320 (#515)', () => {
+  const fit = (w: number, h: number, topbarH: number, controlBarH: number) => canvasControlsFit({ viewport: { w, h }, topbarH, controlBarH })
+  assert.equal(fit(320, 256, 132, 98), false)
+  assert.equal(fit(256, 320, 176, 98), false)
+  assert.equal(fit(320, 568, 132, 98), true)
+  assert.equal(fit(390, 844, 126, 70), true)
+  assert.equal(fit(640, 512, 76, 70), true)
+  // One row of 28 px at 768 px and wider
+  assert.equal(fit(1280, 190, 76, 70), false)
+  assert.equal(fit(1280, 230, 76, 70), true)
 })
