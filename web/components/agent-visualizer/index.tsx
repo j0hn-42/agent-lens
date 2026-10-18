@@ -395,7 +395,7 @@ export function AgentVisualizer() {
 
       {/* Drawn just above the canvas controls: next to them in the Tab order too (#377) */}
       <TourOffer
-        open={tourOffer.open} label={tourBridge.startTourLabel ?? 'Guided tour'}
+        open={tourOffer.open} label={tourBridge.startTourLabel}
         onStart={() => tourBridge.startTour?.()} onDismiss={tourOffer.dismiss}
       />
 
