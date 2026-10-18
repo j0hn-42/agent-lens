@@ -298,6 +298,13 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     const r = await runToExit(['--allow-host', 'box.tail1234.ts.net', '--token-file', path.join(fakeHome, 'missing-dir', 'token')])
     assert.equal(r.code, 2, r.out)
     assert.match(r.out, /Agent Lens:/)
+    // The write itself failed (#535): not one of the flag refusals, which also exit with 2 before any setup
+    assert.match(r.out, /ENOENT|no such file/i, `the reason is the failed write:\n${r.out}`)
+    assert.doesNotMatch(r.out, /needs --token-file|refused/, `not a flag refusal:\n${r.out}`)
+    assert.doesNotMatch(r.out, /Server running at/, 'stopped before listening')
+    // The token of this start is never printed: no pairing URL, no 256-bit base64url value
+    assert.doesNotMatch(r.out, /#pair=|[A-Za-z0-9_-]{43}/, `no token in the output:\n${r.out}`)
+    assert.equal(fs.existsSync(path.join(fakeHome, 'missing-dir')), false, 'nothing created')
   })
 
   it('--host ::1 stops the start without sending the user to --remote: the server listens on 127.0.0.1 only (#478 review, point 6)', async () => {
@@ -443,6 +450,50 @@ describe('app entry point: --allow-host with --token-file pairs end to end (#517
 
   it('never logs the token, even after pairing', () => {
     assert.ok(!r.output().includes(token))
+  })
+})
+
+// openURL runs `xdg-open` (Linux) or `open` (macOS) found on PATH; Windows goes through the `start` shell builtin
+describe('app entry point: the browser is not opened while --allow-host is on (#517, #535)', { skip: process.platform === 'win32' }, () => {
+  const bin = path.join(fakeHome, 'fake-opener-bin')
+  const APP_OPENING: Entry = { ...ENTRIES[1], args: ['app/src/app.ts'] }
+  /** Time given to a browser launch after the start is complete (the positive case below shows it takes far less). */
+  const OPEN_SETTLE_MS = 1_500
+
+  before(() => {
+    fs.mkdirSync(bin, { recursive: true })
+    // Records every call instead of opening a browser
+    for (const name of ['xdg-open', 'open']) {
+      fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$AGENT_LENS_TEST_OPENER_LOG"\n', { mode: 0o755 })
+    }
+  })
+
+  async function startOpening(extraArgs: string[], log: string): Promise<Running> {
+    const r = await start(APP_OPENING, extraArgs, { AGENT_LENS_PORT: '0', PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, AGENT_LENS_TEST_OPENER_LOG: log })
+    // openURL runs after this line: the start is complete once it is printed
+    for (let i = 0; i < 200 && !r.output().includes('Waiting for agent events'); i++) await new Promise(res => setTimeout(res, 50))
+    assert.match(r.output(), /Waiting for agent events/)
+    return r
+  }
+
+  it('with --allow-host and --token-file (no --no-open), nothing is opened: the token never reaches a command line', async () => {
+    const log = path.join(fakeHome, 'opened-remote.log')
+    const tokenFile = path.join(fakeHome, 'open-check-token')
+    const r = await startOpening(['--allow-host', 'box.tail1234.ts.net', '--token-file', tokenFile], log)
+    try {
+      await new Promise(res => setTimeout(res, OPEN_SETTLE_MS))
+      assert.equal(fs.existsSync(log), false, `a browser was opened: ${fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : ''}`)
+      assert.ok(fs.existsSync(tokenFile), 'the remote start really ran')
+    } finally { r.child.kill('SIGKILL') }
+  })
+
+  it('without --allow-host (control: the fake opener is reached), the bare local URL is opened', async () => {
+    const log = path.join(fakeHome, 'opened-local.log')
+    const r = await startOpening([], log)
+    try {
+      for (let i = 0; i < OPEN_SETTLE_MS / 50 && !fs.existsSync(log); i++) await new Promise(res => setTimeout(res, 50))
+      assert.equal(fs.readFileSync(log, 'utf8').trim(), `http://127.0.0.1:${r.port}`)
+    } finally { r.child.kill('SIGKILL') }
   })
 })
 

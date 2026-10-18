@@ -143,7 +143,8 @@ export function remoteRateKey(host: string): string {
 /** What an allow list needs from its pairing (implemented by remote-pairing.ts). */
 export interface RemoteAuth {
   handlePair: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>
-  isPaired: (req: Pick<http.IncomingMessage, 'headers'>) => boolean
+  /** True for a live pairing cookie issued on the request's own Host class (#535). */
+  isPaired: (req: Pick<http.IncomingMessage, 'headers' | 'headersDistinct'>) => boolean
 }
 
 /** Each validated allow list (by identity) and its pairing. Bound once by createRelay; never from a request. */
@@ -155,7 +156,7 @@ export function bindRemoteAuth(allowed: readonly string[], auth: RemoteAuth): vo
 }
 
 /** True only when the allow list has a pairing AND the request carries one of its live cookies (fail closed). */
-export function isRemotePaired(req: Pick<http.IncomingMessage, 'headers'>, allowed: readonly string[]): boolean {
+export function isRemotePaired(req: Pick<http.IncomingMessage, 'headers' | 'headersDistinct'>, allowed: readonly string[]): boolean {
   return remoteAuths.get(allowed)?.isPaired(req) ?? false
 }
 
