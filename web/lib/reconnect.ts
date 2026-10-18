@@ -70,6 +70,12 @@ export function reconnectDetail(attempt: number, delayMs: number): string {
   return `reconnecting (attempt ${attempt}, retry in ${Math.ceil(delayMs / 1000)}s)`
 }
 
+/** The figures of a `reconnectDetail` text, so the interface can say it in its language; null for any other text. */
+export function parseReconnectDetail(detail: string): { attempt: number; seconds: number } | null {
+  const m = /^reconnecting \(attempt (\d+), retry in (\d+)s\)$/.exec(detail)
+  return m ? { attempt: Number(m[1]), seconds: Number(m[2]) } : null
+}
+
 // ─── Load token ───────────────────────────────────────────────────────────
 
 export interface LoadToken {
