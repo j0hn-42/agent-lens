@@ -1,7 +1,6 @@
 "use client"
 
-import { topBarContextText } from "@/lib/chrome-utils"
-import { formatCost, formatTokens } from "@/lib/utils"
+import { topBarContextText, unattributedRestText } from "@/lib/chrome-utils"
 import { translate } from "@/lib/messages"
 import { useLocale } from "@/lib/locale"
 import { agentCostUsage } from "@/lib/cost"
@@ -39,16 +38,10 @@ export function CostTotalsText({ tokens, cost, agents, unattributed }: {
   if (withFigure.length === 0 && !hasRest) return null
 
   const text = topBarContextText(tokens, cost, locale)
-  const restCost = formatCost(summary.unattributedCost)
   const parts = [
     text.spoken,
     text.tokens,
-    hasRest
-      ? t('cost.totals.unattributed', {
-        tokens: formatTokens(summary.unattributedTokens),
-        cost: rest.some(u => u.estimated === true) ? t('usage.estimated', { v: restCost }) : restCost,
-      })
-      : null,
+    hasRest ? unattributedRestText(summary.unattributedTokens, summary.unattributedCost, rest.some(u => u.estimated === true), locale) : null,
   ].filter((p): p is string => p !== null)
   return (
     <section data-testid="cost-panel-totals" aria-label={t('cost.totals.region')} lang={locale} className="sr-only">

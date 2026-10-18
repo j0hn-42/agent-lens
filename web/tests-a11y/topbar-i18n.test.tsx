@@ -184,12 +184,12 @@ for (const locale of LOCALES) {
 
   test(`the toolbar, the side panels group and the totals read by screen readers speak ${locale}`, () => {
     setLocaleChoice(locale)
-    const view = render(<TopBar {...base} selectedSessionId="s1" unattributedCost={0.5} totalCost={1} />)
+    const view = render(<TopBar {...base} selectedSessionId="s1" unattributedTokens={900_000} unattributedCost={0.5} totalCost={1} />)
     assert.equal(langOf(view.getByRole('toolbar', { name: T(locale, 'topbar.toolbar') })), locale)
     assert.ok(view.getByRole('group', { name: T(locale, 'topbar.sidePanels') }))
     const spoken = view.getByTestId('topbar-spoken-totals')
     assert.equal(langOf(spoken), locale)
-    assert.ok(spoken.textContent?.includes(T(locale, 'topbar.context.unattributed').replace('{cost}', '$0.500')), spoken.textContent ?? '')
+    assert.ok(spoken.textContent?.includes(T(locale, 'topbar.context.unattributed').replace('{tokens}', '900k').replace('{cost}', '$0.500')), spoken.textContent ?? '')
     assert.ok(spoken.textContent?.includes(T(locale, 'topbar.counts.active.one').replace('{n}', '1')), spoken.textContent ?? '')
   })
 
