@@ -81,15 +81,16 @@ interface BridgeHookResult {
   teamSummaries: Map<string, GroupSummary>
   /** Members known per team (team config or teammates seen) */
   teamMemberCounts: Map<string, number>
-  /** 'All' also shows the finished sessions: the Show mode is 'all' (persisted preference, #372) */
+  /**
+   * 'All' also shows the finished sessions: the Show mode is 'all' (persisted preference, #372). Read only: the one
+   * writer is the preference store (top bar, Settings, reset, another tab), never the bridge
+   */
   showFinished: boolean
-  /** Sets the one Show mode (#372): true = 'all', false = 'active' (which also hides the inactive agents) */
-  setShowFinished: (show: boolean) => void
   /** Sessions the 'All' view shows (null = every session); changes whenever the shown set changes */
   allViewSessionIds: ReadonlySet<string> | null
   /** Identity of the 'All' view's shown set: a change means the union simulation must be rebuilt */
   allViewKey: string
-  /** Sessions of the list that count as finished (hidden from 'All' unless showFinished) */
+  /** Sessions of the list, in the project scope when there is one, that count as finished (hidden from 'All' unless showFinished) */
   finishedSessionCount: number
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
@@ -234,7 +235,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   }, [updateSessions])
   // 'All' shows only the active sessions unless the Show mode is 'all' (#372). The choice lives in the preference blob:
   // Settings, the top bar, another tab and 'Reset preferences' all write the same field.
-  const { prefs: uiPrefs, setPref: setUiPref } = useUiPreferences()
+  const { prefs: uiPrefs } = useUiPreferences()
   const showFinished = showsFinishedSessions(uiPrefs.show)
   const showFinishedRef = useRef(showFinished)
   const lastEventAtRef = useRef<Map<string, number>>(new Map())
@@ -271,7 +272,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       teamSummaries: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.summary(name)] as const)),
       now: Date.now(),
     })
-    finished = finishedSessionIds(sessionsRef.current, active).length
+    // Counted in the project scope only: a session out of it stays out of the view whatever the filter, so the
+    // count is what 'active' actually hides (#372, said by the top bar)
+    const inScope = restrictToProject(null, sessionsRef.current, projectScopeRef.current)
+    finished = finishedSessionIds(inScope === null ? sessionsRef.current : sessionsRef.current.filter(s => inScope.has(s.id)), active).length
     if (!showFinishedRef.current) next = active
     // A project scope narrows the view to that project's sessions (#291), whatever their activity
     const restricted = restrictToProject(next, sessionsRef.current, projectScopeRef.current)
@@ -286,12 +290,6 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       pendingEventsRef.current.length = 0
     }
   }, [])
-
-  const setShowFinished = useCallback((show: boolean) => {
-    showFinishedRef.current = show
-    setUiPref('show', show ? 'all' : 'active')
-    recomputeVisible()
-  }, [recomputeVisible, setUiPref])
 
   // Follow the stored preference: the value restored after hydration, another tab, a reset from Settings
   useEffect(() => {
@@ -796,7 +794,6 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     teamSummaries: teamView.summaries,
     teamMemberCounts: teamView.members,
     showFinished,
-    setShowFinished,
     allViewSessionIds: visibility.ids,
     allViewKey: visibility.key,
     finishedSessionCount: visibility.finished,
