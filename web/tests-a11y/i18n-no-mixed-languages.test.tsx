@@ -26,6 +26,7 @@ import { LEGEND_ENTRY_IDS } from '@/lib/legend-entries'
 import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 import * as C from '@/lib/card-text'
+import { viewCountsText } from '@/lib/chrome-utils'
 import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
 import { FreshnessAnnouncer } from '@/components/agent-visualizer/freshness-announcer'
@@ -356,12 +357,14 @@ for (const locale of LOCALES) {
 // ---- The Sessions panel (#502) ----
 
 // The columns and agent rows (#502): figures, durations and money are data of the fixtures; ":" separates the English word the canvas
-// draws from its gloss; the dash is the sign of "no data"; and the activity cell keeps its English relative time in a lang=en passage,
-// so only the words before it remain in the catalog's language.
+// draws from its gloss; the dash is the sign of "no data". The relative time of the activity column and the Σ totals are in the
+// catalog's language too (#501): nothing in the panel is exempt but the quoted state word.
 const COLUMN_DATA: readonly RegExp[] = [/^[≥~]*[\d.]+[kM]?$/, /^≥?\d+[dhms]( \d+[hms])?\+?$/, /^[≥~]*<?\$[\d.]+$/, /^\d+ h \d+ min$/, /^\d+ min$/]
-const columnAllow = (locale: Locale): ReadonlySet<string> => new Set([':', '—', ',', MESSAGES[locale]['cols.activity.value'].replace(' {when}', '')])
+const columnAllow = (_locale: Locale): ReadonlySet<string> => new Set([':', '—', ','])
 /** The money placeholder of the cost sentences may hold "<$0.0001" */
-const panelStrangers = (locale: Locale, strings: string[]) => strangers(locale, strings, { allow: columnAllow(locale), data: COLUMN_DATA })
+/** A Σ total: figures as drawn, then the catalog's own words for "estimated" and "incomplete" (#501) */
+const rollupShape = (locale: Locale) => new RegExp(`^~\\$[\\d.]+ · [\\d.]+[kM]?( ${escapeRe(MESSAGES[locale]['rollup.estimated'])})?( ${escapeRe(MESSAGES[locale]['rollup.incomplete'])})?$`)
+const panelStrangers = (locale: Locale, strings: string[]) => strangers(locale, strings, { allow: columnAllow(locale), data: [...COLUMN_DATA, rollupShape(locale)] })
 
 for (const d of ['fix login', 'refactor api', 'docs', 'alpha', 'beta', 'main', 'feat/x', 'Reviewer', 'My own name', 'tempo-team', 'scratch', 'build', 'Writer', 'claude-opus-4-5-20251101']) FIXTURE_DATA.add(d)
 
@@ -479,7 +482,7 @@ const columnsPanel = () => (
   <SessionListPanel
     visible onClose={noop} sessions={columnSessions} selectedSessionId="__all__" sessionsWithActivity={new Set()}
     onSelectSession={noop} onCloseSession={noop} agents={new Map(columnAgents.map(a => [a.id, a]))} selectedAgentId={null} onSelectAgent={noop}
-    now={5000} activeOnly={false} observedSessionIds={new Set(['a'])} freshnessClock={createFreshnessClock({ now: () => PANEL_NOW, isHidden: () => true })}
+    now={5000} activeOnly={false} observedSessionIds={new Set(['a'])} agentCounts={{ active: 2, done: 1, stale: 3, idle: 0, error: 1 }} freshnessClock={createFreshnessClock({ now: () => PANEL_NOW, isHidden: () => true })}
   />
 )
 for (const locale of LOCALES) {
@@ -497,6 +500,14 @@ for (const locale of LOCALES) {
     assert.ok(spoken(MESSAGES[locale]['cols.model.none']), 'a model not reported says so')
     assert.ok(spoken(MESSAGES[locale]['cols.branch.none']), 'a branch not recorded says so')
     assert.ok(spoken(MESSAGES[locale]['cols.activity.unknown']), 'an activity unknown says so')
+    // The Σ totals and the relative time are worded in the language, with their qualifiers (#501)
+    assert.ok(strings.some(x => x.includes(MESSAGES[locale]['rollup.session'])), 'the session total is named')
+    assert.ok(strings.some(x => /^[~≥]?\$/.test(x) && (x.includes(MESSAGES[locale]['rollup.estimated']) || x.includes(MESSAGES[locale]['rollup.incomplete']))), 'a Σ total keeps its qualifier')
+    assert.ok(strings.some(x => x.includes(C.relativeTimeText(locale, 3_000, 5_000))), 'the activity column says how long ago')
+    const counts = dialog.querySelector('[data-testid="sessions-agent-counts"]')
+    assert.ok(counts, 'the agent counts were rendered')
+    assert.equal(counts.closest('[lang]')?.getAttribute('lang'), locale, 'the agent counts sit in the language of the interface, no passage is marked English')
+    assert.ok(strings.includes(viewCountsText({ active: 2, done: 1, stale: 3, idle: 0, error: 1 }, 2, locale).spoken), 'the full wording of the counts is read')
     // Roles and state words
     for (const key of ['sessions.role.agent', 'sessions.role.subAgent', 'sessions.role.teammate'] as MessageKey[]) assert.ok(spoken(MESSAGES[locale][key]), `${key} was rendered`)
     const state = (st: string) => C.stateText(locale, st)

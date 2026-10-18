@@ -19,6 +19,10 @@ export const ROLLUP_MAX_AGENTS = 20_000
 
 export const ROLLUP_UNKNOWN_TEXT = 'unknown'
 export const ROLLUP_INCOMPLETE_TEXT = '(incomplete)'
+
+/** The three words of a total (#501): English here, the interface language through card-text.rollupText. */
+export interface RollupWords { unknown: string; incomplete: string; estimated: string }
+const ROLLUP_WORDS_EN: RollupWords = { unknown: ROLLUP_UNKNOWN_TEXT, incomplete: ROLLUP_INCOMPLETE_TEXT, estimated: USAGE_LABELS.estimated }
 /** Accessible explanation of the incomplete badge. */
 export const ROLLUP_INCOMPLETE_HELP =
   'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay could not replay events of a session it counts, so the real figure may differ.'
@@ -194,8 +198,8 @@ export function rollupRows(
 }
 
 /** "~$0.123 · 4.2k" (a context cost estimate, #364), plus the incomplete badge; "unknown" when no agent had a known token count. */
-export function formatRollup(total: RollupTotal): string {
-  if (total.known === 0) return ROLLUP_UNKNOWN_TEXT
-  const text = `${COST_LABELS.mark}${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${USAGE_LABELS.estimated}` : ''}`
-  return total.complete ? text : `${text} ${ROLLUP_INCOMPLETE_TEXT}`
+export function formatRollup(total: RollupTotal, words: RollupWords = ROLLUP_WORDS_EN): string {
+  if (total.known === 0) return words.unknown
+  const text = `${COST_LABELS.mark}${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${words.estimated}` : ''}`
+  return total.complete ? text : `${text} ${words.incomplete}`
 }

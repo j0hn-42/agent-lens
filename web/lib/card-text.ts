@@ -12,6 +12,7 @@ import { formatDuration, formatTokens } from './utils'
 import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
 import { CHRONO_CAP_MS, formatActiveSince, type ActiveTimeFields } from './active-time'
 import type { UsageTotal } from './usage'
+import { formatRollup, type RollupTotal } from './cost-rollup'
 import { getActivityLabel } from './state-labels'
 import { sessionHealthText } from './loop-detection'
 import { SESSION_STATUS_TEXT, formatTeamSummary } from './chrome-utils'
@@ -56,6 +57,20 @@ export function usageText(locale: Locale, usage: UsageTotal): string {
   const v = formatTokens(usage.value)
   if (usage.status === 'partial') return tr(locale, usage.estimated ? 'usage.partialEstimated' : 'usage.partial', { v })
   return usage.estimated ? tr(locale, 'usage.estimated', { v }) : v
+}
+
+/** The Σ total of the Sessions panel (#501): same figures, same qualifiers, the words follow the language. */
+export function rollupText(total: RollupTotal, locale: Locale): string {
+  return formatRollup(total, {
+    unknown: tr(locale, 'rollup.unknown'),
+    incomplete: tr(locale, 'rollup.incomplete'),
+    estimated: tr(locale, 'rollup.estimated'),
+  })
+}
+
+/** What the incomplete badge of a total means, in the interface language. */
+export function rollupIncompleteHelp(locale: Locale): string {
+  return tr(locale, 'rollup.incompleteHelp')
 }
 
 // ---- states

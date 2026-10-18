@@ -59,12 +59,14 @@ test('All: sessions and agents, as the top bar drew them', () => {
   assert.equal(el.querySelector('.sr-only')?.textContent, '3 sessions, 30 agents')
 })
 
-test('the counts are English text marked as such in a French panel', () => {
+test('the counts follow the interface language, and no passage is marked English (#523)', () => {
   setLocaleChoice('fr')
   const { getByTestId } = render(panel())
   const el = getByTestId('sessions-agent-counts')
-  assert.equal(el.getAttribute('lang'), 'en')
-  assert.equal(el.hasAttribute('data-i18n-exempt'), true)
+  assert.equal(drawnText(el).trim(), '30 agents : 0 actif · 4 derniers connus · 26 terminés')
+  assert.equal(el.querySelector('.sr-only')?.textContent, '30 agents : 0 actif - 4 derniers états connus - 26 terminés')
+  assert.equal(el.closest('[lang]')?.getAttribute('lang'), 'fr', 'the nearest language is the interface one, not English')
+  assert.equal(el.hasAttribute('data-i18n-exempt'), false)
 })
 
 test('without counts (no view data passed) nothing is drawn', () => {

@@ -13,9 +13,8 @@ import type { RollupTotal } from './cost-rollup'
 import type { UsageTotal } from './usage'
 import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatModelName, formatTokens } from './utils'
-import { formatRelativeTime } from './session-tree'
 import { translate, type Locale, type MessageKey } from './messages'
-import { usageText } from './card-text'
+import { relativeTimeText, usageText } from './card-text'
 import type { SessionInfo } from './bridge-types'
 import type { Freshness } from '../hooks/simulation/freshness'
 
@@ -41,11 +40,6 @@ export interface ColumnCell {
   label: string
   /** True when `text` stands for "no data" */
   empty: boolean
-  /**
-   * Part of `label` (its end) and the whole `text` that stay English: the relative time of the activity column, still
-   * written by formatRelativeTime (the relative labels are #501's). The view declares lang="en" on them, never on the rest.
-   */
-  english?: string
 }
 
 function emptyCell(label: string): ColumnCell {
@@ -180,7 +174,7 @@ export function runtimeCell(runtime: SessionInfo['runtime'], locale: Locale = 'e
 /** Time since the last activity; a dash when the source only knows the start. */
 export function activityCell(s: Pick<SessionInfo, 'lastActivityTime' | 'lastActivityUnknown'>, now: number, locale: Locale = 'en'): ColumnCell {
   if (s.lastActivityUnknown) return emptyCell(tr(locale, 'cols.activity.unknown'))
-  const text = formatRelativeTime(s.lastActivityTime, now)
-  // The relative time is still written in English (#501 owns the relative labels): it is marked, not translated
-  return { text, label: tr(locale, 'cols.activity.value', { when: text }), empty: false, ...(locale === 'en' ? {} : { english: text }) }
+  // The same thresholds as formatRelativeTime, worded in the interface language (#501)
+  const text = relativeTimeText(locale, s.lastActivityTime, now)
+  return { text, label: tr(locale, 'cols.activity.value', { when: text }), empty: false }
 }

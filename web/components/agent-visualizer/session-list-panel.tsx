@@ -17,7 +17,7 @@ import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
-import { rollupBranch, rollupRows, rollupUnderLoss, branchReplayLost, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
+import { rollupBranch, rollupRows, rollupUnderLoss, branchReplayLost, type RollupTotal } from '@/lib/cost-rollup'
 import { replayLostForAgents } from '@/lib/event-loss'
 import { observedSessions, isSessionObserved } from '@/lib/session-model'
 import { useLocale, useT } from '@/lib/locale'
@@ -148,19 +148,21 @@ function SessionMarker({ kind }: { kind: SessionStatusKind }) {
 }
 
 /** "Σ $0.12 · 4.2k (incomplete)": the (incomplete) badge is spelled out for screen readers. */
-function RollupLabel({ total, label }: { total: RollupTotal; label: string }) {
-  const text = formatRollup(total)
+function RollupLabel({ total, label }: { total: RollupTotal; label: 'rollup.branch' | 'rollup.session' | 'rollup.family' }) {
+  const { locale } = useLocale()
+  const t = useT()
+  const text = C.rollupText(total, locale)
+  const help = C.rollupIncompleteHelp(locale)
   return (
     <span
       className="shrink-0 tabular-nums"
       style={{ color: total.complete && total.known > 0 ? COLORS.textMuted : COLORS.warn }}
-      title={total.complete ? undefined : ROLLUP_INCOMPLETE_HELP}
-      lang="en" data-i18n-exempt=""
+      title={total.complete ? undefined : help}
     >
-      <span className="sr-only">{label}, </span>
+      <span className="sr-only">{t(label)}, </span>
       <span aria-hidden="true">Σ </span>
       {text}
-      {!total.complete && <span className="sr-only">. {ROLLUP_INCOMPLETE_HELP}</span>}
+      {!total.complete && <span className="sr-only">. {help}</span>}
     </span>
   )
 }
@@ -240,7 +242,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         <BlankCell column="activity" />
         {branch && (
           <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
-            <RollupLabel total={branch} label="branch total" />
+            <RollupLabel total={branch} label="rollup.branch" />
           </span>
         )}
       </button>
@@ -500,7 +502,7 @@ export function SessionListPanel({
   }, [])
 
   const viewCounts = agentCounts
-    ? viewCountsText(agentCounts, selectedSessionId === ALL_SESSIONS_ID ? (allSessionCount ?? sessions.length) : null)
+    ? viewCountsText(agentCounts, selectedSessionId === ALL_SESSIONS_ID ? (allSessionCount ?? sessions.length) : null, locale)
     : null
   const firstTabStop = rows.length > 0 ? rows[0].id : undefined
   const stopId = rows.some(r => r.id === selectedSessionId) ? selectedSessionId : firstTabStop
@@ -549,9 +551,9 @@ export function SessionListPanel({
           </span>
         </PanelHeader>
         {viewCounts && (
-          // #523: the agent counts of the view, moved from the top bar with the same text. English text (the qualifiers
-          // "last known", "done" are those of the canvas and the docs); the full wording is read, the compact one drawn
-          <p data-testid="sessions-agent-counts" lang="en" data-i18n-exempt="" className="m-0 px-2 pb-1.5 text-[11px] tabular-nums" style={{ color: COLORS.textMuted }}>
+          // #523: the agent counts of the view, moved from the top bar with the same text, in the interface language
+          // (#500); the full wording is read, the compact one drawn
+          <p data-testid="sessions-agent-counts" className="m-0 px-2 pb-1.5 text-[11px] tabular-nums" style={{ color: COLORS.textMuted }}>
             <span aria-hidden="true">{viewCounts.drawn}</span>
             <span className="sr-only">{viewCounts.spoken}</span>
           </p>
@@ -696,7 +698,7 @@ export function SessionListPanel({
                     >
                       <span className="truncate">{summary}</span>
                       <span className="sr-only">{t('sessions.team.wholeView')}</span>
-                      {rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="family total" />}
+                      {rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="rollup.family" />}
                     </button>
                   </li>
                 )
@@ -798,7 +800,7 @@ export function SessionListPanel({
                           </span>
                         )}
                         {/* Cost and activity have their own columns from this width on */}
-                        {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="session total" /></span>}
+                        {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="rollup.session" /></span>}
                         <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? t('sessions.activityUnknown') : C.relativeTimeText(locale, session.lastActivityTime, currentTime)}</span>
                       </span>
                     </button>

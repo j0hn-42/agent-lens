@@ -99,3 +99,57 @@ test('fr 320px: a stale agent row shows its quote and its whole French gloss, no
     await context.close()
   }
 })
+
+// The Activity column is the last track of the row grid, in a monospace panel (1ch per character) and its cell does
+// not wrap. « il y a 23 min » (13 characters) is wider than « 23 min ago » (10): the track must hold it whole (#501).
+const ACTIVITY_PROBE = `(() => {
+  const cell = document.querySelector('[data-column="activity"]')
+  if (!cell) return null
+  const box = cell.closest('.\\\\@container')
+  const shown = [...cell.children].find(c => c.getAttribute('aria-hidden') === 'true' && !c.classList.contains('hidden'))
+  return { text: shown ? shown.textContent : '', display: getComputedStyle(cell).display, scroll: cell.scrollWidth, client: cell.clientWidth, container: box ? box.clientWidth : 0,
+    docScroll: document.documentElement.scrollWidth, docClient: document.documentElement.clientWidth }
+})()`
+interface ActivityMeasure { text: string; display: string; scroll: number; client: number; container: number; docScroll: number; docClient: number }
+
+for (const width of [520, 640]) {
+  test(`fr ${width}px: the Activity column holds « il y a 23 min » whole (#501)`, { timeout: 300_000 }, async () => {
+    const context = await browser.newContext({ viewport: { width: width + 500, height: 700 } })
+    await context.addInitScript((w) => {
+      try {
+        window.localStorage.setItem('agent-lens:locale', 'fr')
+        // The grid answers to the width of the list, so the panel is as wide as asked (plus its own padding)
+        window.localStorage.setItem('agent-lens.sessionsPanelWidth', String(w + 40))
+      } catch { /* blocked */ }
+    }, width)
+    try {
+      const host = await context.newPage()
+      await host.route(`${server.url}/__host`, route => route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><title>host</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style><iframe id="app" src="${server.url}"></iframe>`,
+      }))
+      await host.goto(`${server.url}/__host`)
+      const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
+      await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
+      const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
+      const now = Date.now()
+      await post({ type: '__vscode-bridge-init' })
+      await post({ type: 'config', showMockData: false })
+      await post({ type: 'session-list', sessions: [{ id: 's1', label: 'reflow', status: 'active', startTime: now - 3_600_000, lastActivityTime: now - 23 * 60_000, workspace: '/w/reflow', runtime: 'claude' }] })
+      await page.getByRole('button', { name: /^Sessions\s?: reflow/ }).waitFor()
+      await page.getByRole('button', { name: /^Sessions\s?:/ }).click()
+      await page.locator('[data-column="activity"]').first().waitFor({ state: 'attached', timeout: 60_000 })
+      await waitForStableLayout(page)
+      const m = await page.evaluate(ACTIVITY_PROBE) as ActivityMeasure | null
+      assert.ok(m, 'the activity cell is rendered')
+      console.log(`activity fr ${width}px: ${JSON.stringify(m)}`)
+      assert.ok(m.container >= width, `the list is at least ${width}px wide (${m.container})`)
+      assert.notEqual(m.display, 'none', 'the activity column is shown at this width')
+      assert.match(m.text, /^il y a 2[2-4] min$/, 'the French relative time')
+      assert.ok(m.scroll <= m.client, `the activity text fits its track (scroll ${m.scroll} > client ${m.client})`)
+      assert.ok(m.docScroll <= m.docClient, 'no sideways scroll')
+    } finally {
+      await context.close()
+    }
+  })
+}
