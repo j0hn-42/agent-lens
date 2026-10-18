@@ -9,6 +9,7 @@ import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-vis
 import { useDialogsState } from '@/hooks/use-dialogs-state'
 import { setLocaleChoice } from '@/lib/locale'
 import { MESSAGES } from '@/lib/messages'
+import { visibleSettingsTabs } from '@/lib/settings-tabs'
 import { DEFAULT_RULES } from '@/lib/notification-rules'
 
 afterEach(() => {
@@ -192,4 +193,26 @@ test('switching tab while the reset confirmation is asked cancels it; nothing is
   assert.equal(view.queryByRole('button', { name: 'Reset now' }), null, 'the confirmation is gone')
   assert.ok(view.getByRole('button', { name: 'Reset preferences' }))
   assert.equal(resets, 0)
+})
+
+test('arrow, Home and End with Alt, Ctrl or Meta are left to the browser: no tab change, not prevented', async () => {
+  const view = render(<SettingsDialog {...props()} />)
+  const first = tabs(view)[0]
+  first.focus()
+  for (const mod of ['altKey', 'ctrlKey', 'metaKey'] as const) {
+    for (const k of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) {
+      const notPrevented = fireEvent.keyDown(first, { key: k, [mod]: true })
+      assert.equal(notPrevented, true, `${mod}+${k} is not swallowed`)
+      assert.equal(selected(view).textContent, NAMES[0], `${mod}+${k} does not change the tab`)
+    }
+  }
+})
+
+test('the palette offers the tabs the dialog shows: Notifications is left out without notifications and announcements', () => {
+  assert.deepEqual(visibleSettingsTabs({ notifications: true, announcements: true }), ['general', 'sessions', 'notifications', 'keyboard'])
+  assert.deepEqual(visibleSettingsTabs({ notifications: false, announcements: true }), ['general', 'sessions', 'notifications', 'keyboard'])
+  assert.deepEqual(visibleSettingsTabs({ notifications: true, announcements: false }), ['general', 'sessions', 'notifications', 'keyboard'])
+  assert.deepEqual(visibleSettingsTabs({ notifications: false, announcements: false }), ['general', 'sessions', 'keyboard'])
+  const view = render(<SettingsDialog {...props({ notifications: undefined, announcements: undefined })} />)
+  assert.deepEqual(tabs(view).map(t => t.textContent), [NAMES[0], NAMES[1], NAMES[3]], 'the dialog shows exactly that list')
 })

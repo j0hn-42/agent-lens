@@ -1,6 +1,7 @@
 "use client"
 
 import { useThemeVersion } from '@/lib/theme'
+import { visibleSettingsTabs } from '@/lib/settings-tabs'
 import { useState, useCallback, useRef, useMemo } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -232,10 +233,14 @@ export function AgentVisualizer() {
     canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn,
   })
 
+  // One source for the dialog and the palette: a command never opens a tab the dialog leaves out
+  const settingsAnnouncements = { level: prefs.announceLevel, onLevelChange: updateAnnounceLevel }
+  const settingsNotifications = { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }
+  const settingsTabsShown = visibleSettingsTabs({ notifications: Boolean(settingsNotifications), announcements: Boolean(settingsAnnouncements) })
   const paletteItems = usePaletteItems({
     open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
     actions: {
-      togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings, openSettingsTab,
+      togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings, openSettingsTab, settingsTabs: settingsTabsShown,
       togglePresentation: presentation.toggle, clearHistory: handleClearHistory,
     },
     exportSession: { can: sessionActions.canExportSession, run: sessionActions.handleExportSession },
@@ -426,9 +431,9 @@ export function AgentVisualizer() {
           hideInactive, onHideInactiveChange: updateHideInactive, singleKeyEnabled: singleKeyShortcuts,
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
-          announcements: { level: prefs.announceLevel, onLevelChange: updateAnnounceLevel },
+          announcements: settingsAnnouncements,
           quota: quotaSettingActive ? { show: showQuota, onShowChange: updateShowQuota } : undefined,
-          notifications: { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules },
+          notifications: settingsNotifications,
         }}
         palette={{ open: showPalette, onClose: closePalette, items: paletteItems }}
         shortcuts={{ open: showShortcuts, onClose: closeShortcuts, singleKeyEnabled: singleKeyShortcuts, onSingleKeyEnabledChange: updateSingleKeyShortcuts }}
