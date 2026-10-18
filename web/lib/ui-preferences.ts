@@ -23,7 +23,7 @@ import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from './inactive-agents'
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from './shortcuts'
 import { SHOW_FINISHED_STORAGE_KEY, parseShowFinished } from '../hooks/simulation/session-visibility'
 import { ANIM_PAUSE_KEY, NEVER_HIDE_KEY, SOUND_PREF_KEY, TOOL_EXPIRY_CHOICES_S, TOOL_EXPIRY_KEY, TOOL_EXPIRY_S, parseToolExpiryS } from './canvas-constants'
-import { MOTION_LAYERS_STORAGE_KEY, parseCalmLayers } from './motion-layers'
+import { DEFAULT_CALM_LAYERS, MOTION_LAYERS_STORAGE_KEY, parseCalmLayers } from './motion-layers'
 
 /** localStorage key of the preference blob */
 export const UI_PREFS_STORAGE_KEY = 'agent-lens:ui-prefs'
@@ -108,10 +108,10 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   relayScope: null,
   announceLevel: 'all',
   freezeMotion: false,
-  calmBackground: false,
-  calmLinks: false,
-  calmAgents: false,
-  calmEffects: false,
+  calmBackground: DEFAULT_CALM_LAYERS.background,
+  calmLinks: DEFAULT_CALM_LAYERS.links,
+  calmAgents: DEFAULT_CALM_LAYERS.agents,
+  calmEffects: DEFAULT_CALM_LAYERS.effects,
   pinCards: false,
   toolExpiryS: TOOL_EXPIRY_S,
   soundOn: false,
