@@ -7,7 +7,9 @@ import { activityCell, agentTimeCell, branchCell, columnLabel, costCell, modelCe
 import { agentRowView } from '../web/lib/row-sync'
 import { buildFreshnessAnnouncement, type Freshness } from '../web/hooks/simulation/freshness'
 import { drawnStatusText } from '../web/components/agent-visualizer/canvas/team-style'
-import type { RollupTotal } from '../web/lib/cost-rollup'
+import { formatRollup, ROLLUP_INCOMPLETE_HELP, ROLLUP_UNKNOWN_TEXT, type RollupTotal } from '../web/lib/cost-rollup'
+import { rollupIncompleteHelp, rollupText } from '../web/lib/card-text'
+import { MESSAGES } from '../web/lib/messages'
 
 const total = (over: Partial<RollupTotal> = {}): RollupTotal => ({ tokens: 12_400, cost: 0.5, known: 2, unknown: 0, estimated: false, complete: true, ...over }) as RollupTotal
 
@@ -52,12 +54,34 @@ test('French durations say lower bound and unknown end as the English ones do', 
   assert.equal(agentTimeCell({ activeMs: 95_000 }, 'closed', 0, 'fr').label, '1m 35s d’activité')
 })
 
-test('the activity cell marks its English relative time instead of translating it (#501 owns it)', () => {
+test('the activity cell words its relative time in the interface language (#501), with no English passage left', () => {
   const fr = activityCell({ lastActivityTime: 0 }, 120_000, 'fr')
-  assert.equal(fr.english, '2 min ago')
-  assert.equal(fr.label, 'dernière activité 2 min ago')
-  assert.equal(activityCell({ lastActivityTime: 0 }, 120_000).english, undefined)
+  assert.equal(fr.text, 'il y a 2 min')
+  assert.equal(fr.label, 'dernière activité il y a 2 min')
+  assert.equal('english' in fr, false)
+  assert.equal(activityCell({ lastActivityTime: 0 }, 3_000, 'fr').text, 'à l’instant')
+  assert.equal(activityCell({ lastActivityTime: 0 }, 3 * 86_400_000, 'fr').text, 'il y a 3 j')
+  const en = activityCell({ lastActivityTime: 0 }, 120_000)
+  assert.equal(en.text, '2 min ago')
+  assert.equal('english' in en, false)
   assert.equal(activityCell({ lastActivityTime: 0, lastActivityUnknown: true }, 0, 'fr').label, 'activité inconnue')
+})
+
+test('the Σ totals keep their figures and qualifiers in French (#501)', () => {
+  assert.equal(rollupText(total(), 'fr'), '~$0.500 · 12k')
+  assert.equal(rollupText(total(), 'en'), formatRollup(total()))
+  assert.equal(rollupText(total({ estimated: true, complete: false }), 'fr'), '~$0.500 · 12k estimé (incomplet)')
+  assert.equal(rollupText(total({ estimated: true, complete: false }), 'en'), '~$0.500 · 12k estimated (incomplete)')
+  assert.equal(rollupText(total({ known: 0 }), 'fr'), 'inconnu')
+  assert.equal(rollupText(total({ known: 0 }), 'en'), ROLLUP_UNKNOWN_TEXT)
+  assert.equal(rollupIncompleteHelp('en'), ROLLUP_INCOMPLETE_HELP)
+  assert.match(rollupIncompleteHelp('fr'), /^Total incomplet/)
+  assert.doesNotMatch(rollupIncompleteHelp('fr'), /Incomplete total/)
+})
+
+test('the reset help names the panels as the top bar and the palette do (#557)', () => {
+  for (const name of ['Fichiers', 'Conversation', 'Chronologie', 'Statistiques', 'Coût']) assert.ok(MESSAGES.fr['settings.reset.help'].includes(name), name)
+  for (const english of ['Files', 'Timeline', 'Stats', 'Cost']) assert.equal(MESSAGES.fr['settings.reset.help'].includes(english), false, english)
 })
 
 test('an agent row in French quotes the word the canvas draws, then glosses it', () => {

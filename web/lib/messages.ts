@@ -2,8 +2,8 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
-import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, TOP_BAR_LABELS } from './ui-glossary'
-import { ROLLUP_INCOMPLETE_TEXT } from './cost-rollup'
+import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
+import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from './cost-rollup'
 
 /** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
 const INCOMPLETE = ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')
@@ -90,7 +90,7 @@ const fr = {
   'settings.shortcuts': 'Voir les raccourcis clavier',
   'settings.section.reset': 'Préférences',
   'settings.reset': 'Réinitialiser les préférences',
-  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Files, Conversation, Timeline, Stats, Cost), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
+  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Fichiers, Conversation, Chronologie, Statistiques, Coût), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
   'settings.reset.ask': 'Remettre ces préférences par défaut ?',
   'settings.reset.confirm': 'Réinitialiser maintenant',
   'settings.reset.cancel': 'Annuler',
@@ -910,6 +910,14 @@ const fr = {
   'show.hideInactive.count': 'Sessions terminées masquées : {n}',
   'show.hideInactive.withCount': 'Masquer les inactifs · sessions terminées masquées : {n}',
   'settings.show.hideInactive.help': 'Masque les agents dont le tour est fini et, dans la vue « Toutes les sessions », les sessions terminées sans événement depuis {n} minutes. Une session jamais marquée terminée reste affichée. Désactivé, tout est affiché.',
+  // Σ du panneau Sessions (#501) : mêmes chiffres, mêmes qualificatifs
+  'rollup.unknown': 'inconnu',
+  'rollup.incomplete': '(incomplet)',
+  'rollup.estimated': 'estimé',
+  'rollup.branch': 'total de la branche',
+  'rollup.session': 'total de la session',
+  'rollup.family': 'total de la famille',
+  'rollup.incompleteHelp': 'Total incomplet : le nombre de jetons de certains agents est inconnu, un parent manque, une session de la famille n’a aucune donnée, des branches sont imbriquées trop profondément, ou le relais n’a pas pu rejouer les événements d’une session qu’il compte ; le chiffre réel peut donc différer.',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1804,6 +1812,13 @@ const en: Record<MessageKey, string> = {
   'show.hideInactive.count': 'Finished sessions hidden: {n}',
   'show.hideInactive.withCount': TOP_BAR_LABELS.filterHideInactiveWithCount('{n}'),
   'settings.show.hideInactive.help': 'Hides agents whose turn is over and, in the All sessions view, finished sessions with no event for {n} minutes. A session never marked finished stays shown. Off, everything is shown.',
+  'rollup.unknown': ROLLUP_UNKNOWN_TEXT,
+  'rollup.incomplete': ROLLUP_INCOMPLETE_TEXT,
+  'rollup.estimated': USAGE_LABELS.estimated,
+  'rollup.branch': 'branch total',
+  'rollup.session': 'session total',
+  'rollup.family': 'family total',
+  'rollup.incompleteHelp': ROLLUP_INCOMPLETE_HELP,
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

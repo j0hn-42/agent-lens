@@ -33,12 +33,6 @@ const WHEN_BRANCH = 'hidden @min-[640px]:block'
 const NAME_CELL = '@max-[440px]:basis-full'
 const SECOND_LINE = 'col-span-full flex flex-wrap items-center gap-x-2 text-[11px]'
 
-/**
- * A passage that stays English inside a translated column (the relative time of the activity column, written by
- * formatRelativeTime: #501) says so with its own language (WCAG 3.1.2); the no-mixed-languages test leaves it out.
- */
-const STILL_ENGLISH = { lang: 'en', 'data-i18n-exempt': '' } as const
-
 type ColumnKey = 'model' | 'runtime' | 'branch' | 'tokens' | 'cost' | 'time' | 'activity'
 
 const CELL_CLASS: Record<ColumnKey, string> = {
@@ -57,13 +51,6 @@ function StackedLabel({ column }: { column: ColumnKey }) {
   return <span aria-hidden="true" className="hidden @max-[440px]:inline" style={{ color: COLORS.textDim }}>{columnLabel(column, locale)} </span>
 }
 
-/** The accessible wording of a cell; the part that stays English (see ColumnCell.english) is marked as such. */
-function CellLabel({ cell }: { cell: ColumnCell }) {
-  const { english } = cell
-  if (!english || !cell.label.endsWith(english)) return <>{cell.label}</>
-  return <>{cell.label.slice(0, -english.length)}<span {...STILL_ENGLISH}>{english}</span></>
-}
-
 interface ColumnValueProps {
   column: ColumnKey
   cell: ColumnCell
@@ -74,14 +61,13 @@ interface ColumnValueProps {
 /** A static cell. Known value: "<column>, <wording>" for assistive tech, the compact text for the eye. */
 export function ColumnValue({ column, cell, title }: ColumnValueProps) {
   const { locale } = useLocale()
-  // A tooltip cannot carry a lang of its own: a cell holding a passage that stays English has none (the text is visible)
-  const tip = title ?? (cell.english ? undefined : cell.label)
-  const text = cell.english === cell.text ? <span aria-hidden="true" {...STILL_ENGLISH}>{cell.text}</span> : <span aria-hidden="true">{cell.text}</span>
+  const tip = title ?? cell.label
+  const text = <span aria-hidden="true">{cell.text}</span>
   return (
     <span className={CELL_CLASS[column]} style={{ color: COLORS.textMuted }} title={tip} data-column={column}>
       {cell.empty
-        ? <><StackedLabel column={column} />{text}<span className="sr-only"><CellLabel cell={cell} /></span></>
-        : <><StackedLabel column={column} />{text}<span className="sr-only">{columnLabel(column, locale)}, <CellLabel cell={cell} /></span></>}
+        ? <><StackedLabel column={column} />{text}<span className="sr-only">{cell.label}</span></>
+        : <><StackedLabel column={column} />{text}<span className="sr-only">{columnLabel(column, locale)}, {cell.label}</span></>}
     </span>
   )
 }

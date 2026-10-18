@@ -154,7 +154,6 @@
   "web/lib/comms-export.ts:messageToMarkdown",
   "web/lib/cost-rollup.ts:ROLLUP_MAX_AGENTS",
   "web/lib/cost-rollup.ts:ROLLUP_MAX_DEPTH",
-  "web/lib/cost-rollup.ts:ROLLUP_UNKNOWN_TEXT",
   "web/lib/cost-rollup.ts:rollupFamily",
   "web/lib/delegation-report.ts:FILES_LISTED",
   "web/lib/feed-utils.ts:CHIP_SESSION_HINT_LEN",
