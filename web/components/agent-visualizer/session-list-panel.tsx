@@ -17,7 +17,8 @@ import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
-import { rollupBranch, rollupRows, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
+import { rollupBranch, rollupRows, rollupUnderLoss, branchReplayLost, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
+import { replayLostForAgents, usageUnderLoss } from '@/lib/event-loss'
 import { observedSessions, isSessionObserved } from '@/lib/session-model'
 import { useLocale, useT } from '@/lib/locale'
 import * as C from '@/lib/card-text'
@@ -104,6 +105,8 @@ interface SessionListPanelProps {
   /** 'Active only' filter (persisted by the parent, #372); when absent the panel keeps its own, on by default */
   activeOnly?: boolean
   onActiveOnlyChange?: (activeOnly: boolean) => void
+  /** Events the relay could not replay, per session id (#366): the tokens and costs of such a session are lower bounds */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 const STATE_COLOR: Record<string, string> = themed(() => ({
@@ -170,6 +173,8 @@ interface AgentItemProps {
   freshnessNow: number
   /** What this row and its subtree show (agentTreeSignature): equal signature = nothing to rebuild */
   sig: string
+  /** Events the relay could not replay, per session id (#366) */
+  lost?: ReadonlyMap<string, number>
 }
 
 /**
@@ -186,7 +191,7 @@ function stateCellClass(drawn: string | undefined, stale: boolean): string {
 }
 
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
-const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
+const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow, lost }: AgentItemProps) {
   useThemeVersion() // memoized row: repaint on a theme switch
   const t = useT() // memoized row: re-render on a language switch
   const { locale } = useLocale()
@@ -195,9 +200,11 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
   const selected = a.id === selectedAgentId
   const { detail, stale, role, drawn } = agentRowView(a, freshnessNow, locale)
   // The orchestrator plus its sub-agents, each counted once (issue #58)
-  const branch = useMemo(() => (node.children.length > 0 ? rollupBranch(node) : null), [node])
+  // A lower bound when the relay could not replay events of a session it counts (#366)
+  const branch = useMemo(() => (node.children.length > 0 ? rollupUnderLoss(rollupBranch(node), branchReplayLost(node, lost)) : null), [node, lost])
   // This agent alone (its sub-agents are in the branch total)
-  const own = useMemo(() => rollupBranch({ agent: node.agent, children: [] }), [node.agent])
+  const ownLost = replayLostForAgents(lost, [node.agent])
+  const own = useMemo(() => rollupUnderLoss(rollupBranch({ agent: node.agent, children: [] }), ownLost), [node.agent, ownLost])
   return (
     <li>
       <button
@@ -227,7 +234,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         <ColumnValue column="model" cell={modelCell(a.model, locale)} title={a.model} />
         <BlankCell column="runtime" />
         <BlankCell column="branch" />
-        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a), locale)} />
+        <ColumnValue column="tokens" cell={tokensCell(usageUnderLoss(usageFromAgent(a), ownLost), locale)} />
         <ColumnValue column="cost" cell={costCell(own, locale)} />
         <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
         <BlankCell column="activity" />
@@ -241,13 +248,13 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         <ul className="list-none p-0 m-0" aria-label={t('sessions.subAgentsOf', { name: a.name })}>
           <AgentNodes
             nodes={node.children} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
-            freshnessNow={freshnessNow}
+            freshnessNow={freshnessNow} lost={lost}
           />
         </ul>
       )}
     </li>
   )
-}, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent)
+}, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent && prev.lost === next.lost)
 
 interface AgentNodesProps {
   nodes: ReadonlyArray<AgentNode<SessionListAgent>>
@@ -255,18 +262,19 @@ interface AgentNodesProps {
   selectedAgentId: string | null
   onSelectAgent: (id: string) => void
   freshnessNow: number
+  lost?: ReadonlyMap<string, number>
 }
 
 /**
  * Sibling rows. The agents of a workflow that announced phases are grouped under one named group per
  * phase, in order of first appearance (#146); everything else is listed exactly as before.
  */
-function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentNodesProps) {
+function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow, lost }: AgentNodesProps) {
   const t = useT()
   const row = (n: AgentNode<SessionListAgent>, d: number) => (
     <AgentItem
       key={n.agent.id} node={n} depth={d} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
-      freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
+      freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)} lost={lost}
     />
   )
   return (
@@ -294,7 +302,7 @@ export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, lossIndicator, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange, replayLost,
 }: SessionListPanelProps) {
   const { locale } = useLocale()
   const t = useT()
@@ -401,7 +409,7 @@ export function SessionListPanel({
   const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   // Session and team (family) totals; the team total counts an agent shared by two sessions once
-  const rollups = useMemo(() => rollupRows(rows, { sessions, forests }), [rows, sessions, forests])
+  const rollups = useMemo(() => rollupRows(rows, { sessions, forests }, replayLost), [rows, sessions, forests, replayLost])
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
   // Inline rename (#246): one row at a time; Enter saves, Escape or leaving the field cancels
@@ -834,7 +842,7 @@ export function SessionListPanel({
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
                     <ul className="list-none m-0 ml-3 pl-2 pr-6 py-0.5" style={{ borderLeft: `2px solid ${COLORS.controlBorder}` }} aria-label={t('sessions.agentsOf', { label: session.label })}>
-                      <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
+                      <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} lost={replayLost} />
                     </ul>
                     </CollapsibleSection>
                   )}

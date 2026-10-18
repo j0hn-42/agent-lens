@@ -36,6 +36,8 @@ interface PanelDockProps {
   agentCounts: AgentStateCounts
   /** Permanent trace of a graph loss for the Sessions panel header (#567) */
   lossIndicator?: ReactNode
+  /** Events the relay could not replay, per session id (#366): the Sessions panel qualifies the tokens and costs of such a session */
+  replayLostBySession?: ReadonlyMap<string, number>
   /** The agents the sessions list shows (finished ones hidden like on the canvas) */
   listAgents: Simulation['agents']
   agentLabel: (key: string) => string
@@ -48,7 +50,7 @@ type ComponentPropsOf<T> = T extends (props: infer P) => unknown ? P : never
 
 /** The slide-in panels around the canvas: files, sessions, project context, system, timeline */
 export function PanelDock({
-  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
+  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, replayLostBySession, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
 }: PanelDockProps) {
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
@@ -80,6 +82,7 @@ export function PanelDock({
           allSessionCount={allSessionCount}
           agentCounts={agentCounts}
           lossIndicator={lossIndicator}
+          replayLost={replayLostBySession}
           selectedSessionId={bridge.selectedSessionId}
           sessionsWithActivity={bridge.sessionsWithActivity}
           sessionModels={bridge.sessionModels}
