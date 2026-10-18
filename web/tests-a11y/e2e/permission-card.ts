@@ -22,7 +22,7 @@ export async function openWithCard(browser: Browser, server: DemoServer, w: numb
   await page.goto(`${server.url}${HOST_PATH}`)
   const handle = await page.locator('#app').elementHandle()
   const app = (await handle!.contentFrame())!
-  await app.locator('header').getByRole('button', { name: /^More/ }).waitFor()
+  await app.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   // Same conversation as the extension, from the parent window (the bridge checks e.source === window.parent):
   // init, then the request once the page declared its decision surface (the extension holds requests until then).
   // The bridge listens only once React has hydrated and an init sent before that is lost: like the extension, which
