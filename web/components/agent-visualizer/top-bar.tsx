@@ -255,10 +255,11 @@ export interface TopBarProps {
   totalCost: number
   /** Qualified cost total; overrides `totalCost` when given */
   costUsage?: UsageTotal
-  /** Part of totalCost (and of totalTokens) that belongs to no single agent; shown apart when above zero */
-  /** The usage tied to no agent, as the Cost panel draws it (#576): its tokens, its cost at the default rate, and whether a part is an estimate */
+  /** Tokens tied to no agent, as the Cost panel draws them (#576); read after the cost and the tokens */
   unattributedTokens?: number
+  /** Cost of those tokens at the default rate */
   unattributedCost?: number
+  /** True when a part of the unattributed usage is an estimate */
   unattributedEstimated?: boolean
   // Panel toggles
   showFileAttention: boolean
@@ -398,9 +399,9 @@ export const TopBar = memo(function TopBar({
     // Full wording ("last known state"); screen readers skip the "-" (#364)
     counts.spoken,
     contextText.spoken,
-    // Same rule and qualifiers as the Cost panel drawing and its text region (#576): in every view, with its tokens
-    unattributedRestText(unattributedTokens, unattributedCost, unattributedEstimated, locale),
     contextText.tokens,
+    // Same rule, qualifiers and order as the Cost panel text region (#576): cost, tokens, then the unattributed part, in every view
+    unattributedRestText(unattributedTokens, unattributedCost, unattributedEstimated, locale),
   ].filter((part): part is string => part !== null).join(', ')
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording

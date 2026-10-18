@@ -19,7 +19,7 @@ const sessions = [{ id: 's1', label: 'alpha-run', status: 'active', startTime: 1
 const props: TopBarProps = {
   sessions, selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(['other']),
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'watching',
-  activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1200, totalCost: 1, unattributedTokens: 900_000, unattributedCost: 0.5,
+  activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1_200_000, totalCost: 1, unattributedTokens: 900_000, unattributedCost: 0.5,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
   onChangeShowMode: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop, notifyState: 'off', onToggleNotify: noop,

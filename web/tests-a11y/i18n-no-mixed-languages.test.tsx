@@ -729,7 +729,7 @@ const barBase: TopBarProps = {
   sessions: [{ id: 's1', label: 'alpha-run', status: 'active', startTime: 1, lastActivityTime: 2 }],
   selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(['other']),
   showSessions: false, onToggleSessions: barNoop, isVSCode: false, connectionStatus: 'connected',
-  activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1200, totalCost: 1, unattributedTokens: 900_000, unattributedCost: 0.5,
+  activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1_200_000, totalCost: 1, unattributedTokens: 900_000, unattributedCost: 0.5,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: barNoop, onToggleTimeline: barNoop, onToggleStats: barNoop, showStats: false, onToggleMute: barNoop, onOpenShortcuts: barNoop,
   onChangeShowMode: barNoop, onOpenSettings: barNoop, onToggleFullscreen: barNoop, onOpenPalette: barNoop, notifyState: 'off', onToggleNotify: barNoop,
