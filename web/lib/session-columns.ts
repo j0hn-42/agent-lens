@@ -9,11 +9,13 @@
 import { CHRONO_CAP_MS, ACTIVE_UNKNOWN_TEXT, type ActiveTimeFields } from './active-time'
 import { runtimeBadge } from './chrome-utils'
 import { isPseudoModel } from './model-provenance'
-import { ROLLUP_INCOMPLETE_TEXT, type RollupTotal } from './cost-rollup'
-import { USAGE_LABELS, formatTokenUsage, type UsageTotal } from './usage'
+import type { RollupTotal } from './cost-rollup'
+import type { UsageTotal } from './usage'
 import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatModelName, formatTokens } from './utils'
 import { formatRelativeTime } from './session-tree'
+import { translate, type Locale, type MessageKey } from './messages'
+import { usageText } from './card-text'
 import type { SessionInfo } from './bridge-types'
 import type { Freshness } from '../hooks/simulation/freshness'
 
@@ -21,6 +23,14 @@ import type { Freshness } from '../hooks/simulation/freshness'
 export const COLUMN_LABELS = {
   name: 'Name', model: 'Model', runtime: 'Runtime', branch: 'Branch', tokens: 'Tokens', cost: 'Cost', time: 'Time', activity: 'Activity',
 } as const
+
+/** Header label of a column in the active language (the English labels stay the COLUMN_LABELS above). */
+export function columnLabel(column: keyof typeof COLUMN_LABELS, locale: Locale = 'en'): string {
+  return translate(locale, `cols.${column}` as MessageKey)
+}
+
+type Params = Readonly<Record<string, string | number>>
+const tr = (locale: Locale, key: MessageKey, params?: Params) => translate(locale, key, params)
 
 /** What a column shows when it has no data. */
 export const NO_VALUE = '—'
@@ -33,6 +43,11 @@ export interface ColumnCell {
   label: string
   /** True when `text` stands for "no data" */
   empty: boolean
+  /**
+   * Part of `label` (its end) and the whole `text` that stay English: the relative time of the activity column, still
+   * written by formatRelativeTime (the relative labels are #501's). The view declares lang="en" on them, never on the rest.
+   */
+  english?: string
 }
 
 function emptyCell(label: string): ColumnCell {
@@ -40,25 +55,28 @@ function emptyCell(label: string): ColumnCell {
 }
 
 /** Short model name; the dash (named "model not reported") when no model ran or only a pseudo-model was seen. */
-export function modelCell(modelId: string | null | undefined): ColumnCell {
-  if (!modelId || isPseudoModel(modelId)) return emptyCell('model not reported')
+export function modelCell(modelId: string | null | undefined, locale: Locale = 'en'): ColumnCell {
+  if (!modelId || isPseudoModel(modelId)) return emptyCell(tr(locale, 'cols.model.none'))
   const short = formatModelName(modelId)
-  return { text: short, label: `model ${short}`, empty: false }
+  return { text: short, label: tr(locale, 'cols.model.value', { name: short }), empty: false }
 }
 
 /** Compact tokens of one agent: "12k", with a lower-bound mark (≥) or an estimate mark (~) that is also spelled out. */
-export function tokensCell(usage: UsageTotal): ColumnCell {
-  if (usage.value === null || usage.status === 'unavailable') return emptyCell(`tokens ${USAGE_LABELS.unavailable}`)
+export function tokensCell(usage: UsageTotal, locale: Locale = 'en'): ColumnCell {
+  if (usage.value === null || usage.status === 'unavailable') return emptyCell(tr(locale, 'cols.tokens.none'))
   const mark = `${usage.status === 'partial' ? '≥' : ''}${usage.estimated ? '~' : ''}`
-  return { text: `${mark}${formatTokens(usage.value)}`, label: `${formatTokenUsage(usage)} tokens`, empty: false }
+  return { text: `${mark}${formatTokens(usage.value)}`, label: tr(locale, 'cols.tokens.value', { value: usageText(locale, usage) }), empty: false }
 }
 
 /** Compact tokens of a session or branch total; the incomplete badge is spelled out. */
-export function rollupTokensCell(total: RollupTotal | null | undefined): ColumnCell {
-  if (!total || total.known === 0) return emptyCell(`tokens ${USAGE_LABELS.unavailable}`)
+export function rollupTokensCell(total: RollupTotal | null | undefined, locale: Locale = 'en'): ColumnCell {
+  if (!total || total.known === 0) return emptyCell(tr(locale, 'cols.tokens.none'))
   const mark = `${total.complete ? '' : '≥'}${total.estimated ? '~' : ''}`
-  const words = [`${formatTokens(total.tokens)} tokens`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
-  return { text: `${mark}${formatTokens(total.tokens)}`, label: words.filter(Boolean).join(' '), empty: false }
+  const v = formatTokens(total.tokens)
+  const key = total.estimated
+    ? (total.complete ? 'cols.tokens.rollupEstimated' : 'cols.tokens.rollupEstimatedIncomplete')
+    : (total.complete ? 'cols.tokens.rollup' : 'cols.tokens.rollupIncomplete')
+  return { text: `${mark}${v}`, label: tr(locale, key, { v }), empty: false }
 }
 
 /** "42s", "3m 12s", "1h 05m", "3d 4h": at most 7 characters, so the column keeps its width. */
@@ -77,17 +95,18 @@ export function formatDurationCompact(ms: number, capped = false): string {
  * the running span (`spanMs`, the live chrono) while the source is fresh. A running agent that is no
  * longer fresh, or one never observed working, has no honest figure: dash, "active time unknown".
  */
-export function agentTimeCell(agent: ActiveTimeFields, freshness: Freshness, spanMs: number): ColumnCell {
+export function agentTimeCell(agent: ActiveTimeFields, freshness: Freshness, spanMs: number, locale: Locale = 'en'): ColumnCell {
+  const unknown = locale === 'en' ? ACTIVE_UNKNOWN_TEXT : tr(locale, 'card.active.unknown')
   const closed = typeof agent.activeMs === 'number' && Number.isFinite(agent.activeMs) ? Math.max(0, agent.activeMs) : undefined
   if (typeof agent.activeSince === 'number') {
-    if (freshness !== 'fresh') return emptyCell(ACTIVE_UNKNOWN_TEXT)
+    if (freshness !== 'fresh') return emptyCell(unknown)
     const span = Math.min(Math.max(0, spanMs), CHRONO_CAP_MS)
     const text = formatDurationCompact((closed ?? 0) + span, spanMs >= CHRONO_CAP_MS)
-    return { text, label: `${text} active`, empty: false }
+    return { text, label: tr(locale, 'cols.time.active', { d: text }), empty: false }
   }
-  if (closed === undefined) return emptyCell(ACTIVE_UNKNOWN_TEXT)
+  if (closed === undefined) return emptyCell(unknown)
   const text = formatDurationCompact(closed)
-  return { text, label: `${text} active`, empty: false }
+  return { text, label: tr(locale, 'cols.time.active', { d: text }), empty: false }
 }
 
 /** The part of a session the duration needs. */
@@ -107,51 +126,50 @@ export interface SessionSpan {
  * session was never observed. While the relay is offline (`relayOffline`) an active session is not proven to
  * run: its duration stops at its last activity (#367).
  */
-export function sessionTimeCell(s: SessionSpan, now: number, relayOffline = false): ColumnCell {
+export function sessionTimeCell(s: SessionSpan, now: number, relayOffline = false, locale: Locale = 'en'): ColumnCell {
   const running = s.status === 'active' && !relayOffline
   const end = running ? now : s.lastActivityUnknown ? NaN : s.lastActivityTime
   const watched = s.recordedStartTime === undefined && s.startTimeWatched === true
   const ms = end - (s.recordedStartTime ?? s.startTime)
-  if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
+  if (!Number.isFinite(ms) || ms < 0) return emptyCell(tr(locale, 'cols.time.unknown'))
   const text = formatDurationCompact(ms)
   if (watched) {
-    const label = running ? `watched for ${text}, at least that long` : `at least ${text} long`
-    return { text: `≥${text}`, label: `${label}, ${SESSION_START_UNRECORDED_TEXT}`, empty: false }
+    return { text: `≥${text}`, label: tr(locale, running ? 'cols.time.watchedRunning' : 'cols.time.watchedDone', { d: text }), empty: false }
   }
-  const suffix = running ? 'since start' : s.status === 'active' ? 'until last activity' : 'long'
-  return { text, label: `${text} ${suffix}`, empty: false }
+  const key = running ? 'cols.time.since' : s.status === 'active' ? 'cols.time.untilLast' : 'cols.time.long'
+  return { text, label: tr(locale, key, { d: text }), empty: false }
 }
 
-/** Said of a session whose transcript records no start: its duration only counts since watching began. */
-const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
-
 /** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
-export function costCell(total: RollupTotal | null | undefined): ColumnCell {
-  if (!total || total.known === 0) return emptyCell('cost unknown')
+export function costCell(total: RollupTotal | null | undefined, locale: Locale = 'en'): ColumnCell {
+  if (!total || total.known === 0) return emptyCell(tr(locale, 'cols.cost.none'))
   const money = formatCost(total.cost)
   // Always "~": the cost is the context priced at a blended rate, an estimate even on reported tokens (#364)
   const mark = `${total.complete ? '' : '≥'}${COST_LABELS.mark}`
   // Same order as every other spoken cost: "context cost estimate $X", then what qualifies it
-  const words = [`${COST_LABELS.name} ${money}`, total.estimated ? `from ${USAGE_LABELS.estimated} tokens` : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
-  return { text: `${mark}${money}`, label: words.filter(Boolean).join(', '), empty: false }
+  const key = total.estimated
+    ? (total.complete ? 'cols.cost.valueEstimated' : 'cols.cost.valueEstimatedIncomplete')
+    : (total.complete ? 'cols.cost.value' : 'cols.cost.valueIncomplete')
+  return { text: `${mark}${money}`, label: tr(locale, key, { money }), empty: false }
 }
 
 /** Branch recorded at the start of the session; a dash when it was not recorded. */
-export function branchCell(branch: string | undefined): ColumnCell {
-  if (!branch) return emptyCell('branch not recorded')
-  return { text: branch, label: `branch ${branch}`, empty: false }
+export function branchCell(branch: string | undefined, locale: Locale = 'en'): ColumnCell {
+  if (!branch) return emptyCell(tr(locale, 'cols.branch.none'))
+  return { text: branch, label: tr(locale, 'cols.branch.value', { name: branch }), empty: false }
 }
 
 /** Runtime of the session, named like its badge (runtimeBadge); a dash when the source does not report it. */
-export function runtimeCell(runtime: SessionInfo['runtime']): ColumnCell {
+export function runtimeCell(runtime: SessionInfo['runtime'], locale: Locale = 'en'): ColumnCell {
   const badge = runtimeBadge(runtime)
-  if (!badge) return emptyCell('runtime not reported')
-  return { text: badge.label, label: `runtime ${badge.label}`, empty: false }
+  if (!badge) return emptyCell(tr(locale, 'cols.runtime.none'))
+  return { text: badge.label, label: tr(locale, 'cols.runtime.value', { name: badge.label }), empty: false }
 }
 
 /** Time since the last activity; a dash when the source only knows the start. */
-export function activityCell(s: Pick<SessionInfo, 'lastActivityTime' | 'lastActivityUnknown'>, now: number): ColumnCell {
-  if (s.lastActivityUnknown) return emptyCell('activity unknown')
+export function activityCell(s: Pick<SessionInfo, 'lastActivityTime' | 'lastActivityUnknown'>, now: number, locale: Locale = 'en'): ColumnCell {
+  if (s.lastActivityUnknown) return emptyCell(tr(locale, 'cols.activity.unknown'))
   const text = formatRelativeTime(s.lastActivityTime, now)
-  return { text, label: `last activity ${text}`, empty: false }
+  // The relative time is still written in English (#501 owns the relative labels): it is marked, not translated
+  return { text, label: tr(locale, 'cols.activity.value', { when: text }), empty: false, ...(locale === 'en' ? {} : { english: text }) }
 }
