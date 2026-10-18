@@ -193,9 +193,5 @@ export function QuotaGauges({ state, interactive = true }: {
       </span>
     )
   }
-  return (
-    <span data-testid="topbar-quota" lang={locale} style={{ color: COLORS.textMuted }}>
-      {t(state.kind === 'unavailable' ? 'quota.unavailable' : 'quota.noSubscription')}
-    </span>
-  )
+  return null
 }
