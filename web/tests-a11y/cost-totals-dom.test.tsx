@@ -104,7 +104,7 @@ test('Cost panel open, no loss: a named region holds the totals as text, in Engl
   const r = await mount(null)
   const p = panel(r)
   assert.ok(p, 'the Cost panel carries its totals in the DOM')
-  assert.equal(p.getAttribute('role'), 'region')
+  assert.equal(p.tagName, 'SECTION', 'a section with a name is a region landmark')
   assert.equal(p.getAttribute('aria-label'), 'Cost totals')
   assert.equal(p.getAttribute('lang'), 'en')
   assert.match(p.textContent ?? '', /estimate of context cost|context cost/i)

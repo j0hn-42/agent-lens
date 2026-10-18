@@ -23,7 +23,7 @@ export function CostTotalsText({ tokens, cost, unattributedCost, isAllMode }: { 
     text.tokens,
   ].filter((p): p is string => p !== null)
   return (
-    <section data-testid="cost-panel-totals" role="region" aria-label={t('cost.totals.region')} lang={locale} className="sr-only">
+    <section data-testid="cost-panel-totals" aria-label={t('cost.totals.region')} lang={locale} className="sr-only">
       {parts.join(', ')}
     </section>
   )
