@@ -4,7 +4,9 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { paletteStatus, searchPalette, type PaletteItem } from '@/lib/command-palette'
+import { paletteGroupName, paletteStatus, searchPalette, type PaletteItem } from '@/lib/command-palette'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import { GlassCard } from './glass-card'
 import { stopPropagationHandlers } from './shared-ui'
 
@@ -22,6 +24,8 @@ export interface CommandPaletteProps {
  * Escape closes it (and nothing else), focus returns to where it was unless the command moved it itself.
  */
 export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof translate>[1]) => translate(locale, key)
   const [query, setQuery] = useState('')
   const [activeId, setActiveId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -90,6 +94,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
     <div
       {...stopPropagationHandlers}
       role="presentation"
+      lang={locale}
       className="fixed inset-0 flex items-start justify-center p-3 pt-[12vh]"
       style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
       onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
@@ -103,30 +108,30 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
         className="max-h-[calc(100vh-24px)] w-[520px] max-w-[calc(100vw-24px)] outline-none"
       >
         <GlassCard visible={true}>
-          <h2 id={titleId} className="sr-only">Command palette</h2>
+          <h2 id={titleId} className="sr-only">{t('palette.title')}</h2>
           <input
             ref={inputRef}
             type="text"
             role="combobox"
-            aria-label="Search actions, panels, sessions and agents"
+            aria-label={t('palette.search')}
             aria-expanded={true}
             aria-controls={listId}
             aria-autocomplete="list"
             aria-activedescendant={activeDomId}
             autoComplete="off"
             spellCheck={false}
-            placeholder="Search actions, panels, sessions and agents"
+            placeholder={t('palette.search')}
             value={query}
             onChange={e => { setQuery(e.target.value); setActiveId(null) }}
             className={`mb-2 w-full min-h-8 rounded px-2 py-1 text-xs font-mono ${FOCUS_RING}`}
             style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           />
 
-          <div id={listId} role="listbox" aria-label="Results" className="max-h-[50vh] overflow-y-auto">
+          <div id={listId} role="listbox" aria-label={t('palette.results')} className="max-h-[50vh] overflow-y-auto">
             {sections.map(section => (
-              <div key={section.group} role="group" aria-label={section.group} className="mb-1">
+              <div key={section.group} role="group" aria-label={paletteGroupName(section.group, locale)} className="mb-1">
                 <div aria-hidden="true" className="px-2 pt-1 pb-0.5 text-[11px] font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
-                  {section.group}
+                  {paletteGroupName(section.group, locale)}
                 </div>
                 {section.items.map(item => {
                   const selected = item === active
@@ -150,7 +155,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                       }}
                     >
                       <span className="min-w-0 truncate" data-sensitive={item.sensitive ? '' : undefined}>
-                        {item.label}
+                        {item.lang ? <span lang={item.lang} data-i18n-exempt>{item.label}</span> : item.label}
                         {item.detail && <span style={{ color: COLORS.textMuted }}> ({item.detail})</span>}
                       </span>
                       {item.shortcut && (
@@ -159,7 +164,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                           className="shrink-0 min-w-6 rounded px-1.5 py-0.5 text-center text-[11px]"
                           style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
                         >
-                          {item.shortcut}
+                          {item.shortcut === 'Space' ? t('palette.key.space') : item.shortcut === 'Shift+F' ? t('palette.key.shiftF') : item.shortcut}
                         </kbd>
                       )}
                     </div>
@@ -170,10 +175,10 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
           </div>
 
           <div role="status" className="mt-2 border-t pt-2 text-[11px] font-mono" style={{ borderColor: COLORS.glassBorder, color: COLORS.textMuted }}>
-            {paletteStatus(sections)}
+            {paletteStatus(sections, locale)}
           </div>
           <div aria-hidden="true" className="mt-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
-            Up / Down to move, Enter to run, Esc to close
+            {t('palette.hint')}
           </div>
         </GlassCard>
       </div>
