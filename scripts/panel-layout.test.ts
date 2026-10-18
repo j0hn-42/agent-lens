@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, POPUP_MIN_H, POPUP_MIN_W, POPUP_FIT_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -13,6 +13,9 @@ const TOPBAR_H = 68
 const BAR_H = 56
 /** Height the cards' title and intro take, as measureDockEnv reads it (#536) */
 const HEAD_H = 62
+/** Narrowest column beside the cards and smallest height under them that placePopup uses (#558, panel-layout.ts) */
+const POPUP_MIN_W = 160
+const POPUP_FIT_MIN_H = 64
 
 /** Every subset of the docked panels (including the empty one). */
 function subsets<T>(items: T[]): T[][] {
@@ -299,7 +302,7 @@ test('a popup never lies over drawn permission cards when there is room beside o
         const cards = { x: c.cards.x, y: c.topbarH, w: c.cards.w, h: c.cards.h }
         assert.equal(intersects(box, cards), false, `${label}: popup ${JSON.stringify(box)} lies over the cards ${JSON.stringify(cards)}`)
         assert.equal(p.coversCards, false, `${label}: coversCards`)
-        assert.ok(p.maxHeight >= 64, `${label}: a usable height (${p.maxHeight})`)
+        assert.ok(p.maxHeight >= POPUP_FIT_MIN_H, `${label}: a usable height (${p.maxHeight})`)
         assert.ok(p.left >= 8 && p.left + p.width <= w - 8, `${label}: inside the window`)
         assert.ok(p.top >= c.topbarH && p.top + box.h <= bottomLimit, `${label}: between the bars`)
       }

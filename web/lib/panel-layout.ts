@@ -398,10 +398,10 @@ export interface PopupPlacement {
 export const POPUP_MIN_H = 160
 
 /** Narrowest column beside the cards a popup is moved into rather than squeezed under them (#558) */
-export const POPUP_MIN_W = 160
+const POPUP_MIN_W = 160
 
 /** Smallest height under the cards still used for a popup (its header and about one line, scrolled): under it, the floor */
-export const POPUP_FIT_MIN_H = 64
+const POPUP_FIT_MIN_H = 64
 
 /** Height kept for the cards' title and intro when their measure is unknown (about a title line and a two-line intro) */
 const PERMISSIONS_HEAD_FALLBACK = 72
