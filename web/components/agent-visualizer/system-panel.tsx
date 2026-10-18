@@ -4,7 +4,9 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
-import { PANEL_NAMES } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
+import { panelName } from '@/lib/command-palette'
 import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
 import { CollapsibleSection } from './collapsible-section'
@@ -266,6 +268,7 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
   const dock = useDockPanel('system', visible)
   const { rect } = dock
   const titleId = useId()
+  const { locale } = useLocale()
   const announcement = useSeverityAnnouncement(samples, visible)
   // The body is a scroll container: a tab stop only while it actually scrolls (WCAG 2.1.1), as in the Context panel
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -294,7 +297,7 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
     >
       <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h, background: COLORS.void }}>
         <PanelHeader onClose={onClose} titleId={titleId}>
-          <span className="text-[11px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{PANEL_NAMES.system}</span>
+          <span lang={locale} className="text-[11px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{panelName(locale, 'system')}</span>
         </PanelHeader>
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-system-announcer>{announcement}</div>
 

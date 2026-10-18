@@ -5,6 +5,7 @@ import type { Agent } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { pluralize, truncatePath } from '@/lib/utils'
+import { replayLostSentence } from '@/lib/event-loss'
 import { describeWaste, formatWasteTokens, wasteSummary, type WasteLedger } from '@/lib/waste'
 
 /** Rows drawn at once; the rest is counted, never silently dropped. */
@@ -14,13 +15,15 @@ interface WasteSectionProps {
   waste: WasteLedger
   agents?: ReadonlyMap<string, Agent>
   onOpenFile?: (filePath: string) => void
+  /** Events the relay could not replay for the selection (#366): repeats become a lower bound, the empty state is not a clean zero */
+  replayLost?: number
 }
 
 /**
  * Repeated reads and identical calls, as facts: what was seen twice and what the repeats cost. It never
  * says "wasted" for a call that may be intended, and it names what it cannot see.
  */
-export function WasteSection({ waste, agents, onOpenFile }: WasteSectionProps) {
+export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: WasteSectionProps) {
   const headingId = useId()
   const { items, uncompared, limitReached } = wasteSummary(waste)
   const shown = items.slice(0, WASTE_ROWS_SHOWN)
@@ -33,7 +36,7 @@ export function WasteSection({ waste, agents, onOpenFile }: WasteSectionProps) {
         Repeated reads and calls
       </h3>
       {items.length === 0 ? (
-        <p className="m-0 text-[11px] font-mono" style={note}>No repeat observed</p>
+        <p className="m-0 text-[11px] font-mono" style={note}>{replayLost > 0 ? 'No repeat observed (incomplete)' : 'No repeat observed'}</p>
       ) : (
         <ul className="space-y-1 list-none p-0 m-0">
           {shown.map((item) => {
@@ -65,7 +68,7 @@ export function WasteSection({ waste, agents, onOpenFile }: WasteSectionProps) {
                   <div className="flex items-center gap-2 min-h-6" title={item.target}>{label}</div>
                 )}
                 <div className="mt-1 text-[11px] font-mono" style={note}>
-                  <span>{agentName}</span>: <span>{describeWaste(item)}</span>
+                  <span>{agentName}</span>: <span>{describeWaste(item, replayLost)}</span>
                 </div>
                 <div className="text-[11px] font-mono" style={note}>{formatWasteTokens(item)}</div>
               </li>
@@ -82,6 +85,7 @@ export function WasteSection({ waste, agents, onOpenFile }: WasteSectionProps) {
       {limitReached && (
         <p className="m-0 mt-1 text-[11px] font-mono" style={note}>Tracking limit reached: this list is a lower bound</p>
       )}
+      {replayLost > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{replayLostSentence(replayLost)}</p>}
       <p className="m-0 mt-1 text-[11px] font-mono" style={note}>
         Edits made through Bash are not seen; a repeat may be intended.
       </p>
