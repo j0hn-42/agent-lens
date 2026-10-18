@@ -698,6 +698,11 @@ const fr = {
   'scope.notice.sizeLimit.other': 'Au moins {n} transcriptions sont trop volumineuses pour être suivies.',
   'scope.notice.watchLimit.one': 'Au moins {n} session n’est pas suivie : la limite de surveillance est atteinte.',
   'scope.notice.watchLimit.other': 'Au moins {n} sessions ne sont pas suivies : la limite de surveillance est atteinte.',
+  // Losses of a runtime outside the followed sessions, lower bounds (#420)
+  'scope.notice.runtimeMissed.one': '{runtime} : au moins {n} mise à jour non lue hors des sessions suivies.',
+  'scope.notice.runtimeMissed.other': '{runtime} : au moins {n} mises à jour non lues hors des sessions suivies.',
+  'scope.notice.runtimeUnreadable.one': '{runtime} : au moins {n} ligne illisible ignorée hors des sessions suivies.',
+  'scope.notice.runtimeUnreadable.other': '{runtime} : au moins {n} lignes illisibles ignorées hors des sessions suivies.',
 
   'controls.canvasMenu': 'Contrôles du canvas',
   // Columns, agent rows and the stop-reporting announcement of the Sessions panel (#502)
@@ -1591,6 +1596,11 @@ const en: Record<MessageKey, string> = {
   'scope.notice.sizeLimit.other': 'At least {n} transcripts are too large to follow.',
   'scope.notice.watchLimit.one': 'At least {n} session is not followed: the watch limit is reached.',
   'scope.notice.watchLimit.other': 'At least {n} sessions are not followed: the watch limit is reached.',
+  // Losses of a runtime outside the followed sessions, lower bounds (#420)
+  'scope.notice.runtimeMissed.one': '{runtime}: at least {n} update not read outside the followed sessions.',
+  'scope.notice.runtimeMissed.other': '{runtime}: at least {n} updates not read outside the followed sessions.',
+  'scope.notice.runtimeUnreadable.one': '{runtime}: at least {n} unreadable row ignored outside the followed sessions.',
+  'scope.notice.runtimeUnreadable.other': '{runtime}: at least {n} unreadable rows ignored outside the followed sessions.',
 
   'controls.canvasMenu': 'Canvas controls',
   // Columns, agent rows and the stop-reporting announcement of the Sessions panel (#502)
