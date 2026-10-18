@@ -16,6 +16,11 @@ export const TOUCH_TARGET_PX = 44
  */
 export const TOUCH_TARGET = 'max-md:min-h-11 max-md:min-w-11'
 
+/** CSS variable holding the height of the permission cards (0 when none): a drawer starts below them (#548). */
+export const PERMISSION_HEIGHT_VAR = '--permission-h'
+/** Attribute of <html> while a permission card is shown: the drawers then fit in the space under it (#548). */
+export const PERMISSION_OPEN_ATTR = 'data-permission-open'
+
 /** Surfaces drawn above a drawer that share its Tab cycle: the permission cards (#410) and the truncation notice (#453). */
 export const DRAWER_COMPANIONS = '[data-permission-requests], [data-truncation-banner]'
 
