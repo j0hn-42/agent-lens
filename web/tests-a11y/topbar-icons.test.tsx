@@ -57,8 +57,9 @@ const describedTooltipOf = (button: HTMLElement) => {
   const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
   return ids.map(id => document.getElementById(id)).find(el => el?.getAttribute('role') === 'tooltip') ?? null
 }
-/** The panels whose tooltip says what the panel shows; the others only repeat the name and the shortcut. */
-const DESCRIBED = new Set(['context', 'system', 'cost'])
+/** The panels whose tooltip adds something to the name (the shortcut counts: aria-keyshortcuts is not spoken by every screen
+ *  reader); only Conversation, whose tooltip is exactly its name, is not linked. */
+const DESCRIBED = new Set(['files', 'context', 'system', 'cost', 'timeline', 'stats'])
 const shown = (tip: HTMLElement | null) => !!tip && !tip.hidden
 
 test('messages: the names and tooltips of the seven panels exist in English and French; English names are the former ones', () => {
@@ -97,7 +98,7 @@ for (const locale of ['en', 'fr'] as const) {
 }
 
 for (const locale of ['en', 'fr'] as const) {
-  test(`a tooltip that only repeats the name and the shortcut is not read a second time (aria-describedby only when it says more, ${locale})`, () => {
+  test(`a tooltip identical to the name is not read a second time; one that adds the shortcut or more is linked (aria-describedby, ${locale})`, () => {
     setLocaleChoice(locale)
     const view = render(<TopBar {...base} />)
     for (const p of PANELS) {
@@ -107,7 +108,7 @@ for (const locale of ['en', 'fr'] as const) {
         assert.ok(described, `${p}: its tooltip says what the panel shows, linked by aria-describedby`)
         assert.equal(described!.textContent, MESSAGES[locale][tipKey(p)])
       } else {
-        assert.equal(button.getAttribute('aria-describedby'), null, `${p}: "${tooltipOf(button)?.textContent}" repeats "${button.getAttribute('aria-label')}"`)
+        assert.equal(button.getAttribute('aria-describedby'), null, `${p}: "${tooltipOf(button)?.textContent}" is exactly "${button.getAttribute('aria-label')}"`)
         assert.ok(tooltipOf(button), `${p}: the tooltip is still drawn on hover and focus`)
       }
     }

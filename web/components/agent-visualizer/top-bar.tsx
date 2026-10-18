@@ -426,10 +426,10 @@ export const TopBar = memo(function TopBar({
   }) => {
     const name = t(`topbar.panel.${panel}.name`)
     const tipText = tooltip ?? t(`topbar.panel.${panel}.tooltip`)
-    // A tooltip that only repeats the name and the shortcut ("Files (F)") is not linked: the name and aria-keyshortcuts
-    // already say it, and a screen reader would read it twice (#545 review). It is still drawn on hover and focus.
-    const bare = (s: string) => s.replace(/ \(.\)$/, '')
-    const saysMore = bare(tipText) !== bare(name)
+    // Only a tooltip exactly equal to the name (Conversation: "Conversation (C)") is not linked, a screen reader would read
+    // it twice. "Files (F)" adds the shortcut, which aria-keyshortcuts alone does not get spoken everywhere (#545 review).
+    // An unlinked tooltip is still drawn on hover and focus.
+    const saysMore = tipText !== name
     return (
       <TopBarTooltip text={tipText} lang={tooltipLang ?? locale} onOpen={onTooltip}>
         {tipId => (
