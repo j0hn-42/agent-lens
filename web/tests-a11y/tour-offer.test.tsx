@@ -7,7 +7,7 @@ import axe from 'axe-core'
 
 import { TourOffer } from '@/components/agent-visualizer/tour-offer'
 import { useTourOffer } from '@/hooks/use-tour-offer'
-import { GUIDED_TOUR_BUTTON_ID } from '@/components/agent-visualizer/guided-tour-context'
+import { GUIDED_TOUR_BUTTON_ID, CANVAS_CONTROLS_MENU_ID } from '@/components/agent-visualizer/guided-tour-context'
 const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered'
 
 beforeEach(() => { try { window.localStorage.clear() } catch { /* none */ } })
@@ -73,6 +73,21 @@ test('closed by something else while it holds the focus, the offer hands it to t
     </main>,
   )
   assert.equal(document.activeElement?.id, GUIDED_TOUR_BUTTON_ID)
+})
+
+test('canvas controls folded (#515): Escape sends the focus to the "Canvas controls" button that holds the tour button', () => {
+  const calls: string[] = []
+  const r = render(
+    <main id="visualizer-main" tabIndex={-1}>
+      <button type="button" id={CANVAS_CONTROLS_MENU_ID}>Canvas controls</button>
+      <TourOffer open label="Tour this session" onStart={() => {}} onDismiss={() => calls.push('dismiss')} />
+    </main>,
+  )
+  const notNow = r.getByRole('button', { name: 'Not now' })
+  notNow.focus()
+  fireEvent.keyDown(notNow, { key: 'Escape' })
+  assert.deepEqual(calls, ['dismiss'])
+  assert.equal(document.activeElement?.id, CANVAS_CONTROLS_MENU_ID)
 })
 
 test('the offer has no axe violation', async () => {

@@ -4,7 +4,7 @@ import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { GuidedTourCard } from '@/components/agent-visualizer/guided-tour-card'
 import { GUIDED_STEPS } from '@/lib/guided-steps'
-import { GUIDED_TOUR_BUTTON_ID } from '@/components/agent-visualizer/guided-tour-context'
+import { GUIDED_TOUR_BUTTON_ID, CANVAS_CONTROLS_MENU_ID } from '@/components/agent-visualizer/guided-tour-context'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 const frames = () => act(async () => { await new Promise(r => setTimeout(r, 80)) })
@@ -147,6 +147,19 @@ test('when the element that opened the tour is gone, exiting focuses the Guided 
   view.unmount()
   await frames()
   assert.equal(document.activeElement, start)
+})
+
+test('canvas controls folded (#515): exiting focuses the "Canvas controls" button, which holds the Guided tour button', async () => {
+  // Folded, the Guided tour button exists only while the folded block is open, and the tour closes it: the focus
+  // must not fall to <body> (2.4.3)
+  const { view } = setup(1)
+  await frames()
+  const menu = document.createElement('button')
+  menu.id = CANVAS_CONTROLS_MENU_ID
+  document.body.appendChild(menu)
+  view.unmount()
+  await frames()
+  assert.equal(document.activeElement, menu)
 })
 
 test('with no element that opened the tour (auto-started demo), exiting focuses the Guided tour button', async () => {

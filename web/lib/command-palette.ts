@@ -32,8 +32,6 @@ export interface PaletteItem {
   shortcut?: string
   /** Extra search terms (never displayed). In French they also hold the English name and the English terms (#503) */
   keywords: readonly string[]
-  /** Language of the text when it is not the interface's (the tour label comes from the tour, still English): declared with lang (WCAG 3.1.2) */
-  lang?: Locale
   /** Free text taken from a session or an agent: presentation mode blurs it (data-sensitive) */
   sensitive: boolean
   /** True when running the item moves focus by itself (a panel opening, an agent card): the palette then leaves focus alone */
@@ -189,9 +187,8 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
     action('notifications', src.notifications.on ? 'palette.action.notifyOff' : 'palette.action.notifyOn', src.notifications.run, undefined)
   }
   if (src.tour) {
-    // The label comes from the guided tour, which is not translated yet: it declares its own language
     items.push({
-      id: 'action:tour', group: 'Actions', label: src.tour.label, shortcut: undefined, lang: foreign ? 'en' : undefined,
+      id: 'action:tour', group: 'Actions', label: src.tour.label, shortcut: undefined,
       keywords: keywordsOf(locale, 'tour'), movesFocus: true, sensitive: false, run: src.tour.run,
     })
   }

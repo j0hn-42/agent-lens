@@ -10,6 +10,7 @@ import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, s
 import { PLAYBACK_LABELS } from '@/lib/ui-glossary'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { canvasControlsSlotRef } from './canvas-controls-slot'
 
 interface ControlBarProps {
   isPlaying: boolean
@@ -240,6 +241,7 @@ function LiveControlBar({
         >
           <span aria-hidden="true">⏸ </span>Review
         </button>
+        <div ref={canvasControlsSlotRef} data-canvas-controls-slot="" className="contents" />
       </div>
     </div>
   )
@@ -489,6 +491,7 @@ function ReviewControlBar({
             <span aria-hidden="true">⟲ </span>Clear history
           </button>
         ))}
+        <div ref={canvasControlsSlotRef} data-canvas-controls-slot="" className="contents" />
       </div>
     </div>
   )
