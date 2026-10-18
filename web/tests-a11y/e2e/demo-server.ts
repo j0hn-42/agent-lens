@@ -2,14 +2,63 @@
 // afterwards, so `pnpm --dir web run test:e2e` needs no server started by hand and never touches the
 // ports a developer's own servers use (3000 / 3001). E2E_BASE_URL still points the tests at a server
 // that is already running; nothing is started then.
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 
 const WEB_DIR = path.resolve(__dirname, '..', '..')
-const LOG_FILE = path.join(WEB_DIR, 'test-results', 'demo-server.log')
 const START_TIMEOUT_MS = 180_000
+
+/**
+ * Journal du serveur démo : un fichier par fichier e2e (`demo-server-<nom>.log`), d'après le point d'entrée du
+ * processus de test (`node --test` lance chaque fichier dans son propre processus). Sans point d'entrée connu,
+ * journal commun `demo-server.log`. Tout `web/test-results/` est joint aux artefacts CI en cas d'échec (#575).
+ */
+export function demoServerLogPath(entry: string | undefined): string {
+  const name = entry ? path.basename(entry).replace(/\.e2e\.(ts|tsx|js|mjs)$|\.(ts|tsx|js|mjs)$/, '') : ''
+  return path.join(WEB_DIR, 'test-results', name ? `demo-server-${name}.log` : 'demo-server.log')
+}
+
+const LOG_FILE = demoServerLogPath(process.argv[1])
+
+/** Pids (`pid=N`) lus dans la sortie de `ss -ltnp` ; sans colonne `users`, aucun pid n'est prouvé. */
+export function parseListenerPids(output: string): number[] {
+  const pids = [...output.matchAll(/pid=(\d+)/g)].map(m => Number(m[1]))
+  return [...new Set(pids)]
+}
+
+/**
+ * Pids qui écoutent le port TCP d'après `ss` (`lsof` ne voit pas next-server dans le sandbox de test : prouvé),
+ * ou `undefined` si `ss` est indisponible ou échoue (identité alors non vérifiable, et journalisée comme telle).
+ */
+export function listenerPidsOnPort(port: number): number[] | undefined {
+  const res = spawnSync('ss', ['-ltnpH', `sport = :${port}`], { encoding: 'utf8' })
+  if (res.error || res.status !== 0) return undefined
+  const pids = parseListenerPids(res.stdout)
+  // A listener shown without its pid (not our process, not readable): not proven either way.
+  return pids.length === 0 && res.stdout.trim() !== '' ? undefined : pids
+}
+
+/** Groupe de processus (champ 5 de /proc/<pid>/stat, ou `ps`), `undefined` si le processus n'existe pas ou n'est pas lisible. */
+export function processGroupOf(pid: number): number | undefined {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
+    // Le nom (champ 2) est entre parenthèses et peut contenir des espaces : on lit après la dernière ')'.
+    const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+    const pgrp = Number(rest[2])
+    return Number.isInteger(pgrp) ? pgrp : undefined
+  } catch {
+    const res = spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' })
+    const pgrp = Number(res.stdout.trim())
+    return res.error || !Number.isInteger(pgrp) || res.stdout.trim() === '' ? undefined : pgrp
+  }
+}
+
+/** Écouteurs qui n'appartiennent pas au groupe lancé par nous ; un groupe inconnu n'est pas prouvé, donc signalé. */
+export function foreignListeners(listeners: number[], pgid: number, pgidOf: (pid: number) => number | undefined = processGroupOf): number[] {
+  return listeners.filter(pid => pgidOf(pid) !== pgid)
+}
 
 /** Own build directory, so the demo server never contends for `.next/dev/lock` with a developer's `next dev`. */
 export const E2E_DIST_DIR = '.next-e2e'
@@ -107,6 +156,32 @@ async function waitUntilServing(url: string, child: ChildProcess, exited: () => 
   throw new Error(`the demo server did not answer at ${url} within ${START_TIMEOUT_MS / 1000} s (${last}; see ${LOG_FILE})`)
 }
 
+/** Foreign server answering on the port freePort handed out (#575): not ours, so retry on another port. */
+export class ForeignServerError extends StartExitedError {}
+
+/**
+ * Once the URL answers, proves that what answers is the server we spawned: every pid listening on the port must
+ * belong to our process group. The result (or the impossibility to check) is written to the server log.
+ */
+function verifyServerIdentity(port: number, child: ChildProcess, log: number): void {
+  const listeners = listenerPidsOnPort(port)
+  if (listeners === undefined) {
+    fs.writeSync(log, `=== identity of the server on port ${port} NOT verified (ss unavailable) ===\n`)
+    return
+  }
+  const foreign = foreignListeners(listeners, child.pid!)
+  if (foreign.length > 0 || listeners.length === 0) {
+    const msg = listeners.length === 0
+      ? `nothing listens on port ${port} although it answered`
+      : `pid(s) ${foreign.join(', ')} listening on port ${port} are outside the process group ${child.pid} we started`
+    fs.writeSync(log, `=== FOREIGN server suspected: ${msg} ===\n`)
+    throw new ForeignServerError(`the answer on ${url(port)} does not come from the server we started: ${msg} (see ${LOG_FILE})`)
+  }
+  fs.writeSync(log, `=== identity verified: pid(s) ${listeners.join(', ')} listen on port ${port}, in process group ${child.pid} ===\n`)
+}
+
+const url = (port: number) => `http://127.0.0.1:${port}`
+
 const START_ATTEMPTS = 3
 
 async function startOnce(attempt: number): Promise<DemoServer> {
@@ -130,6 +205,7 @@ async function startOnce(attempt: number): Promise<DemoServer> {
   }
   try {
     await waitUntilServing(url, child, () => hasExited)
+    verifyServerIdentity(port, child, log)
   } catch (err) {
     await stop()
     throw err

@@ -4,7 +4,7 @@
 //   pnpm --dir web run test:e2e
 //
 // The demo server is started on a free port by demo-server.ts and stopped at the end (its log is in
-// web/test-results/demo-server.log). Set E2E_BASE_URL to test a server that is already running instead.
+// web/test-results/demo-server-demo.log). Set E2E_BASE_URL to test a server that is already running instead.
 // Needs a browser: `pnpm --dir web exec playwright install chromium` (CI does this).
 import { test, before, after, describe } from 'node:test'
 import { strict as assert } from 'node:assert'

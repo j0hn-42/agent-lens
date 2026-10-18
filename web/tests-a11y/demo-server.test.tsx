@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { demoServerEnv, E2E_DIST_DIR, spawnGuarded, stopProcessGroup, startWithRetries, StartExitedError } from './e2e/demo-server'
+import net from 'node:net'
+import { demoServerEnv, demoServerLogPath, E2E_DIST_DIR, foreignListeners, listenerPidsOnPort, parseListenerPids, processGroupOf, spawnGuarded, stopProcessGroup, startWithRetries, StartExitedError } from './e2e/demo-server'
 
 const WEB_DIR = path.resolve(__dirname, '..')
 
@@ -118,4 +119,47 @@ test("startWithRetries relance sur un nouveau port quand le serveur sort avant d
   let calls = 0
   await assert.rejects(startWithRetries(async () => { calls++; throw new Error('délai dépassé') }, 3), /délai dépassé/)
   assert.equal(calls, 1, "un délai dépassé (serveur vivant mais muet) n'est pas relancé")
+})
+
+// #575 : un journal par fichier e2e, pour qu'un échec de connexion laisse la trace du serveur de CE fichier.
+test('demoServerLogPath : un journal par fichier e2e, dans test-results/', () => {
+  const a = demoServerLogPath('/x/web/tests-a11y/e2e/canvas-controls-reflow.e2e.ts')
+  const b = demoServerLogPath('/x/web/tests-a11y/e2e/demo.e2e.ts')
+  assert.notEqual(a, b)
+  assert.equal(path.basename(a), 'demo-server-canvas-controls-reflow.log')
+  assert.equal(path.basename(path.dirname(a)), 'test-results')
+  assert.equal(path.basename(demoServerLogPath(undefined)), 'demo-server.log', "sans fichier d'entrée : journal commun")
+})
+
+// `lsof` ne voit pas next-server dans ce sandbox (prouvé, #575) alors que `ss -p` le voit : c'est `ss` qui fait foi.
+test('parseListenerPids lit les pid=… de la sortie de `ss -ltnp` et ignore le reste', () => {
+  const ss = 'LISTEN 0 511 127.0.0.1:45999 0.0.0.0:* users:(("next-server (v1",pid=553727,fd=22))\n'
+  assert.deepEqual(parseListenerPids(ss), [553727])
+  assert.deepEqual(parseListenerPids('LISTEN 0 1 127.0.0.1:1 0.0.0.0:* users:(("a",pid=5,fd=3),("b",pid=6,fd=3))\nLISTEN 0 1 x y users:(("a",pid=5,fd=4))\n'), [5, 6])
+  assert.deepEqual(parseListenerPids(''), [])
+  assert.deepEqual(parseListenerPids('LISTEN 0 511 127.0.0.1:45999 0.0.0.0:*\n'), [], 'sans colonne users : aucun pid prouvé')
+})
+
+test('foreignListeners : seuls les écouteurs hors du groupe du serveur lancé sont étrangers', () => {
+  const pgidOf = (pid: number) => (pid === 10 || pid === 11 ? 10 : pid === 99 ? 99 : undefined)
+  assert.deepEqual(foreignListeners([10, 11], 10, pgidOf), [])
+  assert.deepEqual(foreignListeners([11, 99], 10, pgidOf), [99])
+  assert.deepEqual(foreignListeners([77], 10, pgidOf), [77], "un pid dont le groupe est inconnu n'est pas prouvé : signalé")
+  assert.deepEqual(foreignListeners([], 10, pgidOf), [])
+})
+
+test("processGroupOf lit le groupe réel d'un processus", () => {
+  assert.equal(typeof processGroupOf(process.pid), 'number')
+  assert.equal(processGroupOf(2 ** 22 + 12345), undefined)
+})
+
+test('listenerPidsOnPort trouve le processus qui écoute un port', async () => {
+  const srv = net.createServer().listen(0, '127.0.0.1')
+  await new Promise(r => srv.once('listening', r))
+  try {
+    const port = (srv.address() as net.AddressInfo).port
+    const pids = listenerPidsOnPort(port)
+    if (pids === undefined) return // ss indisponible : l'identité n'est pas vérifiable, le serveur le journalise
+    assert.deepEqual(pids, [process.pid])
+  } finally { srv.close() }
 })
