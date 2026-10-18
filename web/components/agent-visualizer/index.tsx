@@ -47,6 +47,8 @@ import { ConversationPanel } from "./conversation-panel"
 import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
+import { CostTotalsText } from "./cost-totals-text"
+import { ALL_SESSIONS_ID } from "@/lib/bridge-types"
 import { TruncationBanner, TruncationAnnouncer } from "./truncation-banner"
 import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
 import { isUnionSelection } from "@/lib/bridge-types"
@@ -344,6 +346,8 @@ export function AgentVisualizer() {
       {blankByHidingCount > 0 && !isEmpty && (
         <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
       )}
+
+      {showCostOverlay && !immersive && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} unattributedCost={usage.summary.unattributedCost} isAllMode={bridge.selectedSessionId === ALL_SESSIONS_ID} />}
 
       {/* Canvas fills everything */}
       <AgentCanvas
