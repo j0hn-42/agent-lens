@@ -103,12 +103,21 @@ test('Details in French: Pertes and Ajustements (pas des pertes)', () => {
   assert.match(getByRole('list', { name: 'Ajustements (pas des pertes)' }).textContent ?? '', /Champs raccourcis ou bornés : 9/)
 })
 
-test('reopened from the indicator (initialOpen): Details is expanded and the focus lands on its toggle (#567)', () => {
-  const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={6371} initialOpen onDismiss={noop} />)
+test('reopened from the indicator (initialOpen + takeFocus): Details is expanded and the focus lands on its toggle once (#567)', () => {
+  let taken = 0
+  const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={6371} initialOpen takeFocus onFocusTaken={() => { taken++ }} onDismiss={noop} />)
   const toggle = getByRole('button', { name: 'Details' })
   assert.equal(toggle.getAttribute('aria-expanded'), 'true')
   assert.equal(document.getElementById(toggle.getAttribute('aria-controls') ?? '')?.hidden, false)
   assert.equal(document.activeElement, toggle)
+  assert.equal(taken, 1, 'the parent is told the focus request is spent')
+})
+
+test('initialOpen alone (a later mount of a reopened banner) expands Details without moving the focus (#569 review)', () => {
+  const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={6371} initialOpen onDismiss={noop} />)
+  const toggle = getByRole('button', { name: 'Details' })
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+  assert.notEqual(document.activeElement, toggle)
 })
 
 test('the indicator: a short text that stays, with a native button that reopens the notice (#567)', () => {

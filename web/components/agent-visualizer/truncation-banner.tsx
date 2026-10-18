@@ -24,8 +24,15 @@ export interface TruncationBannerProps {
   onDismiss: () => void
   /** DOM id of a stable element that receives the focus when the banner is dismissed (the banner unmounts with its own button) */
   returnFocusId?: string
-  /** Reopened from the indicator (#567): Details starts expanded and its toggle takes the focus */
+  /** Reopened from the indicator (#567): Details starts expanded */
   initialOpen?: boolean
+  /**
+   * The user just asked for the notice (Show notice): the Details toggle takes the focus when the banner mounts, and
+   * `onFocusTaken` tells the parent the request is spent. A later mount (leaving full screen, the banner coming back
+   * after its total fell to 0) never moves the focus (#569 review).
+   */
+  takeFocus?: boolean
+  onFocusTaken?: () => void
 }
 
 /**
@@ -70,7 +77,7 @@ function headline(locale: Locale, stats: NormalizationStats, truncated: boolean,
  * state is carried by words and a symbol, never by color alone. Details are a native disclosure
  * button; dismissal is reported to the parent, which owns the per-session memory.
  */
-export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocusId, initialOpen = false }: TruncationBannerProps) {
+export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocusId, initialOpen = false, takeFocus = false, onFocusTaken }: TruncationBannerProps) {
   const [open, setOpen] = useState(initialOpen)
   const detailsId = useId()
   const lossesId = useId()
@@ -79,8 +86,12 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
   const { locale } = useLocale()
   const lost = replayCount(replayLost)
   const truncated = truncationTotal(stats) > 0
-  // Reopened from the indicator: the focus follows the user to the notice they asked for
-  useEffect(() => { if (initialOpen) toggleRef.current?.focus({ preventScroll: true }) }, [initialOpen])
+  // Reopened from the indicator: the focus follows the user to the notice they asked for, once
+  useEffect(() => {
+    if (!takeFocus || !toggleRef.current) return
+    toggleRef.current.focus({ preventScroll: true })
+    onFocusTaken?.()
+  }, [takeFocus, onFocusTaken])
   if (!truncated && lost === 0) return null
   const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
 

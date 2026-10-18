@@ -80,12 +80,16 @@ export function AgentVisualizer() {
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
   /**
-   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns if more is lost).
-   * Kept for the tab in sessionStorage (#567), so a reload or a relaunch in the same tab does not show it again.
+   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns when the total
+   * differs: more lost, or a lower one after a relay restart). Kept for the tab in sessionStorage (#567), so a reload or
+   * a relaunch in the same tab does not show it again.
    */
   const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => readTruncationDismissals(tabStorage()))
-  /** The view whose banner the indicator reopened, and how many times: remounts the banner with its details open */
-  const [truncationReopened, setTruncationReopened] = useState<{ key: string; n: number } | null>(null)
+  /**
+   * The view whose banner the indicator reopened, and how many times: remounts the banner with its details open.
+   * `focus`: the focus request of that reopen, not yet spent by the banner.
+   */
+  const [truncationReopened, setTruncationReopened] = useState<{ key: string; n: number; focus: boolean } | null>(null)
   const isReviewingRef = useRef(false)
   isReviewingRef.current = isReviewing
 
@@ -256,8 +260,11 @@ export function AgentVisualizer() {
     next.delete(truncationKey)
     writeTruncationDismissals(tabStorage(), next)
     setTruncationDismissed(next)
-    setTruncationReopened(prev => ({ key: truncationKey, n: (prev?.key === truncationKey ? prev.n : 0) + 1 }))
+    setTruncationReopened(prev => ({ key: truncationKey, n: (prev?.key === truncationKey ? prev.n : 0) + 1, focus: true }))
   }
+  // The banner took the focus the user asked for: a later mount of it (leaving full screen, back after its total fell to 0)
+  // keeps Details expanded but never moves the focus again (#569 review)
+  const truncationFocusTaken = useCallback(() => setTruncationReopened(prev => (prev && prev.focus ? { ...prev, focus: false } : prev)), [])
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
@@ -347,6 +354,8 @@ export function AgentVisualizer() {
             replayLost={bridge.replayLost}
             returnFocusId={PANEL_BUTTON_IDS.sessions}
             initialOpen={truncationReopenedHere}
+            takeFocus={truncationReopenedHere && truncationReopened?.focus === true}
+            onFocusTaken={truncationFocusTaken}
             onDismiss={dismissTruncationBanner}
           />
         ) : null}
