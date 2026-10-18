@@ -5,7 +5,7 @@ import {
   AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW, REPEAT_BADGE_DRAW, LOD,
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
-import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
+import { deriveFreshness } from '../../../hooks/simulation/freshness'
 import { alphaHex, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
@@ -21,7 +21,7 @@ import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
-  isTeammate, isOrchestrator, orchestratorInfo, ellipsize, type OrchestratorInfo,
+  isTeammate, isOrchestrator, orchestratorInfo, ellipsize, drawnStatusText, type OrchestratorInfo,
 } from './team-style'
 
 let _claudeSparkPath: Path2D | null = null
@@ -544,7 +544,11 @@ function maskedOrchestrator(info: OrchestratorInfo | null, masked: boolean | und
 
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
-  orch: OrchestratorInfo | null, place: ResolvedPlacement, staleText?: string,
+  orch: OrchestratorInfo | null, place: ResolvedPlacement,
+  /** Time the status line is read at (drawnStatusText) */
+  now: number,
+  /** The node is stale: its status line is its last known state, drawn in the stale grey */
+  stale: boolean,
   /** Size factor that holds the text at LOD.minTextPx on screen (labelScaleForZoom) */
   scale = 1,
   /** Theme of the scene (#381); absent = the neon scene */
@@ -555,8 +559,10 @@ function drawAgentLabel(
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
-  // A stale node says so in words ("last known state: Working"): the state is no longer proven
-  if (staleText) layout.statusLine = ellipsize(staleText, FRESHNESS_DRAW.labelMaxWidth, measure)
+  // The status line is drawnStatusText, the function the agent rows of the Sessions panel quote (#502): a teammate's
+  // activity, or "last known state: Working" for a stale node, whose state is no longer proven (that longer line is cut to fit)
+  const status = drawnStatusText(agent, now)
+  layout.statusLine = stale ? ellipsize(status, FRESHNESS_DRAW.labelMaxWidth, measure) : status
   if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
 
   ctx.save()
@@ -601,7 +607,7 @@ function drawAgentLabel(
   }
 
   // Short status text for every agent: state never relies on colour alone (WCAG 1.4.1)
-  ctx.fillStyle = ink(staleText ? scene.staleText : color)
+  ctx.fillStyle = ink(stale ? scene.staleText : color)
   fillLabelText(ctx, layout.statusLine, agent.x, y, scene)
   y += gap
 
@@ -866,7 +872,7 @@ export function drawAgents(
       ? drawAgentLabel(
         ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
         maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
-        stale ? lastKnownStateText(agent.state) : undefined, labelScale, sceneTheme,
+        now, stale, labelScale, sceneTheme,
       )
       : { extraLines: 0, dx: 0, dy: 0, scale: 1, visible: false }
     ctx.globalAlpha = nodeAlpha

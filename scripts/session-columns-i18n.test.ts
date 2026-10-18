@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { activityCell, agentTimeCell, branchCell, columnLabel, costCell, modelCell, rollupTokensCell, runtimeCell, sessionTimeCell, tokensCell } from '../web/lib/session-columns'
 import { agentRowView } from '../web/lib/row-sync'
 import { buildFreshnessAnnouncement, type Freshness } from '../web/hooks/simulation/freshness'
+import { drawnStatusText } from '../web/components/agent-visualizer/canvas/team-style'
 import type { RollupTotal } from '../web/lib/cost-rollup'
 
 const total = (over: Partial<RollupTotal> = {}): RollupTotal => ({ tokens: 12_400, cost: 0.5, known: 2, unknown: 0, estimated: false, complete: true, ...over }) as RollupTotal
@@ -50,11 +51,58 @@ test('an agent row in French quotes the word the canvas draws, then glosses it',
   const live = agentRowView({ ...base, state: 'thinking' }, 1500, 'fr')
   assert.deepEqual([live.detail, live.drawn, live.role], ['Réflexion', 'thinking', 'agent'])
   const stale = agentRowView({ ...base, state: 'waiting_permission', kind: 'subagent' }, 1000 + 10 * 60_000, 'fr')
-  assert.deepEqual([stale.detail, stale.drawn, stale.role], ['en attente d’autorisation depuis 10 min', 'waiting', 'sous-agent'])
+  // stale: the canvas draws "last known state: …" under the node (draw-agents.ts), so the row quotes that, never the live word
+  assert.deepEqual([stale.detail, stale.drawn, stale.role], ['en attente d’autorisation depuis 10 min', 'last known state: Waiting for permission', 'sous-agent'])
   // a tool is data: no state word is quoted
   assert.equal(agentRowView({ ...base, state: 'tool_calling', currentTool: 'Read' }, 1500, 'fr').drawn, undefined)
   // English is untouched
   assert.deepEqual(agentRowView({ ...base, state: 'thinking' }, 1500), { detail: 'Thinking', stale: false, role: 'agent' })
+})
+
+test('the quoted word is exactly the one the canvas draws under the node, for every kind of agent (#502)', () => {
+  const NOW = 1_000_000
+  const base = { id: 'a', sessionId: 's', parentKey: null, name: 'x', tokensUsed: 0, spawnTime: 0, lastEventAt: NOW }
+  // [case, agent, now, word drawn under the node by the canvas]. The canvas draws drawnStatusText under the node
+  // (draw-agents.ts, checked by web/tests-a11y/freshness.test.tsx): the precondition reads it from there
+  const cases: Array<[string, Parameters<typeof agentRowView>[0], number, string]> = [
+    ['fresh agent', { ...base, state: 'thinking', kind: 'main' }, NOW + 500, 'thinking'],
+    ['fresh teammate', { ...base, state: 'thinking', kind: 'teammate' }, NOW + 500, 'working'],
+    ['idle teammate', { ...base, state: 'idle', kind: 'teammate' }, NOW + 500, 'idle'],
+    ['teammate asking for permission', { ...base, state: 'waiting_permission', kind: 'teammate' }, NOW + 500, 'waiting'],
+    ['stale agent', { ...base, state: 'thinking', kind: 'subagent' }, NOW + 60_000, 'last known state: Thinking'],
+    ['stale teammate', { ...base, state: 'thinking', kind: 'teammate' }, NOW + 60_000, 'last known state: Thinking'],
+    ['silent agent waiting for permission', { ...base, state: 'waiting_permission' }, NOW + 10 * 60_000, 'last known state: Waiting for permission'],
+    ['agent in error', { ...base, state: 'error' }, NOW + 500, 'error'],
+    ['closed after an error', { ...base, state: 'error' }, NOW + 3 * 60_000, 'error'],
+    ['finished agent', { ...base, state: 'complete' }, NOW + 500, 'done'],
+    ['finished teammate', { ...base, state: 'complete', kind: 'teammate' }, NOW + 500, 'done'],
+  ]
+  for (const [name, agent, now, word] of cases) {
+    const view = agentRowView(agent, now, 'fr')
+    assert.equal(drawnStatusText(agent, now), word, `${name}: precondition, the canvas draws "${word}"`)
+    assert.equal(view.drawn, word, `${name}: the row quotes the word drawn under the node`)
+  }
+})
+
+test('a teammate whose quote is its activity is glossed with that activity, never with a contradicting state (#502)', () => {
+  const NOW = 1_000_000
+  const mate = { id: 'a', sessionId: 's', parentKey: null, name: 'x', tokensUsed: 0, spawnTime: 0, lastEventAt: NOW, kind: 'teammate' as const }
+  // [agent, quote, gloss]: an agent_activity event can arrive before the state follows (activity idle, state thinking)
+  const cases: Array<[Parameters<typeof agentRowView>[0], string, string]> = [
+    [{ ...mate, state: 'thinking', activity: 'idle' }, 'idle', 'Inactif'],
+    [{ ...mate, state: 'idle', activity: 'working' }, 'working', 'Au travail'],
+    [{ ...mate, state: 'thinking' }, 'working', 'Au travail'],
+    [{ ...mate, state: 'thinking', activity: 'done' }, 'done', 'Fait'],
+    // a more urgent state is drawn instead of the activity: then the state is glossed
+    [{ ...mate, state: 'waiting_permission', activity: 'working' }, 'waiting', 'En attente d’autorisation'],
+    [{ ...mate, state: 'error', activity: 'idle' }, 'error', 'Erreur'],
+  ]
+  for (const [agent, quote, gloss] of cases) {
+    const view = agentRowView(agent, NOW + 500, 'fr')
+    assert.deepEqual([view.drawn, view.detail], [quote, gloss], `${agent.state}/${agent.activity ?? '-'}`)
+  }
+  // English is untouched: the row says the state in its own words
+  assert.equal(agentRowView({ ...mate, state: 'thinking', activity: 'idle' }, NOW + 500).detail, 'Thinking')
 })
 
 test('the stop-reporting announcement in French keeps its groups, order and conditions', () => {
