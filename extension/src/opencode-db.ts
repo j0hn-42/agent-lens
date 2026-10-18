@@ -569,7 +569,7 @@ export class OpenCodeDb {
     const epoch = this.epochCeiling(name, now)
     const ceiling = epoch === undefined ? '' : ` AND id <= ${hexText(epoch)}`
     let state = cursor.key ?? this.keyStart(name, cursor.time, ceiling)
-    if (epoch !== undefined && state.top > epoch) {
+    if (epoch !== undefined && cmpId(state.top, epoch) > 0) {
       // The ids wrapped while the reader ran: the window is in the older epoch. It starts again under the
       // ceiling; what it held raises the floor, so that the sweep does not take those rows for losses.
       let floor = state.floor
@@ -595,7 +595,7 @@ export class OpenCodeDb {
     // Open rows that left the window are read by id (#420): a tool silent for longer than the window
     // still ends when it finishes. A changed one is loaded first, within the same limits.
     const pinned = new Set<string>()
-    const outside = [...open.keys()].filter(id => state.below !== '' && id <= state.below)
+    const outside = [...open.keys()].filter(id => state.below !== '' && cmpId(id, state.below) <= 0)
     if (outside.length > 0) {
       const found = new Set<string>()
       for (const r of this.conn.all(`SELECT ${this.lightColumns(name)} AND id IN (${outside.map(hexText).join(', ')}) ORDER BY ${name}.id ASC`)) {
@@ -727,7 +727,7 @@ export class OpenCodeDb {
     const kept = sorted.slice(i)
     let top = state.top
     const highest = kept.length > 0 ? kept[kept.length - 1][0] : below
-    if (highest > top) top = highest
+    if (cmpId(highest, top) > 0) top = highest
 
     // The sweep: a row outside the window (below it, or above the epoch ceiling) changed after the
     // reader last saw it, or inserted there, is counted, not read. One chunk per poll, below the window
@@ -735,11 +735,11 @@ export class OpenCodeDb {
     let sweep = state.sweep
     let segment = ''
     let next = ''
-    if (below !== '' && sweep < below) {
+    if (below !== '' && cmpId(sweep, below) < 0) {
       segment = `AND id > ${hexText(sweep)} AND id <= ${hexText(below)}`
       next = epoch === undefined ? '' : below
     } else if (epoch !== undefined) {
-      segment = `AND id > ${hexText(sweep > epoch ? sweep : epoch)}`
+      segment = `AND id > ${hexText(cmpId(sweep, epoch) > 0 ? sweep : epoch)}`
     }
     if (segment) {
       const swept = this.conn.all(`SELECT ${this.lightColumns(name, false)} ${segment} ORDER BY ${name}.id ASC LIMIT ${OPENCODE_SWEEP_ROWS}`)
@@ -822,7 +822,18 @@ function rawId(x: unknown): x is string {
 }
 const rawIdOrEmpty = (x: unknown): x is string => x === '' || rawId(x)
 const safeTime = (x: unknown): x is number => typeof x === 'number' && Number.isSafeInteger(x) && x >= -1
-const byFirst = <T extends [string, ...unknown[]]>(a: T, b: T): number => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)
+const SURROGATE = /[\ud800-\udfff]/
+/**
+ * Ids compared as SQLite compares them (BINARY: UTF-8 bytes, i.e. code points). JavaScript's `<` compares
+ * UTF-16 units, which differ for a character above U+FFFF against one in U+E000..U+FFFF: the window,
+ * its bounds and the SQL ranges would disagree (an id outside OpenCode's format, a hostile database).
+ */
+function cmpId(a: string, b: string): number {
+  if (a === b) return 0
+  if (!SURROGATE.test(a) && !SURROGATE.test(b)) return a < b ? -1 : 1
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
+}
+const byFirst = <T extends [string, ...unknown[]]>(a: T, b: T): number => cmpId(a[0], b[0])
 
 /**
  * A key position from the caller, checked like any other input: bounded lists of valid ids and safe
@@ -837,7 +848,7 @@ function sanitizeKey(k: unknown): OpenCodeKeyState | undefined {
   for (const e of Array.isArray(o.recent) ? o.recent.slice(0, WINDOW_ROWS_MAX * 2) : []) {
     if (!Array.isArray(e) || e.length !== 3) continue
     const [id, t, s] = e as unknown[]
-    if (!rawId(id) || id <= below || !safeTime(t) || !(s === PENDING || s === UNSETTLED || s === SETTLED || s === SKIPPED)) continue
+    if (!rawId(id) || cmpId(id, below) <= 0 || !safeTime(t) || !(s === PENDING || s === UNSETTLED || s === SETTLED || s === SKIPPED)) continue
     byId.set(id, [t, s])
   }
   const recent = [...byId].sort(byFirst).slice(-WINDOW_ROWS_MAX)
@@ -851,8 +862,8 @@ function sanitizeKey(k: unknown): OpenCodeKeyState | undefined {
     if (Array.isArray(e) && e.length === 2 && rawId(e[0]) && safeTime(e[1])) open.push([e[0], e[1]])
   }
   let high = top
-  if (recent.length > 0 && recent[recent.length - 1][0] > high) high = recent[recent.length - 1][0]
-  if (below > high) high = below
+  if (recent.length > 0 && cmpId(recent[recent.length - 1][0], high) > 0) high = recent[recent.length - 1][0]
+  if (cmpId(below, high) > 0) high = below
   return { below, top: high, recent, floor, sweep, stray, open }
 }
 
