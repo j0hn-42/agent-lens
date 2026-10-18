@@ -121,6 +121,7 @@ test('the notice is in the language of the interface (#247): French, with the sa
   setLocaleChoice('fr')
   const { getByRole, getByLabelText } = render(<TruncationBanner stats={cut({ missedUpdates: 2 })} replayLost={5} onDismiss={noop} />)
   const group = getByRole('group', { name: 'Troncature du graphe' })
+  assert.equal(group.getAttribute('lang'), 'fr', 'the block declares its language (the page lang stays en)')
   const text = group.textContent ?? ''
   assert.match(text, /Graphe tronqué : 3 événements ignorés, 4 nœuds supprimés, au moins 2 mises à jour non lues/)
   assert.match(text, /au moins 5 événements antérieurs n’ont pas été rejoués par le relais/)

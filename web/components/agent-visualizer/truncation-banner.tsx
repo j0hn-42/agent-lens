@@ -74,6 +74,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
   return (
     <div
       role="group"
+      lang={locale}
       aria-label={t('truncation.group')}
       data-truncation-banner
       className="glass-card flex flex-col gap-1 px-3 py-1.5 text-xs font-mono w-fit max-w-full"
@@ -125,7 +126,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
 export function TruncationAnnouncer({ shown }: { shown: boolean }) {
   const { locale } = useLocale()
   return (
-    <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+    <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" lang={locale}>
       {shown ? translate(locale, 'truncation.announce') : ''}
     </div>
   )
