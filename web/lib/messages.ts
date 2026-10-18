@@ -630,6 +630,7 @@ const fr = {
   'palette.keywords.cost': 'jetons|dépenses',
   'palette.keywords.all-sessions': 'union|flotte',
   'palette.keywords.theme': 'apparence|couleurs',
+  'controls.canvasMenu': 'Contrôles du canvas',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1251,6 +1252,7 @@ const en: Record<MessageKey, string> = {
   'palette.keywords.cost': 'tokens|spend',
   'palette.keywords.all-sessions': 'union|fleet',
   'palette.keywords.theme': 'appearance|colors|colours',
+  'controls.canvasMenu': 'Canvas controls',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })
