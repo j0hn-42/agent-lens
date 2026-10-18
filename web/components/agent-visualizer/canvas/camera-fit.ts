@@ -231,6 +231,40 @@ export function fitContent(
   return t
 }
 
+/** How far (screen px) `bounds` stick out of the `safe` rectangle at transform `t`; 0 when they are inside. */
+export function boundsOverflow(t: Transform, bounds: WorldBounds, safe: Rect): number {
+  if (isEmptyBounds(bounds)) return 0
+  const l = bounds.minX * t.scale + t.x
+  const r = bounds.maxX * t.scale + t.x
+  const top = bounds.minY * t.scale + t.y
+  const bottom = bounds.maxY * t.scale + t.y
+  return Math.max(0, safe.x - l, r - (safe.x + safe.w), safe.y - top, bottom - (safe.y + safe.h))
+}
+
+/**
+ * Share of the gap to an auto-fit target the camera closes this frame (#378). While part of what the fit frames is
+ * off the safe area at the current transform (the scene grew past the frame), `catchUp`; once all of it is inside,
+ * the usual `ease`, so a shrinking scene or a settling layout is not rushed. Half a pixel of tolerance.
+ */
+export function autoFitStepShare(cur: Transform, bounds: WorldBounds | null, safe: Rect | null, ease: number, catchUp: number): number {
+  if (!bounds || !safe) return ease
+  return boundsOverflow(cur, bounds, safe) > 0.5 ? Math.max(ease, catchUp) : ease
+}
+
+/**
+ * One step of `share` from `cur` toward `target`, around the screen point `anchor` (the centre of the safe area):
+ * the scale and the world point under the anchor move by that share, and the pan follows from them. Lerping the
+ * pan and the scale separately swings the view sideways while the zoom changes much; here the anchored world point
+ * goes straight to its target.
+ */
+export function stepTowardAnchored(cur: Transform, target: Transform, share: number, anchor: { x: number; y: number }): Transform {
+  const wx = (anchor.x - cur.x) / cur.scale, wy = (anchor.y - cur.y) / cur.scale
+  const tx = (anchor.x - target.x) / target.scale, ty = (anchor.y - target.y) / target.scale
+  const scale = cur.scale + (target.scale - cur.scale) * share
+  const nx = wx + (tx - wx) * share, ny = wy + (ty - wy) * share
+  return { x: anchor.x - nx * scale, y: anchor.y - ny * scale, scale }
+}
+
 /** Bounds of a world circle (e.g. one cluster halo). */
 export function circleBounds(cx: number, cy: number, r: number): WorldBounds {
   const b = emptyBounds()
