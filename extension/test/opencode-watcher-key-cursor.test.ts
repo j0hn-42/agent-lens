@@ -135,10 +135,13 @@ describe('OpenCodeSessionWatcher: cursor by primary key (#420)', { skip: !sqlite
     w.start()
     assert.equal(w.isSessionActive('ses_a'), false)
     assert.doesNotMatch(w.status(), /not read/)
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 0, missedUpdates: 0 })
     clock.t = T0 + 2000
     fx.part(oldPart, oldMsg, 'ses_a', old, T0 + 1000, { type: 'text', text: 'y' })
     w.scanNow()
     assert.match(w.status(), /; 1 row change not read outside the followed sessions$/)
+    // The same count, as numbers, for the relay's /status (#420: losses reported everywhere)
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 0, missedUpdates: 1 })
   })
 
   it('a part changed outside the window is counted in the normalization_stats of its followed session', async () => {

@@ -318,6 +318,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     w.start()
     assert.match(w.status(), /^OpenCode database \(.*\); 2 unreadable rows ignored outside the followed sessions$/)
     assert.equal(w.statusProblem(), undefined, 'the database reads: the count is not a failure of the runtime')
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 2, missedUpdates: 0 }, 'the same count, for the relay (#420)')
   })
 
   it('ignores a completed tool part whose message predates the activity window', () => {
