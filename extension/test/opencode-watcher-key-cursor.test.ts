@@ -158,6 +158,8 @@ describe('OpenCodeSessionWatcher: cursor by primary key (#420)', { skip: !sqlite
     await new Promise(r => setTimeout(r, 20)) // a lone count is published by a timer
     const stats = events.filter(e => e.type === 'normalization_stats')
     assert.ok(stats.length > 0, 'the loss is published')
-    assert.equal((stats[stats.length - 1].payload as { ignoredEvents: number }).ignoredEvents, 1)
+    const last = stats[stats.length - 1].payload as { ignoredEvents: number; missedUpdates: number }
+    assert.equal(last.missedUpdates, 1, 'counted as an update not read')
+    assert.equal(last.ignoredEvents, 0, 'not as an ignored event')
   })
 })

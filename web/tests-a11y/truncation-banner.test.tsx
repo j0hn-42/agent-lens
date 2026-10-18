@@ -8,10 +8,13 @@ import axe from 'axe-core'
 import { TruncationBanner, TruncationAnnouncer } from '@/components/agent-visualizer/truncation-banner'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { createStats, type NormalizationStats } from '@/lib/event-normalize'
+import { setLocaleChoice } from '@/lib/locale'
 
 afterEach(() => {
   cleanup()
   document.body.replaceChildren()
+  setLocaleChoice('auto')
+  window.localStorage.clear()
 })
 
 const noop = () => {}
@@ -98,6 +101,33 @@ test('no axe violations, collapsed and expanded', async () => {
   assert.deepEqual(await violations(container), [])
   fireEvent.click(getByRole('button', { name: 'Details' }))
   assert.deepEqual(await violations(container), [])
+})
+
+test('updates the reader did not read (OpenCode, #420) have their own counter and label: never "events ignored"', () => {
+  const { getByRole, getByLabelText, rerender } = render(<TruncationBanner stats={{ ...createStats(), missedUpdates: 2 }} onDismiss={noop} />)
+  const group = getByRole('group', { name: 'Graph truncation' })
+  assert.match(group.textContent ?? '', /Graph truncated: 0 events ignored, 0 nodes dropped, at least 2 updates not read/)
+  fireEvent.click(getByRole('button', { name: 'Details' }))
+  const text = getByLabelText('Counters by reason').textContent ?? ''
+  assert.match(text, /Updates not read \(lower bound\): 2/)
+  assert.match(text, /Events ignored[^:]*: 0/)
+  rerender(<TruncationBanner stats={{ ...createStats(), missedUpdates: 1 }} onDismiss={noop} />)
+  assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /at least 1 update not read/)
+  rerender(<TruncationBanner stats={cut()} onDismiss={noop} />)
+  assert.doesNotMatch(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /not read/, 'said only when there is one')
+})
+
+test('the notice is in the language of the interface (#247): French, with the same counters', () => {
+  setLocaleChoice('fr')
+  const { getByRole, getByLabelText } = render(<TruncationBanner stats={cut({ missedUpdates: 2 })} replayLost={5} onDismiss={noop} />)
+  const group = getByRole('group', { name: 'Troncature du graphe' })
+  const text = group.textContent ?? ''
+  assert.match(text, /Graphe tronqué : 3 événements ignorés, 4 nœuds supprimés, au moins 2 mises à jour non lues/)
+  assert.match(text, /au moins 5 événements antérieurs n’ont pas été rejoués par le relais/)
+  fireEvent.click(getByRole('button', { name: 'Détails' }))
+  const details = getByLabelText('Compteurs par cause').textContent ?? ''
+  assert.match(details, /Mises à jour non lues \(borne basse\) : 2/)
+  assert.ok(getByRole('button', { name: 'Fermer l’avertissement de troncature' }))
 })
 
 test('events the relay could not replay show on their own, as "at least" (#366)', () => {
