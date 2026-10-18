@@ -118,7 +118,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           tabIndex={0}
           className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING_INSET}`}
         >
-          <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} />
+          <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} replayLost={replayLost} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
               {replayLost > 0 ? 'No file observed (incomplete)' : emptyState('files')}
