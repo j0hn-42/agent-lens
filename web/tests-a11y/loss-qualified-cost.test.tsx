@@ -73,6 +73,20 @@ test('the Cost panel header: a lossy session that only has unattributed usage in
   assert.ok(!intact.some(t => /^at least ~\$/.test(t)), `a loss of another session: ${JSON.stringify(intact)}`)
 })
 
+test('the Cost panel BY TOOL rows: a call of an agent of a lossy session makes its tool a lower bound, a call of an intact one stays exact', () => {
+  const agents = new Map<string, any>([['a', agent('a', 's1')], ['b', agent('b', 's2')]])
+  const call = (agentId: string, toolName: string): any => ({ agentId, toolName, tokenCost: 4000, tokenSource: 'reported', state: 'complete' })
+  const toolCalls = new Map<string, any>([['t1', call('a', 'Bash')], ['t2', call('b', 'Read')]])
+  const texts: string[] = []
+  drawCostSummaryPanel(recordingCtx(texts), agents, toolCalls, [], false, new Map([['s1', 5]]))
+  const at = (name: string) => texts.indexOf(name)
+  assert.ok(at('Bash') >= 0 && at('Read') >= 0, `both tools are listed: ${JSON.stringify(texts)}`)
+  // The row of a tool draws its name, then its tokens and cost: the figure that follows the name
+  const figureAfter = (name: string) => texts.slice(at(name) + 1).find(t => /~\$/.test(t))
+  assert.match(figureAfter('Bash') ?? '', /^at least ~\$/, `lossy owner: ${JSON.stringify(texts)}`)
+  assert.doesNotMatch(figureAfter('Read') ?? '', /^at least/, `intact owner: ${JSON.stringify(texts)}`)
+})
+
 // The wiring of the top bar (index.tsx -> TopBar) is tested in loss-qualified-wiring.test.tsx; this is only the wording helper
 test('topBarContextText words a lower-bound usage "at least", an exact one plainly', () => {
   const cost: UsageTotal = { value: 2.1, status: 'available', estimated: true }
