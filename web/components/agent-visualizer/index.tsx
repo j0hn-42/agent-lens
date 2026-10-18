@@ -237,8 +237,10 @@ export function AgentVisualizer() {
   const quotaSourceActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData, tourActive: tour.active })
   const quotaSettingActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData })
   // Offered once, on the first launch, as soon as the legend can start a tour (#377)
+  // A pending permission card comes first: the offer waits (not spent) until none is shown
+  const [permissionShown, setPermissionShown] = useState(false)
   const tourOffer = useTourOffer({
-    canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn,
+    canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn, permissionShown,
   })
 
   // One source for the dialog and the palette: a command never opens a tab the dialog leaves out
@@ -431,7 +433,7 @@ export function AgentVisualizer() {
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
       {/* Operator decisions (#240): renders nothing outside VS Code */}
-      <PermissionRequests sessionLabel={permissionSessionLabel} />
+      <PermissionRequests sessionLabel={permissionSessionLabel} onShownChange={setPermissionShown} />
       </main>
 
       <VisualizerDialogs
