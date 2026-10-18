@@ -415,7 +415,7 @@ export function SettingsDialog({
     <div
       ref={backdropRef}
       {...stopPropagationHandlers}
-      className="fixed inset-0 flex items-center justify-center p-3"
+      className="fixed inset-0 flex items-start justify-center p-3"
       style={{ zIndex: Z.contextMenu + 1, background: 'rgba(0, 0, 0, 0.5)' }}
     >
       <div

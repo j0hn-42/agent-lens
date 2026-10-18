@@ -1,6 +1,7 @@
 // Settings in tabs (#533), measured in a real browser against the demo app (`pnpm --dir web run test:e2e`).
-// Before #533 the dialog was one scroll of 1482 px at 1440x900. Now: each tab fits the screen from 768x1024 up (the dialog
-// does not scroll), nothing scrolls sideways at 320 px nor at 640x512 (1280x1024 at 200 % zoom, WCAG 1.4.10) in English and in
+// Before #533 the dialog was one scroll (1429 px in English, 1521 px in French at 1440x900 in this demo; the 1482 px seen
+// earlier came from the live server, whose quota switch adds a row). Now: each tab fits the screen at 1440x900, 1024x768,
+// 768x1024 and 1366x650 in the demo (the tallest panel is 608 px in English, 625 px in French; the dialog does not scroll), nothing scrolls sideways at 320 px nor at 640x512 (1280x1024 at 200 % zoom, WCAG 1.4.10) in English and in
 // French, and the tab names wrap instead of overflowing. Arrow keys move between the tabs in the real browser too.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -65,6 +66,14 @@ for (const locale of ['en', 'fr'] as const) {
       await page.context().close()
     })
   }
+  test(`${locale} 1366x650 (laptop with a browser bar): every tab fits the screen`, async () => {
+    const page = await openSettings(1366, 650, locale)
+    for (const m of await measureTabs(page)) {
+      assert.ok(m.dialogScroll <= m.dialogClient + 1, `${m.tab}: ${m.dialogScroll} px of content in ${m.dialogClient} px`)
+      assert.ok(!m.sideways && !m.dialogSideways && !m.tabOverflow, `${m.tab}: nothing overflows sideways`)
+    }
+    await page.context().close()
+  })
   for (const [w, h] of [[390, 844], [320, 568], [640, 512]] as const) {
     test(`${locale} ${w}x${h}: no sideways scroll in any tab, tab names wrap (WCAG 1.4.10)`, async () => {
       const page = await openSettings(w, h, locale)
@@ -77,6 +86,20 @@ for (const locale of ['en', 'fr'] as const) {
     })
   }
 }
+
+test('the tab list does not move when the tab changes (screen magnifier users)', async () => {
+  for (const [w, h] of [[1440, 900], [1024, 768], [390, 844]] as const) {
+    const page = await openSettings(w, h, 'fr')
+    const top = () => page.getByRole('tablist').evaluate(el => el.getBoundingClientRect().top)
+    await page.waitForTimeout(400) // the opening scale transition (0.2 s) is over
+    const before = await top()
+    for (const k of ['ArrowRight', 'ArrowRight', 'ArrowRight', 'Home']) {
+      await page.keyboard.press(k)
+      const now = await top(); assert.equal(now, before, `${w}x${h}: the tab list moved after ${k}: ${before} -> ${now}`)
+    }
+    await page.context().close()
+  }
+})
 
 test('arrow keys move between tabs and the focus stays visible on the selected tab', async () => {
   const page = await openSettings(1024, 768, 'en')
