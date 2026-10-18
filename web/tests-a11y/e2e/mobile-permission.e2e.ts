@@ -3,8 +3,12 @@
 // extension: it posts `__vscode-bridge-init` then a `permission-request` to the frame, exactly as the webview does
 // (the bridge accepts messages from window.parent only). No production code is involved.
 // Checked at 375x667, 390x844 and 320x568, with the Sessions drawer open: the card is reached by Tab, the focus is
-// never hidden under another surface (2.4.7, 2.4.11), Approve and Deny are at least 44x44 px, nothing scrolls
-// sideways, Escape closes the drawer and gives the focus back.
+// never hidden under another surface and always drawn with an indicator (2.4.7, 2.4.11), Approve and Deny are at
+// least 44x44 px (project rule #476, WCAG 2.5.5 AAA), nothing scrolls sideways (320 px reflow, 1.4.10: the card and
+// its buttons also lie inside the window), Escape closes the drawer and gives the focus back.
+// Focus visibility is checked on two levels. 2.4.11 (AA, Focus Not Obscured Minimum) fails when a focused control is
+// entirely hidden. The project rule, which is 2.4.12 (AAA, Focus Not Obscured Enhanced): no part of it is covered,
+// so any covered probe point fails as well; both are reported apart.
 // Not covered: a real device (Safari iOS, Chrome Android). This is Chromium emulation only.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -40,22 +44,26 @@ async function openWithCard(w: number, h: number): Promise<Opened> {
   const handle = await page.locator('#app').elementHandle()
   const app = (await handle!.contentFrame())!
   await app.locator('header').getByRole('button', { name: /^More/ }).waitFor()
-  // The bridge listens only once React has hydrated: an init before that would be lost
-  await app.waitForFunction(`[...document.querySelectorAll('header button')].some(b => Object.keys(b).some(k => k.startsWith('__reactProps')))`)
   // Same conversation as the extension, from the parent window (the bridge checks e.source === window.parent):
-  // init, then the request once the page declared its decision surface (the extension holds requests until then)
-  await page.evaluate(`new Promise(resolve => {
+  // init, then the request once the page declared its decision surface (the extension holds requests until then).
+  // The bridge listens only once React has hydrated and an init sent before that is lost: like the extension, which
+  // waits for the page's answer, init is repeated until the page answers with its public `permission-surface`
+  // message (no React internal involved).
+  await page.evaluate(`new Promise((resolve, reject) => {
     const win = document.getElementById('app').contentWindow
+    const retry = setInterval(() => win.postMessage({ type: '__vscode-bridge-init' }, '*'), 100)
+    const giveUp = setTimeout(() => { clearInterval(retry); reject(new Error('the page never declared its permission surface')) }, 20000)
     window.addEventListener('message', function onMsg(e) {
       if (e.source !== win || !e.data || e.data.type !== 'permission-surface' || e.data.ready !== true) return
       window.removeEventListener('message', onMsg)
+      clearInterval(retry)
+      clearTimeout(giveUp)
       win.postMessage({ type: 'permission-request', request: {
         sessionId: 'sess-e2e', toolUseId: 'toolu_e2e', nonce: ${JSON.stringify(NONCE)}, toolName: 'Bash',
         inputPreview: '{"command":"npm test"}', inputTruncated: false, inputSha256: ${JSON.stringify('c'.repeat(64))},
         requestedAt: Date.now(), expiresAt: Date.now() + 10 * 60 * 1000 } }, '*')
       resolve(true)
     })
-    win.postMessage({ type: '__vscode-bridge-init' }, '*')
   })`)
   await app.locator('[data-permission-requests] [data-nonce]').waitFor()
   await waitForStableLayout(app)
@@ -64,11 +72,28 @@ async function openWithCard(w: number, h: number): Promise<Opened> {
 
 const noHorizontalScroll = (app: Frame) => app.evaluate('document.documentElement.scrollWidth <= window.innerWidth') as Promise<boolean>
 
-interface Probe { id: string; name: string; inCards: boolean; inDrawer: boolean; visible: boolean; inViewport: boolean; hiddenBy: string | null }
+/** Reflow (1.4.10): scrollWidth alone misses a box overflowing a clipped ancestor, so the boxes are measured too. */
+async function outsideWindow(app: Frame): Promise<string[]> {
+  return app.evaluate(`(() => {
+    const out = []
+    const w = window.innerWidth
+    const els = [...document.querySelectorAll('[data-permission-requests], [data-permission-requests] [data-nonce], [data-permission-requests] button')]
+    for (const el of els) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 && r.height === 0) continue
+      if (r.left < -0.5 || r.right > w + 0.5) out.push((el.getAttribute('aria-label') || el.tagName).slice(0, 40) + ' spans ' + r.left.toFixed(1) + '..' + r.right.toFixed(1) + ' of ' + w)
+    }
+    return out
+  })()`) as Promise<string[]>
+}
+
+interface Probe { id: string; name: string; inCards: boolean; inDrawer: boolean; visible: boolean; inViewport: boolean; hiddenBy: string | null; entirelyHidden: boolean; indicator: boolean }
 
 /**
  * The focused element, and whether it can be seen: its box lies in the window and the topmost element at its centre
- * and at its four corners (1 px in) is itself or a descendant, i.e. nothing is drawn over it (2.4.11).
+ * and at its four corners (1 px in) is itself or a descendant, i.e. nothing is drawn over it (hiddenBy: some point is
+ * covered, 2.4.12 and the project rule; entirelyHidden: all five are, 2.4.11). `indicator`: a computed focus
+ * indicator exists, an outline with a style and a width, or a box-shadow (2.4.7).
  */
 const PROBE = `(() => {
   const el = document.activeElement
@@ -77,13 +102,19 @@ const PROBE = `(() => {
   const inViewport = r.left >= -0.5 && r.top >= -0.5 && r.right <= window.innerWidth + 0.5 && r.bottom <= window.innerHeight + 0.5
   const pts = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 1, r.top + 1], [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]]
   let hiddenBy = null
+  let covered = 0
   for (const [x, y] of pts) {
     const top = document.elementFromPoint(x, y)
-    if (!top || !(top === el || el.contains(top) || top.contains(el))) { hiddenBy = top ? top.tagName + (top.id ? '#' + top.id : '') + '.' + String(top.className).slice(0, 40) : 'nothing'; break }
+    if (!top || !(top === el || el.contains(top) || top.contains(el))) {
+      covered++
+      if (hiddenBy === null) hiddenBy = top ? top.tagName + (top.id ? '#' + top.id : '') + '.' + String(top.className).slice(0, 40) : 'nothing'
+    }
   }
+  const cs = getComputedStyle(el)
+  const indicator = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) || (cs.boxShadow !== 'none' && cs.boxShadow !== '')
   return { id: el.id, name: el.getAttribute('aria-label') || (el.textContent || '').trim().slice(0, 30),
     inCards: !!el.closest('[data-permission-requests]'), inDrawer: !!el.closest('[data-mobile-drawer]'),
-    visible: r.width > 0 && r.height > 0, inViewport, hiddenBy }
+    visible: r.width > 0 && r.height > 0, inViewport, hiddenBy, entirelyHidden: covered === pts.length, indicator }
 })()`
 
 async function probe(app: Frame): Promise<Probe | null> {
@@ -104,12 +135,14 @@ async function tabAround(page: Page, app: Frame, max = 40): Promise<Probe[]> {
   return stops
 }
 
-/** What is wrong with the Tab stops: out of the window, covered by another element (2.4.11), or outside the cycle. */
+/** What is wrong with the Tab stops: out of the window, no focus indicator (2.4.7), hidden (2.4.11) or partly covered by another element (2.4.12), or outside the cycle. */
 function focusProblems(stops: Probe[], cycle: (s: Probe) => boolean = s => s.inCards || s.inDrawer): string[] {
   const problems: string[] = []
   for (const s of stops) {
     if (!s.visible || !s.inViewport) problems.push(`"${s.name}" has focus but is not inside the window`)
-    if (s.hiddenBy !== null) problems.push(`"${s.name}" has focus but is covered by ${s.hiddenBy}`)
+    if (!s.indicator) problems.push(`"${s.name}" has focus but no focus indicator is computed (2.4.7)`)
+    if (s.entirelyHidden) problems.push(`"${s.name}" has focus but is entirely hidden by ${s.hiddenBy} (2.4.11)`)
+    else if (s.hiddenBy !== null) problems.push(`"${s.name}" has focus but is partly covered by ${s.hiddenBy} (2.4.12, project rule)`)
     if (!cycle(s)) problems.push(`Tab left the cycle for "${s.name}" (${s.id})`)
   }
   return problems
@@ -119,7 +152,7 @@ const APPROVE =/^(Approve|Approuver)/i
 const DENY = /^(Deny|Refuser)/i
 
 for (const [w, h] of [[375, 667], [390, 844], [320, 568]] as Array<[number, number]>) {
-  test(`${w}x${h}: permission card with the Sessions drawer open (keyboard, focus visible, targets, scroll, Escape)`, async () => {
+  test(`${w}x${h}: permission card with the Sessions drawer open (keyboard, focus indicator, not obscured, scroll, Escape)`, async () => {
     const { page, app } = await openWithCard(w, h)
     try {
       const sessions = app.locator('header').getByRole('button', { name: /^Sessions/ })
@@ -141,6 +174,7 @@ for (const [w, h] of [[375, 667], [390, 844], [320, 568]] as Array<[number, numb
       const problems = focusProblems(stops)
 
       assert.ok(await noHorizontalScroll(app), 'no horizontal scroll with the card and the drawer')
+      assert.deepEqual(await outsideWindow(app), [], 'the card and its buttons lie inside the window (reflow)')
 
       // Escape closes the drawer, the card stays, the focus goes back to Sessions
       // (from a control of the drawer: the Tab loop above may have ended on the card, which is not the drawer's)
@@ -151,7 +185,7 @@ for (const [w, h] of [[375, 667], [390, 844], [320, 568]] as Array<[number, numb
       assert.equal(await app.locator('[data-permission-requests] [data-nonce]').count(), 1, 'the card is still there')
       assert.equal(await app.evaluate(`document.activeElement && document.activeElement.id`), 'topbar-toggle-sessions', 'the focus is back on Sessions')
       assert.ok(await noHorizontalScroll(app), 'no horizontal scroll once closed')
-      assert.deepEqual(problems, [], 'every Tab stop is drawn in the window, uncovered, and inside the card or the drawer')
+      assert.deepEqual(problems, [], 'every Tab stop is drawn in the window, has a focus indicator, is uncovered, and is inside the card or the drawer')
     } finally {
       await page.context().close()
     }
@@ -175,6 +209,7 @@ for (const [w, h] of [[375, 667], [390, 844], [320, 568]] as Array<[number, numb
       assert.ok(seen.some(s => s.inCards && DENY.test(s.name)), 'Tab reaches Deny')
       assert.deepEqual(focusProblems(seen.filter(s => s.inCards), () => true), [], 'the card stops are drawn and uncovered')
       assert.ok(await noHorizontalScroll(app), 'no horizontal scroll')
+      assert.deepEqual(await outsideWindow(app), [], 'the card and its buttons lie inside the window (reflow)')
     } finally {
       await page.context().close()
     }
@@ -183,7 +218,7 @@ for (const [w, h] of [[375, 667], [390, 844], [320, 568]] as Array<[number, numb
 
 // Own test, so that a too small target does not hide what the test above proves about focus and keyboard.
 for (const [w, h] of [[375, 667], [390, 844], [320, 568]] as Array<[number, number]>) {
-  test(`${w}x${h}: Approve and Deny of a permission card are at least 44x44 px, drawer open (2.5.5 / 2.5.8)`, async () => {
+  test(`${w}x${h}: Approve and Deny of a permission card are at least 44x44 px, drawer open (project rule #476, WCAG 2.5.5 AAA)`, async () => {
     const { page, app } = await openWithCard(w, h)
     try {
       await app.locator('header').getByRole('button', { name: /^Sessions/ }).click()
