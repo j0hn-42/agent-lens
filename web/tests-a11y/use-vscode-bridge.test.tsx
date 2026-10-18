@@ -250,6 +250,22 @@ test('event-loss (#366): only the first connection of a graph counts, and it liv
   assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a later connection never replaces the first figure')
 })
 
+test('event-loss (#366): a reconnection resumes from the relay cursor and adds the gap the cut link left', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 } }))
+  await act(async () => FakeES.last.send({ type: 'relay-cursor', instance: 'a1b2c3d4e5f60718', seq: 20 }))
+  await act(async () => FakeES.last.send({ ...agentEvent('a', 1), seq: 21 }))
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.last.url, 'http://127.0.0.1:4321/events?since=a1b2c3d4e5f60718.21')
+  await act(async () => FakeES.last.open())
+  // The relay's totals of this connection are ignored, its gap (events numbered after 21 this client never got) is added
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 90 }, gap: { a: 4, b: 2 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 7, b: 2 }, otherEvents: 0 })
+})
+
 test('event-loss (#366): a first connection without loss is not turned into a loss by a reconnection', async () => {
   relayEnv('4321')
   const { result } = renderHook(() => useVSCodeBridge())

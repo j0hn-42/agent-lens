@@ -17,6 +17,11 @@ export interface EventLoss {
   evicted: Record<string, number>
   /** Events of sessions the relay no longer names */
   otherEvents: number
+  /**
+   * In a message only, for a client back from a cut link (`?since=`): session id -> events numbered after what it
+   * last received that it will never get (a lower bound). acceptEventLoss adds it to `evicted`; never stored as is.
+   */
+  gap?: Record<string, number>
 }
 
 /** The relay bounds its tally; the client bounds what it reads as well */
@@ -31,9 +36,20 @@ const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isS
 /** The message as a validated EventLoss; null when it is not an `event-loss` message. */
 export function parseEventLoss(data: unknown): EventLoss | null {
   if (typeof data !== 'object' || data === null) return null
-  const d = data as { type?: unknown; evicted?: unknown; otherEvents?: unknown }
-  if (d.type !== 'event-loss' || typeof d.evicted !== 'object' || d.evicted === null || Array.isArray(d.evicted)) return null
-  const source = d.evicted as Record<string, unknown>
+  const d = data as { type?: unknown; evicted?: unknown; otherEvents?: unknown; gap?: unknown }
+  if (d.type !== 'event-loss' || !isCountMap(d.evicted)) return null
+  const evicted = parseCounts(d.evicted)
+  const gap = isCountMap(d.gap) ? parseCounts(d.gap) : null
+  return {
+    evicted, otherEvents: isCount(d.otherEvents) ? d.otherEvents : 0,
+    ...(gap && Object.keys(gap).length > 0 ? { gap } : {}),
+  }
+}
+
+const isCountMap = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Session id -> count, bounded and field by field: junk, prototype keys and long keys are left out. */
+function parseCounts(source: Record<string, unknown>): Record<string, number> {
   const evicted: Record<string, number> = Object.create(null)
   let kept = 0
   let scanned = 0
@@ -46,7 +62,7 @@ export function parseEventLoss(data: unknown): EventLoss | null {
     evicted[sid] = n
     kept++
   }
-  return { evicted: { ...evicted }, otherEvents: isCount(d.otherEvents) ? d.otherEvents : 0 }
+  return { ...evicted }
 }
 
 const add = (a: number, b: number) => Math.min(a + b, Number.MAX_SAFE_INTEGER)
@@ -113,13 +129,24 @@ export function viewNormalizationStats(
 
 /**
  * Which figure the view keeps. `connections` is how many times the link has been up since the graph was
- * last emptied (a scope change reloads it). Only the first connection's message counts: it was received
- * while the graph was empty. A later one is the relay's cumulative total, not what this graph lacks, so it
- * is ignored and the first figure stays (the hole it described is still in the graph). A message that did
- * not parse never clears a figure.
+ * last emptied (a scope change reloads it). Only the first connection's totals count: they were received
+ * while the graph was empty. A later message's totals are the relay's cumulative ones, not what this graph lacks,
+ * so they are ignored and the first figure stays (the hole it described is still in the graph). What a later
+ * message adds is its `gap`: the events the cut link lost for THIS client (it reconnected with `?since=`), numbered
+ * after everything it received, so never counted before: added per session. A message that did not parse never
+ * clears a figure.
  */
 export function acceptEventLoss(connections: number, current: EventLoss | null, incoming: EventLoss | null): EventLoss | null {
-  return connections <= 1 && incoming !== null ? incoming : current
+  if (incoming === null) return current
+  if (connections <= 1) return incoming.gap ? { evicted: incoming.evicted, otherEvents: incoming.otherEvents } : incoming
+  const gap = incoming.gap
+  if (!gap || Object.keys(gap).length === 0) return current
+  const evicted: Record<string, number> = { ...(current?.evicted ?? {}) }
+  for (const [sid, n] of Object.entries(gap)) {
+    if (!Object.hasOwn(evicted, sid) && Object.keys(evicted).length >= MAX_SESSIONS) continue
+    evicted[sid] = add(Object.hasOwn(evicted, sid) ? evicted[sid] : 0, n)
+  }
+  return { evicted, otherEvents: current?.otherEvents ?? 0 }
 }
 
 /** Whether the truncation banner shows, and the total it was computed on (what a dismissal stores). */

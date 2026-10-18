@@ -141,6 +141,28 @@ export function createEventDedupe(capacity = DEDUPE_CAPACITY) {
   }
 }
 
+// ─── Resume point (#366) ──────────────────────────────────────────────────
+
+/** The relay process and the number of the last event received from it (see `relay-cursor`) */
+export interface RelayCursor { instance: string; seq: number }
+
+const CURSOR_INSTANCE = /^[0-9a-f]{8,64}$/
+const isSeq = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+
+/** A `relay-cursor` message as a validated cursor; null for anything else (untrusted data). */
+export function parseRelayCursor(data: unknown): RelayCursor | null {
+  if (typeof data !== 'object' || data === null) return null
+  const d = data as { type?: unknown; instance?: unknown; seq?: unknown }
+  if (d.type !== 'relay-cursor' || typeof d.instance !== 'string' || !CURSOR_INSTANCE.test(d.instance) || !isSeq(d.seq)) return null
+  return { instance: d.instance, seq: d.seq }
+}
+
+/** The stream URL with `?since=<instance>.<seq>` (the relay then counts what a cut link lost); unchanged without a cursor. */
+export function withSince(url: string, cursor: RelayCursor | null): string {
+  if (!cursor) return url
+  return `${url}${url.includes('?') ? '&' : '?'}since=${cursor.instance}.${cursor.seq}`
+}
+
 // ─── Controller ───────────────────────────────────────────────────────────
 
 export interface SourceStatus {
@@ -185,6 +207,9 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   let hasConnected = false
   let watchdog: ReturnType<typeof setTimeout> | null = null
   const dedupe = createEventDedupe()
+  // Where to resume (#366): the relay's cursor, advanced by the number of each live event received. Kept across
+  // reconnections of this source only: a new source (new graph, new scope) starts without one.
+  let cursor: RelayCursor | null = null
   const alive = () => loadToken.isCurrent(token)
 
   const emit = (status: SourceStatus['status'], delay?: number) =>
@@ -231,7 +256,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   }
 
   const connect = () => {
-    const src = opts.createEventSource(opts.url)
+    const src = opts.createEventSource(withSince(opts.url, cursor))
     es = src
     // The request may never answer (frozen relay, proxy accepting TCP only): neither onopen nor onerror would fire
     armWatchdog(src, CONNECT_TIMEOUT_MS)
@@ -250,7 +275,14 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       armWatchdog(src)
       let data: unknown
       try { data = JSON.parse(e.data) } catch { opts.onParseError?.(); return }
-      if ((data as { type?: unknown } | null)?.type === 'heartbeat') return
+      const type = (data as { type?: unknown } | null)?.type
+      if (type === 'heartbeat') return
+      if (type === 'relay-cursor') { cursor = parseRelayCursor(data) ?? cursor; return }
+      // Before the session filter: an event received is received, whatever the view keeps of it
+      if (type === 'agent-event' && cursor) {
+        const seq = (data as { seq?: unknown }).seq
+        if (isSeq(seq) && seq > cursor.seq) cursor = { instance: cursor.instance, seq }
+      }
       const kept = filterForSession(data, opts.sessionId)
       if (kept === null) return
       deliver(kept)

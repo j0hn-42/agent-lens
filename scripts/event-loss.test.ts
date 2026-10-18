@@ -87,6 +87,22 @@ test('acceptEventLoss keeps the figure of the first connection of a graph and ig
   assert.equal(acceptEventLoss(1, first, null), first, 'a malformed message never clears a figure')
 })
 
+test('parseEventLoss reads the gap of a reconnection like the counts (#366)', () => {
+  assert.deepEqual(parseEventLoss({ type: 'event-loss', evicted: {}, gap: { a: 2, b: -1, c: 'x' } }), { evicted: {}, otherEvents: 0, gap: { a: 2 } })
+  assert.deepEqual(parseEventLoss({ type: 'event-loss', evicted: { a: 1 } }), { evicted: { a: 1 }, otherEvents: 0 }, 'no gap field when none was sent')
+  assert.deepEqual(parseEventLoss({ type: 'event-loss', evicted: {}, gap: 'x' }), { evicted: {}, otherEvents: 0 })
+})
+
+test('acceptEventLoss adds the gap of a reconnection (events the cut link lost) to the figure the graph keeps (#366)', () => {
+  const first = { evicted: { a: 3 }, otherEvents: 2 }
+  // The relay's totals of a later connection are still ignored; only the gap, counted for THIS client, is added
+  assert.deepEqual(acceptEventLoss(2, first, { evicted: { a: 50 }, otherEvents: 9, gap: { a: 4, b: 1 } }), { evicted: { a: 7, b: 1 }, otherEvents: 2 })
+  assert.deepEqual(acceptEventLoss(3, null, { evicted: { a: 50 }, otherEvents: 0, gap: { c: 5 } }), { evicted: { c: 5 }, otherEvents: 0 }, 'a first connection without loss, then a gap')
+  assert.equal(acceptEventLoss(2, first, { evicted: { a: 50 }, otherEvents: 0, gap: {} }), first, 'an empty gap changes nothing')
+  // A first connection never carries a gap (no since); if one came, it is not added on top of totals that already cover it
+  assert.deepEqual(acceptEventLoss(1, null, { evicted: { a: 3 }, otherEvents: 0, gap: { a: 3 } }), { evicted: { a: 3 }, otherEvents: 0 })
+})
+
 test('truncationBannerState: shown while something was lost, back when more is lost, replay loss included', () => {
   const none = createStats()
   const cut = { ...none, ignoredEvents: 2 }
