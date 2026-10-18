@@ -232,7 +232,7 @@ export function fitContent(
 }
 
 /** How far (screen px) `bounds` stick out of the `safe` rectangle at transform `t`; 0 when they are inside. */
-export function boundsOverflow(t: Transform, bounds: WorldBounds, safe: Rect): number {
+function boundsOverflow(t: Transform, bounds: WorldBounds, safe: Rect): number {
   if (isEmptyBounds(bounds)) return 0
   const l = bounds.minX * t.scale + t.x
   const r = bounds.maxX * t.scale + t.x
