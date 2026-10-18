@@ -163,7 +163,8 @@ test('reset preferences (#372): asks first, says what it resets and keeps, then 
   showTab(view, 'Keyboard and preferences')
   const reset = view.getByRole('button', { name: 'Reset preferences' })
   const help = document.getElementById(reset.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
-  assert.ok(/Theme, language, sound, notifications and presentation are kept/.test(help), 'the help names what is not reset')
+  assert.ok(/Theme, language, notifications and presentation are kept/.test(help), 'the help names what is not reset')
+  assert.ok(/the View menu \(Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after\), and mutes the sound/.test(help), 'the help names the View menu and the sound, reset since #372')
   assert.ok(/finished sessions/.test(help) && /inactive agents/.test(help), 'the help names the view filters it resets')
   fireEvent.click(reset)
   assert.equal(resets, 0, 'nothing is reset before the confirmation')

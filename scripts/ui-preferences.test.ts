@@ -511,3 +511,100 @@ test('showFinished migration: reset forgets the former key too', () => {
   assert.equal(m.data.has(LEGACY_FINISHED), false)
   assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false)
 })
+
+// --- View menu of the canvas controls and sound (#372): moved into the blob, their former keys read once ----------
+
+const LEGACY_PAUSE = 'agent-viz-pause-animations'
+const LEGACY_CALM = 'agent-lens:calm-layers'
+const LEGACY_PIN = 'agent-viz-never-hide'
+const LEGACY_EXPIRY = 'agent-viz-tool-expiry-s'
+const LEGACY_SOUND = 'agent-viz-sound'
+const VIEW_LEGACY_KEYS = [LEGACY_PAUSE, LEGACY_CALM, LEGACY_PIN, LEGACY_EXPIRY, LEGACY_SOUND]
+const loadWith = (entries: Record<string, string>, blob?: string) => {
+  const m = memStorage()
+  for (const [k, v] of Object.entries(entries)) m.data.set(k, v)
+  if (blob !== undefined) m.data.set(UI_PREFS_STORAGE_KEY, blob)
+  return createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
+}
+
+test('view and sound preferences: defaults match what the app showed before the move', () => {
+  assert.equal(D.freezeMotion, false)
+  assert.deepEqual([D.calmBackground, D.calmLinks, D.calmAgents, D.calmEffects], [false, false, false, false])
+  assert.equal(D.pinCards, false)
+  assert.equal(D.toolExpiryS, 300)
+  assert.equal(D.soundOn, false)
+})
+
+test('view and sound preferences: validated per key, stored in the blob under no separate key', () => {
+  for (const key of ['freezeMotion', 'calmBackground', 'calmLinks', 'calmAgents', 'calmEffects', 'pinCards', 'soundOn'] as const) {
+    for (const bad of ['true', 1, null, {}]) assert.equal(sanitizePref(key, bad), false, `${key} <- ${JSON.stringify(bad)}`)
+    assert.equal(sanitizePref(key, true), true)
+  }
+  for (const n of [60, 120, 300, 600, 1800]) assert.equal(sanitizePref('toolExpiryS', n), n)
+  for (const bad of [0, 45, 301, -60, 1e9, Number.NaN, '600', null]) assert.equal(sanitizePref('toolExpiryS', bad), 300, `toolExpiryS <- ${String(bad)}`)
+  const m = memStorage(); const s = manualSchedule()
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  store.set('freezeMotion', true); store.set('calmLinks', true); store.set('pinCards', true); store.set('toolExpiryS', 1800); store.set('soundOn', true); s.tick()
+  assert.deepEqual([...m.data.keys()], [UI_PREFS_STORAGE_KEY], 'stored in the preference blob, under no separate key')
+  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
+  assert.deepEqual([p.freezeMotion, p.calmLinks, p.pinCards, p.toolExpiryS, p.soundOn], [true, true, true, 1800, true])
+})
+
+test('migration: "Freeze motion" and "Pin cards" keep the meaning of their former keys (only "1" turned them on)', () => {
+  for (const [raw, expected] of [['1', true], ['0', false], ['true', false], ['', false]] as const) {
+    assert.equal(loadWith({ [LEGACY_PAUSE]: raw }).freezeMotion, expected, `pause ${JSON.stringify(raw)}`)
+    assert.equal(loadWith({ [LEGACY_PIN]: raw }).pinCards, expected, `pin ${JSON.stringify(raw)}`)
+  }
+  assert.equal(loadWith({}).freezeMotion, false)
+  assert.equal(loadWith({}).pinCards, false)
+})
+
+test('migration: the call expiry keeps any offered choice of its former key, anything else gives the default', () => {
+  for (const n of [60, 120, 300, 600, 1800]) assert.equal(loadWith({ [LEGACY_EXPIRY]: String(n) }).toolExpiryS, n)
+  for (const raw of ['45', '', 'abc', '600.5', '-60']) assert.equal(loadWith({ [LEGACY_EXPIRY]: raw }).toolExpiryS, 300, raw)
+  assert.equal(loadWith({}).toolExpiryS, 300)
+})
+
+test('migration: every combination of calmed layers of the former key is kept', () => {
+  const layers = ['background', 'links', 'agents', 'effects'] as const
+  for (let mask = 0; mask < 16; mask++) {
+    const stored = Object.fromEntries(layers.map((l, i) => [l, (mask & (1 << i)) !== 0]))
+    const p = loadWith({ [LEGACY_CALM]: JSON.stringify(stored) })
+    assert.deepEqual([p.calmBackground, p.calmLinks, p.calmAgents, p.calmEffects], layers.map(l => stored[l]), `mask ${mask}`)
+  }
+  for (const raw of ['{oops', '[true]', '{"links":"true"}', 'null']) {
+    const p = loadWith({ [LEGACY_CALM]: raw })
+    assert.deepEqual([p.calmBackground, p.calmLinks, p.calmAgents, p.calmEffects], [false, false, false, false], raw)
+  }
+})
+
+test('migration: sound keeps the meaning of its former key (only "on" turned it on)', () => {
+  for (const [raw, expected] of [['on', true], ['off', false], ['true', false], ['', false]] as const) {
+    assert.equal(loadWith({ [LEGACY_SOUND]: raw }).soundOn, expected, JSON.stringify(raw))
+  }
+  assert.equal(loadWith({}).soundOn, false)
+})
+
+test('migration: a value already in the blob wins over every former key of the View menu and sound', () => {
+  const p = loadWith(
+    { [LEGACY_PAUSE]: '1', [LEGACY_PIN]: '1', [LEGACY_EXPIRY]: '1800', [LEGACY_CALM]: '{"background":true,"links":true,"agents":true,"effects":true}', [LEGACY_SOUND]: 'on' },
+    env({ freezeMotion: false, pinCards: false, toolExpiryS: 60, calmBackground: false, calmLinks: false, calmAgents: false, calmEffects: false, soundOn: false }),
+  )
+  assert.deepEqual([p.freezeMotion, p.pinCards, p.toolExpiryS, p.calmBackground, p.calmLinks, p.calmAgents, p.calmEffects, p.soundOn], [false, false, 60, false, false, false, false, false])
+  // a layer missing from the blob is still read from the former key
+  const q = loadWith({ [LEGACY_CALM]: '{"effects":true}' }, env({ calmBackground: false }))
+  assert.equal(q.calmEffects, true)
+})
+
+test('reset: the View menu and sound go back to their defaults and their former keys are forgotten', () => {
+  const m = memStorage(); const s = manualSchedule()
+  m.data.set(LEGACY_PAUSE, '1'); m.data.set(LEGACY_PIN, '1'); m.data.set(LEGACY_EXPIRY, '1800'); m.data.set(LEGACY_SOUND, 'on')
+  m.data.set(LEGACY_CALM, '{"background":true}')
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  store.set('calmAgents', true)
+  assert.equal(store.getSnapshot().freezeMotion, true)
+  store.reset(); s.tick()
+  for (const k of VIEW_LEGACY_KEYS) assert.equal(m.data.has(k), false, `${k} forgotten`)
+  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
+  assert.deepEqual(p, { ...D })
+})

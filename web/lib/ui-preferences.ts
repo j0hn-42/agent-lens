@@ -4,12 +4,13 @@
  * Pure (no React, no direct `window` access) so it can be unit-tested with node:test.
  *
  * One blob holds the view preferences. hide-inactive and single-key shortcuts moved in with #219,
- * show-finished-sessions with #372; their former standalone keys are read once as a migration (see
- * LEGACY_BOOLEAN_PREFS) and removed by a reset, so no existing choice is lost and none comes back.
+ * show-finished-sessions, the View menu of the canvas controls (Freeze motion, calmed layers, Pin cards,
+ * call expiry) and the sound with #372; their former standalone keys are read once as a migration (see
+ * LEGACY_PREFS) and removed by a reset, so no existing choice is lost and none comes back.
  *
  * Not stored here on purpose:
- * - mute (use-audio-effects), theme, language, notifications and presentation keep their own stores:
- *   reuse those, never duplicate them. 'Reset preferences' (Settings) therefore leaves them alone;
+ * - theme, language, notifications and presentation keep their own stores: reuse those, never duplicate
+ *   them. 'Reset preferences' (Settings) therefore leaves them alone;
  * - playback speed: it is locked outside review mode, restoring it would be a trap.
  *
  * Trust model: whatever sits in localStorage may be hand-edited, written by an older/newer build or
@@ -21,6 +22,8 @@
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from './inactive-agents'
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from './shortcuts'
 import { SHOW_FINISHED_STORAGE_KEY, parseShowFinished } from '../hooks/simulation/session-visibility'
+import { ANIM_PAUSE_KEY, NEVER_HIDE_KEY, SOUND_PREF_KEY, TOOL_EXPIRY_CHOICES_S, TOOL_EXPIRY_KEY, TOOL_EXPIRY_S, parseToolExpiryS } from './canvas-constants'
+import { MOTION_LAYERS_STORAGE_KEY, parseCalmLayers } from './motion-layers'
 
 /** localStorage key of the preference blob */
 export const UI_PREFS_STORAGE_KEY = 'agent-lens:ui-prefs'
@@ -68,6 +71,19 @@ export interface UiPrefs {
   relayScope: 'workspace' | 'all' | null
   /** Verbosity of the live announcements (#379): urgent states are told at every level */
   announceLevel: AnnounceLevel
+  /** View menu > 'Freeze motion' (#372, formerly its own key): off by default */
+  freezeMotion: boolean
+  /** View menu > per-layer motion (#247; in the blob since #372): true = this canvas layer is calm */
+  calmBackground: boolean
+  calmLinks: boolean
+  calmAgents: boolean
+  calmEffects: boolean
+  /** View menu > 'Pin cards' (#372, formerly its own key): bubbles, cards and discoveries never auto-hide; off by default */
+  pinCards: boolean
+  /** View menu > expiry of a call without an observed end, in seconds: one of TOOL_EXPIRY_CHOICES_S */
+  toolExpiryS: number
+  /** Sound effects (#372, formerly their own key): off (muted) by default */
+  soundOn: boolean
 }
 
 export type UiPrefKey = keyof UiPrefs
@@ -91,6 +107,14 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   sessionListActiveOnly: true,
   relayScope: null,
   announceLevel: 'all',
+  freezeMotion: false,
+  calmBackground: false,
+  calmLinks: false,
+  calmAgents: false,
+  calmEffects: false,
+  pinCards: false,
+  toolExpiryS: TOOL_EXPIRY_S,
+  soundOn: false,
 })
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
@@ -106,6 +130,8 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
       return (value === 'all' || value === 'important' ? value : fallback) as UiPrefs[K]
     case 'relayScope':
       return (value === 'workspace' || value === 'all' ? value : null) as UiPrefs[K]
+    case 'toolExpiryS':
+      return ((TOOL_EXPIRY_CHOICES_S as readonly unknown[]).includes(value) ? value : fallback) as UiPrefs[K]
     case 'sessionFilterBranch':
     case 'sessionFilterProject':
     case 'lastSelectedSessionId': {
@@ -153,25 +179,54 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
 }
 
 /**
- * Former standalone keys of preferences now held by the blob (#219, #372). Read only when the blob has no
- * valid value for the field, with the semantics each key always had.
+ * Former standalone keys of preferences now held by the blob (#219, #372). A key is read only for the fields the
+ * blob has no valid value for, with the semantics that key always had.
  */
-const LEGACY_BOOLEAN_PREFS: ReadonlyArray<{ pref: 'hideInactive' | 'showFinished' | 'singleKeyShortcuts'; storageKey: string; parse: (raw: string | null) => boolean }> = [
-  { pref: 'hideInactive', storageKey: HIDE_INACTIVE_STORAGE_KEY, parse: parseHideInactive },
+interface LegacyPref {
+  storageKey: string
+  /** Fields of the blob this key fed */
+  fields: readonly UiPrefKey[]
+  /** What the former key meant, for those fields */
+  read: (raw: string | null) => Partial<UiPrefs>
+}
+
+/** Former booleans stored as '1' / '0' by the canvas controls: only '1' turned them on */
+const parseOneFlag = (raw: string | null): boolean => raw === '1'
+
+const LEGACY_PREFS: readonly LegacyPref[] = [
+  { storageKey: HIDE_INACTIVE_STORAGE_KEY, fields: ['hideInactive'], read: raw => ({ hideInactive: parseHideInactive(raw) }) },
   // #372: only the exact string 'true' turned it on
-  { pref: 'showFinished', storageKey: SHOW_FINISHED_STORAGE_KEY, parse: parseShowFinished },
-  { pref: 'singleKeyShortcuts', storageKey: SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parse: parseSingleKeyPreference },
+  { storageKey: SHOW_FINISHED_STORAGE_KEY, fields: ['showFinished'], read: raw => ({ showFinished: parseShowFinished(raw) }) },
+  { storageKey: SINGLE_KEY_SHORTCUTS_STORAGE_KEY, fields: ['singleKeyShortcuts'], read: raw => ({ singleKeyShortcuts: parseSingleKeyPreference(raw) }) },
+  // The View menu of the canvas controls and the sound (#372)
+  { storageKey: ANIM_PAUSE_KEY, fields: ['freezeMotion'], read: raw => ({ freezeMotion: parseOneFlag(raw) }) },
+  {
+    storageKey: MOTION_LAYERS_STORAGE_KEY,
+    fields: ['calmBackground', 'calmLinks', 'calmAgents', 'calmEffects'],
+    read: raw => {
+      const c = parseCalmLayers(raw)
+      return { calmBackground: c.background, calmLinks: c.links, calmAgents: c.agents, calmEffects: c.effects }
+    },
+  },
+  { storageKey: NEVER_HIDE_KEY, fields: ['pinCards'], read: raw => ({ pinCards: parseOneFlag(raw) }) },
+  { storageKey: TOOL_EXPIRY_KEY, fields: ['toolExpiryS'], read: raw => ({ toolExpiryS: parseToolExpiryS(raw) }) },
+  // Only 'on' turned the sound on: nothing stored meant muted
+  { storageKey: SOUND_PREF_KEY, fields: ['soundOn'], read: raw => ({ soundOn: raw === 'on' }) },
 ]
 
-/** Does the stored text carry a valid boolean for `key`? (same envelope rules as sanitizePrefs) */
-function storedHasBoolean(text: string | null | undefined, key: UiPrefKey): boolean {
-  if (typeof text !== 'string' || text.length === 0 || text.length > 100_000) return false
+/** The stored source object, or null (same envelope rules as sanitizePrefs) */
+function storedSource(text: string | null | undefined): Record<string, unknown> | null {
+  if (typeof text !== 'string' || text.length === 0 || text.length > 100_000) return null
   try {
-    const source = prefsSource(JSON.parse(text))
-    return source !== null && Object.prototype.hasOwnProperty.call(source, key) && typeof source[key] === 'boolean'
+    return prefsSource(JSON.parse(text))
   } catch {
-    return false
+    return null
   }
+}
+
+/** Does the stored source carry a valid value for `key` (one that sanitizing keeps as is)? */
+function sourceHasValid(source: Record<string, unknown> | null, key: UiPrefKey): boolean {
+  return source !== null && Object.prototype.hasOwnProperty.call(source, key) && Object.is(sanitizePref(key, source[key]), source[key])
 }
 
 /** Parse the stored blob and fill the fields it lacks from the legacy keys. Never throws on legacy reads. */
@@ -181,9 +236,15 @@ function loadPrefs(storage: StorageLike, key: string): UiPrefs {
 
 function withLegacy(storage: StorageLike, text: string | null | undefined): UiPrefs {
   const prefs = parsePrefs(text)
-  for (const legacy of LEGACY_BOOLEAN_PREFS) {
-    if (storedHasBoolean(text, legacy.pref)) continue
-    try { prefs[legacy.pref] = legacy.parse(storage.getItem(legacy.storageKey)) } catch { /* storage unavailable: keep the default */ }
+  const source = storedSource(text)
+  const target = prefs as unknown as Record<string, unknown>
+  for (const legacy of LEGACY_PREFS) {
+    const missing = legacy.fields.filter(f => !sourceHasValid(source, f))
+    if (missing.length === 0) continue
+    try {
+      const values = legacy.read(storage.getItem(legacy.storageKey)) as Record<string, unknown>
+      for (const f of missing) if (Object.prototype.hasOwnProperty.call(values, f)) target[f] = sanitizePref(f, values[f])
+    } catch { /* storage unavailable: keep the default */ }
   }
   return prefs
 }
@@ -383,7 +444,7 @@ export function createPrefsStore(opts: PrefsStoreOptions): PrefsStore {
       removeOnFlush = false
       opts.storage.removeItem(key)
       // Forget the former keys too, or the next load would migrate them back
-      for (const legacy of LEGACY_BOOLEAN_PREFS) { try { opts.storage.removeItem(legacy.storageKey) } catch { /* ignore */ } }
+      for (const legacy of LEGACY_PREFS) { try { opts.storage.removeItem(legacy.storageKey) } catch { /* ignore */ } }
       return
     }
     if (prefs) opts.storage.setItem(key, serializePrefs(prefs))
