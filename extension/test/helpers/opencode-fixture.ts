@@ -34,6 +34,22 @@ export function tmpDir(prefix = 'opencode-watch-'): string {
 
 const q = (s: string): string => `'${s.replace(/'/g, "''")}'`
 
+const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+
+/**
+ * An id in OpenCode's ascending format (packages/schema/src/identifier.ts, v1.19.0): `<prefix>_`, then
+ * 12 hex digits of the low 48 bits of `ms * 0x1000 + counter`, then 14 base62 characters (random in
+ * OpenCode, derived from the counter here so that a test is repeatable). Message and part ids are
+ * ascending, so they sort by creation time (#420).
+ */
+export function openCodeId(prefix: 'msg' | 'prt', ms: number, counter: number): string {
+  const value = (BigInt(ms) * 0x1000n + BigInt(counter)) & 0xffffffffffffn
+  let tail = ''
+  let n = counter
+  for (let i = 0; i < 14; i++) { tail += BASE62[n % 62]; n = Math.floor(n / 62) }
+  return `${prefix}_${value.toString(16).padStart(12, '0')}${tail}`
+}
+
 export class OpenCodeFixture {
   private readonly db: Db
   constructor(readonly file: string) {
