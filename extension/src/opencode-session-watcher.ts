@@ -408,11 +408,11 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (s) s.parser.normalizer.noteMalformed(count)
       else this.unattributedSkipped = Math.min(this.unattributedSkipped + count, Number.MAX_SAFE_INTEGER)
     }
-    // Changes the reader will not deliver (a row updated after it left the window of recent rows, #420):
-    // well-formed but dropped, counted as ignored events of the followed session, else in the status.
+    // Changes the reader will not deliver (a row updated after the reader stopped following it, #420):
+    // counted as updates not read of the followed session, else in the status.
     for (const { sessionId, count } of poll.lostPassed ?? []) {
       const s = this.followedRoot(sessionId)
-      if (s) s.parser.normalizer.noteIgnored(count)
+      if (s) s.parser.normalizer.noteMissed(count)
       else this.unattributedLost = Math.min(this.unattributedLost + count, Number.MAX_SAFE_INTEGER)
     }
   }

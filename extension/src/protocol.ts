@@ -146,6 +146,11 @@ export interface NormalizationStats {
   malformed: number
   /** Exact repeats of an already-seen event (harmless: they never truncate the graph) */
   duplicateEvents: number
+  /**
+   * Updates the source holds but the reader did not read (an OpenCode row changed after the reader
+   * stopped following it, #420): the graph may show an older state. A lower bound.
+   */
+  missedUpdates: number
 }
 
 export interface AgentEvent {

@@ -114,7 +114,7 @@ test('updates the reader did not read (OpenCode, #420) have their own counter an
   rerender(<TruncationBanner stats={{ ...createStats(), missedUpdates: 1 }} onDismiss={noop} />)
   assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /at least 1 update not read/)
   rerender(<TruncationBanner stats={cut()} onDismiss={noop} />)
-  assert.doesNotMatch(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /not read/, 'said only when there is one')
+  assert.doesNotMatch(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /at least \d+ updates? not read/, 'said in the headline only when there is one')
 })
 
 test('the notice is in the language of the interface (#247): French, with the same counters', () => {

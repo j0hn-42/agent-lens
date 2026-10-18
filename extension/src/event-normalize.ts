@@ -51,12 +51,12 @@ const ID_KEYS: ReadonlySet<string> = new Set([
 ])
 
 export function createStats(): NormalizationStats {
-  return { ignoredEvents: 0, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0 }
+  return { ignoredEvents: 0, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0, missedUpdates: 0 }
 }
 
 /** True when something that shapes the graph was discarded (duplicates and clamping alone do not count). */
 export function isTruncated(s: NormalizationStats): boolean {
-  return s.ignoredEvents + s.droppedByCap + s.malformed > 0
+  return s.ignoredEvents + s.droppedByCap + s.malformed + s.missedUpdates > 0
 }
 
 function bump(stats: NormalizationStats | undefined, key: keyof NormalizationStats, n = 1): void {
@@ -314,11 +314,12 @@ export class SessionNormalizer {
   }
 
   /**
-   * Record `n` well-formed inputs the source will not deliver (an OpenCode row changed after the reader
-   * stopped looking at it, #420); published like noteMalformed.
+   * Record `n` updates the source holds but will not deliver (an OpenCode row changed after the reader
+   * stopped following it, #420): not ignored events, the graph may show an older state. Published like
+   * noteMalformed.
    */
-  noteIgnored(n = 1): void {
-    this.stats.ignoredEvents += n
+  noteMissed(n = 1): void {
+    this.stats.missedUpdates += n
     this.scheduleTrailing()
   }
 
