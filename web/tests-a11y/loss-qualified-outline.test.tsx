@@ -52,3 +52,11 @@ test('only the agent of the session that lost events is qualified', () => {
   assert.equal((text.match(/at least 13 tool calls\./g) ?? []).length, 1)
   assert.equal((text.match(/(?<!at least )13 tool calls\./g) ?? []).length, 1)
 })
+
+test('the heading of a session halo reads its cost as a lower bound when that session lost events', () => {
+  // Two sessions: each gets a halo heading, and the agent rows follow it
+  const text = outline([agent('s1:a', 's1'), agent('s2:b', 's2')], new Map([['s1', 6]]))
+  // The agent of s1 and the halo of s1: two lower bounds; the agent and the halo of s2 stay plain
+  assert.equal((text.match(/context cost estimate at least /g) ?? []).length, 2, text)
+  assert.equal((text.match(/context cost estimate (?!at least)/g) ?? []).length, 2, text)
+})

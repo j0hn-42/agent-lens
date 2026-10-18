@@ -358,7 +358,7 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now, replayLost: extras.replayLost })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
