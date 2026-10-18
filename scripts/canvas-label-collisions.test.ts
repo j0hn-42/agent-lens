@@ -14,13 +14,12 @@ import { computeClusters } from '../web/components/agent-visualizer/canvas/clust
 import { rectsOverlap, type Rect } from '../web/components/agent-visualizer/canvas/label-placement'
 import { formatTokensOfWindow } from '../web/lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../web/lib/usage'
-import { layoutAgentLabel, orchestratorInfo, agentDrawRadius } from '../web/components/agent-visualizer/canvas/team-style'
+import { layoutAgentLabel, orchestratorInfo, agentDrawRadius, hasSeveralSessions } from '../web/components/agent-visualizer/canvas/team-style'
 import { computeWorkspaceZones, workspaceHeaderRect } from '../web/components/agent-visualizer/canvas/workspace-zones'
 import { drawWorkspaceZones } from '../web/components/agent-visualizer/canvas/draw-teams'
 import { computeFitBounds, fitContent, fitInsets, safeRect } from '../web/components/agent-visualizer/canvas/camera-fit'
 import { agentLabelBlock } from '../web/components/agent-visualizer/canvas/overlay-plan'
 import { estimateTextWidth } from '../web/components/agent-visualizer/canvas/edge-bubbles'
-import { hasSeveralSessions } from '../web/components/agent-visualizer/canvas/team-style'
 import { LOD } from '../web/lib/canvas-constants'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
@@ -262,9 +261,10 @@ test('drawWorkspaceZones: a wide-glyph (CJK) name is not squeezed by fillText ma
 // other. Lots 2 and 4 hold the labels at 11 px and thin them out; this proves it on the real chain: the events of a team,
 // the force layout settled, the fit the camera computes, the overlay plan and what drawAgents draws. Every text drawn is
 // read back as a screen box (affine transform tracked) and none may cover another, nor the node of another agent.
+// The proof is made under the plan's width model (0.6 em per glyph); wider glyphs are checked on this layout below.
 
 /** A 2D context that tracks the full affine transform and records the screen box of every text drawn */
-function boxContext() {
+function boxContext(emPerChar = 0.6) {
   type M = [number, number, number, number, number, number]
   let m: M = [1, 0, 0, 1, 0, 0]
   const stack: Array<{ m: M; values: Record<string, unknown> }> = []
@@ -287,10 +287,10 @@ function boxContext() {
     setTransform: (a: unknown, b: number, c: number, d: number, e: number, f: number) => { m = typeof a === 'number' ? [a, b, c, d, e, f] : [1, 0, 0, 1, 0, 0] },
     resetTransform: () => { m = [1, 0, 0, 1, 0, 0] },
     getTransform: () => ({ a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5] }),
-    measureText: (s: string) => ({ width: String(s).length * fontPx() * 0.6 }),
+    measureText: (s: string) => ({ width: String(s).length * fontPx() * emPerChar }),
     fillText: (s: string, x: number, y: number) => {
       if (!(Number(state.globalAlpha) > 0.05) || !String(s).trim()) return
-      const fs = fontPx(), w = String(s).length * fs * 0.6
+      const fs = fontPx(), w = String(s).length * fs * emPerChar
       const al = String(state.textAlign), bl = String(state.textBaseline)
       const x0 = al === 'center' ? x - w / 2 : al === 'right' || al === 'end' ? x - w : x
       const y0 = bl === 'top' ? y : bl === 'middle' ? y - fs / 2 : bl === 'bottom' ? y - fs : y - fs * 0.8
@@ -374,8 +374,8 @@ for (const [w, h, top, bottom] of [[1024, 768, 60, 110], [1440, 900, 60, 110], [
       showStats: false, showCost: false, showSessionLabels: false, selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null,
       simTime: 1, teams, toolCards: [], workspaceZones: computeWorkspaceZones(clusters), isBubbleHeld: () => false,
     } as any)
-    const draw = (withPlan: boolean) => {
-      const rec = boxContext()
+    const draw = (withPlan: boolean, em = 0.6) => {
+      const rec = boxContext(em)
       rec.ctx.translate(t.x, t.y)
       rec.ctx.scale(t.scale, t.scale)
       drawAgents(rec.ctx, agents, null, null, false, 0, { reducedMotion: true, zoom: t.scale, lod, plan: withPlan ? plan : undefined, teams, showCost: false, showStats: false, showSessionLabels: false } as any)
@@ -404,6 +404,10 @@ for (const [w, h, top, bottom] of [[1024, 768, 60, 110], [1440, 900, 60, 110], [
     assert.ok(names.length >= 2, `precondition: names are drawn at the fit zoom ${t.scale.toFixed(3)} (${names.map(n => n.text).join(', ')})`)
     for (const x of texts) assert.ok(x.px >= LOD.minTextPx - 1e-6, `"${x.text}" drawn at ${x.px.toFixed(1)} px`)
     assert.deepEqual(overlaps(texts), [], `zoom ${t.scale.toFixed(3)}: drawn texts overlap`)
+    // The plan reserves the texts at its estimate (0.6 em per glyph, a Latin monospace). With the glyphs measured and
+    // drawn wider than that (0.7 em, then 1 em as full-width CJK), the texts of this layout still cover nothing. This
+    // margin comes from the spacing of this settled layout, not from a guarantee of the plan.
+    for (const em of [0.7, 1]) assert.deepEqual(overlaps(draw(true, em)), [], `glyphs drawn at ${em} em: drawn texts overlap`)
     const labels = [...agents.keys()].map(id => plan.get(planKey.label(id)))
     console.log(`  ${w} x ${h}: zoom ${t.scale.toFixed(3)}, ${texts.length} texts drawn, names: ${names.map(n => n.text).join(', ')}; `
       + `labels hidden ${labels.filter(p => p?.hidden).length}, one line ${labels.filter(p => p && !p.hidden && p.collapsed).length}`)
