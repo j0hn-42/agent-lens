@@ -745,15 +745,20 @@ for (const locale of LOCALES) {
 
     // Not catalog values on their own: the panel labels drawn without their shortcut, the symbols, the lists of figures read aloud
     const panelLabels = (['files', 'conversation', 'context', 'system', 'cost', 'timeline', 'stats'] as const).map(p => T(`topbar.panel.${p}.name` as MessageKey).replace(/ \([A-Z]\)$/, ''))
-    const spokenCost = new RegExp(`^${escapeRe(T('topbar.context.costName'))} [\\p{L}\\p{N}.,:;$<>·()' -]+$`, 'u')
+    // The spoken cost is the name, then one amount in the exact qualifiers of the language (usage.partial, usage.estimated, both, or none)
+    const amount = '<?\\$\\d[\\d.]*'
+    const qualifiers = ['{v}', 'usage.partial', 'usage.estimated', 'usage.partialEstimated'].map(k => (k === '{v}' ? k : MESSAGES[locale][k as MessageKey]).split('{v}').map(escapeRe).join(amount))
+    const spokenCost = new RegExp(`^${escapeRe(T('topbar.context.costName'))} (?:${qualifiers.join('|')})$`)
     const spokenUnattributed = new RegExp(`^${escapeRe(T('topbar.context.unattributed', { cost: '$0.500' }))}$`)
     // The text read aloud joins catalog values with ", ", " - " and " : " (a figure follows its words)
     const spokenLine = (s: string) => /, /.test(s) && s.split(', ').every(part =>
       strangers(locale, part.split(' - ').flatMap(x => (strangers(locale, [x], { data: [spokenCost, spokenUnattributed] }).length === 0 ? [x] : x.split(' : '))), { data: [spokenCost, spokenUnattributed] }).length === 0)
     // Names of the fixtures (a session, a project): data as it came
-    const fixtureNames = new Set(['alpha-run', 'alpha', 'Alpha', 'a', 'proxy refused'])
+    const fixtureNames = new Set(['alpha-run', 'alpha', 'Alpha', 'a'])
+    // An unknown connection detail is exempt (data-i18n-exempt, lang=en) only on a page that is not in English; in English it is the page's own language, so it is data like the names above
+    if (locale === 'en') fixtureNames.add('proxy refused')
     const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
     assert.deepEqual(unknown, [])
-    assert.deepEqual(foreignWords(locale, strings.filter(s => !s.includes('OpenCode') && !s.includes('The relay refused') && s !== 'proxy refused'), new Set(['alpha-run'])), [])
+    assert.deepEqual(foreignWords(locale, strings.filter(s => !s.includes('OpenCode') && !s.includes('The relay refused') && !fixtureNames.has(s)), new Set(['alpha-run'])), [])
   })
 }
