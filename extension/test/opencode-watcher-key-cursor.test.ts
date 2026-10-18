@@ -120,6 +120,27 @@ describe('OpenCodeSessionWatcher: cursor by primary key (#420)', { skip: !sqlite
     assert.equal(stats.reduce((s, e) => s + ((e.payload as { ignoredEvents?: number }).ignoredEvents ?? 0), 0), 0, 'nothing was lost')
   })
 
+  it('a change the window missed in a session that is not followed is counted in the status', () => {
+    const fx = new OpenCodeFixture(path.join(tmpDir(), 'opencode.db'))
+    const clock = { t: T0 }
+    // The session is in another workspace: never followed
+    const w = new OpenCodeSessionWatcher('/elsewhere-agent-lens-test', { dbFile: fx.file, now: () => clock.t })
+    watchers.push(w)
+    const old = T0 - OPENCODE_WINDOW_MS - 3_600_000
+    fx.session('ses_a', { created: old, updated: T0 - 1000, dir: '/w' })
+    const oldMsg = openCodeId('msg', old, 1)
+    const oldPart = openCodeId('prt', old, 2)
+    fx.message(oldMsg, 'ses_a', old, userMsg)
+    fx.part(oldPart, oldMsg, 'ses_a', old, old, { type: 'text', text: 'x' })
+    w.start()
+    assert.equal(w.isSessionActive('ses_a'), false)
+    assert.doesNotMatch(w.status(), /not read/)
+    clock.t = T0 + 2000
+    fx.part(oldPart, oldMsg, 'ses_a', old, T0 + 1000, { type: 'text', text: 'y' })
+    w.scanNow()
+    assert.match(w.status(), /; 1 row change not read outside the followed sessions$/)
+  })
+
   it('a part changed outside the window is counted in the normalization_stats of its followed session', async () => {
     const { fx, w, events, clock } = setup()
     const old = T0 - OPENCODE_WINDOW_MS - 3_600_000

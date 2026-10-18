@@ -478,6 +478,86 @@ describe('opencode-db: cursor by primary key (#420)', { skip: !sqliteAvailable()
     db.close(); fx.close()
   })
 
+  it('a row pushed out of the window before it was ever delivered is counted in the same poll, once', () => {
+    const fx = newDb()
+    // History below the window, large enough that the sweep does not reach the row in that poll
+    fill(fx, NOW - 86_400_000, 750)
+    // A part dated beyond the future margin (a wrong clock): kept in the window, not delivered yet
+    const tf = NOW - 100_000
+    const fmid = openCodeId('msg', tf, 900_001)
+    const fid = openCodeId('prt', tf, 900_002)
+    fx.raw(`INSERT INTO message VALUES ('${fmid}', 'ses_1', ${tf}, ${tf}, '{}')`)
+    fx.raw(`INSERT INTO part VALUES ('${fid}', '${fmid}', 'ses_1', ${tf}, ${NOW + 3_600_000}, '{}')`)
+    fill(fx, NOW - 90_000, 125, { c: 910_000 })
+    const db = open(fx.file)
+    const boot = drain(db, keyCursors(NOW - 600_000), 5000)
+    assert.ok(boot.cursors.part.key!.recent.some(([id]) => id === fid), 'in the window')
+    assert.deepEqual(boot.polls.flatMap(p => p.lostPassed), [])
+    // 2,000 newer parts push it out
+    fill(fx, NOW - 60_000, OPENCODE_WINDOW_ROWS / 4, { c: 920_000 })
+    const p = db.poll(boot.cursors, 5000)
+    assert.ok(p.cursors.part.key!.below >= fid, 'pushed out of the window')
+    assert.deepEqual(p.lostPassed, [{ sessionId: 'ses_1', count: 1 }], 'counted when it leaves, not polls later')
+    const rest = drain(db, p.cursors, 5000, 20)
+    assert.deepEqual(rest.polls.flatMap(x => x.lostPassed), [], 'the sweep does not count it again')
+    db.close(); fx.close()
+  })
+
+  it('a row dated beyond the future margin is neither loaded nor delivered until the clock reaches it, then once', () => {
+    const fx = newDb()
+    const clock = { t: NOW }
+    const t = NOW - 60_000
+    const mid = openCodeId('msg', t, 1)
+    const pid = openCodeId('prt', t, 2)
+    fx.raw(`INSERT INTO message VALUES ('${mid}', 'ses_1', ${t}, ${t}, '{}')`)
+    fx.raw(`INSERT INTO part VALUES ('${pid}', '${mid}', 'ses_1', ${t}, ${NOW + 60_000}, '{}')`)
+    const log: Recorded[] = []
+    const db = open(fx.file, log, () => clock.t)
+    const first = db.poll(keyCursors(NOW - 600_000))
+    assert.deepEqual(first.parts, [])
+    const loaded = log.filter(r => touches(r.sql, 'part')).flatMap(r => r.rows).filter(row => 'data' in row)
+    assert.deepEqual(loaded, [], 'its data is not loaded while it is in the future')
+    assert.deepEqual(db.poll(first.cursors).parts, [])
+    clock.t = NOW + 61_000
+    const later = db.poll(first.cursors)
+    assert.deepEqual(later.parts.map(x => x.id), [pid])
+    assert.deepEqual(db.poll(later.cursors).parts, [], 'once')
+    db.close(); fx.close()
+  })
+
+  it('a row of the window that was deleted leaves the window', () => {
+    const fx = newDb()
+    fill(fx, NOW - 60_000, 3)
+    const db = open(fx.file)
+    const first = db.poll(keyCursors(NOW - 600_000))
+    const victim = first.parts[1].id
+    assert.ok(first.cursors.part.key!.recent.some(([id]) => id === victim))
+    fx.raw(`DELETE FROM part WHERE id = '${victim}'`)
+    const p = db.poll(first.cursors)
+    assert.ok(!p.cursors.part.key!.recent.some(([id]) => id === victim), 'gone from the window')
+    assert.equal(p.cursors.part.key!.recent.length, first.cursors.part.key!.recent.length - 1)
+    db.close(); fx.close()
+  })
+
+  it('a key cursor whose window holds ids at or below its lower bound is cleaned: the window stays above it', () => {
+    const fx = newDb()
+    fill(fx, NOW - 60_000, 3)
+    const db = open(fx.file)
+    const below = openCodeId('prt', NOW - 70_000, 1)
+    const stale = openCodeId('prt', NOW - 80_000, 1)
+    const cursors = {
+      session: { time: 0 },
+      message: { time: NOW - 600_000, mode: 'key' as const },
+      // Limit 1: the read stops before the end of the window, so nothing else removes the stale entry
+      part: { time: NOW - 600_000, mode: 'key' as const, key: { below, top: below, recent: [[stale, NOW - 80_000, 0] as [string, number, number], [below, NOW - 70_000, 2] as [string, number, number]], floor: 0, sweep: '', stray: [] } },
+    }
+    const p = db.poll(cursors, 1)
+    assert.equal(p.error, undefined)
+    const key = p.cursors.part.key!
+    for (const [id] of key.recent) assert.ok(id > key.below, `${id} is above ${key.below}`)
+    db.close(); fx.close()
+  })
+
   it('the window is bounded in rows', () => {
     const fx = newDb()
     fill(fx, NOW - 120_000, Math.ceil((OPENCODE_WINDOW_ROWS + 400) / 4))
