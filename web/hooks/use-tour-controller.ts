@@ -3,9 +3,11 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useGuidedTour } from '@/hooks/use-guided-tour'
 import type { useAgentSimulation } from '@/hooks/use-agent-simulation'
-import { GUIDED_STEPS, type TourStep } from '@/lib/guided-steps'
+import { GUIDED_STEPS, guidedSteps } from '@/lib/guided-steps'
 import { buildLiveTourSteps } from '@/lib/live-tour'
 import { EMPTY_PRESENCE, type LegendPresence } from '@/lib/legend-presence'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import type { TourBridge } from '@/components/agent-visualizer/guided-tour-context'
 
 interface TourControllerInput {
@@ -24,9 +26,14 @@ interface TourControllerInput {
  * no scenario time, so the tour neither seeks nor pauses the live scene.
  */
 export function useTourController({ seek, play, isGuidedDemo, frameRef, setTourShowsInactive }: TourControllerInput) {
-  const [liveSteps, setLiveSteps] = useState<readonly TourStep[] | null>(null)
+  const { locale } = useLocale()
+  // The live tour keeps the proof it was built from, not its words: the steps are written again if the language changes
+  const [livePresence, setLivePresence] = useState<LegendPresence | null>(null)
+  const liveSteps = useMemo(() => (livePresence ? buildLiveTourSteps(livePresence, locale) : null), [livePresence, locale])
+  // English is built once (GUIDED_STEPS); another language is written from the catalog
+  const demoSteps = useMemo(() => (locale === 'en' ? GUIDED_STEPS : guidedSteps(locale)), [locale])
   const tour = useGuidedTour({
-    steps: liveSteps ?? GUIDED_STEPS,
+    steps: liveSteps ?? demoSteps,
     seek: liveSteps ? () => {} : seek,
     play: liveSteps ? () => {} : play,
   })
@@ -44,15 +51,15 @@ export function useTourController({ seek, play, isGuidedDemo, frameRef, setTourS
     else if (tour.active) tour.exit()
   }, [isGuidedDemo])   // eslint-disable-line react-hooks/exhaustive-deps
   const startLiveTour = useCallback(() => {
-    const steps = buildLiveTourSteps(presenceRef.current)
-    if (steps.length === 0) return
-    setLiveSteps(steps)
+    const snapshot = presenceRef.current
+    if (buildLiveTourSteps(snapshot).length === 0) return
+    setLivePresence(snapshot)
     tour.start()
   }, [tour.start])   // eslint-disable-line react-hooks/exhaustive-deps
-  const exitTour = useCallback(() => { tour.exit(); setLiveSteps(null) }, [tour.exit])   // eslint-disable-line react-hooks/exhaustive-deps
+  const exitTour = useCallback(() => { tour.exit(); setLivePresence(null) }, [tour.exit])   // eslint-disable-line react-hooks/exhaustive-deps
   const canStartLiveTour = !guidedDemo && presence.entries.length > 0
   const startTour = tour.active ? undefined : guidedDemo ? tour.start : canStartLiveTour ? startLiveTour : undefined
-  const startTourLabel = guidedDemo ? undefined : 'Tour this session'
+  const startTourLabel = guidedDemo ? undefined : translate(locale, 'tour.button.session')
   const tourBridge = useMemo(
     () => ({ legendOpen: Boolean(tour.step?.opensLegend), legendShowAll: guidedDemo, canvasToScreenRef, startTour, startTourLabel, reportPresence: setPresence }),
     [tour.step, guidedDemo, startTour, startTourLabel],
@@ -62,5 +69,5 @@ export function useTourController({ seek, play, isGuidedDemo, frameRef, setTourS
   const getTourAgents = useCallback(() => frameRef.current.agents, [frameRef])
   useEffect(() => { setTourShowsInactive(tour.active && !liveSteps) }, [tour.active, liveSteps, setTourShowsInactive])
 
-  return { tour, steps: liveSteps ?? GUIDED_STEPS, tourBridge, tourStale, getTourAgents, exitTour }
+  return { tour, steps: liveSteps ?? demoSteps, tourBridge, tourStale, getTourAgents, exitTour }
 }

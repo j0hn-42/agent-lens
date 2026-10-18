@@ -155,7 +155,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                       }}
                     >
                       <span className="min-w-0 truncate" data-sensitive={item.sensitive ? '' : undefined}>
-                        {item.lang ? <span lang={item.lang} data-i18n-exempt>{item.label}</span> : item.label}
+                        {item.label}
                         {item.detail && <span style={{ color: COLORS.textMuted }}> ({item.detail})</span>}
                       </span>
                       {item.shortcut && (

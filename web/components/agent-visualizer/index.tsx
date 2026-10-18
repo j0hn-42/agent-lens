@@ -50,7 +50,7 @@ import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { TruncationBanner, TruncationAnnouncer } from "./truncation-banner"
 import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
 import { isUnionSelection } from "@/lib/bridge-types"
-import { truncationBannerState } from "@/lib/event-loss"
+import { truncationBannerState, replayLostForAgents, usageUnderLoss } from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
@@ -177,6 +177,14 @@ export function AgentVisualizer() {
     agentsRef, bridge, selectAgent: selection.handleAgentClick, selectedAgentId: selection.selectedAgentId,
   })
 
+  // Events the relay could not replay, per session (#366): qualifies the numbers the canvas draws and the totals read aloud
+  const replayLostBySession = useMemo(() => new Map(Object.entries(bridge.eventLoss?.evicted ?? {})), [bridge.eventLoss])
+  const shownUsage = useMemo(() => {
+    // The sessions of the agents and of the usage that belongs to no agent: both are in the totals
+    const lost = replayLostForAgents(replayLostBySession, [...agents.values(), ...unattributed.values()])
+    return { tokens: usageUnderLoss(usage.tokens, lost), cost: usageUnderLoss(usage.cost, lost) }
+  }, [usage, replayLostBySession, agents, unattributed])
+
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
 
   const menuActions = {
@@ -279,7 +287,7 @@ export function AgentVisualizer() {
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
         connectionDetail={bridge.connectionDetail} onRetryConnection={bridge.relayOrigin !== null ? bridge.retryRelay : undefined} onExitDemo={bridge.exitDemo}
         activeAgentCount={activeAgentCount} staleAgentCount={staleAgentCount} idleAgentCount={idleAgentCount} errorAgentCount={errorAgentCount} doneAgentCount={doneAgentCount}
-        totalTokens={usage.summary.sessionTokens} totalCost={usage.summary.sessionCost} tokenUsage={usage.tokens} costUsage={usage.cost}
+        totalTokens={usage.summary.sessionTokens} totalCost={usage.summary.sessionCost} tokenUsage={shownUsage.tokens} costUsage={shownUsage.cost}
         unattributedCost={usage.summary.unattributedCost}
         showFileAttention={showFileAttention} showConversation={showConversation} showContext={showContext} showSystem={showSystem}
         showCostOverlay={showCostOverlay} showTimeline={showTimeline} showStats={showStats} isMuted={isMuted}
@@ -358,6 +366,7 @@ export function AgentVisualizer() {
         onLayoutKeepIds={setLayoutKeepIds}
         announceLevel={prefs.announceLevel}
         health={health.byAgent}
+        replayLost={replayLostBySession}
         presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
       />
 
@@ -396,7 +405,7 @@ export function AgentVisualizer() {
 
       {/* Drawn just above the canvas controls: next to them in the Tab order too (#377) */}
       <TourOffer
-        open={tourOffer.open} label={tourBridge.startTourLabel ?? 'Guided tour'}
+        open={tourOffer.open} label={tourBridge.startTourLabel}
         onStart={() => tourBridge.startTour?.()} onDismiss={tourOffer.dismiss}
       />
 
