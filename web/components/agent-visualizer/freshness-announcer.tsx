@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useLocale } from '@/lib/locale'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import {
   buildFreshnessAnnouncement, freshnessKey, freshnessMap, type Freshness, type FreshnessSubject,
@@ -21,6 +22,9 @@ interface FreshnessAnnouncerProps {
 export function FreshnessAnnouncer({ agents, clock }: FreshnessAnnouncerProps) {
   const agentsRef = useRef(agents)
   agentsRef.current = agents
+  const { locale } = useLocale()
+  const localeRef = useRef(locale)
+  localeRef.current = locale
   const key = useFreshnessValue(now => freshnessKey(agentsRef.current.values(), now), clock)
   const previous = useRef<Map<string, Freshness> | null>(null)
   const [message, setMessage] = useState('')
@@ -34,9 +38,9 @@ export function FreshnessAnnouncer({ agents, clock }: FreshnessAnnouncerProps) {
     const names = new Map(list.map(a => [a.id, a.name]))
     // A status received from a replayed history is not a stop in reporting (#361)
     const fromHistory = new Set(list.filter(a => a.freshnessSource === 'history').map(a => a.id))
-    const text = buildFreshnessAnnouncement(prev, next, names, fromHistory)
+    const text = buildFreshnessAnnouncement(prev, next, names, fromHistory, localeRef.current)
     if (text) setMessage(text)
   }, [key, clock])
 
-  return <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{message}</div>
+  return <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" lang={locale}>{message}</div>
 }

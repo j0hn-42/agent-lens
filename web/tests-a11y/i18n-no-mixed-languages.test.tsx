@@ -27,6 +27,7 @@ import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 import * as C from '@/lib/card-text'
 import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
+import { FreshnessAnnouncer } from '@/components/agent-visualizer/freshness-announcer'
 import { createFreshnessClock } from '@/hooks/use-freshness-clock'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
@@ -97,7 +98,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function catalogPatterns(locale: Locale): RegExp[] {
   return (Object.values(MESSAGES[locale]) as string[]).map(v => {
     // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values
-    const body = v.split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()\'’ -]+')
+    const body = v.split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()<$\'’ -]+')
     return new RegExp(`^${body}(?: \\([+\\-0]\\))?$`, 'u')
   })
 }
@@ -345,7 +346,15 @@ for (const locale of LOCALES) {
 
 // ---- The Sessions panel (#502) ----
 
-for (const d of ['fix login', 'refactor api', 'docs', 'alpha', 'beta', 'main', 'feat/x', 'Reviewer', 'My own name', 'tempo-team', 'scratch', 'build']) FIXTURE_DATA.add(d)
+// The columns and agent rows (#502): figures, durations and money are data of the fixtures; ":" separates the English word the canvas
+// draws from its gloss; the dash is the sign of "no data"; and the activity cell keeps its English relative time in a lang=en passage,
+// so only the words before it remain in the catalog's language.
+const COLUMN_DATA: readonly RegExp[] = [/^[≥~]*[\d.]+[kM]?$/, /^≥?\d+[dhms]( \d+[hms])?\+?$/, /^[≥~]*<?\$[\d.]+$/, /^\d+ h \d+ min$/, /^\d+ min$/]
+const columnAllow = (locale: Locale): ReadonlySet<string> => new Set([':', '—', ',', MESSAGES[locale]['cols.activity.value'].replace(' {when}', '')])
+/** The money placeholder of the cost sentences may hold "<$0.0001" */
+const panelStrangers = (locale: Locale, strings: string[]) => strangers(locale, strings, { allow: columnAllow(locale), data: COLUMN_DATA })
+
+for (const d of ['fix login', 'refactor api', 'docs', 'alpha', 'beta', 'main', 'feat/x', 'Reviewer', 'My own name', 'tempo-team', 'scratch', 'build', 'Writer', 'claude-opus-4-5-20251101']) FIXTURE_DATA.add(d)
 
 const panelSessions: SessionInfo[] = [
   { id: 'a', label: 'fix login', status: 'active', startTime: 0, lastActivityTime: 30, runtime: 'claude', projectId: 'pa', projectName: 'alpha', branch: 'main' },
@@ -428,8 +437,99 @@ for (const locale of LOCALES) {
     // What stays English must say so with its own lang
     for (const e of Array.from(dialog.querySelectorAll('[data-i18n-exempt]'))) assert.equal(e.getAttribute('lang'), 'en', 'an exempt subtree declares lang=en')
     assert.ok(strings.length > 80, 'the panel was rendered in every state')
-    assert.deepEqual(foreignWords(locale, strings), [])
-    assert.deepEqual([...new Set(strangers(locale, strings))], [])
+    assert.deepEqual(foreignWords(locale, strings, columnAllow(locale)), [])
+    assert.deepEqual([...new Set(panelStrangers(locale, strings))], [])
+  })
+}
+
+// ---- The Sessions panel, columns and agent rows (#502) ----
+
+for (const d of ['Planner', 'Scribe', 'Checker', 'Runner', 'Reader', 'Fixer', 'ui-designer']) FIXTURE_DATA.add(d)
+
+const PANEL_NOW = NOW
+/** One agent row per way the row can speak: fresh, a tool, last known, silent for a permission, closed after an error, a sub-agent. */
+const columnAgents: SessionListAgent[] = [
+  { ...panelAgent('a:p', 'a', 'thinking', 'Planner'), kind: 'main', model: 'claude-opus-4-5-20251101', tokensUsed: 12_400, tokenStatus: 'partial', tokensEstimated: true, activeMs: 95_000, lastEventAt: PANEL_NOW, spawnTime: 1 },
+  { ...panelAgent('a:s', 'a', 'thinking', 'Scribe'), kind: 'subagent', parentKey: 'a:p', tokensUsed: 800, lastEventAt: PANEL_NOW, spawnTime: 2 },
+  { ...panelAgent('a:r', 'a', 'tool_calling', 'Runner'), kind: 'subagent', parentKey: 'a:p', currentTool: 'Read', lastEventAt: PANEL_NOW, spawnTime: 3 },
+  { ...panelAgent('a:c', 'a', 'thinking', 'Checker'), kind: 'teammate', lastEventAt: PANEL_NOW - 60_000, spawnTime: 4 },
+  { ...panelAgent('a:w', 'a', 'waiting_permission', 'Reader'), lastEventAt: PANEL_NOW - 10 * 60_000, spawnTime: 5 },
+  { ...panelAgent('a:e', 'a', 'error', 'Fixer'), lastEventAt: PANEL_NOW - 3 * 60_000, spawnTime: 6 },
+]
+const columnSessions: SessionInfo[] = [
+  { id: 'a', label: 'fix login', status: 'active', startTime: 0, lastActivityTime: 3_000, runtime: 'claude', projectId: 'pa', projectName: 'alpha', branch: 'main', startTimeWatched: true },
+  { id: 'e', label: 'scratch', status: 'active', startTime: 0, lastActivityTime: 0, lastActivityUnknown: true, runtime: 'codex', imported: true },
+]
+const columnsPanel = () => (
+  <SessionListPanel
+    visible onClose={noop} sessions={columnSessions} selectedSessionId="__all__" sessionsWithActivity={new Set()}
+    onSelectSession={noop} onCloseSession={noop} agents={new Map(columnAgents.map(a => [a.id, a]))} selectedAgentId={null} onSelectAgent={noop}
+    now={5000} activeOnly={false} observedSessionIds={new Set(['a'])} freshnessClock={createFreshnessClock({ now: () => PANEL_NOW, isHidden: () => true })}
+  />
+)
+for (const locale of LOCALES) {
+  test(`the Sessions panel columns and agent rows (state words, roles, qualifiers) speak only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const view = render(columnsPanel())
+    const dialog = view.container.querySelector('#sessions-panel') as HTMLElement
+    const strings = surfaceStrings(dialog)
+    assert.deepEqual(foreignWords(locale, strings, columnAllow(locale)), [])
+    assert.deepEqual([...new Set(panelStrangers(locale, strings))], [])
+    const spoken = (s: string) => strings.some(x => x.includes(s))
+    // The column names and the qualifiers of the figures survive the translation
+    for (const key of ['cols.model', 'cols.runtime', 'cols.branch', 'cols.tokens', 'cols.cost', 'cols.time', 'cols.activity'] as MessageKey[]) assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
+    assert.ok(spoken(C.usageText(locale, { value: 12_400, status: 'partial', estimated: true })), 'at least / estimated kept on the tokens')
+    assert.ok(spoken(MESSAGES[locale]['cols.model.none']), 'a model not reported says so')
+    assert.ok(spoken(MESSAGES[locale]['cols.branch.none']), 'a branch not recorded says so')
+    assert.ok(spoken(MESSAGES[locale]['cols.activity.unknown']), 'an activity unknown says so')
+    // Roles and state words
+    for (const key of ['sessions.role.agent', 'sessions.role.subAgent', 'sessions.role.teammate'] as MessageKey[]) assert.ok(spoken(MESSAGES[locale][key]), `${key} was rendered`)
+    const state = (st: string) => C.stateText(locale, st)
+    assert.ok(strings.includes(state('thinking')), 'the state word of a fresh agent')
+    assert.ok(strings.includes(C.lastKnownStateText(locale, 'thinking')), 'a stale status stays a last known one')
+    assert.ok(strings.includes(C.silenceText(locale, { kind: 'permission', ms: 10 * 60_000 - 0 }, 'waiting_permission')), 'a pending permission is told apart')
+    assert.ok(strings.includes(MESSAGES[locale]['sessions.agent.closed'].replace('{rest}', C.lastKnownStateText(locale, 'error'))), 'a closed agent keeps its last known state')
+    assert.ok(strings.includes('Read'), 'the tool is data, shown as it came')
+    // The canvas draws the English word under each agent: in French the row quotes it in lang=en, then glosses it
+    const quoted = Array.from(dialog.querySelectorAll('[data-drawn-state]')).map(e => ({ text: e.textContent, lang: e.getAttribute('lang'), exempt: e.hasAttribute('data-i18n-exempt') }))
+    if (locale === 'fr') {
+      assert.deepEqual([...new Set(quoted.map(q => q.text))].sort(), ['error', 'thinking', 'waiting'].sort())
+      for (const q of quoted) assert.deepEqual([q.lang, q.exempt], ['en', true])
+    } else {
+      assert.deepEqual(quoted, [], 'in English the row already says the drawn word')
+    }
+    // Everything still English declares it
+    for (const e of Array.from(dialog.querySelectorAll('[data-i18n-exempt]'))) assert.equal(e.getAttribute('lang'), 'en', 'an exempt subtree declares lang=en')
+    // No column cell is left declared English as a whole: only a passage of a different language is
+    assert.equal(dialog.querySelectorAll('[data-column="model"][lang="en"]').length, 0, 'the model column follows the page language')
+    const activityCells = Array.from(dialog.querySelectorAll('[data-column="activity"]'))
+    assert.ok(activityCells.length > 0)
+    for (const c of activityCells) assert.equal(langOf(c), locale, 'the activity column name follows the language')
+  })
+
+  test(`the announcement of agents that stop reporting speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    let now = NOW
+    const listeners = new Set<() => void>()
+    const fake = { getNow: () => now, subscribe: (l: () => void) => { listeners.add(l); return () => { listeners.delete(l) } } }
+    const mk = (id: string, extra: object = {}) => [id, { id, name: id, state: 'thinking', lastEventAt: NOW, ...extra }] as const
+    const agents = new Map([mk('Planner'), mk('Scribe'), mk('Checker'), mk('Reader')])
+    const view = render(<FreshnessAnnouncer agents={agents} clock={fake} />)
+    const region = view.getByRole('status')
+    assert.equal(region.textContent, '', 'the baseline is not announced')
+    assert.equal(region.getAttribute('lang'), locale, 'the announcement declares its language')
+    // One agent now has its status from a replayed history: it did not stop reporting, a history was received
+    view.rerender(<FreshnessAnnouncer agents={new Map([...agents, mk('Reader', { freshnessSource: 'history' })])} clock={fake} />)
+    const history = MESSAGES[locale]['freshness.announce.history.one'].replace('{names}', 'Reader') + '.'
+    assert.equal(region.textContent, history, 'a history received is not a stop in reporting')
+    now += 31_000
+    act(() => { for (const l of [...listeners]) l() })
+    const text = region.textContent ?? ''
+    const stale = MESSAGES[locale]['freshness.announce.stale.other'].replace('{names}', 'Planner, Scribe, Checker') + '.'
+    assert.equal(text, stale)
+    view.rerender(<FreshnessAnnouncer agents={new Map([...agents].map(([id, a]) => [id, { ...a, state: id === 'Scribe' ? 'complete' : a.state }]))} clock={fake} />)
+    assert.equal(region.textContent, MESSAGES[locale]['freshness.announce.closed.one'].replace('{names}', 'Scribe') + '.', 'a closed agent is announced as closed')
+    assert.deepEqual(foreignWords(locale, [text, history, region.textContent ?? ''].map(x => x.replace(/Planner|Scribe|Checker|Reader/g, ''))), [])
   })
 }
 
