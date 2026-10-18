@@ -55,6 +55,8 @@ export const OPENCODE_SWEEP_ROWS = 1000
  * that are still read by id after they leave the window, so that their end is delivered (#420).
  */
 export const OPENCODE_OPEN_ROWS = 500
+/** Rows a window can hold for a moment: rows still settling are never pushed out (one poll of them at most). */
+const WINDOW_ROWS_MAX = OPENCODE_WINDOW_ROWS + POLL_LIMIT_HARD_MAX + 1
 /** Changes found below the window remembered so that each one is counted once. */
 const STRAY_MAX = 1000
 /** State of a row in the window: to deliver, delivered but may still change, delivered, unreadable (counted). */
@@ -711,6 +713,9 @@ export class OpenCodeDb {
     let i = 0
     for (; i < sorted.length; i++) {
       const [id, [t, s]] = sorted[i]
+      // A row delivered less than SETTLE_MS ago may still change within its millisecond: it stays (the
+      // window then holds at most one poll of rows more than OPENCODE_WINDOW_ROWS, for SETTLE_MS)
+      if (s === UNSETTLED) break
       const over = sorted.length - i > OPENCODE_WINDOW_ROWS
       const old = (s === SETTLED || s === SKIPPED) && t < cutoff
       if (!over && !old) break
@@ -829,13 +834,13 @@ function sanitizeKey(k: unknown): OpenCodeKeyState | undefined {
   const { below, top, sweep, floor } = o
   if (!rawIdOrEmpty(below) || !rawIdOrEmpty(top) || !rawIdOrEmpty(sweep) || !safeTime(floor)) return undefined
   const byId = new Map<string, [number, number]>()
-  for (const e of Array.isArray(o.recent) ? o.recent.slice(0, OPENCODE_WINDOW_ROWS * 2) : []) {
+  for (const e of Array.isArray(o.recent) ? o.recent.slice(0, WINDOW_ROWS_MAX * 2) : []) {
     if (!Array.isArray(e) || e.length !== 3) continue
     const [id, t, s] = e as unknown[]
     if (!rawId(id) || id <= below || !safeTime(t) || !(s === PENDING || s === UNSETTLED || s === SETTLED || s === SKIPPED)) continue
     byId.set(id, [t, s])
   }
-  const recent = [...byId].sort(byFirst).slice(-OPENCODE_WINDOW_ROWS)
+  const recent = [...byId].sort(byFirst).slice(-WINDOW_ROWS_MAX)
     .map(([id, [t, s]]): [string, number, number] => [id, t, s])
   const stray: [string, number][] = []
   for (const e of Array.isArray(o.stray) ? o.stray.slice(-STRAY_MAX) : []) {
