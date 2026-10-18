@@ -292,6 +292,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.teams = deps.teamsRef.current
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
+      opts.replayLost = deps.drawPropsRef.current.replayLost
       opts.maskText = deps.presentationRef.current.mask
       // Loop / repeat badges (#377): re-derived only when the verdicts, the ledger or the drawn agents change
       {
@@ -347,7 +348,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
           // Cards are drawn above labels and bubbles: keep those texts off them (#378)
           toolCards: toolCardRects(toolCalls.values(), toolCardSize),
           // Halo titles move off the workspace headers and the collapsed Conversation pill (#378)
-          workspaceZones, covers: deps.getCovers(),
+          workspaceZones, covers: deps.getCovers(), replayLost: opts.replayLost,
         })
         : EMPTY_PLAN
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)

@@ -35,6 +35,8 @@ export interface DrawOpts {
   /** Theme of the scene (#381): agent states (absent = the default theme), labels, links, halos, cards and grid (absent = the neon scene) */
   theme?: ThemeId
   /** Loop / repeat mark per agent id (#377, lib/repeat-marks): a badge on the node. Absent = no badge */
+  /** Events the relay could not replay, per session id (#366): an agent of such a session draws its tool count and cost as lower bounds */
+  replayLost?: ReadonlyMap<string, number>
   repeatMarks?: ReadonlyMap<string, { kind: 'loop' | 'repeated' }>
 }
 

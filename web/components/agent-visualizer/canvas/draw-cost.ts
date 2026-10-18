@@ -8,6 +8,7 @@ import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
 import { replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
+import { agentCostUsageUnderLoss } from './loss-labels'
 import { truncateText, fitHeaderTokens } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -54,7 +55,7 @@ export function drawCostLabels(
 
   for (const [, agent] of agents) {
     if (!isAgentVisible(agent)) continue
-    const costUsage = agentCostUsage(agent)
+    const costUsage = agentCostUsageUnderLoss(agent, opts.replayLost)
     if (costUsage.value === null || costUsage.value < COST_DRAW.minDisplayCost) continue
 
     const r = agentDrawRadius(agent)
