@@ -180,9 +180,10 @@ export function AgentVisualizer() {
   // Events the relay could not replay, per session (#366): qualifies the numbers the canvas draws and the totals read aloud
   const replayLostBySession = useMemo(() => new Map(Object.entries(bridge.eventLoss?.evicted ?? {})), [bridge.eventLoss])
   const shownUsage = useMemo(() => {
-    const lost = replayLostForAgents(replayLostBySession, agents.values())
+    // The sessions of the agents and of the usage that belongs to no agent: both are in the totals
+    const lost = replayLostForAgents(replayLostBySession, [...agents.values(), ...unattributed.values()])
     return { tokens: usageUnderLoss(usage.tokens, lost), cost: usageUnderLoss(usage.cost, lost) }
-  }, [usage, replayLostBySession, agents])
+  }, [usage, replayLostBySession, agents, unattributed])
 
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
 

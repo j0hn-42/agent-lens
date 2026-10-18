@@ -123,3 +123,23 @@ test('a loss that names another session qualifies nothing of this view', async (
   assert.doesNotMatch(outline(r), /at least|incomplete/)
   assert.ok(!drawn.some(t => /at least/.test(t)), `canvas: ${JSON.stringify(drawn)}`)
 })
+
+test('usage that belongs to no agent of the view, in a session that lost events, qualifies the spoken totals too', async () => {
+  const r = render(<AgentVisualizer />)
+  const now = Date.now()
+  await act(async () => { FakeES.last.open() })
+  await act(async () => { FakeES.last.send({ type: 'event-loss', evicted: { s1: 7 }, otherEvents: 0 }) })
+  await act(async () => {
+    FakeES.last.send({ type: 'session-list', sessions: [{ id: 's1', label: 'proj', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/proj', runtime: 'claude' }] })
+  })
+  await wait(150)
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions:/ })) })
+  await wait(100)
+  await act(async () => { fireEvent.click(r.container.querySelectorAll<HTMLElement>('[data-row-main]')[0]) })
+  await wait(100)
+  // No agent_spawn: the only usage of the view is in the unattributed remainder
+  await act(async () => { FakeES.last.send(ev('s1', 'context_update', { agent: 'ghost', tokens: 900_000, tokenSource: 'reported' }, 1)) })
+  await wait(700)
+  assert.match(spoken(r), /900k/, `precondition: the orphan usage is in the totals (${spoken(r)})`)
+  assert.match(spoken(r), /at least/, `qualified: ${spoken(r)}`)
+})

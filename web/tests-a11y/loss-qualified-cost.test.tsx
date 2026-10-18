@@ -62,6 +62,17 @@ test('the Cost panel: header totals and rows read "at least" for a session with 
   assert.ok(costs.some(t => !t.startsWith('at least')), 'the agent of the intact session keeps its plain figure')
 })
 
+test('the Cost panel header: a lossy session that only has unattributed usage in the view still qualifies the totals', () => {
+  const agents = new Map<string, any>([['b', agent('b', 's2')]])
+  const rest = [{ sessionId: 's1', reason: 'no-agent', tokens: 5000, estimated: false }] as any[]
+  const texts: string[] = []
+  drawCostSummaryPanel(recordingCtx(texts), agents, new Map(), rest, false, new Map([['s1', 5]]))
+  assert.ok(texts.some(t => /^at least ~\$/.test(t)), `header cost qualified: ${JSON.stringify(texts)}`)
+  const intact: string[] = []
+  drawCostSummaryPanel(recordingCtx(intact), agents, new Map(), rest, false, new Map([['s9', 5]]))
+  assert.ok(!intact.some(t => /^at least ~\$/.test(t)), `a loss of another session: ${JSON.stringify(intact)}`)
+})
+
 // The wiring of the top bar (index.tsx -> TopBar) is tested in loss-qualified-wiring.test.tsx; this is only the wording helper
 test('topBarContextText words a lower-bound usage "at least", an exact one plainly', () => {
   const cost: UsageTotal = { value: 2.1, status: 'available', estimated: true }

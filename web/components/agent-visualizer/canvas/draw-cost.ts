@@ -194,7 +194,7 @@ export function drawCostSummaryPanel(
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
   // the unattributed remainder counts in the session total
   const sessionTotals = sessionUsage(agents.values(), rest)
-  const viewLost = replayLostForAgents(replayLost, agents.values())
+  const viewLost = replayLostForAgents(replayLost, [...agents.values(), ...rest])
   const costUsage = usageUnderLoss(sessionTotals.cost, viewLost)
   const tokenUsage = usageUnderLoss(sessionTotals.tokens, viewLost)
 
