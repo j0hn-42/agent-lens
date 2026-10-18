@@ -1,6 +1,26 @@
 'use client'
 
 import { useSyncExternalStore } from 'react'
+import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
+import { TOUCH_TARGET_PX } from '@/lib/mobile-view'
+
+/** Height of a row of controls: 44 px targets under 768 px (#476, MOBILE_QUERY in lib/mobile-view), 24 px buttons and their border wider */
+const CONTROL_ROW_PX = { touch: TOUCH_TARGET_PX, pointer: 28 } as const
+const TOUCH_BELOW_PX = 768
+/** Under the `sm:` breakpoint of the canvas controls the Legend row and the zoom row stack */
+const STACK_BELOW_PX = 640
+
+/**
+ * Whether the canvas controls fit in the room the top bar (--topbar-h) and the playback bar leave (#515). At 320 x 256
+ * the bars leave 18 px and at 256 x 320 38 px, less than the two rows of 44 px targets: the controls were drawn under
+ * the top bar.
+ */
+export function canvasControlsFit(env: { viewport: { w: number; h: number }; topbarH: number; controlBarH: number }): boolean {
+  const { viewport: { w, h }, topbarH, controlBarH } = env
+  const row = w < TOUCH_BELOW_PX ? CONTROL_ROW_PX.touch : CONTROL_ROW_PX.pointer
+  const need = w < STACK_BELOW_PX ? 2 * row + DOCK_GAP : row
+  return h - CONTROL_BAR_BOTTOM - controlBarH - DOCK_GAP - topbarH >= need
+}
 
 /**
  * Place in the playback bar where the canvas controls fold when they do not fit between the top bar and the playback
