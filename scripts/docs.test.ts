@@ -449,3 +449,13 @@ test('the remote access page says what ships, and nothing that does not exist ye
   assert.ok(doc.includes('768 px'), 'the page gives the phone-width breakpoint')
   assert.ok(read('docs/reading-the-ui.md').includes('Phone width (below 768 px)'), 'the reading guide has the phone-width section')
 })
+
+test('the reading guide says a detail popup never covers a permission request, and what is measured (#536)', () => {
+  const guide = read('docs/reading-the-ui.md')
+  const start = guide.indexOf('### Permission requests (VS Code only)')
+  assert.ok(start >= 0, 'the Permission requests heading is found')
+  const section = guide.slice(start, guide.indexOf('\n## ', start))
+  for (const needle of ['popup-permission.e2e.ts', '320x568', '1024x768', '640x300', 'Escape', 'Chromium', 'Not proven', 'outline button', 'more than one pending card', 'click on the canvas']) {
+    assert.ok(section.includes(needle), `the Permission requests section should mention ${needle}`)
+  }
+})
