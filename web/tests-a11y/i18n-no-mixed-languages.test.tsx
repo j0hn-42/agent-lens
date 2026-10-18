@@ -502,7 +502,7 @@ for (const locale of LOCALES) {
     assert.ok(spoken(MESSAGES[locale]['cols.activity.unknown']), 'an activity unknown says so')
     // The Σ totals and the relative time are worded in the language, with their qualifiers (#501)
     assert.ok(strings.some(x => x.includes(MESSAGES[locale]['rollup.session'])), 'the session total is named')
-    assert.ok(strings.some(x => x.includes(MESSAGES[locale]['rollup.estimated']) || x.includes(MESSAGES[locale]['rollup.incomplete'])), 'a total keeps its qualifier')
+    assert.ok(strings.some(x => /^[~≥]?\$/.test(x) && (x.includes(MESSAGES[locale]['rollup.estimated']) || x.includes(MESSAGES[locale]['rollup.incomplete']))), 'a Σ total keeps its qualifier')
     assert.ok(strings.some(x => x.includes(C.relativeTimeText(locale, 3_000, 5_000))), 'the activity column says how long ago')
     const counts = dialog.querySelector('[data-testid="sessions-agent-counts"]')
     assert.ok(counts, 'the agent counts were rendered')

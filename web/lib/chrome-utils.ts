@@ -202,7 +202,7 @@ function agentsText(locale: Locale, n: number): string {
 }
 
 /** Plural form of a message that exists as <base>.one / <base>.other (French: 0 and 1 are singular). */
-function countPart(locale: Locale, base: 'topbar.counts.active' | 'topbar.counts.idle' | 'topbar.counts.done', n: number): string {
+function countPart(locale: Locale, base: 'topbar.counts.active' | 'topbar.counts.idle' | 'topbar.counts.done' | 'topbar.counts.stale' | 'topbar.counts.stale.short' | 'topbar.counts.sessions', n: number): string {
   const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
   return translate(locale, `${base}.${rule}` as MessageKey, { n })
 }
@@ -212,7 +212,7 @@ function countPart(locale: Locale, base: 'topbar.counts.active' | 'topbar.counts
  * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
  */
 function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0, locale: Locale = 'en'): string {
-  const staleText = stale > 0 ? ` - ${translate(locale, 'topbar.counts.stale', { n: stale })}` : ''
+  const staleText = stale > 0 ? ` - ${countPart(locale, 'topbar.counts.stale', stale)}` : ''
   const idleText = idle > 0 ? ` - ${countPart(locale, 'topbar.counts.idle', idle)}` : ''
   const errorText = error > 0 ? ` - ${translate(locale, 'topbar.counts.error', { n: error })}` : ''
   const colon = locale === 'fr' ? ' :' : ':'
@@ -223,7 +223,7 @@ function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, er
 function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0, locale: Locale = 'en'): string {
   const part = (n: number, text: string) => (n > 0 ? ` · ${text}` : '')
   const colon = locale === 'fr' ? ' :' : ':'
-  return `${agentsText(locale, active + done + stale + idle + error)}${colon} ${countPart(locale, 'topbar.counts.active', active)}${part(stale, translate(locale, 'topbar.counts.stale.short', { n: stale }))}${part(idle, countPart(locale, 'topbar.counts.idle', idle))}${part(error, translate(locale, 'topbar.counts.error', { n: error }))} · ${countPart(locale, 'topbar.counts.done', done)}`
+  return `${agentsText(locale, active + done + stale + idle + error)}${colon} ${countPart(locale, 'topbar.counts.active', active)}${part(stale, countPart(locale, 'topbar.counts.stale.short', stale))}${part(idle, countPart(locale, 'topbar.counts.idle', idle))}${part(error, translate(locale, 'topbar.counts.error', { n: error }))} · ${countPart(locale, 'topbar.counts.done', done)}`
 }
 
 /** Agents of the view by state, as `agentActivityCounts` splits them. */
@@ -237,7 +237,7 @@ export interface AgentStateCounts { active: number; done: number; stale: number;
  */
 export function viewCountsText(c: AgentStateCounts, allSessionCount: number | null, locale: Locale = 'en'): { drawn: string; spoken: string } {
   if (allSessionCount !== null) {
-    const sessions = pluralize(allSessionCount, 'session')
+    const sessions = countPart(locale, 'topbar.counts.sessions', allSessionCount)
     const agents = agentsText(locale, c.active + c.done + c.stale + c.idle + c.error)
     return { drawn: `${sessions} · ${agents}`, spoken: `${sessions}, ${agents}` }
   }
