@@ -89,16 +89,24 @@ test('focus entering a card under a popup that covers it closes the popup, so th
   // 640x360, cards at their 60vh cap: the floor lets the popup cover the lower part of the cards
   act(() => dockStore.setEnv({ viewport: { w: 640, h: 360 }, topbarH: 68, controlBarH: 56, permissionsH: 216, permissionsHeadH: 62, permissionsX: 12, permissionsW: 616 }))
   let closed = 0
-  render(
-    <DetailPopup position={{ x: 320, y: 0 }} width={320} estimatedHeight={300} onClose={() => { closed++ }} titleId="t">
-      <h2 id="t">Tool</h2>
-    </DetailPopup>,
-  )
+  // A real caller unmounts the popup on close
+  function Host() {
+    const [open, setOpen] = React.useState(true)
+    return open ? (
+      <DetailPopup position={{ x: 320, y: 0 }} width={320} estimatedHeight={300} onClose={() => { closed++; setOpen(false) }} titleId="t">
+        <h2 id="t">Tool</h2>
+      </DetailPopup>
+    ) : null
+  }
+  render(<Host />)
   const dlg = document.querySelector<HTMLElement>('[role="dialog"]')!
   const top = parseFloat(dlg.style.top)
   assert.ok(top < 68 + 216, `precondition: the popup covers the cards (top ${top})`)
   act(() => btn.focus())
   assert.equal(closed, 1, 'the popup is closed when focus enters a covered card')
+  // #536: the focused button is no longer covered and keeps the focus once the popup is unmounted
+  assert.equal(document.querySelector('[role="dialog"]'), null, 'nothing is left over the card')
+  assert.equal(document.activeElement, btn, 'the card button keeps the focus')
 })
 
 test('focus entering a card does not close a popup that leaves the cards free (#536)', () => {
