@@ -131,3 +131,26 @@ test('full screen and presentation hide the offer without spending it', () => {
   h.rerender(ready)
   assert.equal(h.result.current.open, true)
 })
+
+test('a permission card on screen takes precedence: the offer is not rendered, nor spent, and comes back after the decision', () => {
+  const h = renderHook(p => useTourOffer(p), { initialProps: { ...ready, permissionShown: true } })
+  assert.equal(h.result.current.open, false)
+  assert.equal(window.localStorage.getItem(TOUR_OFFER_STORAGE_KEY), null)
+  h.rerender({ ...ready, permissionShown: false })
+  assert.equal(h.result.current.open, true)
+  // A card arriving while the offer is open hides it without answering it
+  h.rerender({ ...ready, permissionShown: true })
+  assert.equal(h.result.current.open, false)
+  h.rerender({ ...ready, permissionShown: false })
+  assert.equal(h.result.current.open, true)
+})
+
+test('the offer is not announced while a permission card hides it', () => {
+  const r = render(
+    <main id="visualizer-main" tabIndex={-1}>
+      <TourOffer open={false} label="Tour this session" onStart={() => {}} onDismiss={() => {}} />
+    </main>,
+  )
+  assert.equal(r.getByRole('status').textContent, '')
+  assert.equal(r.container.querySelector('[data-tour-offer]'), null)
+})
