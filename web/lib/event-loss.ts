@@ -8,7 +8,7 @@
  * those events had been received). A later connection that keeps the graph says nothing about it: the client
  * already received most of those events live. See {@link acceptEventLoss}.
  */
-import { truncationTotal, shouldShowTruncationBanner, type NormalizationStats } from './event-normalize'
+import { truncationTotal, type NormalizationStats } from './event-normalize'
 import { ALL_SESSIONS_ID, parseTeamSelection } from './bridge-types'
 import type { UsageTotal } from './usage'
 
@@ -109,8 +109,10 @@ export function acceptEventLoss(connections: number, current: EventLoss | null, 
 export function truncationBannerState(stats: NormalizationStats, replayLost: number, dismissedAt: number | undefined): { show: boolean; total: number } {
   const lost = Number.isSafeInteger(replayLost) && replayLost > 0 ? replayLost : 0
   const total = add(truncationTotal(stats), lost)
-  // The normalizer's own rule, with the replay loss added to the total a dismissal is compared with
-  const show = lost === 0 ? shouldShowTruncationBanner(stats, dismissedAt) : total > 0 && (dismissedAt === undefined || total > dismissedAt)
+  // A dismissal holds only at the total it was made at (#569 review). More lost: back. LESS than that total is a new loss
+  // too, never a smaller part of the old one: the relay restarted (its figure starts again from 0) or the graph was
+  // reloaded, so a dismissal stored for the tab before that no longer describes what the view lacks.
+  const show = total > 0 && (dismissedAt === undefined || total !== dismissedAt)
   return { show, total }
 }
 
@@ -186,18 +188,27 @@ export function allViewSessionTotals(
 
 /**
  * The dismissals after the user closed the banner of view `key` at `total` (a new map, the newest entry last).
- * Dismissing the All view also covers each session it counted (`covered`, session id -> that session's own total):
- * opening one of them right after shows no banner at the same total. A higher stored total is never lowered.
+ * Dismissing the All view also covers each session it counted (`covered`, session id -> what All counted for it):
+ * opening one of them right after shows no banner at the same total. A higher total stored for a session is kept only
+ * while that session's own view still counts at least that much (`own`, allViewSessionTotals with every session): it is
+ * an earlier dismissal of a loss All does not show. Above what the session counts now, it is stale (the relay
+ * restarted) and is replaced, or the session would open on a banner the user just closed.
  */
 export function dismissTruncation(
   prev: ReadonlyMap<string, number>,
   key: string,
   total: number,
   covered: ReadonlyMap<string, number> = new Map(),
+  own: ReadonlyMap<string, number> = covered,
 ): Map<string, number> {
   const next = new Map(prev)
-  const put = (k: string, n: number) => { const was = next.get(k); next.delete(k); next.set(k, Math.max(was ?? 0, n)) }
-  if (key === truncationDismissKey(ALL_SESSIONS_ID)) for (const [sid, n] of covered) put(truncationDismissKey(sid), n)
+  const put = (sid: string, n: number) => {
+    const k = truncationDismissKey(sid)
+    const was = next.get(k)
+    next.delete(k)
+    next.set(k, was !== undefined && was > n && was <= (own.get(sid) ?? 0) ? was : n)
+  }
+  if (key === truncationDismissKey(ALL_SESSIONS_ID)) for (const [sid, n] of covered) put(sid, n)
   next.delete(key)
   next.set(key, total)
   return next

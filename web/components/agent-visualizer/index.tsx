@@ -242,10 +242,11 @@ export function AgentVisualizer() {
   }, [truncationKey, truncationReopened])
   const dismissTruncationBanner = () => {
     // Dismissing All also covers each session it counted, at that session's own total (#567)
-    const covered = truncationKey === truncationDismissKey(null)
-      ? allViewSessionTotals(normalizationStats, bridge.eventLoss, bridge.allViewSessionIds)
-      : undefined
-    const next = dismissTruncation(truncationDismissed, truncationKey, truncation.total, covered)
+    const isAll = truncationKey === truncationDismissKey(null)
+    const covered = isAll ? allViewSessionTotals(normalizationStats, bridge.eventLoss, bridge.allViewSessionIds) : undefined
+    // What each session's own view counts now: an older, higher dismissal above it is stale (#569 review)
+    const own = isAll ? allViewSessionTotals(normalizationStats, bridge.eventLoss, null) : undefined
+    const next = dismissTruncation(truncationDismissed, truncationKey, truncation.total, covered, own)
     writeTruncationDismissals(tabStorage(), next)
     setTruncationDismissed(next)
     setTruncationReopened(null)

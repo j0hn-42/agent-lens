@@ -96,7 +96,9 @@ test('truncationBannerState: shown while something was lost, back when more is l
   assert.equal(truncationBannerState(cut, 5, 7).show, false, 'dismissed at the total shown')
   assert.equal(truncationBannerState(cut, 6, 7).show, true, 'the replay loss grew: it comes back')
   assert.equal(truncationBannerState({ ...cut, ignoredEvents: 3 }, 5, 7).show, true, 'the normalizer dropped more: it comes back')
-  assert.equal(truncationBannerState(cut, 0, 7).show, false, 'the replay loss went down to 0 but the dismissal holds')
+  // #569 review: a total below the one dismissed at no longer describes what was dismissed (relay restarted, graph
+  // reloaded, another set of sessions shown): the banner shows again with the figure that is true now
+  assert.equal(truncationBannerState(cut, 0, 7).show, true, 'the replay loss went down to 0: the 2 events ignored are shown again')
   assert.equal(truncationBannerState(none, 0, 7).show, false, 'nothing to show at all')
   assert.equal(truncationBannerState({ ...none, clampedFields: 9, duplicateEvents: 9 }, 0, undefined).show, false, 'benign counters never trigger it')
 })
