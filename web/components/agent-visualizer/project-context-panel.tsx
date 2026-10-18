@@ -96,6 +96,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
       width={rect?.w ?? 360}
       attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
       label={panelName(locale, 'context')}
+      labelLang={locale}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       {children(rect?.h ?? '70vh')}

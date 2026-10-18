@@ -789,6 +789,13 @@ for (const locale of LOCALES) {
         const view = render(el)
         const dialog = view.getByRole('dialog', { name: new RegExp(`^${escapeRe(panelName(locale, id))}$`, 'i') })
         assert.ok(dialog.hasAttribute('data-mobile-drawer'), `${id} is a drawer`)
+        // WCAG 3.1.2: an aria-label cannot declare its language, so the name comes from an element that does
+        const nameId = dialog.getAttribute('aria-labelledby')
+        assert.ok(nameId, `${id}: the drawer is named by an element, not by an aria-label`)
+        const nameEl = document.getElementById(nameId)
+        assert.ok(nameEl, `${id}: the naming element exists`)
+        assert.equal(langOf(nameEl.querySelector('[lang]') ?? nameEl), locale, `${id}: the drawer name declares lang=${locale}`)
+        assert.equal(dialog.getAttribute('lang'), null, `${id}: the drawer body is not all in ${locale}, so the dialog itself has no lang`)
         const buttonName = MESSAGES[locale][`topbar.panel.${id}.name` as MessageKey].replace(/ \([A-Z]\)$/, '')
         assert.equal(panelName(locale, id), buttonName, `${id}: the drawer, the palette and the top bar button agree`)
         cleanup()

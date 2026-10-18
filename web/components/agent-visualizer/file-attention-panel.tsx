@@ -105,6 +105,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       width={rect?.w ?? 380}
       attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
       label={panelName(locale, 'files')}
+      labelLang={locale}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
