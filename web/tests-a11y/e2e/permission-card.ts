@@ -14,9 +14,14 @@ const HOST_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta name="
 
 export interface Opened { page: Page; app: Frame }
 
-/** The demo inside a frame, told by its parent that it runs in VS Code, with one permission request waiting. */
-export async function openWithCard(browser: Browser, server: DemoServer, w: number, h: number, mobile = true): Promise<Opened> {
+/**
+ * The demo inside a frame, told by its parent that it runs in VS Code, with one permission request waiting.
+ * `tourOffered`: the first-run tour offer (#377) is marked as already made, as on any launch after the first, so a test
+ * measures its own subject and not that card (which is drawn from 600 px wide, tour-offer.tsx).
+ */
+export async function openWithCard(browser: Browser, server: DemoServer, w: number, h: number, mobile = true, opts: { tourOffered?: boolean } = {}): Promise<Opened> {
   const context = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: mobile, isMobile: mobile })
+  if (opts.tourOffered) await context.addInitScript(`try { localStorage.setItem('agent-lens:tour-offered', '1') } catch {}`)
   const page = await context.newPage()
   await page.route(`${server.url}${HOST_PATH}`, route => route.fulfill({ contentType: 'text/html', body: HOST_HTML }))
   await page.goto(`${server.url}${HOST_PATH}`)
