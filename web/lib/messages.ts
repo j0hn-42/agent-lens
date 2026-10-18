@@ -3,6 +3,10 @@
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
 import { COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES } from './ui-glossary'
+import { ROLLUP_INCOMPLETE_TEXT } from './cost-rollup'
+
+/** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
+const INCOMPLETE = ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')
 
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
@@ -1314,8 +1318,8 @@ const en: Record<MessageKey, string> = {
   'cols.tokens.value': '{value} tokens',
   'cols.tokens.rollup': '{v} tokens',
   'cols.tokens.rollupEstimated': '{v} tokens estimated',
-  'cols.tokens.rollupIncomplete': '{v} tokens incomplete',
-  'cols.tokens.rollupEstimatedIncomplete': '{v} tokens estimated incomplete',
+  'cols.tokens.rollupIncomplete': `{v} tokens ${INCOMPLETE}`,
+  'cols.tokens.rollupEstimatedIncomplete': `{v} tokens estimated ${INCOMPLETE}`,
   'cols.time.unknown': 'duration unknown',
   'cols.time.since': '{d} since start',
   'cols.time.untilLast': '{d} until last activity',
@@ -1328,8 +1332,8 @@ const en: Record<MessageKey, string> = {
   'cols.cost.none': 'cost unknown',
   'cols.cost.value': `${COST_LABELS.name} {money}`,
   'cols.cost.valueEstimated': `${COST_LABELS.name} {money}, from estimated tokens`,
-  'cols.cost.valueIncomplete': `${COST_LABELS.name} {money}, incomplete`,
-  'cols.cost.valueEstimatedIncomplete': `${COST_LABELS.name} {money}, from estimated tokens, incomplete`,
+  'cols.cost.valueIncomplete': `${COST_LABELS.name} {money}, ${INCOMPLETE}`,
+  'cols.cost.valueEstimatedIncomplete': `${COST_LABELS.name} {money}, from estimated tokens, ${INCOMPLETE}`,
   'cols.branch.none': 'branch not recorded',
   'cols.branch.value': 'branch {name}',
   'cols.runtime.none': 'runtime not reported',

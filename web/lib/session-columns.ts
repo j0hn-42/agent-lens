@@ -19,13 +19,11 @@ import { usageText } from './card-text'
 import type { SessionInfo } from './bridge-types'
 import type { Freshness } from '../hooks/simulation/freshness'
 
-/** Header labels, in column order. */
-export const COLUMN_LABELS = {
-  name: 'Name', model: 'Model', runtime: 'Runtime', branch: 'Branch', tokens: 'Tokens', cost: 'Cost', time: 'Time', activity: 'Activity',
-} as const
+/** The columns, in order (their header labels are the cols.* messages). */
+export type ColumnName = 'name' | 'model' | 'runtime' | 'branch' | 'tokens' | 'cost' | 'time' | 'activity'
 
-/** Header label of a column in the active language (the English labels stay the COLUMN_LABELS above). */
-export function columnLabel(column: keyof typeof COLUMN_LABELS, locale: Locale = 'en'): string {
+/** Header label of a column in the active language. */
+export function columnLabel(column: ColumnName, locale: Locale = 'en'): string {
   return translate(locale, `cols.${column}` as MessageKey)
 }
 

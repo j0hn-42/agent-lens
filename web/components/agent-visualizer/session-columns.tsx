@@ -156,7 +156,7 @@ export function LiveTimeValue({ agent, freshness, now = Date.now, monotonic = ()
 /** Visible header of the columns (hidden when stacked): sighted-only, each cell already names itself. */
 export function ColumnHeader() {
   const { locale } = useLocale()
-  const L = (c: Parameters<typeof columnLabel>[0]) => columnLabel(c, locale)
+  const L = (c: 'name' | 'model' | 'runtime' | 'branch' | 'tokens' | 'cost' | 'time' | 'activity') => columnLabel(c, locale)
   return (
     <div
       aria-hidden="true"
