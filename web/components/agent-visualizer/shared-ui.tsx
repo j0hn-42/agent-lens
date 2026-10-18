@@ -11,7 +11,7 @@ import {
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { DRAWER_COMPANIONS, DRAWER_FOCUSABLE, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
+import { DRAWER_COMPANIONS, DRAWER_FOCUSABLE, PERMISSION_HEIGHT_VAR, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
 import { useMobileView } from '@/hooks/use-mobile-view'
 import { GlassCard } from './glass-card'
 
@@ -408,6 +408,9 @@ function useDrawerKeys(ref: RefObject<HTMLElement | null>, active: boolean) {
       if (!target) return
       e.preventDefault()
       target.focus({ preventScroll: true })
+      // A card or a drawer that scrolls (permission card open, #548) must show the control that took the focus:
+      // the page itself never scrolls, so only the nearest scroll containers move. Missing in jsdom.
+      target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
     }
     // On window, after React's handlers: an Escape a control inside already took (stopPropagation) never gets here
     const onEscape = (e: KeyboardEvent) => {
@@ -426,6 +429,12 @@ function useDrawerKeys(ref: RefObject<HTMLElement | null>, active: boolean) {
     }
   }, [ref, active])
 }
+
+/**
+ * With a permission card shown, a drawer starts under it (margin-top, see drawerStyle) and scrolls in the room left
+ * above the bottom control bar (7.5rem), so it never reaches under that bar (#548).
+ */
+const DRAWER_BELOW_CARD = '[html[data-permission-open]_&]:max-h-[calc(100dvh-var(--topbar-h,60px)-16px-var(--permission-h,0px)-7.5rem)] [html[data-permission-open]_&]:overflow-y-auto'
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
@@ -476,7 +485,7 @@ export function SlidingPanel({
     ? { role: 'dialog', 'aria-labelledby': labelledBy, 'aria-label': labelledBy ? undefined : label, 'data-mobile-drawer': '' }
     : { role: labelledBy ? 'region' : undefined, 'aria-labelledby': labelledBy }
   const drawerStyle: React.CSSProperties | undefined = drawer
-    ? { left: 8, right: 'auto', width: 'calc(100vw - 16px)', maxWidth: 'calc(100vw - 16px)' }
+    ? { left: 8, right: 'auto', marginTop: `var(${PERMISSION_HEIGHT_VAR}, 0px)`, width: 'calc(100vw - 16px)', maxWidth: 'calc(100vw - 16px)' }
     : undefined
 
   return (
@@ -488,7 +497,7 @@ export function SlidingPanel({
       tabIndex={-1}
       {...attrs}
       {...panelStopPropagationHandlers}
-      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-[transform,opacity] duration-300 motion-reduce:transition-none ${className}`}
+      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-[transform,opacity] duration-300 motion-reduce:transition-none ${drawer ? DRAWER_BELOW_CARD : ''} ${className}`}
       style={{
         ...position,
         opacity: visible ? 1 : 0,

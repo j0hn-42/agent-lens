@@ -11,7 +11,7 @@ import { useLocale, useT } from '@/lib/locale'
 import type { MessageKey } from '@/lib/messages'
 import type { PermissionAction } from '@/lib/bridge-types'
 import { usePermissionRequests, type PermissionNotice, type PermissionRow } from '@/hooks/use-vscode-bridge'
-import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { PERMISSION_HEIGHT_VAR, PERMISSION_OPEN_ATTR, TOUCH_TARGET } from '@/lib/mobile-view'
 import { RedirectDialog } from './permission-redirect-dialog'
 
 const CLOSED_KEYS: Record<string, MessageKey> = {
@@ -89,6 +89,22 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
     target?.focus({ preventScroll: true })
   })
 
+  // An open drawer spans the viewport below 768 px and would sit under the card: while a card is shown, publish its
+  // height (--permission-h) and flag the page, so the drawer starts below the card and scrolls in what is left
+  // (SlidingPanel). The card never covers a drawer control or its focus (#548).
+  const hasRows = rows.length > 0
+  useEffect(() => {
+    const el = containerRef.current
+    const root = document.documentElement
+    if (!el || !hasRows || typeof ResizeObserver === 'undefined') return
+    const publish = () => root.style.setProperty(PERMISSION_HEIGHT_VAR, `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    root.setAttribute(PERMISSION_OPEN_ATTR, '')
+    publish()
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    return () => { ro.disconnect(); root.style.removeProperty(PERMISSION_HEIGHT_VAR); root.removeAttribute(PERMISSION_OPEN_ATTR) }
+  }, [available, hasRows])
+
   /** Focus target when the redirect dialog closes after its Redirect button went away */
   const focusPanel = useCallback((nonce: string) => {
     const row = containerRef.current?.querySelector<HTMLElement>(`[data-nonce="${nonce}"]`)
@@ -109,7 +125,7 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
       ref={containerRef}
       lang={locale}
       data-permission-requests=""
-      className="absolute right-3 flex flex-col gap-2 max-h-[60vh] overflow-y-auto pointer-events-none"
+      className="absolute right-3 flex flex-col gap-2 max-h-[60vh] max-md:max-h-[30vh] overflow-y-auto pointer-events-none"
       style={{ zIndex: Z.controlBar + 6, top: 'var(--topbar-h, 3.75rem)', width: 'min(28rem, calc(100% - 1.5rem))' }}
     >
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
