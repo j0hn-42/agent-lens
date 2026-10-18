@@ -1,4 +1,4 @@
-// #369: the canvas notice shown when every agent is finished and hidden by 'Hide inactive agents'.
+// #369: the canvas notice shown when every agent is finished and hidden by 'Hide inactive' (formerly 'Hide inactive agents').
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'

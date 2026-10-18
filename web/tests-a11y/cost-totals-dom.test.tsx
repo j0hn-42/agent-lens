@@ -107,7 +107,7 @@ async function mount(lost: Record<string, number> | null, openCost = true, { row
   else await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions ?:/ })) }) // close the panel, as the click would
   await wait(100)
   await act(async () => { for (const e of events) FakeES.last.send(e) })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents|Masquer les agents inactifs/ })) }) // idle agents are hidden by default
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive|^Masquer les inactifs/ })) }) // idle agents are hidden by default
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
   if (openCost) await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.cost)!) })

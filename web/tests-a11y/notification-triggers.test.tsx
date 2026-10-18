@@ -115,8 +115,8 @@ test('rules hook: persisted per browser, defaults without storage', () => {
 })
 
 const settingsProps = (over: Record<string, unknown> = {}) => ({
-  open: true, onClose: noop, hexGrid: true, onHexGridChange: noop, muted: false, onToggleMute: noop, showFinished: false,
-  onShowFinishedChange: noop, hideInactive: true, onHideInactiveChange: noop, singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
+  open: true, onClose: noop, hexGrid: true, onHexGridChange: noop, muted: false, onToggleMute: noop,
+  showMode: 'active' as const, onShowModeChange: noop, singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
   onOpenShortcuts: noop, ...over,
 })
 

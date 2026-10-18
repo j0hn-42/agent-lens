@@ -103,11 +103,6 @@ export function connectionText(locale: Locale, status: ConnectionStatus, isDemo:
   }
 }
 
-// ─── Finished sessions ───────────────────────────────────────────────────────
-
-export const finishedToggleText = (locale: Locale, count: number): string => tr(locale, 'topbar.finished.label', { n: count })
-export const finishedToggleTitle = (locale: Locale): string => tr(locale, 'topbar.finished.title')
-export const finishedHiddenText = (locale: Locale, count: number): string => tr(locale, 'topbar.finished.hidden', { n: count })
 
 // ─── More ────────────────────────────────────────────────────────────────────
 

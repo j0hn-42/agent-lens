@@ -1,5 +1,6 @@
-// 'Show finished sessions' lives in the preference blob (#372): the bridge reads and writes it there, the former
-// standalone key is only migrated, and a change made through the preferences (Settings, reset) reaches the 'All' view.
+// 'Show finished sessions', now the 'all' value of the Show mode, lives in the preference blob (#372): the bridge only
+// reads it there (the one writer is the preference store: top bar, Settings, reset, another tab), the former standalone
+// key is only migrated, and a change made through the preferences reaches the 'All' view.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, cleanup, act } from '@testing-library/react'
@@ -16,15 +17,20 @@ afterEach(() => {
   window.localStorage.removeItem(LEGACY_FINISHED)
 })
 
-test('setShowFinished writes the preference blob, never the former key', async () => {
+test('the bridge has no setter of its own: no second way to write the Show mode', () => {
   const { result } = renderHook(() => useVSCodeBridge())
-  assert.equal(result.current.showFinished, false)
-  await act(async () => result.current.setShowFinished(true))
-  assert.equal(result.current.showFinished, true)
+  assert.equal('setShowFinished' in result.current, false)
+})
+
+test('the Show mode written through the preferences reaches the bridge and survives a reload, never the former key', async () => {
+  const { result } = renderHook(() => ({ bridge: useVSCodeBridge(), ui: useUiPreferences() }))
+  assert.equal(result.current.bridge.showFinished, false)
+  await act(async () => result.current.ui.setPref('show', 'all'))
+  assert.equal(result.current.bridge.showFinished, true)
   cleanup()
   resetDefaultUiPreferencesStore({ keepStorage: true }) // flushes the pending write, like a reload
   assert.equal(window.localStorage.getItem(LEGACY_FINISHED), null)
-  assert.equal(parsePrefs(window.localStorage.getItem(UI_PREFS_STORAGE_KEY)).showFinished, true)
+  assert.equal(parsePrefs(window.localStorage.getItem(UI_PREFS_STORAGE_KEY)).show, 'all', 'stored as the one Show mode (#372)')
   const reloaded = renderHook(() => useVSCodeBridge())
   assert.equal(reloaded.result.current.showFinished, true, 'the choice survives a reload')
 })
@@ -37,8 +43,8 @@ test('a choice stored under the former key is kept (migration, no loss)', () => 
 
 test('a change made through the preferences (Settings reset) reaches the bridge', async () => {
   const { result } = renderHook(() => ({ bridge: useVSCodeBridge(), ui: useUiPreferences() }))
-  await act(async () => result.current.bridge.setShowFinished(true))
-  assert.equal(result.current.ui.prefs.showFinished, true, 'one source of truth')
+  await act(async () => result.current.ui.setPref('show', 'all'))
+  assert.equal(result.current.bridge.showFinished, true)
   await act(async () => result.current.ui.resetPrefs())
   assert.equal(result.current.bridge.showFinished, false)
 })

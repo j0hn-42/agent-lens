@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ALL_SESSIONS_ID, type ConnectionStatus } from '../web/lib/bridge-types'
 import {
-  attentionAriaLabel, attentionCounterText, attentionTooltip, connectionText, finishedHiddenText, finishedToggleText, finishedToggleTitle,
+  attentionAriaLabel, attentionCounterText, attentionTooltip, connectionText,
   moreText, selectionLabelText, unobservedSessionsText,
 } from '../web/lib/top-bar-text'
 import { connectionDisplay, topBarContextText, viewCountsText } from '../web/lib/chrome-utils'
@@ -114,17 +114,6 @@ test('the Sessions button texts exist in both languages', () => {
   assert.equal(unobservedSessionsText('fr', 1), '1 session non observée')
   assert.equal(unobservedSessionsText('fr', 3), '3 sessions non observées')
   assert.ok(SESSION_NOT_OBSERVED_HELP.length > 0)
-})
-
-test('finished sessions: English is the legacy text, French is translated with the same count', () => {
-  for (const n of [0, 1, 12]) {
-    assert.equal(finishedToggleText('en', n), `Show finished sessions (${n})`)
-    assert.equal(finishedHiddenText('en', n), TOP_BAR_LABELS.filterFinishedHidden(n))
-    assert.match(finishedToggleText('fr', n), new RegExp(`^Afficher les sessions terminées \\(${n}\\)$`))
-    assert.match(finishedHiddenText('fr', n), new RegExp(`^Sessions terminées masquées \\(${n}\\)$`))
-  }
-  assert.equal(finishedToggleTitle('en'), 'Also show sessions that finished more than 10 minutes ago')
-  assert.match(finishedToggleTitle('fr'), /plus de 10 minutes/)
 })
 
 test('More: English is TOP_BAR_LABELS, French starts its name with its visible text', () => {

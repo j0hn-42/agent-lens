@@ -25,7 +25,7 @@ const base: TopBarProps = {
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 33000, totalCost: 0.312,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, showStats: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
-  onOpenSettings: noop, onToggleFullscreen: noop, onToggleHideInactive: noop,
+  onOpenSettings: noop, onToggleFullscreen: noop, onChangeShowMode: noop,
   attention: { waiting: 1, errors: 0 }, onJumpToAttention: noop,
 }
 
@@ -66,11 +66,11 @@ test('under 768 px: More shows the panel buttons, the filters and the totals', (
   // More controls the filters (row 1) and row 2 (#523): every id names a rendered element
   const regions = more.getAttribute('aria-controls')!.split(' ').map(id => document.getElementById(id))
   assert.ok(regions.length > 0 && regions.every(Boolean), 'aria-controls names rendered elements')
-  for (const name of ['Files', 'Timeline', 'Hide inactive agents', 'Settings', 'Keyboard shortcuts']) {
+  for (const name of ['Files', 'Timeline', 'Hide inactive: agents', 'Settings', 'Keyboard shortcuts']) {
     assert.ok(view.getByRole('button', { name }), `${name} is shown`)
   }
   assert.ok(regions.some(r => r!.contains(view.getByRole('toolbar', { name: 'View controls' }))), 'the panel buttons are what More controls')
-  assert.ok(regions.some(r => r!.contains(view.getByRole('button', { name: 'Hide inactive agents' }))), 'the filters are what More controls')
+  assert.ok(regions.some(r => r!.contains(view.getByRole('button', { name: 'Hide inactive: agents' }))), 'the filters are what More controls')
 })
 
 test('under 768 px: a panel button folds More again and leaves the focus on More (the drawer takes it next)', () => {
@@ -94,7 +94,7 @@ test('under 768 px: a filter keeps More open (several can be changed in a row)',
   const view = render(<TopBar {...base} />)
   const more = view.getByRole('button', { name: /^More/ })
   fireEvent.click(more)
-  fireEvent.click(view.getByRole('button', { name: 'Hide inactive agents' }))
+  fireEvent.click(view.getByRole('button', { name: 'Hide inactive: agents' }))
   assert.equal(more.getAttribute('aria-expanded'), 'true')
 })
 

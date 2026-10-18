@@ -13,7 +13,7 @@ On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en 
 ## Avant de commencer
 
 - Fenêtre d'au moins 1280 × 800, thème au choix.
-- Désactivez **Hide inactive agents** (bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les sessions finies : c'est une fonctionnalité à montrer, voir l'acte 7.
+- Désactivez **Hide inactive** (*Masquer les inactifs*, bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les agents terminés et, dans la vue de toutes les sessions, les sessions finies depuis plus de 10 minutes : c'est une fonctionnalité à montrer, voir l'acte 7.
 - Pour l'acte 4, ouvrez **View** (**Affichage** en français, bas à droite) et réglez **Hide unanswered calls after** (**Masquer les appels sans réponse après**) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
 - Le tour ne se rejoue pas tout seul : rechargez la page pour recommencer. Le mode **Review** (barre du bas) permet de remonter la timeline et de survoler un instant précis.
 
@@ -37,11 +37,11 @@ Les deux sessions Claude partagent un projet : la vue **All** les regroupe sous 
 | 0:24 – 0:38 | **Erreur et reprise** | `test-runner` (modèle `haiku` demandé, obtenu et détecté) lance les tests, échoue, ajoute un setup, relance et passe. | L'appel en échec est marqué en erreur dans le graphe et dans **Conversation**. Ouvrez **Files** : la carte d'attention des fichiers touchés. Ouvrez **$Cost** : coût par agent. |
 | 0:39 | **Fin de tour** | L'`orchestrator` passe en *idle* : il attend le prompt suivant, il ne travaille plus. | Dites : « un agent qui a fini son tour n'est pas compté comme actif ». |
 | 0:40 – 0:49 | **2. Agent Team et Comms** | `api-dev` et `qa-dev` forment l'équipe `payments-squad` (halo en tirets). Ils s'échangent des messages. | Cliquez le lien entre `api-dev` et `qa-dev` : le panneau de lien lit l'échange. Le badge est le nombre de messages. Montrez les couleurs de coéquipiers et l'état working / idle / done. |
-| 0:14 – 1:24 | **3. Workflow à phases** | La session `release` exécute un Workflow : phases **Plan** puis **Build**. | Les membres apparaissent avant l'annonce des phases : le graphe se réorganise. Quand **Plan** est terminé (0:19), ses agents quittent l'écran avec **Hide inactive agents**. |
+| 0:14 – 1:24 | **3. Workflow à phases** | La session `release` exécute un Workflow : phases **Plan** puis **Build**. | Les membres apparaissent avant l'annonce des phases : le graphe se réorganise. Quand **Plan** est terminé (0:19), ses agents quittent l'écran avec **Hide inactive**. |
 | 1:15 et 0:52 | **4. Valeurs honnêtes** | Un `WebFetch` lancé à 0:15 dont on ne reçoit jamais la fin, un coût rapporté pour un agent inconnu (0:52), un coéquipier annoncé qui n'a rien produit (0:52). | À 1:15 (une minute après son départ, avec le réglage ci-dessus), l'appel sans fin se lit **end not observed**, jamais « réussi ». Le coût inconnu apparaît dans **$Cost** comme **unattributed**, hors des agents. Le coéquipier se lit **Not observed yet**. Les totaux partiels de la barre du haut disent **at least** et **estimated**. |
 | 0:30 – 1:08 | **5. Une session Codex** | `codex` met à jour des pages de documentation. Ses chiffres de jetons viennent du runtime, avec l'effort de raisonnement (`high`). | Dites : « Claude Code et Codex côte à côte, étiquetés par runtime ». Montrez la fenêtre de contexte de 272 000 jetons. |
 | tout le long | **6. Vue All (Fleet)** | Trois sessions sur un canevas, chacune dans un halo pointillé ; deux sont sous le même projet. | Cliquez un halo pour zoomer sur le cluster. Ouvrez **Sessions** : l'arbre sessions, agents et sous-agents ; le menu contextuel (clic droit) ; **Legend** en bas à gauche explique chaque forme. |
-| à la fin | **7. Les filtres** | **Hide inactive agents** masque les agents terminés. | Désactivez-le pour retrouver toute l'histoire. Montrez **Timeline**, **Stats** et **Shortcuts**. |
+| à la fin | **7. Les filtres** | **Hide inactive** masque les agents terminés. | Désactivez-le pour retrouver toute l'histoire. Montrez **Timeline**, **Stats** et **Shortcuts**. |
 
 Le temps des actes se chevauche (les sessions tournent en parallèle) : suivez l'horloge de la barre du bas, pas l'ordre des lignes.
 
@@ -81,7 +81,7 @@ Pendant la visite :
 - le scénario est mis en pause à chaque étape, et la lecture reprend quand on quitte la visite ;
 - un anneau entoure l'élément expliqué (un agent du graphe, ou une section de la légende) ;
 - sur les étapes qui parlent de la légende, elle s'ouvre toute seule, sans modifier la préférence enregistrée ;
-- les agents inactifs restent affichés même si **Hide inactive agents** est actif, sans changer la préférence enregistrée ;
+- les agents inactifs restent affichés même si **Hide inactive** est actif, sans changer la préférence enregistrée ;
 - le graphe reste explorable (zoom, clic sur un agent).
 
 Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette démo : il relance la visite après une sortie.

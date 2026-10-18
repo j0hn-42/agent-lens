@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import { demoServerEnv, E2E_DIST_DIR } from './e2e/demo-server'
+import { demoServerEnv, E2E_DIST_DIR, spawnGuarded, stopProcessGroup, startWithRetries, StartExitedError } from './e2e/demo-server'
 
 const WEB_DIR = path.resolve(__dirname, '..')
 
@@ -67,3 +67,55 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     assert.ok(dead, 'le serveur détaché est arrêté avec le processus de test')
   })
 }
+
+function groupAlive(pgid: number): boolean {
+  try { process.kill(-pgid, 0); return true } catch { return false }
+}
+
+// #440 : stop() rendait la main dès que `pnpm` (chef du groupe) sortait, alors que next dev et next-server
+// vivaient encore quelques secondes : le serveur du fichier suivant démarrait pendant cet arrêt.
+test('stopProcessGroup attend que tout le groupe soit mort, pas seulement son chef', async () => {
+  // Chef : sort tout de suite sur SIGTERM. Petit-fils : met 1,5 s à mourir après le même signal.
+  const script = `sh -c 'trap "sleep 1.5; exit 0" TERM; while :; do sleep 0.1; done' & trap "exit 0" TERM; wait`
+  const child = spawnGuarded('sh', ['-c', script], { stdio: 'ignore' })
+  const pgid = child.pid!
+  try {
+    await new Promise(r => setTimeout(r, 400)) // laisse les traps s'installer
+    assert.ok(groupAlive(pgid), 'le groupe tourne')
+    const t0 = Date.now()
+    await stopProcessGroup(child)
+    assert.ok(!groupAlive(pgid), 'plus aucun membre du groupe après stopProcessGroup')
+    assert.ok(Date.now() - t0 >= 1000, 'il a attendu le petit-fils, pas seulement le chef')
+  } finally {
+    try { process.kill(-pgid, 'SIGKILL') } catch { /* déjà mort */ }
+  }
+})
+
+test('stopProcessGroup passe à SIGKILL quand le groupe ignore SIGTERM', async () => {
+  const child = spawnGuarded('sh', ['-c', 'trap "" TERM; while :; do sleep 0.1; done'], { stdio: 'ignore' })
+  const pgid = child.pid!
+  try {
+    await new Promise(r => setTimeout(r, 300))
+    await stopProcessGroup(child, 500)
+    assert.ok(!groupAlive(pgid))
+  } finally {
+    try { process.kill(-pgid, 'SIGKILL') } catch { /* déjà mort */ }
+  }
+})
+
+test("startWithRetries relance sur un nouveau port quand le serveur sort avant de répondre, sans masquer l'échec final", async () => {
+  const seen: number[] = []
+  let n = 0
+  const ok = await startWithRetries(async attempt => {
+    seen.push(attempt)
+    if (++n < 3) throw new StartExitedError('EADDRINUSE')
+    return 'prêt'
+  }, 3)
+  assert.equal(ok, 'prêt')
+  assert.deepEqual(seen, [1, 2, 3])
+
+  await assert.rejects(startWithRetries(async () => { throw new StartExitedError('toujours') }, 3), /toujours/)
+  let calls = 0
+  await assert.rejects(startWithRetries(async () => { calls++; throw new Error('délai dépassé') }, 3), /délai dépassé/)
+  assert.equal(calls, 1, "un délai dépassé (serveur vivant mais muet) n'est pas relancé")
+})
