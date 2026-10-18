@@ -305,3 +305,22 @@ test('canvas controls, resize: the focus follows a fold or an unfold from a cont
     await page.context().close()
   }
 })
+
+test('canvas controls 320x256, full screen: the playback bar is hidden, so the six controls are drawn unfolded (#515)', { timeout: 120_000 }, async () => {
+  const page = await open(320, 256)
+  try {
+    await page.getByRole('button', { name: MENU, exact: true }).waitFor()
+    // Z toggles the full screen (chrome only when the Fullscreen API is refused): the top bar and the playback bar hide
+    await page.locator('body').press('z')
+    await page.locator('[data-control-bar]').waitFor({ state: 'hidden' })
+    await waitForStableLayout(page)
+    const names = await page.evaluate(`(() => {
+      const nameOf = b => b.id === 'guided-tour-start' ? 'Tour' : (b.getAttribute('aria-label') || b.textContent || '').replace(/[\\u25b8\\u25be]/g, '').trim()
+      return [...document.querySelectorAll('button')].filter(b => b.getClientRects().length > 0).map(nameOf)
+    })()`) as string[]
+    assert.ok(!names.includes(MENU), `full screen: "${MENU}" is not shown (it would sit in a hidden bar)`)
+    for (const name of CONTROLS) assert.ok(names.includes(name), `full screen: "${name}" is drawn`)
+  } finally {
+    await page.context().close()
+  }
+})
