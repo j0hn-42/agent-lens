@@ -3,7 +3,8 @@
 // On develop @ 03da64a the camera closed 6 % of the gap to its fit target per frame: an agent, a card or a workspace
 // frame that appeared outside the frame stayed (partly) outside for up to 657 ms, the token line of an agent included.
 // Every frame drawn is checked in the page: the longest run of frames with something drawn in world space outside the
-// band between the top bar and the controls row (or past a side edge) must stay short. Measured over 40 s (about
+// band between the top bar and the controls row (or past a side edge) must stay short, counted in frames (the catch-up
+// is per frame). The test waits 40 s per size (about 85 s in all). Measured over 40 s (about
 // 2 300 frames per size), before / after the catch-up: 1024 x 768, 137 / 27 frames with an item outside, longest run
 // 657 / 100 ms; 390 x 844, 106 / 17-19 frames, 468 / 99-116 ms (two runs after). A card or an agent can still spawn outside the frame (worst
 // item about 220 px off on its first frame): the camera then brings it in within a few frames.
@@ -27,7 +28,7 @@ after(async () => {
 // rectangle drawn under the camera transform; when a frame ends, how far its worst item sticks out of the band.
 // A string so the TS transpiler injects no helper into the page.
 const RECORDER = `(() => {
-  const S = window.__autoframe = { frames: 0, outFrames: 0, maxPx: 0, maxWhat: '', runMs: 0, runStart: 0, longestMs: 0, longestWhat: '', tokenMaxPx: 0, cur: null, bars: null, barsAt: 0 }
+  const S = window.__autoframe = { frames: 0, outFrames: 0, maxPx: 0, maxWhat: '', runStart: 0, runFrames: 0, longestFrames: 0, longestMs: 0, longestWhat: '', tokenMaxPx: 0, cur: null, bars: null, barsAt: 0 }
   const graph = (ctx) => !!(ctx.canvas && ctx.canvas.closest && ctx.canvas.closest('[data-agent-canvas-root]'))
   const world = (ctx) => { const m = ctx.getTransform(); const d = window.devicePixelRatio || 1; return Math.abs(m.a - d) > 1e-6 || Math.abs(m.e) > 1e-6 || Math.abs(m.f) > 1e-6 }
   const bars = () => {
@@ -57,9 +58,9 @@ const RECORDER = `(() => {
       S.outFrames++
       if (worst > S.maxPx) { S.maxPx = worst; S.maxWhat = what }
       if (!S.runStart) S.runStart = f.at
-      const run = f.at - S.runStart
-      if (run > S.longestMs) { S.longestMs = run; S.longestWhat = what }
-    } else S.runStart = 0
+      S.runFrames++
+      if (S.runFrames > S.longestFrames) { S.longestFrames = S.runFrames; S.longestMs = f.at - S.runStart; S.longestWhat = what }
+    } else { S.runStart = 0; S.runFrames = 0 }
   }
   const push = (ctx, kind, label, x0, y0, x1, y1) => {
     if (!S.cur || !(ctx.globalAlpha > 0.05)) return
@@ -91,12 +92,16 @@ const RECORDER = `(() => {
   }
 })()`
 
-interface Stats { frames: number; outFrames: number; maxPx: number; maxWhat: string; longestMs: number; longestWhat: string; tokenMaxPx: number }
+interface Stats { frames: number; outFrames: number; maxPx: number; maxWhat: string; longestFrames: number; longestMs: number; longestWhat: string; tokenMaxPx: number }
 
-/** Longest run (ms) a drawn item may stay outside the band: the fit refreshes its target every 4 frames, then catches up */
-const MAX_RUN_MS = 250
+/**
+ * Longest run (frames) a drawn item may stay outside the band: the fit refreshes its target every 4 frames, then catches up
+ * (about 6 frames measured). Counted in frames, not ms, so a slower runner does not stretch the same steps past the bound;
+ * before the catch-up the longest run was about 39 frames (657 ms at 60 fps).
+ */
+const MAX_RUN_FRAMES = 12
 
-test('while the tour grows, nothing stays outside the frame for more than 250 ms, at 1024 x 768 and 390 x 844 (#378)', { timeout: 240_000 }, async () => {
+test('while the tour grows, nothing stays outside the frame for more than 12 frames, at 1024 x 768 and 390 x 844 (#378)', { timeout: 240_000 }, async () => {
   const report: string[] = []
   const failures: string[] = []
   for (const [w, h] of [[1024, 768], [390, 844]] as const) {
@@ -109,14 +114,16 @@ test('while the tour grows, nothing stays outside the frame for more than 250 ms
       await page.waitForTimeout(40_000)
       const s = await page.evaluate('window.__autoframe') as Stats
       const line = `${w}x${h}: ${s.frames} frames, ${s.outFrames} with an item outside, worst ${s.maxPx.toFixed(1)} px (${s.maxWhat}), `
-        + `longest run ${Math.round(s.longestMs)} ms (${s.longestWhat}), token line ${s.tokenMaxPx.toFixed(1)} px`
+        + `longest run ${s.longestFrames} frames / ${Math.round(s.longestMs)} ms (${s.longestWhat}), token line ${s.tokenMaxPx.toFixed(1)} px`
       report.push(line)
       assert.ok(s.frames > 200, `[${w}x${h}] the graph drew frames (${s.frames})`)
-      if (s.longestMs > MAX_RUN_MS) failures.push(line)
+      // Not vacuous: something did appear outside the frame, so the catch-up was exercised
+      assert.ok(s.outFrames > 0, `[${w}x${h}] nothing appeared outside the frame: the bench measured no catch-up`)
+      if (s.longestFrames > MAX_RUN_FRAMES) failures.push(line)
     } finally {
       await context.close()
     }
   }
   console.log(report.join('\n'))
-  assert.deepEqual(failures, [], `content stayed outside the frame for more than ${MAX_RUN_MS} ms`)
+  assert.deepEqual(failures, [], `content stayed outside the frame for more than ${MAX_RUN_FRAMES} frames`)
 })
