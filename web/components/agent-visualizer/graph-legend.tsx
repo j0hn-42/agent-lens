@@ -276,15 +276,13 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
         {startTour && (
           <button
             id={GUIDED_TOUR_BUTTON_ID}
-            // The tour and its label are not translated yet: the button declares its own language
-            lang="en"
-            data-i18n-exempt
+            lang={locale}
             type="button"
             onClick={startTour}
             className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
             style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
-            {startTourLabel ?? 'Guided tour'}
+            {startTourLabel ?? t('tour.button.demo')}
           </button>
         )}
       </div>

@@ -10,6 +10,7 @@
  */
 import { truncationTotal, shouldShowTruncationBanner, type NormalizationStats } from './event-normalize'
 import { ALL_SESSIONS_ID, parseTeamSelection } from './bridge-types'
+import type { UsageTotal } from './usage'
 
 export interface EventLoss {
   /** Session id -> events the relay could not replay (positive safe integers only) */
@@ -127,4 +128,26 @@ export function boundedCount(n: number, lost: number, singular: string, plural =
 export function replayLostSentence(lost: number): string {
   if (!(lost > 0)) return ''
   return lost === 1 ? 'at least 1 earlier event was not replayed by the relay' : `at least ${lost} earlier events were not replayed by the relay`
+}
+
+/** Events the relay could not replay for the sessions of these agents, each session counted once (0 when none is named). */
+export function replayLostForAgents(lost: ReadonlyMap<string, number> | null | undefined, agents: Iterable<{ sessionId?: string }>): number {
+  if (!lost || lost.size === 0) return 0
+  const seen = new Set<string>()
+  let total = 0
+  for (const a of agents) {
+    if (!a.sessionId || seen.has(a.sessionId)) continue
+    seen.add(a.sessionId)
+    const n = lost.get(a.sessionId)
+    if (n !== undefined && n > 0) total = add(total, n)
+  }
+  return total
+}
+
+/**
+ * A token or cost total over a graph that may be incomplete (#366): with lost events a complete figure becomes a lower
+ * bound, which every surface already words "at least". Nothing lost, or nothing known (null stays "not reported"): unchanged.
+ */
+export function usageUnderLoss(usage: UsageTotal, lost: number): UsageTotal {
+  return lost > 0 && usage.status === 'available' && usage.value !== null ? { ...usage, status: 'partial' } : usage
 }

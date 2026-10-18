@@ -10,10 +10,10 @@ import {
   AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
   MIN_VISIBLE_OPACITY, ORCHESTRATOR_DRAW,
 } from '../../../lib/canvas-constants'
-import { agentCostUsage } from '../../../lib/cost'
 import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { bubbleAlpha } from './bubble-utils'
+import { statsLabel, agentCostUsageUnderLoss } from './loss-labels'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
 import {
@@ -147,6 +147,8 @@ export interface OverlayPlanInput {
   workspaceZones?: ReadonlyArray<WorkspaceZone>
   /** Screen rectangles of UI laid over the canvas without reserving an edge (the collapsed Conversation pill): no overlay goes under them (#378) */
   covers?: Iterable<Rect>
+  /** Events the relay could not replay, per session id (#366): the qualified stats text and cost pill are wider, the plan reserves what is drawn */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 /**
@@ -336,7 +338,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     }
 
     // Stats box and cost pill, stacked above the node (same layout as the draw code)
-    const costUsage = agentCostUsage(a)
+    const costUsage = agentCostUsageUnderLoss(a, input.replayLost)
     // Drawn from the detail zoom, held at LOD.minTextPx on screen (#378)
     const showStatsBox = input.lod.details && input.showStats && a.state !== 'complete'
     const showCostPill = input.lod.details && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
@@ -348,7 +350,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const top = a.y - r
       if (showStatsBox && layout.statsTop != null) {
         const k = textHoldScale(STATS_OVERLAY.fontSize, s)
-        const w = STATS_OVERLAY.boxWidth * k
+        const w = statsLabel(a, input.replayLost).width * k
         const h = STATS_OVERLAY.boxHeight * k
         requests.push({
           id: planKey.stats(id),

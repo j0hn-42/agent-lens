@@ -88,7 +88,7 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
       },
       attention: attentionText ? { detail: attentionText, movesFocus: nextInView(), run: jump } : undefined,
       settingsTabs: { tabs: settingsTabs, open: openSettingsTab },
-      tour: startTour ? { label: tourLabel ?? 'Guided tour', run: startTour } : undefined,
+      tour: startTour ? { label: tourLabel ?? translate(locale, 'tour.button.demo'), run: startTour } : undefined,
       notifications: notifyState === 'on' || notifyState === 'off' ? { on: notifyState === 'on', run: toggleNotify } : undefined,
       themes: { current: theme, options: themeOptions(locale), set: id => { if (isThemeId(id)) setTheme(id) } },
       togglePanel: panel => {
