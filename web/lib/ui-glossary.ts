@@ -236,8 +236,8 @@ export const TOP_BAR_LABELS = {
     after: ')',
   }),
   /** Filter names used in those strings */
-  filterHideInactive: 'Hide inactive agents',
-  filterFinishedHidden: (count: number) => `Finished sessions hidden (${count})`,
+  /** 'Show: active / all' (#372) when it is on 'active', with its threshold in minutes (ACTIVE_WINDOW_MINUTES): one name in the bar, More and Settings */
+  filterShowActive: (minutes: number) => `Active only (${minutes} min)`,
 } as const
 
 /** Suffix of a timeline label whose call expired. */

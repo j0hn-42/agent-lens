@@ -12,6 +12,7 @@ import type { NotifyState } from '@/hooks/use-attention-alerts'
 import type { PresentationOptions } from '@/lib/presentation'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { ANNOUNCE_LEVELS, type AnnounceLevel } from '@/lib/ui-preferences'
+import { ACTIVE_WINDOW_MINUTES, type ShowMode } from '@/lib/show-mode'
 import { DEFAULT_SETTINGS_TAB, SETTINGS_TAB_LABEL, visibleSettingsTabs, type SettingsTab } from '@/lib/settings-tabs'
 
 export interface SettingsDialogProps {
@@ -29,11 +30,9 @@ export interface SettingsDialogProps {
   /** Sound effects are muted (the audio store only exposes a toggle) */
   muted: boolean
   onToggleMute: () => void
-  /** 'All' view also lists finished sessions */
-  showFinished: boolean
-  onShowFinishedChange: (show: boolean) => void
-  hideInactive: boolean
-  onHideInactiveChange: (hide: boolean) => void
+  /** 'Show: active / all' (#372): one mode for the inactive agents and the finished sessions */
+  showMode: ShowMode
+  onShowModeChange: (mode: ShowMode) => void
   singleKeyEnabled: boolean
   onSingleKeyEnabledChange: (enabled: boolean) => void
   /** Opens the keyboard shortcuts dialog (this dialog closes first) */
@@ -301,8 +300,8 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
 }
 
 /**
- * Modal "Settings" dialog: one place for the preferences (theme, language, sound, hex grid, finished sessions,
- * inactive agents, single-key shortcuts...). It only reads and writes their stores, it never persists anything
+ * Modal "Settings" dialog: one place for the preferences (theme, language, sound, hex grid, the Show mode
+ * (active only / all), single-key shortcuts...). It only reads and writes their stores, it never persists anything
  * itself; 'Reset preferences' (#372) resets the preference blob only, as its help says.
  * Focus is trapped while open, Escape closes it and focus returns to the previously focused element.
  *
@@ -311,8 +310,8 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
  * threshold being typed) survives a tab change; the selected tab gets the focus when the dialog opens.
  */
 export function SettingsDialog({
-  open, onClose, tab, onTabChange, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
-  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota,
+  open, onClose, tab, onTabChange, hexGrid, onHexGridChange, muted, onToggleMute, showMode, onShowModeChange,
+  singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota,
   onResetPrefs,
 }: SettingsDialogProps) {
   const { locale, choice, setChoice } = useLocale()
@@ -353,7 +352,7 @@ export function SettingsDialog({
   onCloseRef.current = onClose
   // Every preference shown here: a change after a reset makes the "reset done" line untrue (#372).
   const prefsSignature = JSON.stringify([
-    hexGrid, muted, showFinished, hideInactive, singleKeyEnabled, locale, choice,
+    hexGrid, muted, showMode, singleKeyEnabled, locale, choice,
     presentation?.active, presentation?.options, announcements?.level, notifications?.state, notifications?.rules,
   ])
 
@@ -487,17 +486,12 @@ export function SettingsDialog({
           <div role="tabpanel" id={panelDomId('sessions')} aria-labelledby={tabDomId('sessions')} hidden={current !== 'sessions'}>
 
           <Section title={t('settings.section.sessions')}>
+            {/* 'Show: active / all' (#372): the same words and threshold as the top bar control; off = all */}
             <SwitchRow
-              label={t('settings.showFinished')}
-              help={t('settings.showFinished.help')}
-              checked={showFinished}
-              onChange={onShowFinishedChange}
-            />
-            <SwitchRow
-              label={t('settings.hideInactive')}
-              help={t('settings.hideInactive.help')}
-              checked={hideInactive}
-              onChange={onHideInactiveChange}
+              label={t('show.active', { n: ACTIVE_WINDOW_MINUTES })}
+              help={t('settings.show.active.help', { n: ACTIVE_WINDOW_MINUTES })}
+              checked={showMode === 'active'}
+              onChange={on => onShowModeChange(on ? 'active' : 'all')}
             />
           </Section>
 

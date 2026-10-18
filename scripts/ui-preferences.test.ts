@@ -364,71 +364,64 @@ test('session memory, reload: the value persisted by one visit is what the next 
   assert.equal(visit3.persists.filter(p => p !== undefined).pop(), null)
 })
 
-// --- hideInactive / singleKeyShortcuts (#219): defaults, validation, migration of the legacy keys ----
+// --- singleKeyShortcuts (#219): default, validation, migration of the legacy key ----
+// ('Hide inactive agents', the other #219 key, is now part of the Show mode: see the 'show' block below)
 
 const LEGACY_HIDE = 'agent-lens:hide-inactive-agents'
 const LEGACY_SINGLE = 'agent-lens:single-key-shortcuts'
 
-test('defaults: hideInactive and singleKeyShortcuts are on', () => {
-  assert.equal(DEFAULT_UI_PREFS.hideInactive, true)
+test('defaults: singleKeyShortcuts is on', () => {
   assert.equal(DEFAULT_UI_PREFS.singleKeyShortcuts, true)
 })
 
-test('sanitizePref: non-boolean values of hideInactive / singleKeyShortcuts fall back to the default', () => {
-  for (const key of ['hideInactive', 'singleKeyShortcuts'] as const) {
-    for (const bad of ['false', 'true', 0, 1, null, undefined, {}, []]) assert.equal(sanitizePref(key, bad), true, `${key} <- ${JSON.stringify(bad)}`)
-    assert.equal(sanitizePref(key, false), false)
-    assert.equal(sanitizePref(key, true), true)
-  }
+test('sanitizePref: non-boolean values of singleKeyShortcuts fall back to the default', () => {
+  for (const bad of ['false', 'true', 0, 1, null, undefined, {}, []]) assert.equal(sanitizePref('singleKeyShortcuts', bad), true, JSON.stringify(bad))
+  assert.equal(sanitizePref('singleKeyShortcuts', false), false)
+  assert.equal(sanitizePref('singleKeyShortcuts', true), true)
 })
 
-test('migration: legacy keys set to "false" give false when the blob lacks the fields', () => {
+test('migration: the legacy key set to "false" gives false when the blob lacks the field', () => {
   const m = memStorage()
-  m.data.set(LEGACY_HIDE, 'false'); m.data.set(LEGACY_SINGLE, 'false')
+  m.data.set(LEGACY_SINGLE, 'false')
   m.data.set(UI_PREFS_STORAGE_KEY, env({ showStats: true }))
   const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
-  assert.equal(p.hideInactive, false)
   assert.equal(p.singleKeyShortcuts, false)
   assert.equal(p.showStats, true)
 })
 
-test('migration: no blob at all still reads the legacy keys; only "false" disables', () => {
+test('migration: no blob at all still reads the legacy key; only "false" disables', () => {
   const m = memStorage()
-  m.data.set(LEGACY_HIDE, 'false'); m.data.set(LEGACY_SINGLE, 'true')
-  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
-  assert.equal(p.hideInactive, false)
-  assert.equal(p.singleKeyShortcuts, true)
-  m.data.set(LEGACY_HIDE, 'garbage')
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().hideInactive, true)
+  m.data.set(LEGACY_SINGLE, 'true')
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().singleKeyShortcuts, true)
+  m.data.set(LEGACY_SINGLE, 'false')
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().singleKeyShortcuts, false)
 })
 
 test('migration: a value already in the blob wins over the legacy key', () => {
   const m = memStorage()
-  m.data.set(LEGACY_HIDE, 'false'); m.data.set(LEGACY_SINGLE, 'false')
-  m.data.set(UI_PREFS_STORAGE_KEY, env({ hideInactive: true, singleKeyShortcuts: true }))
-  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
-  assert.equal(p.hideInactive, true)
-  assert.equal(p.singleKeyShortcuts, true)
+  m.data.set(LEGACY_SINGLE, 'false')
+  m.data.set(UI_PREFS_STORAGE_KEY, env({ singleKeyShortcuts: true }))
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().singleKeyShortcuts, true)
 })
 
 test('migration: the migrated value is persisted in the blob by the next write', () => {
   const m = memStorage(); const s = manualSchedule()
-  m.data.set(LEGACY_HIDE, 'false')
+  m.data.set(LEGACY_SINGLE, 'false')
   const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
   store.set('showStats', true); s.tick()
-  assert.equal(parsePrefs(m.writes[0]).hideInactive, false)
-  m.data.set(LEGACY_HIDE, 'true') // now ignored
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().hideInactive, false)
+  assert.equal(parsePrefs(m.writes[0]).singleKeyShortcuts, false)
+  m.data.set(LEGACY_SINGLE, 'true') // now ignored
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().singleKeyShortcuts, false)
 })
 
-test('migration: reset forgets the legacy keys too', () => {
+test('migration: reset forgets the legacy key too', () => {
   const m = memStorage(); const s = manualSchedule()
-  m.data.set(LEGACY_HIDE, 'false')
+  m.data.set(LEGACY_SINGLE, 'false')
   const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
-  assert.equal(store.getSnapshot().hideInactive, false)
+  assert.equal(store.getSnapshot().singleKeyShortcuts, false)
   store.reset(); s.tick()
-  assert.equal(m.data.has(LEGACY_HIDE), false)
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().hideInactive, true)
+  assert.equal(m.data.has(LEGACY_SINGLE), false)
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().singleKeyShortcuts, true)
 })
 
 test('migration: unavailable storage does not throw', () => {
@@ -475,41 +468,105 @@ test('showQuota: on by default, booleans only, persisted in the blob', () => {
   assert.equal(parsePrefs(env({ showQuota: 'no' })).showQuota, true, 'a non-boolean in storage is ignored')
 })
 
-// --- 'Show finished sessions' (#372): moved into the blob, its former key is read once as a migration ----------
+// --- 'Show: active / all' (#372): one field replaces 'Hide inactive agents' and 'Show finished sessions' ----------
 
 const LEGACY_FINISHED = 'agent-lens:show-finished-sessions'
 
-test('showFinished: off by default, booleans only, persisted in the blob under no separate key', () => {
-  assert.equal(DEFAULT_UI_PREFS.showFinished, false)
-  for (const bad of ['true', 1, null, {}]) assert.equal(sanitizePref('showFinished', bad), false)
-  assert.equal(sanitizePref('showFinished', true), true)
+/** What each pair of the two former settings becomes: only their default pair stays 'active' */
+const SHOW_FROM_PAIR: ReadonlyArray<{ hide: boolean; finished: boolean; show: 'active' | 'all' }> = [
+  { hide: true, finished: false, show: 'active' }, // the defaults: nothing was asked to be seen
+  { hide: false, finished: false, show: 'all' }, // inactive agents were shown: they stay shown
+  { hide: true, finished: true, show: 'all' }, // finished sessions were shown: they stay shown
+  { hide: false, finished: true, show: 'all' },
+]
+
+function loadShow(entries: Record<string, string>, blob?: string): 'active' | 'all' {
+  return loadWith(entries, blob).show
+}
+
+test('show: "active" by default, only "active" / "all" accepted, persisted in the blob under no separate key', () => {
+  assert.equal(DEFAULT_UI_PREFS.show, 'active')
+  for (const bad of ['ALL', 'finished', true, 1, null, {}, '']) assert.equal(sanitizePref('show', bad), 'active', JSON.stringify(bad))
+  assert.equal(sanitizePref('show', 'all'), 'all')
   const m = memStorage(); const s = manualSchedule()
   const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
-  store.set('showFinished', true); s.tick()
+  store.set('show', 'all'); s.tick()
   assert.deepEqual([...m.data.keys()], [UI_PREFS_STORAGE_KEY])
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, true)
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().show, 'all')
+  assert.equal(Object.prototype.hasOwnProperty.call(DEFAULT_UI_PREFS, 'hideInactive'), false, 'the two former fields are gone')
+  assert.equal(Object.prototype.hasOwnProperty.call(DEFAULT_UI_PREFS, 'showFinished'), false)
 })
 
-test('showFinished migration: the former key keeps its meaning (only "true" turns it on) when the blob lacks the field', () => {
-  const m = memStorage()
-  m.data.set(LEGACY_FINISHED, 'true')
-  m.data.set(UI_PREFS_STORAGE_KEY, env({ showStats: true }))
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, true)
-  m.data.set(LEGACY_FINISHED, 'yes')
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false)
-  m.data.set(LEGACY_FINISHED, 'true')
-  m.data.set(UI_PREFS_STORAGE_KEY, env({ showFinished: false }))
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false, 'the blob wins')
+test('show migration: every pair of the two former fields of the blob (#219, #372) is converted', () => {
+  for (const { hide, finished, show } of SHOW_FROM_PAIR) {
+    assert.equal(loadShow({}, env({ hideInactive: hide, showFinished: finished })), show, `blob hide=${hide} finished=${finished}`)
+  }
 })
 
-test('showFinished migration: reset forgets the former key too', () => {
+test('show migration: every value of the two former standalone keys is converted with the meaning it had', () => {
+  // 'Hide inactive agents': only the exact string 'false' showed them; 'Show finished sessions': only 'true' showed them
+  const hideValues: ReadonlyArray<[string | null, boolean]> = [[null, true], ['false', false], ['true', true], ['garbage', true], ['', true]]
+  const finishedValues: ReadonlyArray<[string | null, boolean]> = [[null, false], ['true', true], ['false', false], ['yes', false], ['', false]]
+  for (const [hideRaw, hide] of hideValues) {
+    for (const [finishedRaw, finished] of finishedValues) {
+      const keys: Record<string, string> = {}
+      if (hideRaw !== null) keys[LEGACY_HIDE] = hideRaw
+      if (finishedRaw !== null) keys[LEGACY_FINISHED] = finishedRaw
+      const expected = SHOW_FROM_PAIR.find(p => p.hide === hide && p.finished === finished)!.show
+      const label = `hide=${JSON.stringify(hideRaw)} finished=${JSON.stringify(finishedRaw)}`
+      assert.equal(loadShow(keys), expected, `no blob, ${label}`)
+      assert.equal(loadShow(keys, env({ showStats: true })), expected, `blob without the fields, ${label}`)
+    }
+  }
+})
+
+test('show migration: a former field of the blob wins over its former standalone key, field by field', () => {
+  // blob says hideInactive false, the key says hide: the blob wins -> inactive agents shown -> 'all'
+  assert.equal(loadShow({ [LEGACY_HIDE]: 'true' }, env({ hideInactive: false })), 'all')
+  // blob says showFinished false, the key says show: the blob wins -> defaults -> 'active'
+  assert.equal(loadShow({ [LEGACY_FINISHED]: 'true' }, env({ showFinished: false })), 'active')
+  // one from the blob, the other from its key
+  assert.equal(loadShow({ [LEGACY_FINISHED]: 'true' }, env({ hideInactive: true })), 'all')
+  assert.equal(loadShow({ [LEGACY_HIDE]: 'false' }, env({ showFinished: false })), 'all')
+  // a former field that is not a boolean is ignored, its key is read
+  assert.equal(loadShow({ [LEGACY_HIDE]: 'false' }, env({ hideInactive: 'true' })), 'all')
+})
+
+test('show migration: a valid "show" in the blob wins over every former field and key', () => {
+  const keys = { [LEGACY_HIDE]: 'false', [LEGACY_FINISHED]: 'true' }
+  assert.equal(loadShow(keys, env({ show: 'active', hideInactive: false, showFinished: true })), 'active')
+  assert.equal(loadShow({}, env({ show: 'all', hideInactive: true, showFinished: false })), 'all')
+  assert.equal(loadShow(keys, env({ show: 'bogus' })), 'all', 'an invalid show is ignored: the migration runs')
+})
+
+test('show migration: the converted value is written by the next write, the former fields are not', () => {
   const m = memStorage(); const s = manualSchedule()
-  m.data.set(LEGACY_FINISHED, 'true')
+  m.data.set(LEGACY_HIDE, 'false')
+  m.data.set(UI_PREFS_STORAGE_KEY, env({ showFinished: false }))
   const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
-  assert.equal(store.getSnapshot().showFinished, true)
-  store.reset(); s.tick()
-  assert.equal(m.data.has(LEGACY_FINISHED), false)
-  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false)
+  store.set('showStats', true); s.tick()
+  const written = JSON.parse(m.writes[0]) as { prefs: Record<string, unknown> }
+  assert.equal(written.prefs.show, 'all')
+  assert.equal('hideInactive' in written.prefs, false)
+  assert.equal('showFinished' in written.prefs, false)
+  m.data.set(LEGACY_HIDE, 'true') // now ignored
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().show, 'all')
+})
+
+test('show: Reset preferences gives "active" back and forgets both former keys, whatever was stored', () => {
+  for (const { hide, finished } of SHOW_FROM_PAIR) {
+    const m = memStorage(); const s = manualSchedule()
+    m.data.set(LEGACY_HIDE, String(hide)); m.data.set(LEGACY_FINISHED, String(finished))
+    m.data.set(UI_PREFS_STORAGE_KEY, env({ hideInactive: hide, showFinished: finished }))
+    const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+    store.set('show', 'all')
+    store.reset(); s.tick()
+    assert.equal(store.getSnapshot().show, 'active')
+    assert.equal(m.data.has(LEGACY_HIDE), false)
+    assert.equal(m.data.has(LEGACY_FINISHED), false)
+    assert.equal(m.data.has(UI_PREFS_STORAGE_KEY), false)
+    assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().show, 'active', `after reset, hide=${hide} finished=${finished}`)
+  }
 })
 
 // --- View menu of the canvas controls and sound (#372): moved into the blob, their former keys read once ----------
@@ -520,7 +577,7 @@ const LEGACY_PIN = 'agent-viz-never-hide'
 const LEGACY_EXPIRY = 'agent-viz-tool-expiry-s'
 const LEGACY_SOUND = 'agent-viz-sound'
 const VIEW_LEGACY_KEYS = [LEGACY_PAUSE, LEGACY_CALM, LEGACY_PIN, LEGACY_EXPIRY, LEGACY_SOUND]
-const loadWith = (entries: Record<string, string>, blob?: string) => {
+function loadWith(entries: Record<string, string>, blob?: string) {
   const m = memStorage()
   for (const [k, v] of Object.entries(entries)) m.data.set(k, v)
   if (blob !== undefined) m.data.set(UI_PREFS_STORAGE_KEY, blob)

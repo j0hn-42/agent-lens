@@ -10,7 +10,7 @@ import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { setLocaleChoice } from '@/lib/locale'
 import { setMobileView } from './mobile-media'
 import { fireEvent } from '@testing-library/react'
-import { LOCALES, MESSAGES, type Locale, type MessageKey } from '@/lib/messages'
+import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from '@/lib/messages'
 import { attentionAriaLabel, attentionCounterText, attentionTooltip } from '@/lib/top-bar-text'
 import { reconnectDetail } from '@/lib/reconnect'
 import { parseRelayScopeState } from '@/lib/relay-scope'
@@ -31,7 +31,7 @@ const base: TopBarProps = {
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
-  onToggleHideInactive: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop, notifyState: 'off', onToggleNotify: noop,
+  onChangeShowMode: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop, notifyState: 'off', onToggleNotify: noop,
 }
 
 const T = (locale: Locale, key: MessageKey) => MESSAGES[locale][key]
@@ -42,14 +42,16 @@ for (const locale of LOCALES) {
   test(`the top bar controls it owns speak ${locale}, each declaring lang=${locale}`, () => {
     setLocaleChoice(locale)
     const view = render(<TopBar {...base} />)
-    const names: MessageKey[] = ['topbar.hideInactive', 'topbar.notify', 'topbar.mute', 'topbar.fullscreen', 'topbar.commands', 'settings.title', 'topbar.shortcuts']
+    const names: MessageKey[] = ['topbar.notify', 'topbar.mute', 'topbar.fullscreen', 'topbar.commands', 'settings.title', 'topbar.shortcuts']
     for (const key of names) {
       const button = view.getByRole('button', { name: T(locale, key) })
       assert.equal(button.closest('[lang]')?.getAttribute('lang'), locale, `${key} declares lang=${locale}`)
     }
-    // Same wording as Settings for the same setting
-    assert.equal(T(locale, 'topbar.hideInactive'), T(locale, 'settings.hideInactive'))
-    for (const key of ['topbar.hideInactive.title', 'topbar.notify.title', 'topbar.mute.title', 'topbar.fullscreen.title', 'topbar.commands.title', 'topbar.settings.title', 'topbar.shortcuts.title'] as MessageKey[]) {
+    // 'Show: active / all' (#372): its name (the same words as Settings, with the threshold) in the language
+    const show = view.getByRole('button', { name: translate(locale, 'show.active.name', { n: 10 }) })
+    assert.equal(show.closest('[lang]')?.getAttribute('lang'), locale)
+    assert.ok(titled(view.container, translate(locale, 'show.active.title', { n: 10 })), 'show.active.title is a tooltip')
+    for (const key of ['topbar.notify.title', 'topbar.mute.title', 'topbar.fullscreen.title', 'topbar.commands.title', 'topbar.settings.title', 'topbar.shortcuts.title'] as MessageKey[]) {
       assert.ok(titled(view.container, T(locale, key)), `${key} is a tooltip`)
     }
   })
@@ -67,11 +69,11 @@ test('the denied and the muted states are translated as well', () => {
 // Under 768 px More names the filters that are on; the name uses the same wording as the filter button it hides, and the
 // passage declares its own language (a screen reader must not hear one control under two names)
 for (const locale of LOCALES) {
-  test(`under 768 px, More names "Hide inactive" as the button does (${locale})`, () => {
+  test(`under 768 px, More names "Active only" as the button does (${locale})`, () => {
     setLocaleChoice(locale)
     setMobileView(true)
-    const view = render(<TopBar {...base} hideInactive />)
-    const label = T(locale, 'topbar.hideInactive')
+    const view = render(<TopBar {...base} showMode="active" />)
+    const label = translate(locale, 'show.active', { n: 10 })
     const more = view.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
     const name = more.getAttribute('aria-labelledby')
       ? more.getAttribute('aria-labelledby')!.split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
@@ -83,7 +85,8 @@ for (const locale of LOCALES) {
       assert.ok(passage, `the filter name inside More's name declares lang=${locale}`)
     }
     fireEvent.click(more)
-    assert.ok(view.getByRole('button', { name: label }), 'the button that opens has the very same name')
+    const opened = view.getByRole('button', { name: translate(locale, 'show.active.name', { n: 10 }) })
+    assert.equal(opened.textContent, label, 'the button that opens shows the very same words')
   })
 }
 
@@ -167,19 +170,16 @@ for (const locale of LOCALES) {
     assert.ok((counter.getAttribute('aria-label') ?? '').startsWith(attentionCounterText(locale, 1, 2)))
   })
 
-  test(`the finished sessions button and the folded filter name speak ${locale}`, () => {
+  test(`folded, More counts the Show filter only while it is on 'active' (${locale})`, () => {
     setLocaleChoice(locale)
-    const view = render(<TopBar {...base} finishedSessionCount={3} onToggleShowFinished={noop} />)
-    const button = view.getByRole('button', { name: T(locale, 'topbar.finished.label').replace('{n}', '3') })
-    assert.equal(langOf(button), locale)
-    assert.equal(button.getAttribute('title'), T(locale, 'topbar.finished.title'))
-    cleanup()
     setMobileView(true)
-    const folded = render(<TopBar {...base} finishedSessionCount={3} onToggleShowFinished={noop} />)
-    const more = folded.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
+    const on = render(<TopBar {...base} showMode="active" />)
+    const more = on.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
     assert.equal(more.textContent, T(locale, 'topbar.more.withFilters.one').replace('{n}', '1'))
-    const name = more.getAttribute('aria-labelledby')!.split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
-    assert.ok(name.includes(T(locale, 'topbar.finished.hidden').replace('{n}', '3')), name)
+    on.unmount()
+    const off = render(<TopBar {...base} showMode="all" />)
+    const plain = off.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
+    assert.equal(plain.textContent, T(locale, 'topbar.more'), "'all' hides nothing: no filter is announced")
   })
 
   test(`the toolbar, the side panels group and the totals read by screen readers speak ${locale}`, () => {

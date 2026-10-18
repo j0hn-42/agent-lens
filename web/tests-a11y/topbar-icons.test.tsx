@@ -35,7 +35,7 @@ const base: TopBarProps = {
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, showStats: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
-  onToggleHideInactive: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop,
+  onChangeShowMode: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop,
   notifyState: 'off', onToggleNotify: noop, attention: { waiting: 1, errors: 0 }, onJumpToAttention: noop,
 }
 
@@ -243,7 +243,7 @@ test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2
   const header = view.container.querySelector('header')!
   const stops = tabStops(header)
   const at = (re: RegExp) => { const i = stops.findIndex(s => re.test(s)); assert.ok(i >= 0, `${re} in ${stops.join(' | ')}`); return i }
-  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive agents$/, /^Files$/, /^Conversation/, /^Context/, /^System/, /^\$Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
+  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Active only \(10 min\):/, /^Files$/, /^Conversation/, /^Context/, /^System/, /^\$Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
   const idx = order.map(at)
   assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${stops.join(' | ')}`)
   // The groups: identity and filters (row 1), status (quota, spoken totals), panels and tools (row 2)
@@ -278,7 +278,7 @@ test('768 to 1023 px: the bar folds behind More, Commands stays in the bar, no 4
   assert.equal(more.getAttribute('aria-expanded'), 'false')
   assert.ok(view.getByRole('button', { name: 'Commands' }), 'Commands stays in the folded bar')
   assert.equal(view.queryByRole('button', { name: 'Files' }), null, 'the panel buttons fold')
-  assert.equal(view.queryByRole('button', { name: 'Hide inactive agents' }), null, 'the filters fold')
+  assert.equal(view.queryByRole('button', { name: /^Active only/ }), null, 'the filters fold')
   // The 44 px classes only act under 768 px (max-md); they are the same classes as before
   for (const b of Array.from(header.querySelectorAll('button'))) assert.ok(b.className.includes(TOUCH_TARGET))
   const results = await axe.run(view.container, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
@@ -293,7 +293,7 @@ test('768 to 1023 px: More shows every control; a panel button folds More again 
   for (const [name, id] of [['Files', 'files'], ['Conversation (C)', 'conversation'], ['Timeline', 'timeline']] as const) {
     fireEvent.click(more)
     assert.equal(more.getAttribute('aria-expanded'), 'true')
-    for (const n of ['Hide inactive agents', 'Stats', 'Settings', 'Keyboard shortcuts', 'Commands']) assert.ok(view.getByRole('button', { name: n }), `${n} shown`)
+    for (const n of ['Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes', 'Stats', 'Settings', 'Keyboard shortcuts', 'Commands']) assert.ok(view.getByRole('button', { name: n }), `${n} shown`)
     const button = view.getByRole('button', { name })
     button.focus()
     fireEvent.click(button)

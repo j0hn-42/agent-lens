@@ -113,7 +113,6 @@
   "web/hooks/simulation/handle-tool-events.ts:addToken",
   "web/hooks/simulation/process-event.ts:MAX_PARTICLES",
   "web/hooks/simulation/process-event.ts:processEvent",
-  "web/hooks/simulation/session-visibility.ts:ACTIVE_WINDOW_MS",
   "web/hooks/simulation/session-visibility.ts:isStaleCompleted",
   "web/hooks/simulation/team-info.ts:MAX_TEAM_NAME_LEN",
   "web/hooks/simulation/team-info.ts:sanitizeColor",

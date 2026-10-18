@@ -4,7 +4,7 @@
  * Pure (no React, no direct `window` access) so it can be unit-tested with node:test.
  *
  * One blob holds the view preferences. hide-inactive and single-key shortcuts moved in with #219,
- * show-finished-sessions, the View menu of the canvas controls (Freeze motion, calmed layers, Pin cards,
+ * show-finished-sessions (both now one 'show' mode, #372), the View menu of the canvas controls (Freeze motion, calmed layers, Pin cards,
  * call expiry) and the sound with #372; their former standalone keys are read once as a migration (see
  * LEGACY_PREFS) and removed by a reset, so no existing choice is lost and none comes back.
  *
@@ -24,6 +24,7 @@ import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from './sh
 import { SHOW_FINISHED_STORAGE_KEY, parseShowFinished } from '../hooks/simulation/session-visibility'
 import { ANIM_PAUSE_KEY, NEVER_HIDE_KEY, SOUND_PREF_KEY, TOOL_EXPIRY_CHOICES_S, TOOL_EXPIRY_KEY, TOOL_EXPIRY_S, parseToolExpiryS } from './canvas-constants'
 import { DEFAULT_CALM_LAYERS, MOTION_LAYERS_STORAGE_KEY, parseCalmLayers } from './motion-layers'
+import { DEFAULT_SHOW_MODE, isShowMode, showModeFromLegacy, type ShowMode } from './show-mode'
 
 /** localStorage key of the preference blob */
 export const UI_PREFS_STORAGE_KEY = 'agent-lens:ui-prefs'
@@ -49,10 +50,12 @@ export interface UiPrefs {
   showCostOverlay: boolean
   /** Quota gauges in the top bar (#467): on by default */
   showQuota: boolean
-  /** 'Hide inactive agents' (#219): on by default */
-  hideInactive: boolean
-  /** 'Show finished sessions' (#36, in the blob since #372): the 'All' view also lists sessions idle for more than 10 minutes; off by default */
-  showFinished: boolean
+  /**
+   * 'Show: active / all' (#372): 'active' hides the agents whose turn is over and the finished sessions silent for
+   * 10 minutes (see show-mode.ts); 'all' hides nothing. Replaces 'Hide inactive agents' (#219) and 'Show finished
+   * sessions' (#36), migrated by showModeFromLegacy.
+   */
+  show: ShowMode
   /** 'Enable single-key shortcuts' (WCAG 2.1.4, #219): on by default */
   singleKeyShortcuts: boolean
   /** Last selected session tab, restored with restoreSelectedSessionId (null = none) */
@@ -96,8 +99,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   showConversation: false,
   showCostOverlay: false,
   showQuota: true,
-  hideInactive: true,
-  showFinished: false,
+  show: DEFAULT_SHOW_MODE,
   singleKeyShortcuts: true,
   lastSelectedSessionId: null,
   dockRightWidth: DOCK_RIGHT_WIDTH_DEFAULT,
@@ -126,6 +128,8 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   switch (key) {
     case 'sessionFilterRuntime':
       return (value === 'claude' || value === 'codex' || value === 'copilot' || value === 'pi' || value === 'gemini' || value === 'opencode' ? value : null) as UiPrefs[K]
+    case 'show':
+      return (isShowMode(value) ? value : fallback) as UiPrefs[K]
     case 'announceLevel':
       return (value === 'all' || value === 'important' ? value : fallback) as UiPrefs[K]
     case 'relayScope':
@@ -183,35 +187,51 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
  * blob has no valid value for, with the semantics that key always had.
  */
 interface LegacyPref {
-  storageKey: string
-  /** Fields of the blob this key fed */
+  /** Former localStorage keys (forgotten by a reset) */
+  storageKeys: readonly string[]
+  /** Fields of the blob these keys fed */
   fields: readonly UiPrefKey[]
-  /** What the former key meant, for those fields */
-  read: (raw: string | null) => Partial<UiPrefs>
+  /** What the former keys meant, for those fields; `source` is the stored blob (it may hold former fields too) */
+  read: (get: (key: string) => string | null, source: Record<string, unknown> | null) => Partial<UiPrefs>
 }
 
 /** Former booleans stored as '1' / '0' by the canvas controls: only '1' turned them on */
 const parseOneFlag = (raw: string | null): boolean => raw === '1'
 
+/** A former boolean field of the blob, when it is still there and valid */
+function formerBoolean(source: Record<string, unknown> | null, field: string): boolean | undefined {
+  if (source === null || !Object.prototype.hasOwnProperty.call(source, field)) return undefined
+  const v = source[field]
+  return typeof v === 'boolean' ? v : undefined
+}
+
 const LEGACY_PREFS: readonly LegacyPref[] = [
-  { storageKey: HIDE_INACTIVE_STORAGE_KEY, fields: ['hideInactive'], read: raw => ({ hideInactive: parseHideInactive(raw) }) },
-  // #372: only the exact string 'true' turned it on
-  { storageKey: SHOW_FINISHED_STORAGE_KEY, fields: ['showFinished'], read: raw => ({ showFinished: parseShowFinished(raw) }) },
-  { storageKey: SINGLE_KEY_SHORTCUTS_STORAGE_KEY, fields: ['singleKeyShortcuts'], read: raw => ({ singleKeyShortcuts: parseSingleKeyPreference(raw) }) },
-  // The View menu of the canvas controls and the sound (#372)
-  { storageKey: ANIM_PAUSE_KEY, fields: ['freezeMotion'], read: raw => ({ freezeMotion: parseOneFlag(raw) }) },
   {
-    storageKey: MOTION_LAYERS_STORAGE_KEY,
+    // 'Hide inactive agents' (#219: blob field hideInactive, before that its own key where only 'false' showed them) and
+    // 'Show finished sessions' (#372: blob field showFinished, before that its own key where only 'true' showed them)
+    storageKeys: [HIDE_INACTIVE_STORAGE_KEY, SHOW_FINISHED_STORAGE_KEY],
+    fields: ['show'],
+    read: (get, source) => {
+      const hide = formerBoolean(source, 'hideInactive') ?? parseHideInactive(get(HIDE_INACTIVE_STORAGE_KEY))
+      const finished = formerBoolean(source, 'showFinished') ?? parseShowFinished(get(SHOW_FINISHED_STORAGE_KEY))
+      return { show: showModeFromLegacy(hide, finished) }
+    },
+  },
+  { storageKeys: [SINGLE_KEY_SHORTCUTS_STORAGE_KEY], fields: ['singleKeyShortcuts'], read: get => ({ singleKeyShortcuts: parseSingleKeyPreference(get(SINGLE_KEY_SHORTCUTS_STORAGE_KEY)) }) },
+  // The View menu of the canvas controls and the sound (#372)
+  { storageKeys: [ANIM_PAUSE_KEY], fields: ['freezeMotion'], read: get => ({ freezeMotion: parseOneFlag(get(ANIM_PAUSE_KEY)) }) },
+  {
+    storageKeys: [MOTION_LAYERS_STORAGE_KEY],
     fields: ['calmBackground', 'calmLinks', 'calmAgents', 'calmEffects'],
-    read: raw => {
-      const c = parseCalmLayers(raw)
+    read: get => {
+      const c = parseCalmLayers(get(MOTION_LAYERS_STORAGE_KEY))
       return { calmBackground: c.background, calmLinks: c.links, calmAgents: c.agents, calmEffects: c.effects }
     },
   },
-  { storageKey: NEVER_HIDE_KEY, fields: ['pinCards'], read: raw => ({ pinCards: parseOneFlag(raw) }) },
-  { storageKey: TOOL_EXPIRY_KEY, fields: ['toolExpiryS'], read: raw => ({ toolExpiryS: parseToolExpiryS(raw) }) },
+  { storageKeys: [NEVER_HIDE_KEY], fields: ['pinCards'], read: get => ({ pinCards: parseOneFlag(get(NEVER_HIDE_KEY)) }) },
+  { storageKeys: [TOOL_EXPIRY_KEY], fields: ['toolExpiryS'], read: get => ({ toolExpiryS: parseToolExpiryS(get(TOOL_EXPIRY_KEY)) }) },
   // Only 'on' turned the sound on: nothing stored meant muted
-  { storageKey: SOUND_PREF_KEY, fields: ['soundOn'], read: raw => ({ soundOn: raw === 'on' }) },
+  { storageKeys: [SOUND_PREF_KEY], fields: ['soundOn'], read: get => ({ soundOn: get(SOUND_PREF_KEY) === 'on' }) },
 ]
 
 /** The stored source object, or null (same envelope rules as sanitizePrefs) */
@@ -242,7 +262,7 @@ function withLegacy(storage: StorageLike, text: string | null | undefined): UiPr
     const missing = legacy.fields.filter(f => !sourceHasValid(source, f))
     if (missing.length === 0) continue
     try {
-      const values = legacy.read(storage.getItem(legacy.storageKey)) as Record<string, unknown>
+      const values = legacy.read(k => storage.getItem(k), source) as Record<string, unknown>
       for (const f of missing) if (Object.prototype.hasOwnProperty.call(values, f)) target[f] = sanitizePref(f, values[f])
     } catch { /* storage unavailable: keep the default */ }
   }
@@ -444,7 +464,7 @@ export function createPrefsStore(opts: PrefsStoreOptions): PrefsStore {
       removeOnFlush = false
       opts.storage.removeItem(key)
       // Forget the former keys too, or the next load would migrate them back
-      for (const legacy of LEGACY_PREFS) { try { opts.storage.removeItem(legacy.storageKey) } catch { /* ignore */ } }
+      for (const legacy of LEGACY_PREFS) for (const k of legacy.storageKeys) { try { opts.storage.removeItem(k) } catch { /* ignore */ } }
       return
     }
     if (prefs) opts.storage.setItem(key, serializePrefs(prefs))

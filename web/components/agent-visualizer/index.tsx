@@ -11,6 +11,7 @@ import { ControlBar } from "./control-bar"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { useUiPreferences } from "@/hooks/use-ui-preferences"
+import { hidesInactiveAgents, type ShowMode } from "@/lib/show-mode"
 import type { AnnounceLevel } from "@/lib/ui-preferences"
 import { Z } from "@/lib/agent-types"
 import { COLORS, SCENE } from "@/lib/colors"
@@ -79,9 +80,11 @@ export function AgentVisualizer() {
   const isReviewingRef = useRef(false)
   isReviewingRef.current = isReviewing
 
-  // 'Hide inactive agents': on by default, persisted with the other UI preferences
-  const hideInactive = prefs.hideInactive
-  const updateHideInactive = useCallback((hide: boolean) => setPref('hideInactive', hide), [setPref])
+  // 'Show: active / all' (#372): one mode, 'active' by default, persisted with the other UI preferences. 'active' hides
+  // the inactive agents here and the finished sessions in the bridge (it reads the same field)
+  const showMode = prefs.show
+  const hideInactive = hidesInactiveAgents(showMode)
+  const updateShowMode = useCallback((mode: ShowMode) => setPref('show', mode), [setPref])
   // Quota gauges of the top bar (#467): the runtime of the selected session decides what they say (undefined = none selected)
   const showQuota = prefs.showQuota
   const updateShowQuota = useCallback((show: boolean) => setPref('showQuota', show), [setPref])
@@ -279,8 +282,7 @@ export function AgentVisualizer() {
       <div style={{ display: immersive ? 'none' : 'contents' }}>
       <TopBar
         onToggleFullscreen={toggleFullscreen} sessions={bridge.sessions} teams={bridge.teams} allSessionCount={allSessionCount}
-        showFinished={bridge.showFinished} finishedSessionCount={bridge.finishedSessionCount} onToggleShowFinished={bridge.setShowFinished}
-        hideInactive={hideInactive} onToggleHideInactive={updateHideInactive}
+        showMode={showMode} onChangeShowMode={updateShowMode}
         selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}
         showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}
@@ -340,7 +342,7 @@ export function AgentVisualizer() {
       {isEmpty && <EmptyState bridge={bridge} />}
 
       {blankByHidingCount > 0 && !isEmpty && (
-        <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
+        <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateShowMode('all')} focusTargetId="visualizer-main" />
       )}
 
       {/* Canvas fills everything */}
@@ -437,8 +439,7 @@ export function AgentVisualizer() {
       <VisualizerDialogs
         settings={{
           open: showSettings, onClose: closeSettings, tab: settingsTab, onTabChange: setSettingsTab, hexGrid: showHexGrid, onHexGridChange: setShowHexGrid,
-          muted: isMuted, onToggleMute: handleToggleMute, showFinished: bridge.showFinished, onShowFinishedChange: bridge.setShowFinished,
-          hideInactive, onHideInactiveChange: updateHideInactive, singleKeyEnabled: singleKeyShortcuts,
+          muted: isMuted, onToggleMute: handleToggleMute, showMode, onShowModeChange: updateShowMode, singleKeyEnabled: singleKeyShortcuts,
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: settingsAnnouncements,

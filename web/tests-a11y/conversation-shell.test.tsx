@@ -121,7 +121,7 @@ test('selecting an agent opens the Conversation panel on that agent (no second c
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Active only \(10 min\)/ })) })
   await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   assert.equal(conversationRegion(r), null)
   // the canvas outline lists the agents as buttons: clicking one selects it like a canvas click
@@ -157,7 +157,7 @@ async function mountWithAgents() {
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Active only \(10 min\)/ })) })
   await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   return r
 }

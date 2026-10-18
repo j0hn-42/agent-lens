@@ -9,6 +9,7 @@ import {
   activeSessionIds, finishedSessionIds, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject,
 } from '@/hooks/simulation/session-visibility'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
+import { showsFinishedSessions } from '@/lib/show-mode'
 import {
   vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice,
   type PermissionBridgeMessage, type PermissionRequestMessage,
@@ -80,8 +81,9 @@ interface BridgeHookResult {
   teamSummaries: Map<string, GroupSummary>
   /** Members known per team (team config or teammates seen) */
   teamMemberCounts: Map<string, number>
-  /** 'All' also shows the finished sessions (persisted preference) */
+  /** 'All' also shows the finished sessions: the Show mode is 'all' (persisted preference, #372) */
   showFinished: boolean
+  /** Sets the one Show mode (#372): true = 'all', false = 'active' (which also hides the inactive agents) */
   setShowFinished: (show: boolean) => void
   /** Sessions the 'All' view shows (null = every session); changes whenever the shown set changes */
   allViewSessionIds: ReadonlySet<string> | null
@@ -230,10 +232,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     selectedSessionIdRef.current = ALL_SESSIONS_ID
     setSelectedSessionId(ALL_SESSIONS_ID)
   }, [updateSessions])
-  // 'All' shows only the active sessions unless the user asked for the finished ones too. The choice lives in the
-  // preference blob (#372): Settings, the top bar, another tab and 'Reset preferences' all write the same field.
+  // 'All' shows only the active sessions unless the Show mode is 'all' (#372). The choice lives in the preference blob:
+  // Settings, the top bar, another tab and 'Reset preferences' all write the same field.
   const { prefs: uiPrefs, setPref: setUiPref } = useUiPreferences()
-  const showFinished = uiPrefs.showFinished
+  const showFinished = showsFinishedSessions(uiPrefs.show)
   const showFinishedRef = useRef(showFinished)
   const lastEventAtRef = useRef<Map<string, number>>(new Map())
   /** Sessions shown in 'All' (null = every one); read synchronously by the event filter */
@@ -287,7 +289,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
 
   const setShowFinished = useCallback((show: boolean) => {
     showFinishedRef.current = show
-    setUiPref('showFinished', show)
+    setUiPref('show', show ? 'all' : 'active')
     recomputeVisible()
   }, [recomputeVisible, setUiPref])
 

@@ -66,7 +66,7 @@ async function mountTwoSessions() {
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
     post(spawn('sb', 'main-b', { isMain: true }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Active only \(10 min\)/ })) })
   const agentItems = () => Array.from(r.container.querySelectorAll('li')).map(li => li.textContent ?? '')
   await waitUntil(() => ['main-a', 'worker-a', 'main-b'].every(n => agentItems().some(t => t.startsWith(n))), 'the three agents are drawn')
   // the halos carry the session meta once the layout has grouped the agents: wait for that, not for a fixed time (#440)
@@ -121,10 +121,9 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     post({ type: '__vscode-bridge-init' })
     post({
       type: 'session-list',
-      sessions: [
-        info('sa', 'payments-api', '/w/payments'),
-        { ...info('sb', 'web-app', '/w/web'), status: 'completed', lastActivityTime: Date.now() - 3 * 3_600_000 },
-      ],
+      // One session: since #372 one toggle shows the idle agents AND the finished sessions ('all'), so a finished second
+      // session would be drawn too once the idle agents are shown
+      sessions: [info('sa', 'payments-api', '/w/payments')],
     })
   })
   await wait(100)
@@ -134,7 +133,7 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Hide inactive agents' })) })
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Active only \(10 min\)/ })) })
   await waitUntil(() => r.container.textContent?.includes('Session payments-api, 2 agents') ?? false, 'the payments-api halo is drawn')
   await openSessions(r)
   const tab = () => sessionRow(r, /payments-api/)

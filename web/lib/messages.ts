@@ -52,10 +52,6 @@ const fr = {
   'settings.sound': 'Effets sonores',
   'settings.sound.help': 'Jouer des sons pour l’activité des agents et des outils (M).',
   'settings.section.sessions': 'Sessions et agents',
-  'settings.showFinished': 'Afficher les sessions terminées',
-  'settings.showFinished.help': 'La vue « All » liste aussi les sessions terminées depuis plus de 10 minutes.',
-  'settings.hideInactive': 'Masquer les agents inactifs',
-  'settings.hideInactive.help': 'Les agents inactifs et terminés sont retirés du canevas.',
   'settings.quota': 'Jauges de quota',
   'settings.quota.help': 'Affiche dans la barre du haut ce qu\'il reste du quota d\'abonnement Claude (5 h et 7 j).',
   'settings.section.presentation': 'Présentation',
@@ -94,7 +90,7 @@ const fr = {
   'settings.shortcuts': 'Voir les raccourcis clavier',
   'settings.section.reset': 'Préférences',
   'settings.reset': 'Réinitialiser les préférences',
-  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Files, Conversation, Timeline, Stats, Cost), la grille hexagonale, les filtres (agents inactifs, sessions terminées, liste des sessions), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
+  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Files, Conversation, Timeline, Stats, Cost), la grille hexagonale, le filtre Actifs seuls, les filtres de la liste des sessions, les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
   'settings.reset.ask': 'Remettre ces préférences par défaut ?',
   'settings.reset.confirm': 'Réinitialiser maintenant',
   'settings.reset.cancel': 'Annuler',
@@ -242,8 +238,6 @@ const fr = {
   'tray.quit.closeIcon': 'Fermer l’icône, le relais continue',
   'tray.tooltip': 'Agent Lens : {state}',
   // Top bar (#373): the controls it owns. The panel button names are further down (#523); counts and connection state come from the glossary and stay English for now.
-  'topbar.hideInactive': 'Masquer les agents inactifs',
-  'topbar.hideInactive.title': 'Masquer les agents inactifs ou terminés',
   'topbar.notify': 'Notifications',
   'topbar.notify.title': 'Notifier pour les déclencheurs choisis dans Réglages (autorisation, erreur, session terminée, seuil de coût)',
   'topbar.notify.blocked': 'Notifications bloquées',
@@ -665,9 +659,6 @@ const fr = {
   'topbar.connection.reconnecting': 'reconnexion (tentative {attempt}, nouvel essai dans {seconds} s)',
   'topbar.connection.retry': 'Réessayer maintenant',
   'topbar.connection.exitDemo': 'Quitter la démo',
-  'topbar.finished.label': 'Afficher les sessions terminées ({n})',
-  'topbar.finished.title': 'Afficher aussi les sessions terminées depuis plus de 10 minutes',
-  'topbar.finished.hidden': 'Sessions terminées masquées ({n})',
   'topbar.more': 'Plus',
   'topbar.more.name': 'Plus : panneaux, totaux et filtres',
   'topbar.more.help': 'Boutons des panneaux, jauges de quota et filtres de la vue (repliés sous 1024 px de large)',
@@ -890,6 +881,11 @@ const fr = {
   'panel.heading.files': 'ATTENTION AUX FICHIERS',
   'panel.heading.timeline': 'CHRONOLOGIE D’EXÉCUTION',
   'panel.heading.context': 'CONTEXTE DU PROJET',
+  // 'Afficher : actifs / tous' (#372): one control replaces 'Masquer les agents inactifs' and 'Afficher les sessions terminées'; {n} = the threshold in minutes (show-mode.ts)
+  'show.active': 'Actifs seuls ({n} min)',
+  'show.active.name': 'Actifs seuls ({n} min) : masque les agents dont le tour est fini et les sessions terminées sans événement depuis {n} minutes',
+  'show.active.title': 'Activé : masque les agents dont le tour est fini (pas ceux en erreur ou en attente d’une autorisation) et, dans la vue « Toutes les sessions », les sessions terminées sans événement depuis {n} minutes. Désactivé : tout est affiché.',
+  'settings.show.active.help': 'Masque les agents dont le tour est fini et, dans la vue « Toutes les sessions », les sessions terminées sans événement depuis {n} minutes. Une session jamais marquée terminée reste affichée. Désactivé, tout est affiché.',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -930,10 +926,6 @@ const en: Record<MessageKey, string> = {
   'settings.sound': 'Sound effects',
   'settings.sound.help': 'Play sounds for agent and tool activity (M).',
   'settings.section.sessions': 'Sessions and agents',
-  'settings.showFinished': 'Show finished sessions',
-  'settings.showFinished.help': 'The \'All\' view also lists sessions that finished more than 10 minutes ago.',
-  'settings.hideInactive': 'Hide inactive agents',
-  'settings.hideInactive.help': 'Idle and complete agents are removed from the canvas.',
   'settings.quota': 'Quota gauges',
   'settings.quota.help': 'Show in the top bar what is left of the Claude subscription quota (5 h and 7 d).',
   'settings.section.presentation': 'Presentation',
@@ -972,7 +964,7 @@ const en: Record<MessageKey, string> = {
   'settings.shortcuts': 'View keyboard shortcuts',
   'settings.section.reset': 'Preferences',
   'settings.reset': 'Reset preferences',
-  'settings.reset.help': 'Restores the defaults of the panels kept open (Files, Conversation, Timeline, Stats, Cost), the hex grid, the filters (inactive agents, finished sessions, session list), single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width.',
+  'settings.reset.help': 'Restores the defaults of the panels kept open (Files, Conversation, Timeline, Stats, Cost), the hex grid, the Active only filter, the session list filters, single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width.',
   'settings.reset.ask': 'Restore these preferences to their defaults?',
   'settings.reset.confirm': 'Reset now',
   'settings.reset.cancel': 'Cancel',
@@ -1119,8 +1111,6 @@ const en: Record<MessageKey, string> = {
   'tray.quit.stopRelay': 'Quit and stop the relay',
   'tray.quit.closeIcon': 'Close the icon, the relay keeps running',
   'tray.tooltip': 'Agent Lens: {state}',
-  'topbar.hideInactive': 'Hide inactive agents',
-  'topbar.hideInactive.title': 'Hide agents that are idle or done',
   'topbar.notify': 'Notifications',
   'topbar.notify.title': 'Notify for the triggers chosen in Settings (permission, error, finished session, cost threshold)',
   'topbar.notify.blocked': 'Notifications blocked',
@@ -1541,9 +1531,6 @@ const en: Record<MessageKey, string> = {
   'topbar.connection.reconnecting': 'reconnecting (attempt {attempt}, retry in {seconds}s)',
   'topbar.connection.retry': 'Retry now',
   'topbar.connection.exitDemo': 'Exit demo',
-  'topbar.finished.label': 'Show finished sessions ({n})',
-  'topbar.finished.title': 'Also show sessions that finished more than 10 minutes ago',
-  'topbar.finished.hidden': 'Finished sessions hidden ({n})',
   // Built from the glossary, the one source of these English texts
   'topbar.more': TOP_BAR_LABELS.more,
   'topbar.more.name': TOP_BAR_LABELS.moreName,
@@ -1767,6 +1754,11 @@ const en: Record<MessageKey, string> = {
   'panel.heading.files': 'FILE ATTENTION',
   'panel.heading.timeline': 'EXECUTION TIMELINE',
   'panel.heading.context': 'PROJECT CONTEXT',
+  // 'Show: active / all' (#372)
+  'show.active': 'Active only ({n} min)',
+  'show.active.name': 'Active only ({n} min): hides agents whose turn is over and finished sessions with no event for {n} minutes',
+  'show.active.title': 'On: hides agents whose turn is over (not those in error or waiting for a permission) and, in the All sessions view, finished sessions with no event for {n} minutes. Off: shows everything.',
+  'settings.show.active.help': 'Hides agents whose turn is over and, in the All sessions view, finished sessions with no event for {n} minutes. A session never marked finished stays shown. Off, everything is shown.',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

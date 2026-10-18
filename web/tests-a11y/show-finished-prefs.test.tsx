@@ -1,4 +1,4 @@
-// 'Show finished sessions' lives in the preference blob (#372): the bridge reads and writes it there, the former
+// 'Show finished sessions', now the 'all' value of the Show mode, lives in the preference blob (#372): the bridge reads and writes it there, the former
 // standalone key is only migrated, and a change made through the preferences (Settings, reset) reaches the 'All' view.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -24,7 +24,7 @@ test('setShowFinished writes the preference blob, never the former key', async (
   cleanup()
   resetDefaultUiPreferencesStore({ keepStorage: true }) // flushes the pending write, like a reload
   assert.equal(window.localStorage.getItem(LEGACY_FINISHED), null)
-  assert.equal(parsePrefs(window.localStorage.getItem(UI_PREFS_STORAGE_KEY)).showFinished, true)
+  assert.equal(parsePrefs(window.localStorage.getItem(UI_PREFS_STORAGE_KEY)).show, 'all', 'stored as the one Show mode (#372)')
   const reloaded = renderHook(() => useVSCodeBridge())
   assert.equal(reloaded.result.current.showFinished, true, 'the choice survives a reload')
 })
@@ -38,7 +38,7 @@ test('a choice stored under the former key is kept (migration, no loss)', () => 
 test('a change made through the preferences (Settings reset) reaches the bridge', async () => {
   const { result } = renderHook(() => ({ bridge: useVSCodeBridge(), ui: useUiPreferences() }))
   await act(async () => result.current.bridge.setShowFinished(true))
-  assert.equal(result.current.ui.prefs.showFinished, true, 'one source of truth')
+  assert.equal(result.current.ui.prefs.show, 'all', 'one source of truth: the Show mode')
   await act(async () => result.current.ui.resetPrefs())
   assert.equal(result.current.bridge.showFinished, false)
 })

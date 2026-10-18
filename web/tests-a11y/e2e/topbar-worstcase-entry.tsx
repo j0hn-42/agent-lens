@@ -22,8 +22,8 @@ const props: TopBarProps = {
   activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1200, totalCost: 1, unattributedCost: 0.5,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
-  onToggleHideInactive: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop, notifyState: 'off', onToggleNotify: noop,
-  onToggleShowFinished: noop, finishedSessionCount: 12, hideInactive: true,
+  onChangeShowMode: noop, onOpenSettings: noop, onToggleFullscreen: noop, onOpenPalette: noop, notifyState: 'off', onToggleNotify: noop,
+  showMode: 'active',
   attention: { waiting: 2, errors: 1 }, onJumpToAttention: noop,
   scope: { state: scopeState, sessions, projectId: null, pending: false, error: null, onChoose: noop },
 }

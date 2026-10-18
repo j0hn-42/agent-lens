@@ -19,8 +19,7 @@ const dialogProps = (over: Partial<SettingsDialogProps> = {}): SettingsDialogPro
   open: true, onClose: noop,
   hexGrid: true, onHexGridChange: noop,
   muted: false, onToggleMute: noop,
-  showFinished: false, onShowFinishedChange: noop,
-  hideInactive: true, onHideInactiveChange: noop,
+  showMode: 'active', onShowModeChange: noop,
   singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
   onOpenShortcuts: noop,
   ...over,
@@ -49,7 +48,7 @@ test('is a labelled modal dialog with one named switch per setting', () => {
   assert.equal(dialog.getAttribute('aria-modal'), 'true')
   const byTab: Array<[string, string[]]> = [
     ['General', ['Hex grid', 'Sound effects']],
-    ['Sessions and presentation', ['Show finished sessions', 'Hide inactive agents']],
+    ['Sessions and presentation', ['Active only \\(10 min\\)']],
     ['Keyboard and preferences', ['Enable single-key shortcuts']],
   ]
   for (const [tab, names] of byTab) {
@@ -66,15 +65,16 @@ test('toggling a switch reports the new value; sound is shown inverted from mute
     muted: true,
     onHexGridChange: v => changes.push(`hex:${v}`),
     onToggleMute: () => changes.push('mute'),
-    onHideInactiveChange: v => changes.push(`hide:${v}`),
+    onShowModeChange: v => changes.push(`show:${v}`),
   })} />)
   const sound = view.getByRole('switch', { name: /Sound effects/ }) as HTMLInputElement
   assert.equal(sound.checked, false)
   fireEvent.click(sound)
   fireEvent.click(view.getByRole('switch', { name: /Hex grid/ }))
   showTab(view, 'Sessions and presentation')
-  fireEvent.click(view.getByRole('switch', { name: /Hide inactive agents/ }))
-  assert.deepEqual(changes, ['mute', 'hex:false', 'hide:false'])
+  // 'Show: active / all' (#372): checked = active only; unchecking it shows everything
+  fireEvent.click(view.getByRole('switch', { name: /^Active only \(10 min\)/ }))
+  assert.deepEqual(changes, ['mute', 'hex:false', 'show:all'])
 })
 
 test('the quota gauges switch reflects the preference and reports the new value (#467)', () => {
@@ -165,7 +165,7 @@ test('reset preferences (#372): asks first, says what it resets and keeps, then 
   const help = document.getElementById(reset.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
   assert.ok(/Theme, language, notifications and presentation are kept/.test(help), 'the help names what is not reset')
   assert.ok(/the View menu \(Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after\), and mutes the sound/.test(help), 'the help names the View menu and the sound, reset since #372')
-  assert.ok(/finished sessions/.test(help) && /inactive agents/.test(help), 'the help names the view filters it resets')
+  assert.ok(/the Active only filter/.test(help), 'the help names the view filter it resets')
   fireEvent.click(reset)
   assert.equal(resets, 0, 'nothing is reset before the confirmation')
   const confirm = view.getByRole('button', { name: 'Reset now' })
@@ -198,6 +198,6 @@ test('reset done line (#372): disappears as soon as a preference changes afterwa
   assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')
   view.rerender(<SettingsDialog {...props} />)
   assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults', 'an unrelated re-render keeps it')
-  view.rerender(<SettingsDialog {...props} hideInactive={!props.hideInactive} />)
+  view.rerender(<SettingsDialog {...props} showMode={props.showMode === 'active' ? 'all' : 'active'} />)
   assert.equal(view.getByRole('status').textContent, '')
 })

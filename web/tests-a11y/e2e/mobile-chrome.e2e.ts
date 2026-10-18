@@ -107,7 +107,7 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
       })
       assert.ok(await drawnWidth() <= 1, 'folded: the totals are not drawn')
       assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total (#523: read, not drawn)')
-      assert.equal(await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).count(), 0, 'folded: the filters are not in the Tab order')
+      assert.equal(await page.getByRole('button', { name: 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes', exact: true }).count(), 0, 'folded: the filters are not in the Tab order')
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
       assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
       // Folded under 768 px (#476): the panel buttons are behind More, not rendered (no hidden Tab stop)
@@ -127,7 +127,7 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
       assert.ok(await drawnWidth() <= 1, 'expanded: the totals are still not drawn (#523)')
       await page.keyboard.press('Tab')
       const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
-      assert.match(String(next), /Notifications|Hide inactive agents|Show finished|finished/, `Tab after More reaches a folded control (got "${next}")`)
+      assert.match(String(next), /Notifications|Active only/, `Tab after More reaches a folded control (got "${next}")`)
       assert.ok(await noHorizontalScroll(page), 'expanded: no horizontal page scroll')
       for (const name of ['Timeline', 'Stats', 'Files']) {
         assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `expanded: ${name} is shown`)
@@ -167,26 +167,26 @@ for (const [w, h] of [[1024, 900], [1280, 800]] as Array<[number, number]>) {
 }
 
 // Folded, a filter that changes what the canvas shows is never hidden behind a plain "More" (docs/reading-the-ui.md)
-test('top bar 390x844: folded with Hide inactive agents on, More says a filter is on', async () => {
+test('top bar 390x844: folded with Active only on, More says a filter is on', async () => {
   const page = await open(390, 844)
   try {
     const more = page.getByRole('button', { name: /^More · \d+ filters? on/ })
     assert.ok(await more.isVisible(), 'More shows that a filter is on')
     // The name is built from a hidden span through aria-labelledby (#373), so read that span, not aria-label
     const nameParts = await more.evaluate((el) => (el.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' '))
-    assert.match(nameParts, /Hide inactive agents/, 'its name says which one')
+    assert.match(nameParts, /Active only \(10 min\)/, 'its name says which one')
     // Visible text kept short: at 320 px "More · 1 filter on" pushed More onto a row of its own (196.5 px bar)
     assert.match(String(await more.textContent()), /^More · \d+ filters?$/)
     // Turn the filter off: More no longer lists it
     await more.click()
-    const hide = page.getByRole('button', { name: 'Hide inactive agents', exact: true })
-    assert.equal(await hide.getAttribute('aria-pressed'), 'true', 'Hide inactive agents is on by default')
+    const hide = page.getByRole('button', { name: 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes', exact: true })
+    assert.equal(await hide.getAttribute('aria-pressed'), 'true', 'Active only is on by default')
     await hide.click()
     assert.equal(await hide.getAttribute('aria-pressed'), 'false')
     const disclosure = page.locator('header button[aria-expanded]')
     await disclosure.click()
     assert.equal(await disclosure.getAttribute('aria-expanded'), 'false')
-    assert.doesNotMatch(String(await disclosure.getAttribute('aria-label')), /Hide inactive agents/)
+    assert.doesNotMatch(String(await disclosure.getAttribute('aria-label')), /Active only/)
   } finally {
     await page.context().close()
   }
@@ -212,10 +212,10 @@ test('top bar: More has the focus and the window widens past 1024 px, the focus 
 test('top bar: a filter has the focus and the window narrows under 1024 px, the filter keeps it', async () => {
   const page = await open(1100, 844)
   try {
-    await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).focus()
+    await page.getByRole('button', { name: 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes', exact: true }).focus()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForFunction(`!!document.querySelector('header button[aria-expanded]')`)
-    assert.equal(await focusedName(page), 'Hide inactive agents', 'the focused filter is still rendered and focused')
+    assert.equal(await focusedName(page), 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes', 'the focused filter is still rendered and focused')
     assert.equal(await page.locator('header button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'More opened to keep it')
   } finally {
     await page.context().close()

@@ -11,9 +11,10 @@ import { observeTopbarHeight, viewCountsText, topBarContextText, type Connection
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { sessionStatusHelp } from "@/lib/card-text"
 import {
-  attentionAriaLabel, attentionCounterText, attentionTooltip, connectionText, finishedHiddenText, finishedToggleText, finishedToggleTitle,
+  attentionAriaLabel, attentionCounterText, attentionTooltip, connectionText,
   moreText, selectionLabelText, unobservedSessionsText,
 } from "@/lib/top-bar-text"
+import { ACTIVE_WINDOW_MINUTES, type ShowMode } from "@/lib/show-mode"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { useLocale } from "@/lib/locale"
@@ -217,14 +218,12 @@ export interface TopBarProps {
   onToggleSessions: () => void
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
-  /** 'All' also shows finished sessions */
-  showFinished?: boolean
-  /** Sessions currently counted as finished (not active) */
-  finishedSessionCount?: number
-  onToggleShowFinished?: (show: boolean) => void
-  /** Idle / complete agents are hidden from the canvas */
-  hideInactive?: boolean
-  onToggleHideInactive?: (hide: boolean) => void
+  /**
+   * 'Show: active / all' (#372): one control instead of 'Hide inactive agents' and 'Show finished sessions'. 'active'
+   * hides the agents whose turn is over and, in All, the finished sessions silent for ACTIVE_WINDOW_MINUTES
+   */
+  showMode?: ShowMode
+  onChangeShowMode?: (mode: ShowMode) => void
   // Connection
   isVSCode: boolean
   connectionStatus: ConnectionStatus
@@ -296,8 +295,7 @@ export interface TopBarProps {
 export const TopBar = memo(function TopBar({
   sessions, teams, selectedSessionId, sessionsWithActivity,
   showSessions, onToggleSessions,
-  allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
-  hideInactive = false, onToggleHideInactive,
+  allSessionCount, showMode = 'all', onChangeShowMode,
   isVSCode, connectionStatus, isDemo = false, connectionDetail, onRetryConnection, onExitDemo,
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
@@ -396,10 +394,8 @@ export const TopBar = memo(function TopBar({
   ].filter((part): part is string => part !== null).join(', ')
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording
-  const activeFilters: { text: string; lang: string }[] = ([
-    hideInactive && onToggleHideInactive ? { text: t('topbar.hideInactive'), lang: locale } : null,
-    isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? { text: finishedHiddenText(locale, finishedSessionCount), lang: locale } : null,
-  ] as ({ text: string; lang: string } | null)[]).filter((f): f is { text: string; lang: string } => f !== null)
+  const showActiveLabel = t('show.active', { n: ACTIVE_WINDOW_MINUTES })
+  const activeFilters: { text: string; lang: string }[] = showMode === 'active' && onChangeShowMode ? [{ text: showActiveLabel, lang: locale }] : []
   const showFilterCount = folded && activeFilters.length > 0
   // Folded (under 1024 px) a panel button folds More again and the focus waits on More (the button is gone). Under 768 px
   // the panel opens as a drawer below the short bar, which takes the focus; More is where it comes back when it closes
@@ -563,26 +559,17 @@ export const TopBar = memo(function TopBar({
               {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
             </ToggleButton>
           )}
-          {!folded && isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
+          {/* 'Show: active / all' (#372): one toggle, pressed = active only; its name states the threshold (2.5.3: it starts with the label) */}
+          {!folded && onChangeShowMode && (
             <ToggleButton
-              active={showFinished}
-              pressed={showFinished}
-              onClick={() => onToggleShowFinished(!showFinished)}
+              active={showMode === 'active'}
+              pressed={showMode === 'active'}
+              onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
+              ariaLabel={t('show.active.name', { n: ACTIVE_WINDOW_MINUTES })}
+              title={t('show.active.title', { n: ACTIVE_WINDOW_MINUTES })}
               lang={locale}
-              title={finishedToggleTitle(locale)}
             >
-              {finishedToggleText(locale, finishedSessionCount)}
-            </ToggleButton>
-          )}
-          {!folded && onToggleHideInactive && (
-            <ToggleButton
-              active={hideInactive}
-              pressed={hideInactive}
-              onClick={() => onToggleHideInactive(!hideInactive)}
-              lang={locale}
-              title={t('topbar.hideInactive.title')}
-            >
-              {t('topbar.hideInactive')}
+              {showActiveLabel}
             </ToggleButton>
           )}
         </div>

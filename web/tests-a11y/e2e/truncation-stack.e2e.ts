@@ -40,7 +40,7 @@ async function mountWithBanner(page: Page, w: number, h: number): Promise<Frame>
     { type: '__vscode-bridge-init' },
     { type: 'session-list', sessions: [{ id: 's1', label: 'e2e', status: 'active', startTime: now, lastActivityTime: now }] },
     { type: 'agent-event', event: { time: 0, type: 'agent_spawn', payload: { name: 'main', isMain: true }, sessionId: 's1' } },
-    // A running tool keeps the agent drawn ("Hide inactive agents" is on by default)
+    // A running tool keeps the agent drawn ("Active only (10 min)" is on by default)
     { type: 'agent-event', event: { time: 0.5, type: 'tool_call_start', payload: { agent: 'main', tool: 'Read', args: 'a.ts' }, sessionId: 's1' } },
     { type: 'agent-event', event: { time: 1, type: 'normalization_stats', payload: { ignoredEvents: 3, malformed: 1, droppedByCap: 2, clampedFields: 0, duplicateEvents: 0 }, sessionId: 's1' } },
   ])
