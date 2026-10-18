@@ -9,6 +9,7 @@ import React from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
+import { CostTotalsText } from '@/components/agent-visualizer/cost-totals-text'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { setLocaleChoice } from '@/lib/locale'
@@ -68,8 +69,26 @@ const wait = (ms = 300) => act(async () => { await new Promise(r => setTimeout(r
 const ev = (sessionId: string, type: string, payload: Record<string, unknown>, time = 1) =>
   ({ type: 'agent-event', event: { time, type, sessionId, payload } })
 
-/** One session with one agent that used a tool and has a context size; `lost` = the relay's event-loss message (null: none sent) */
-async function mount(lost: Record<string, number> | null, openCost = true) {
+/** Events of the default fixture: one agent that used a tool and has a context size */
+const TOOL_AND_CONTEXT = [
+  ev('s1', 'agent_spawn', { name: 'main', isMain: true }, 0),
+  ev('s1', 'tool_call_start', { agent: 'main', tool: 'Bash', toolUseId: 't1', args: 'ls' }, 2),
+  ev('s1', 'tool_call_end', { agent: 'main', tool: 'Bash', toolUseId: 't1', result: 'ok' }, 3),
+  // After the tool: an absolute context reading clears the gap a tool without a reported cost leaves, so the totals are complete
+  ev('s1', 'context_update', { agent: 'main', tokens: 120_000, tokenSource: 'reported' }, 4),
+]
+/**
+ * Usage that belongs to no agent (the unattributed row of the drawing), for an agent the graph does not know. A tool cost
+ * with no reported source is an estimate; a context reading is not.
+ */
+const ORPHAN = ev('s1', 'tool_call_end', { agent: 'ghost', tool: 'Bash', toolUseId: 'g1', result: 'ok', tokenCost: 900_000 }, 5)
+const ORPHAN_READING = ev('s1', 'context_update', { agent: 'ghost', tokens: 900_000 }, 5)
+
+/**
+ * One session; `lost` = the relay's event-loss message (null: none sent). `row` 0 is the 'All sessions' row, 1 the session
+ * itself (single-session mode). `events` defaults to one agent that used a tool and has a context size.
+ */
+async function mount(lost: Record<string, number> | null, openCost = true, { row = 0, events = TOOL_AND_CONTEXT }: { row?: number; events?: unknown[] } = {}) {
   const r = render(<AgentVisualizer />)
   const now = Date.now()
   await act(async () => { FakeES.last.open() })
@@ -81,15 +100,13 @@ async function mount(lost: Record<string, number> | null, openCost = true) {
   // The 'All sessions' row, like a user: the view that receives the events
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions ?:/ })) })
   await wait(100)
-  await act(async () => { fireEvent.click(r.container.querySelectorAll<HTMLElement>('[data-row-main]')[0]) })
+  const rows = r.container.querySelectorAll<HTMLElement>('[data-row-main]')
+  assert.ok(rows[row], `session row ${row} exists`)
+  // The only session is selected on its own (single-session mode): its row is only clicked when it is not the current one
+  if (rows[row].getAttribute('aria-current') !== 'true') await act(async () => { fireEvent.click(rows[row]) })
+  else await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions ?:/ })) }) // close the panel, as the click would
   await wait(100)
-  await act(async () => {
-    FakeES.last.send(ev('s1', 'agent_spawn', { name: 'main', isMain: true }, 0))
-    FakeES.last.send(ev('s1', 'tool_call_start', { agent: 'main', tool: 'Bash', toolUseId: 't1', args: 'ls' }, 2))
-    FakeES.last.send(ev('s1', 'tool_call_end', { agent: 'main', tool: 'Bash', toolUseId: 't1', result: 'ok' }, 3))
-    // After the tool: an absolute context reading clears the gap a tool without a reported cost leaves, so the totals are complete
-    FakeES.last.send(ev('s1', 'context_update', { agent: 'main', tokens: 120_000, tokenSource: 'reported' }, 4))
-  })
+  await act(async () => { for (const e of events) FakeES.last.send(e) })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents|Masquer les agents inactifs/ })) }) // idle agents are hidden by default
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
@@ -114,7 +131,7 @@ test('Cost panel open, no loss: a named region holds the totals as text, in Engl
 
 test('Cost panel open, events lost: the DOM totals say "at least", like the drawing', async () => {
   const r = await mount({ s1: 7 })
-    assert.ok(drawn.some(t => /^at least .* ctx tokens$/.test(t)), `canvas header: ${JSON.stringify(drawn)}`)
+  assert.ok(drawn.some(t => /^at least .* ctx tokens$/.test(t)), `canvas header: ${JSON.stringify(drawn)}`)
   assert.match(panel(r)?.textContent ?? '', /at least/)
 })
 
@@ -132,7 +149,7 @@ test('French: the region, its name and the qualifiers are French, lang declared'
 
 test('Cost panel closed: no region, and the top bar still reads the totals (the only place without a panel)', async () => {
   const r = await mount(null, false)
-  assert.equal(panel(r), null)
+  assert.equal(panel(r)?.textContent ?? null, null)
   assert.match(spoken(r), /120k tokens in context/)
 })
 
@@ -146,6 +163,71 @@ test('the totals of the region equal the top bar wording (same function, same fi
 
 test('axe: the Cost totals region has no violation', async () => {
   const r = await mount({ s1: 7 })
-  const results = await axe.run(panel(r)!.parentElement ?? panel(r)!)
+  const p = panel(r)
+  assert.ok(p, 'the region is rendered (otherwise axe would have nothing to check)')
+  const results = await axe.run(p.parentElement ?? p)
   assert.deepEqual(results.violations.map(v => v.id), [])
+})
+
+// ─── #555 review follow-up: qualifiers of the unattributed part, full screen, the drawing's emptiness rule, single session ───
+
+/** The qualifiers of the drawing's unattributed row (`900k · ~$X estimated`, draw-cost.ts), in words */
+const UNATTRIBUTED_EN = /including 900k unattributed tokens \(about \$[\d.]+ estimated\)/
+
+test('single session: the unattributed part carries the tokens and the qualifiers of the drawing ("about", "estimated")', async () => {
+  const r = await mount(null, true, { row: 1, events: [...TOOL_AND_CONTEXT, ORPHAN] })
+  assert.ok(drawn.includes('Unattributed'), `precondition: the canvas draws the unattributed row: ${JSON.stringify(drawn)}`)
+  const restRow = drawn.find(t => /^900k · ~\$/.test(t))
+  assert.ok(restRow && / estimated$/.test(restRow), `precondition: the drawing qualifies it as an estimate: ${restRow}`)
+  const text = panel(r)?.textContent ?? ''
+  assert.match(text, UNATTRIBUTED_EN, text)
+  assert.doesNotMatch(text, /including \$[\d.]+ unattributed/, 'never a bare, exact-looking figure')
+})
+
+test('All sessions: the unattributed part is given too, like the drawing (which shows the row in every mode); not an estimate, no "estimated"', async () => {
+  const r = await mount(null, true, { events: [...TOOL_AND_CONTEXT, ORPHAN_READING] })
+  const restRow = drawn.find(t => /^900k · ~\$/.test(t))
+  assert.ok(restRow && !/estimated/.test(restRow), `precondition: the canvas draws the row in All, not as an estimate: ${restRow}`)
+  const text = panel(r)?.textContent ?? ''
+  assert.match(text, /including 900k unattributed tokens \(about \$[\d.]+\)/, text)
+})
+
+test('nothing to total: the canvas draws no panel, so the region renders nothing (no "$0.00")', async () => {
+  const r = await mount(null, true, { row: 1, events: [ev('s1', 'agent_spawn', { name: 'main', isMain: true }, 0)] })
+  assert.ok(!drawn.some(t => /ctx tokens/.test(t)), `precondition: no Cost panel header drawn: ${JSON.stringify(drawn)}`)
+  // Compare the text, never the element: a failing assert.equal on a jsdom node inspects its whole graph and runs out of memory
+  assert.equal(panel(r)?.textContent ?? null, null, 'no region while the drawing shows nothing')
+})
+
+test('full screen: the canvas still draws the Cost panel, and the region keeps its text equivalent', async () => {
+  const r = await mount({ s1: 7 })
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  drawn = []
+  await wait(400)
+  assert.ok(r.getByRole('button', { name: 'Exit full screen' }), 'precondition: full screen is on')
+  assert.ok(drawn.some(t => /ctx tokens$/.test(t)), `precondition: the canvas draws the Cost panel in full screen: ${JSON.stringify(drawn)}`)
+  const p = panel(r)
+  assert.ok(p, 'the totals keep a DOM equivalent in full screen')
+  assert.match(p.textContent ?? '', /at least/)
+  assert.match(p.textContent ?? '', /120k tokens in context/)
+})
+
+test('French: the unattributed part reads "estimé", with a word for the "~" of the drawing ("environ")', async () => {
+  setLocaleChoice('fr')
+  const r = await mount(null, true, { row: 1, events: [...TOOL_AND_CONTEXT, ORPHAN] })
+  const text = panel(r)?.textContent ?? ''
+  assert.match(text, /dont 900k jetons non attribués \(environ \$[\d.]+ estimé\)/, text)
+  assert.doesNotMatch(text, /unattributed|estimated|about/)
+})
+
+test('French: a cost the runtime does not report reads "coût non communiqué" (component, the wording path)', () => {
+  setLocaleChoice('fr')
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  // An agent with a figure, so the region renders; cost and tokens passed as not reported: it says so, never "$0.00"
+  const agent = { tokensUsed: 1000, tokenStatus: 'available' as const }
+  const { container } = render(<CostTotalsText tokens={none} cost={none} agents={[agent]} unattributed={[]} />)
+  const text = container.querySelector('[data-testid="cost-panel-totals"]')?.textContent ?? ''
+  assert.match(text, /coût non communiqué/, text)
+  assert.match(text, /jetons non communiqués/, text)
+  assert.doesNotMatch(text, /\$0/)
 })
