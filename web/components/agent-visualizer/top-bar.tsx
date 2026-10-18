@@ -217,6 +217,11 @@ export interface TopBarProps {
   onToggleSessions: () => void
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
+  /**
+   * A loss is known for the view and its truncation notice is closed (#569 review): the Sessions button carries ⚠ and
+   * says so to screen readers, so the loss stays visible with the Sessions panel closed.
+   */
+  lossMarked?: boolean
   /** 'All' also shows finished sessions */
   showFinished?: boolean
   /** Sessions currently counted as finished (not active) */
@@ -296,7 +301,7 @@ export interface TopBarProps {
 export const TopBar = memo(function TopBar({
   sessions, teams, selectedSessionId, sessionsWithActivity,
   showSessions, onToggleSessions,
-  allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
+  allSessionCount, lossMarked = false, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   isVSCode, connectionStatus, isDemo = false, connectionDetail, onRetryConnection, onExitDemo,
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
@@ -482,6 +487,13 @@ export const TopBar = memo(function TopBar({
           >
             <span className="truncate" data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
             <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
+            {lossMarked && (
+              // A symbol, never a colour alone; its words are read with the button name
+              <span data-loss-mark="" className="ml-1.5 shrink-0">
+                <span aria-hidden="true" title={t('truncation.topbarMark')}>⚠</span>
+                <span className="sr-only">, {t('truncation.topbarMark')}</span>
+              </span>
+            )}
             {unobservedCount > 0 && (
               <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={sessionStatusHelp(locale, 'unobserved')}>
                 {unobservedSessionsText(locale, unobservedCount)}

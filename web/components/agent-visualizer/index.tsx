@@ -321,6 +321,7 @@ export function AgentVisualizer() {
       <div style={{ display: immersive ? 'none' : 'contents' }}>
       <TopBar
         onToggleFullscreen={toggleFullscreen} sessions={bridge.sessions} teams={bridge.teams} allSessionCount={allSessionCount}
+        lossMarked={truncation.total > 0 && !truncation.show}
         showFinished={bridge.showFinished} finishedSessionCount={bridge.finishedSessionCount} onToggleShowFinished={bridge.setShowFinished}
         hideInactive={hideInactive} onToggleHideInactive={updateHideInactive}
         selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}

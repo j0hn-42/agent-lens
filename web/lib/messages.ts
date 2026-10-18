@@ -786,6 +786,8 @@ const fr = {
   'truncation.indicator.replay.one': 'au moins {n} événement non rejoué',
   'truncation.indicator.replay.other': 'au moins {n} événements non rejoués',
   'truncation.indicator.show': 'Afficher la notice',
+  // Mark on the Sessions button of the top bar while a loss is known and the notice is closed (#569 review), read after the button label
+  'truncation.topbarMark': 'graphe incomplet, pertes listées dans le panneau Sessions',
 
   // Guided tour, its card, its offer and the panel headings (#557). Words drawn by the canvas (LEAD, MAIN) and tool names (Grep, Glob) are quoted as they are.
   'tour.button.demo': 'Visite guidée',
@@ -1672,6 +1674,8 @@ const en: Record<MessageKey, string> = {
   'truncation.indicator.replay.one': 'at least {n} event not replayed',
   'truncation.indicator.replay.other': 'at least {n} events not replayed',
   'truncation.indicator.show': 'Show notice',
+  // Mark on the Sessions button of the top bar while a loss is known and the notice is closed (#569 review), read after the button label
+  'truncation.topbarMark': 'graph incomplete, losses listed in the Sessions panel',
 
   // Guided tour, its card, its offer and the panel headings (#557). Words drawn by the canvas (LEAD, MAIN) and tool names (Grep, Glob) are quoted as they are.
   'tour.button.demo': 'Guided tour',
