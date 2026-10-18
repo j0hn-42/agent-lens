@@ -340,7 +340,10 @@ for (const [w, h] of [[375, 667], [320, 568]] as Array<[number, number]>) {
       assert.notEqual(after.overflowY, 'auto', 'the drawer is no longer a scroll container')
       assert.equal(after.maxHeight, 'none', 'the drawer is no longer capped under the card')
       assert.ok(after.scrollHeight <= after.clientHeight + 1, `the drawer does not scroll (scrollHeight ${after.scrollHeight}, clientHeight ${after.clientHeight})`)
-      assert.ok(after.height >= withCard.height - 0.5, `the drawer is not smaller than under the card (${after.height} vs ${withCard.height})`)
+      // under a card the drawer also holds 2 x 5 px of padding (room for the focus ring), which is gone with the card
+      assert.ok(Math.abs(after.height - after.scrollHeight) <= 1, `the drawer shows all its content (height ${after.height}, content ${after.scrollHeight})`)
+      assert.ok(after.height >= withCard.scrollHeight - 10 - 0.5, `the content is not cut (${after.height} vs ${withCard.scrollHeight - 10} under the card)`)
+      if (withCard.scrollHeight > withCard.clientHeight + 1) assert.ok(after.height > withCard.height, `the drawer was capped under the card and is taller now (${after.height} vs ${withCard.height})`)
       assert.ok(after.top < withCard.top, `the drawer starts higher once the card is gone (${after.top} vs ${withCard.top})`)
     } finally {
       await page.context().close()
