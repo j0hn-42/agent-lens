@@ -73,8 +73,3 @@ test('workflow demo: with every member shown, both phases form separate groups o
     await close()
   }
 })
-
-// TEMPORAIRE (#611) : échec volontaire pour prouver qu'une tranche rouge rend le check e2e-a11y rouge. Annulé au commit suivant.
-test('échec volontaire de preuve (#611)', () => {
-  assert.fail('échec volontaire : la tranche doit être rouge, son artefact présent et le check e2e-a11y rouge')
-})
