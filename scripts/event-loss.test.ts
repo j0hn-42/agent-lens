@@ -131,8 +131,8 @@ test('boundedCount: a total over an incomplete graph reads "at least", a zero is
 
 test('replayLostSentence names what is missing without claiming an exact figure', () => {
   assert.equal(replayLostSentence(0), '')
-  assert.equal(replayLostSentence(1), 'at least 1 earlier event was not replayed by the relay')
-  assert.equal(replayLostSentence(7), 'at least 7 earlier events were not replayed by the relay')
+  assert.equal(replayLostSentence(1), 'at least 1 earlier event was not replayed')
+  assert.equal(replayLostSentence(7), 'at least 7 earlier events were not replayed')
 })
 
 test('replayLostForSession: an agent card reads its own session only, never the total of a view (#366)', () => {

@@ -78,7 +78,7 @@ test('Details keeps adjustments (fields shortened, duplicates skipped) apart fro
   assert.ok(getByText('Losses'), 'the losses heading is visible')
   assert.ok(getByText('Adjustments (not losses)'), 'the adjustments heading is visible')
   const lossText = losses.textContent ?? ''
-  assert.match(lossText, /Earlier events not replayed by the relay \(lower bound\): 6371/, 'the replay loss is listed with the other losses')
+  assert.match(lossText, /Earlier events not replayed \(lower bound\): 6371/, 'the replay loss is listed with the other losses')
   assert.match(lossText, /Events ignored[^:]*: 2/)
   assert.match(lossText, /Malformed inputs[^:]*: 1/)
   assert.match(lossText, /Nodes dropped[^:]*: 4/)
@@ -99,7 +99,7 @@ test('Details in French: Pertes and Ajustements (pas des pertes)', () => {
   setLocaleChoice('fr')
   const { getByRole } = render(<TruncationBanner stats={cut()} replayLost={3} onDismiss={noop} />)
   fireEvent.click(getByRole('button', { name: 'Détails' }))
-  assert.match(getByRole('list', { name: 'Pertes' }).textContent ?? '', /Événements antérieurs non rejoués par le relais \(borne basse\) : 3/)
+  assert.match(getByRole('list', { name: 'Pertes' }).textContent ?? '', /Événements antérieurs non rejoués \(borne basse\) : 3/)
   assert.match(getByRole('list', { name: 'Ajustements (pas des pertes)' }).textContent ?? '', /Champs raccourcis ou bornés : 9/)
 })
 
@@ -224,7 +224,7 @@ test('the notice is in the language of the interface (#247): French, with the sa
   assert.equal(group.getAttribute('lang'), 'fr', 'the block declares its language (the page lang stays en)')
   const text = group.textContent ?? ''
   assert.match(text, /Graphe tronqué : 3 événements ignorés, 4 nœuds supprimés, au moins 2 mises à jour non lues/)
-  assert.match(text, /au moins 5 événements antérieurs n’ont pas été rejoués par le relais/)
+  assert.match(text, /au moins 5 événements antérieurs n’ont pas été rejoués/)
   fireEvent.click(getByRole('button', { name: 'Détails' }))
   const details = getByLabelText('Compteurs par cause').textContent ?? ''
   assert.match(details, /Mises à jour non lues \(borne basse\) : 2/)
@@ -234,7 +234,7 @@ test('the notice is in the language of the interface (#247): French, with the sa
 test('events the relay could not replay show on their own, as "at least" (#366)', () => {
   const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={40} onDismiss={noop} />)
   const text = getByRole('group', { name: 'Graph truncation' }).textContent ?? ''
-  assert.match(text, /Graph incomplete: at least 40 earlier events were not replayed by the relay/)
+  assert.match(text, /Graph incomplete: at least 40 earlier events were not replayed/)
   assert.doesNotMatch(text, /Graph truncated/)
 })
 
@@ -242,9 +242,9 @@ test('both causes are named when both apply; a replay loss of one is singular', 
   const { getByRole, rerender } = render(<TruncationBanner stats={cut()} replayLost={5} onDismiss={noop} />)
   const text = getByRole('group', { name: 'Graph truncation' }).textContent ?? ''
   assert.match(text, /Graph truncated: 3 events ignored, 4 nodes dropped/)
-  assert.match(text, /at least 5 earlier events were not replayed by the relay/)
+  assert.match(text, /at least 5 earlier events were not replayed/)
   rerender(<TruncationBanner stats={createStats()} replayLost={1} onDismiss={noop} />)
-  assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /at least 1 earlier event was not replayed by the relay/)
+  assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /at least 1 earlier event was not replayed/)
 })
 
 test('a replay loss that is not a positive safe integer renders nothing', () => {

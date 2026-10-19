@@ -131,7 +131,7 @@ test('events the relay could no longer replay make the verdict incomplete and th
   const clean = detectLoops([...ok('Bash', { command: 'ls' })], 0, 40)
   assert.equal(clean.status, 'incomplete', 'a clean verdict on a partial replay is not "clear"')
   assert.equal(clean.lostEvents, 40)
-  assert.equal(healthText(clean), 'No loop in the observed part (1 tool call; at least 40 earlier events of this session not replayed by the relay)')
+  assert.equal(healthText(clean), 'No loop in the observed part (1 tool call; at least 40 earlier events of this session not replayed)')
   assert.equal(detectLoops(loop, 0, 40).findings[0].atLeast, true)
   assert.equal(detectLoops(loop, 0, 0).findings[0].atLeast, false)
   assert.equal(detectLoops([], 0, 40).status, 'unknown', 'nothing to judge stays unknown')

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import { VisualizerPanel } from './webview-provider'
+import { panelLoss } from './panel-loss'
 import { JsonlEventSource } from './event-source'
 import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
@@ -249,10 +250,15 @@ function wirePanel(panel: VisualizerPanel): void {
         // before replay events arrive (otherwise they have no selected
         // session to match and are only buffered, not delivered).
         const sessions = collectActiveSessions()
-        if (sessions.length > 0) {
-          panel.postMessage({ type: 'session-list', sessions })
-          replaySessions(sessions.map(s => s.id))
-        }
+        // The replay only re-sends the agents: every other event emitted before this page is missing from it (#592).
+        // Synchronous, so no live event interleaves; what it re-sends is subtracted from the count
+        const loss = panelLoss.snapshotAfterReplay(() => {
+          if (sessions.length > 0) {
+            panel.postMessage({ type: 'session-list', sessions })
+            replaySessions(sessions.map(s => s.id))
+          }
+        })
+        if (loss) panel.postMessage({ type: 'event-loss', ...loss })
         panel.setConnectionStatus('watching', combinedConnectionStatus())
         break
 
@@ -361,6 +367,8 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
 
   // Resolve the panel at event time: the log may be configured before any panel is open
   source.onEvent((event) => {
+    // The file is not read again when a page opens: a later page never gets this event (#592)
+    panelLoss.note(event)
     VisualizerPanel.getCurrent()?.sendEvent(event)
   })
 
