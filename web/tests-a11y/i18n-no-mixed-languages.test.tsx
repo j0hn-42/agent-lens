@@ -945,7 +945,7 @@ for (const locale of LOCALES) {
 const menuActions = { showStats: true, showGrid: false, toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: noop, showAgentDetails: noop }
 // The icons of the menu items are decorative glyphs. Key caps that are key names, the same in both languages (letters, digits, symbols)
 const KEY_CAPS = new Set(SHORTCUTS.flatMap(s => s.display.split(' / ').flatMap(p => p.split('+'))).filter(p => /^[A-Za-z0-9$,?+-]$|^Ctrl$|^Cmd$/.test(p)))
-const BAR_DATA: readonly RegExp[] = [/^\d+:\d\d(:\d\d)?$/, /^\d+(\.\d+)?x$/, /^\d+:\d\d(:\d\d)? (of|sur) \d+:\d\d(:\d\d)?$/]
+const BAR_DATA: readonly RegExp[] = [/^\d+([.,]\d+)?$/, /^\d+:\d\d(:\d\d)?$/, /^\d+([.,]\d+)?x$/, /^\d+:\d\d(:\d\d)? (of|sur) \d+:\d\d(:\d\d)?$/]
 const BAR_SYMBOLS = ['⏸', '▶', '⟲', '…']
 // A visible label is a glyph and a word ("⏸ Review"): the glyph is decorative, the word is checked
 const barStrangers = (locale: Locale, strings: string[]) => strangers(locale, strings.map(s => BAR_SYMBOLS.reduce((t, g) => t.split(g).join(''), s).trim()).filter(Boolean), { allow: new Set(['x']), data: BAR_DATA })
@@ -977,7 +977,7 @@ for (const locale of LOCALES) {
     const strings: string[] = []
     const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, onResumeLive: noop, onEnterReview: noop }
     const toolbarLang = (view: ReturnType<typeof render>) => assert.equal(langOf(view.getByRole('toolbar')), locale, `the bar declares lang=${locale}`)
-    for (const live of [{ connectionStatus: 'watching' }, { connectionStatus: 'disconnected' }, { connectionStatus: 'connecting' }, { isDemo: true }] as const) {
+    for (const live of [{ connectionStatus: 'watching' }, { connectionStatus: 'connected' }, { connectionStatus: 'disconnected' }, { connectionStatus: 'connecting' }, { isDemo: true }] as const) {
       const view = render(<ControlBar {...common} {...live} />)
       toolbarLang(view)
       strings.push(...surfaceStrings(view.container))
@@ -993,6 +993,41 @@ for (const locale of LOCALES) {
     assert.ok(strings.length > 20)
     assert.deepEqual(barStrangers(locale, strings), [], `${locale}: strings outside the catalog`)
     assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+  })
+
+  test(`every button of the playback bar has its visible text in its accessible name (WCAG 2.5.3), in ${locale}`, () => {
+    setLocaleChoice(locale)
+    const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, onResumeLive: noop, onEnterReview: noop }
+    // What a sighted user reads on the button: decorative glyphs (aria-hidden) and screen-reader-only text do not count
+    const visibleText = (b: Element) => {
+      const c = b.cloneNode(true) as Element
+      c.querySelectorAll('[aria-hidden="true"], .sr-only').forEach(n => n.remove())
+      return (c.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+    }
+    const checked: string[] = []
+    const check = (container: HTMLElement) => {
+      for (const b of Array.from(container.querySelectorAll('button'))) {
+        const visible = visibleText(b)
+        if (!visible) continue
+        const name = (b.getAttribute('aria-label') ?? b.textContent ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+        assert.ok(name.includes(visible), `${locale}: the name "${name}" must contain the visible text "${visible}"`)
+        checked.push(visible)
+      }
+    }
+    for (const live of [{ connectionStatus: 'watching' }, { isDemo: true }] as const) {
+      const view = render(<ControlBar {...common} {...live} />)
+      check(view.container)
+      cleanup()
+    }
+    const review = render(<ControlBar {...common} isReviewing />)
+    check(review.container)
+    fireEvent.click(review.getByRole('button', { name: MESSAGES[locale]['bar.clear'] }))
+    check(review.container)
+    const live = render(<ControlBar {...common} connectionStatus="watching" />)
+    check(live.container)
+    assert.ok(checked.includes(MESSAGES[locale]['bar.review'].toLowerCase()), 'the Review button was checked')
+    assert.ok(checked.includes(MESSAGES[locale]['bar.clear'].toLowerCase()), 'Clear history was checked')
+    assert.ok(checked.some(x => /^\d+([.,]\d+)?x$/.test(x)), 'the speed buttons were checked')
   })
 
   test(`the shortcuts dialog (title, groups, every shortcut, the single-key switch) speaks only ${locale}`, () => {

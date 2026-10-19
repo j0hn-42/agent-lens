@@ -6,6 +6,7 @@
 import { translate, type Locale, type MessageKey } from './messages'
 import { panelName } from './command-palette'
 import type { ShortcutDef } from './shortcuts'
+import { formatSpeed } from './chrome-utils'
 
 type PanelId = Parameters<typeof panelName>[1]
 
@@ -55,7 +56,7 @@ export function shortcutDescription(def: ShortcutDef, locale: Locale): string {
   if (def.key === 'l') return translate(locale, 'palette.panel.toggleList', { name: translate(locale, 'sessions.title') })
   const panel = PANEL_SHORTCUTS[def.key]
   if (panel) return translate(locale, panel.template, { name: panelName(locale, panel.id) })
-  if (/^[1-4]$/.test(def.key)) return translate(locale, 'shortcut.speed', { n: ({ '1': '0.5', '2': '1', '3': '2', '4': '4' } as const)[def.key as '1' | '2' | '3' | '4'] })
+  if (/^[1-4]$/.test(def.key)) return translate(locale, 'shortcut.speed', { n: formatSpeed(({ '1': 0.5, '2': 1, '3': 2, '4': 4 } as const)[def.key as '1' | '2' | '3' | '4'], locale) })
   const key = DESCRIPTION_KEY[def.key]
   return key ? translate(locale, key) : def.description
 }

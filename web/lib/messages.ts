@@ -936,7 +936,7 @@ const fr = {
   // Barre de lecture et mode revue (#587). Le badge reprend les mots de la barre du haut (topbar.connection.*).
   'bar.toolbar': 'Contrôles de lecture',
   'bar.review': 'Revue',
-  'bar.review.name': 'Mettre en pause et revoir l’historique',
+  'bar.review.name': 'Revue : mettre en pause et revoir l’historique',
   'bar.event.one': '{n} événement',
   'bar.event.other': '{n} événements',
   'bar.play': 'Lecture',

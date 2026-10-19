@@ -2,7 +2,7 @@
 // interface language. Pure logic, node:test. The English text is unchanged: the rest of the suite pins it.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatTruncatedHistory, liveBadge, scrubberValueText } from '../web/lib/chrome-utils'
+import { formatEventCount, formatSpeed, formatTruncatedHistory, liveBadge, scrubberValueText } from '../web/lib/chrome-utils'
 import { connectionText } from '../web/lib/top-bar-text'
 import { SHORTCUTS, SHORTCUT_GROUPS } from '../web/lib/shortcuts'
 import { shortcutDescription, shortcutGroupName, shortcutKeyCap } from '../web/lib/shortcuts-text'
@@ -66,4 +66,29 @@ test('shortcuts: every group has a name in each language', () => {
   }
   assert.equal(translate('fr', 'shortcut.title'), 'Raccourcis clavier')
   assert.equal(MESSAGES.en['shortcut.title'], 'Keyboard shortcuts')
+})
+
+test('playback bar: the event count agrees in both languages (0 and 1 are singular in French)', () => {
+  assert.equal(formatEventCount(0), '0 events')
+  assert.equal(formatEventCount(1), '1 event')
+  assert.equal(formatEventCount(2, 'en'), '2 events')
+  assert.equal(formatEventCount(0, 'fr'), '0 événement')
+  assert.equal(formatEventCount(1, 'fr'), '1 événement')
+  assert.equal(formatEventCount(2, 'fr'), '2 événements')
+})
+
+test('playback bar: a speed is written with the decimal mark of the language, in the bar and in the shortcuts', () => {
+  assert.equal(formatSpeed(0.5), '0.5')
+  assert.equal(formatSpeed(0.5, 'fr'), '0,5')
+  assert.equal(formatSpeed(4, 'fr'), '4')
+  const speed = SHORTCUTS.find(d => d.key === '1')!
+  assert.equal(shortcutDescription(speed, 'en'), 'Speed 0.5x')
+  assert.equal(shortcutDescription(speed, 'fr'), 'Vitesse 0,5x')
+})
+
+test('playback bar: the Review button keeps its visible word in its accessible name (WCAG 2.5.3), in both languages', () => {
+  for (const locale of LOCALES) {
+    const visible = translate(locale, 'bar.review').toLowerCase()
+    assert.ok(translate(locale, 'bar.review.name').toLowerCase().includes(visible), locale)
+  }
 })

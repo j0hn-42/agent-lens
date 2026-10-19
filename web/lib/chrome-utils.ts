@@ -265,6 +265,17 @@ export function agentActivityCounts(
 }
 
 
+/** "3 events" / "3 événements": the count with its plural agreement (French counts 0 and 1 as singular). */
+export function formatEventCount(n: number, locale: Locale = 'en'): string {
+  const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.event.${rule}` as MessageKey, { n })
+}
+
+/** A playback speed with the decimal mark of the language: "0.5" in English, "0,5" in French. */
+export function formatSpeed(speed: number, locale: Locale = 'en'): string {
+  return new Intl.NumberFormat(locale).format(speed)
+}
+
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
 export function formatTruncatedHistory(droppedEvents: number, locale: Locale = 'en'): string | null {
   if (!(droppedEvents > 0)) return null

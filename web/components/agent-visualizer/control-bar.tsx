@@ -8,7 +8,7 @@ import { formatDuration } from '@/lib/utils'
 import { useLocale } from '@/lib/locale'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import type { ConnectionStatus } from '@/lib/bridge-types'
-import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { blurFlagAction, formatEventCount, formatSpeed, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { canvasControlsSlotRef } from './canvas-controls-slot'
@@ -226,7 +226,7 @@ function LiveControlBar({
 
         {/* Event count */}
         <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-          {translate(locale, new Intl.PluralRules(locale).select(eventCount) === 'one' ? 'bar.event.one' : 'bar.event.other', { n: eventCount })}
+          {formatEventCount(eventCount, locale)}
         </span>
 
         {/* Review button */}
@@ -421,14 +421,14 @@ function ReviewControlBar({
               key={s}
               onClick={() => onSpeedChange(s)}
               aria-pressed={speed === s}
-              aria-label={translate(locale, 'bar.speed', { s })}
+              aria-label={translate(locale, 'bar.speed', { s: formatSpeed(s, locale) })}
               className={`${BTN_BASE} px-2 py-1 transition-all ${speed === s ? 'font-bold underline underline-offset-4' : ''}`}
               style={{
                 background: speed === s ? COLORS.playBtnActiveBg : 'transparent',
                 color: speed === s ? COLORS.textPrimary : COLORS.textMuted,
               }}
             >
-              {s}x
+              {formatSpeed(s, locale)}x
             </button>
           ))}
         </div>
