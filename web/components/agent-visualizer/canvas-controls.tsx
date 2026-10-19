@@ -37,6 +37,13 @@ interface CanvasControlsProps {
   onToggleAnimationsPaused: () => void
   onToggleNeverHide: () => void
   onChangeToolExpiry: (e: ChangeEvent<HTMLSelectElement>) => void
+  /**
+   * Agent names the overlay plan of the frame drawn does not draw (#594, planOverlays().hiddenAgentNames). Above 0 a
+   * button says how many and opens the Sessions and agents list; 0 or absent, no button.
+   */
+  hiddenNames?: number
+  /** Opens the Sessions and agents list (the L panel) */
+  onShowAgentList?: () => void
 }
 
 const ICON_PROPS = {
@@ -135,7 +142,7 @@ function usePopupDismiss(open: boolean, wrapRef: RefObject<HTMLElement | null>, 
  */
 export function CanvasControls({
   teams, present, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, locale, calmLayers, onToggleCalmLayer, neverHide, toolExpiryS,
-  onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry,
+  onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry, hiddenNames = 0, onShowAgentList,
 }: CanvasControlsProps) {
   const { env } = useDockSnapshot()
   const { controlBarH } = env
@@ -150,7 +157,8 @@ export function CanvasControls({
   // Folded only into a slot that is drawn (the control bar is hidden in full screen)
   const slot = useCanvasControlsSlot()
   const slotDrawn = slot !== null && (slot.parentElement?.getClientRects().length ?? 0) > 0
-  const folded = slotDrawn && !canvasControlsFit(env)
+  const showHiddenNames = hiddenNames > 0 && !!onShowAgentList
+  const folded = slotDrawn && !canvasControlsFit(env, showHiddenNames)
   const [menuOpen, setMenuOpen] = useState(false)
   // The guided tour can show the legend: the folded block opens with it. Escape or a press outside still closes it
   // (until the tour stops showing the legend), so the block never stays open with the focus sent back to its button
@@ -195,7 +203,8 @@ export function CanvasControls({
   const zoomAndView = (
     <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
       {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378). Folded, the bar holds it */}
-      <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex items-center gap-2">
+      {/* Wraps from the end (#594): under 640 px the "names hidden" button goes above the zoom buttons, not past the window */}
+      <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex flex-wrap-reverse items-center justify-end gap-2">
         <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
           <button
             type="button"
@@ -240,6 +249,19 @@ export function CanvasControls({
         >
           {t('controls.view')}
         </button>
+        {showHiddenNames && (
+          // Its text is its name (2.5.3); no live region: the count follows the zoom and must not chatter (#594)
+          <button
+            type="button"
+            data-hidden-names={hiddenNames}
+            title={t('controls.hiddenNames.title')}
+            onClick={onShowAgentList}
+            className={CONTROL_BUTTON_CLASS}
+            style={BUTTON_STYLE}
+          >
+            {t(new Intl.PluralRules(locale).select(hiddenNames) === 'one' ? 'controls.hiddenNames.one' : 'controls.hiddenNames.other', { n: hiddenNames })}
+          </button>
+        )}
       </div>
       {open && (
         <div

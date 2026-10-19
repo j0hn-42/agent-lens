@@ -188,3 +188,55 @@ test('the controls fit between the bars at 320x568, 390x844 and 640x512, not at 
   assert.equal(fit(1280, 190, 76, 70), false)
   assert.equal(fit(1280, 230, 76, 70), true)
 })
+
+// #594: when the overlay plan hides agent names, one button of the controls row says how many and opens the
+// Sessions and agents list (the L panel). The number is the plan's own count, passed in; 0 means no button.
+test('no "names hidden" button when the plan hides no name', () => {
+  const { view } = setup({ hiddenNames: 0, onShowAgentList: () => {} })
+  assert.equal(view.queryByRole('button', { name: /hidden/ }), null)
+})
+
+test('"N names hidden": accessible name equal to the visible text, after View, opens the agent list', () => {
+  const calls: string[] = []
+  const { view, viewButton } = setup({ hiddenNames: 8, onShowAgentList: () => calls.push('list') })
+  const b = view.getByRole('button', { name: '8 names hidden' })
+  assert.equal((b.textContent ?? '').trim(), '8 names hidden', 'visible text equals the accessible name (2.5.3)')
+  assert.ok(b.getAttribute('title')?.includes('(L)'), 'the tooltip names the L list')
+  assert.ok(viewButton().compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING, 'Tab reaches it after View')
+  assert.equal(b.closest('[aria-live]'), null, 'no live region: a zoom must not make it chatter')
+  fireEvent.click(b)
+  assert.deepEqual(calls, ['list'])
+})
+
+test('"1 name hidden" in the singular', () => {
+  const { view } = setup({ hiddenNames: 1, onShowAgentList: () => {} })
+  assert.ok(view.getByRole('button', { name: '1 name hidden' }))
+})
+
+test('in French: "8 noms masqués", "1 nom masqué", inside the block that declares lang="fr"', () => {
+  const { view } = setup({ locale: 'fr', hiddenNames: 8, onShowAgentList: () => {} })
+  const b = view.getByRole('button', { name: '8 noms masqués' })
+  assert.equal(b.closest('[lang]')?.getAttribute('lang'), 'fr')
+  cleanup()
+  const one = setup({ locale: 'fr', hiddenNames: 1, onShowAgentList: () => {} })
+  assert.ok(one.view.getByRole('button', { name: '1 nom masqué' }))
+})
+
+test('the button has the size and focus classes of the other controls (44 px under 768 px)', () => {
+  const { view } = setup({ hiddenNames: 3, onShowAgentList: () => {} })
+  const zoomIn = view.getByRole('button', { name: 'Zoom in' })
+  const b = view.getByRole('button', { name: '3 names hidden' })
+  const shared = zoomIn.className.split(/\s+/).filter(c => /min-h|min-w|focus-visible/.test(c))
+  assert.ok(shared.length >= 3, `precondition: classes found (${shared.join(' ')})`)
+  for (const cls of shared) assert.ok(b.classList.contains(cls), cls)
+})
+
+test('with the button, the zoom row may wrap under 640 px: the fit test reserves one more row (#594)', () => {
+  const fit = (w: number, h: number, topbarH: number, controlBarH: number, extraRow?: boolean) => canvasControlsFit({ viewport: { w, h }, topbarH, controlBarH }, extraRow)
+  assert.equal(fit(320, 568, 132, 98, true), true)
+  // 354 px high: 100 px between the bars, two rows of 44 px fit (96), three do not (148)
+  assert.equal(fit(320, 354, 132, 98), true)
+  assert.equal(fit(320, 354, 132, 98, true), false)
+  // From 640 px the row does not wrap: nothing more is reserved
+  assert.equal(fit(1280, 230, 76, 70, true), true)
+})

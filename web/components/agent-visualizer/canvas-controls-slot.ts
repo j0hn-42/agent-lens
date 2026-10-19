@@ -15,10 +15,12 @@ const STACK_BELOW_PX = 640
  * the bars leave 18 px and at 256 x 320 38 px, less than the two rows of 44 px targets: the controls were drawn under
  * the top bar.
  */
-export function canvasControlsFit(env: { viewport: { w: number; h: number }; topbarH: number; controlBarH: number }): boolean {
+export function canvasControlsFit(env: { viewport: { w: number; h: number }; topbarH: number; controlBarH: number }, extraRow = false): boolean {
   const { viewport: { w, h }, topbarH, controlBarH } = env
   const row = w < TOUCH_BELOW_PX ? CONTROL_ROW_PX.touch : CONTROL_ROW_PX.pointer
-  const need = w < STACK_BELOW_PX ? 2 * row + DOCK_GAP : row
+  // `extraRow`: the "N names hidden" button is shown (#594); under the stacking width it may wrap above the zoom row
+  const rows = w < STACK_BELOW_PX ? (extraRow ? 3 : 2) : 1
+  const need = rows * row + (rows - 1) * DOCK_GAP
   return h - CONTROL_BAR_BOTTOM - controlBarH - DOCK_GAP - topbarH >= need
 }
 

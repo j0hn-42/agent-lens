@@ -991,6 +991,10 @@ const fr = {
   'shortcut.graph.fit': 'Ajuster le zoom au graphe',
   'shortcut.graph.open': 'Ouvrir les détails du nœud ayant le focus',
   'shortcut.graph.menu': 'Ouvrir le menu contextuel du nœud ayant le focus',
+  // #594: names hidden by the label placement, button of the canvas controls
+  'controls.hiddenNames.one': '{n} nom masqué',
+  'controls.hiddenNames.other': '{n} noms masqués',
+  'controls.hiddenNames.title': 'Noms d’agents masqués pour que les libellés ne se chevauchent pas. Survolez un nœud ou donnez-lui le focus pour lire son nom, ou ouvrez la liste Sessions et agents (L).',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1965,6 +1969,10 @@ const en: Record<MessageKey, string> = {
   'shortcut.graph.fit': 'Zoom to fit the graph',
   'shortcut.graph.open': 'Open details of the focused node',
   'shortcut.graph.menu': 'Open the context menu of the focused node',
+  // #594: names hidden by the label placement, button of the canvas controls
+  'controls.hiddenNames.one': '{n} name hidden',
+  'controls.hiddenNames.other': '{n} names hidden',
+  'controls.hiddenNames.title': 'Agent names hidden so that labels do not overlap. Hover or focus a node to read its name, or open the Sessions and agents list (L).',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

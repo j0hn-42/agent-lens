@@ -65,6 +65,8 @@ interface DrawLoopDeps {
   heldBubbleKeysRef: MutableRefObject<ReadonlySet<string>>
   selectedClusterKeyRef: MutableRefObject<string | null>
   clustersRef: MutableRefObject<Cluster[]>
+  /** Agent names the last planned frame does not draw (#594): read by the "N names hidden" button */
+  hiddenAgentNamesRef?: MutableRefObject<number>
   // Latest props
   linksPropRef: MutableRefObject<Map<string, AgentLink> | undefined>
   teamsRef: MutableRefObject<Map<string, TeamSummary> | undefined>
@@ -356,6 +358,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)
       opts.plan = overlay === EMPTY_PLAN ? undefined : overlay.plan
       opts.crowded = overlay.crowded
+      if (deps.hiddenAgentNamesRef) deps.hiddenAgentNamesRef.current = overlay.hiddenAgentNames
       const activeClusterKey = (selectedAgentId
         ? clusters.find(c => c.memberIds.includes(selectedAgentId))?.key
         : undefined) ?? deps.selectedClusterKeyRef.current

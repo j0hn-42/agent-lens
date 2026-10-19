@@ -22,13 +22,15 @@ import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
 import { useTourBridge } from './guided-tour-context'
 
 type PresentationFlags = { follow: boolean; mask: boolean }
+/** How often the "N names hidden" button reads the count of the last planned frame (#594): React state only on a change */
+const HIDDEN_NAMES_POLL_MS = 200
 const NO_PRESENTATION: PresentationFlags = { follow: false, mask: false }
 
 export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList,
   } = props
   const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
   presentationRef.current = presentation ?? NO_PRESENTATION
@@ -79,6 +81,13 @@ export function AgentCanvas(props: CanvasProps) {
   onClusterSelectRef.current = onClusterSelect
   /** Clusters of the last drawn frame (read by the cluster click handler and the camera fit) */
   const clustersRef = useRef<Cluster[]>([])
+  /** Agent names the last planned frame does not draw (written by the draw loop, #594) */
+  const hiddenAgentNamesRef = useRef(0)
+  const [hiddenNames, setHiddenNames] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => setHiddenNames(hiddenAgentNamesRef.current), HIDDEN_NAMES_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [])
   const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null)
   const selectedClusterKeyRef = useRef<string | null>(null)
   selectedClusterKeyRef.current = selectedClusterKey
@@ -138,7 +147,7 @@ export function AgentCanvas(props: CanvasProps) {
   useCanvasDrawLoop({
     simulationRef, mainCanvasRef, tooltipRef, bubbleLayerRef, drawPropsRef, transformRef, simTimeRef, dimensions, dprRef,
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
-    heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
+    heldBubbleKeysRef, selectedClusterKeyRef, clustersRef, hiddenAgentNamesRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
     presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
     updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, getCovers, effectsRef, detectStateChanges,
@@ -297,6 +306,8 @@ export function AgentCanvas(props: CanvasProps) {
         onToggleAnimationsPaused={prefs.toggleAnimationsPaused}
         onToggleNeverHide={prefs.toggleNeverHide}
         onChangeToolExpiry={prefs.changeToolExpiry}
+        hiddenNames={hiddenNames}
+        onShowAgentList={onShowAgentList}
       />
     </div>
   )
