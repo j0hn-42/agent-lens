@@ -1,6 +1,8 @@
 'use client'
 
-import { emptyState, PANEL_NAMES } from '@/lib/ui-glossary'
+import { emptyState } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { panelName } from '@/lib/command-palette'
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
@@ -54,6 +56,7 @@ export function GraphA11yList({
   onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, linkMessages, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
   onFocusAux, onToggleBranch,
 }: GraphA11yListProps) {
+  const { locale } = useLocale()
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
   const hasFocusedButton = !!focusedNode && (
@@ -280,7 +283,7 @@ export function GraphA11yList({
         {model.fileConflicts && model.fileConflicts.length > 0 && (
           <>
             <h3>File conflicts</h3>
-            <p>Files that two or more agents edited, each edit observed to succeed. The {PANEL_NAMES.files} panel lists them too.</p>
+            <p>Files that two or more agents edited, each edit observed to succeed. The {panelName(locale, 'files')} panel lists them too.</p>
             <ul aria-label="File conflicts">
               {model.fileConflicts.map(c => <li key={c.path}>{c.text}</li>)}
             </ul>
