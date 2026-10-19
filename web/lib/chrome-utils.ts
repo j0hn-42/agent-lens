@@ -20,13 +20,17 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal, locale: 
   const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
   // The figure with its qualifier, as usage.qualify does ("at least 5k estimated"); the words follow the language
   const qualified = (u: UsageTotal, v: string) => {
+    if (u.incomplete) return translate(locale, u.estimated ? 'usage.incompleteEstimated' : 'usage.incomplete', { v })
     if (u.status === 'partial') return translate(locale, u.estimated ? 'usage.partialEstimated' : 'usage.partial', { v })
     return u.estimated ? translate(locale, 'usage.estimated', { v }) : v
   }
   return {
     tokens: missing(tokens)
       ? translate(locale, 'topbar.context.tokensMissing')
-      :translate(locale, 'topbar.context.tokens', { v: qualified(tokens, formatTokens(tokens.value as number)) }),
+      // The qualifier of a loss closes the sentence ("120k tokens in context (incomplete)"), like the Cost panel header (#591)
+      : tokens.incomplete
+        ? translate(locale, 'usage.incomplete', { v: translate(locale, 'topbar.context.tokens', { v: qualified({ ...tokens, incomplete: false }, formatTokens(tokens.value as number)) }) })
+        : translate(locale, 'topbar.context.tokens', { v: qualified(tokens, formatTokens(tokens.value as number)) }),
     // The cost in words (no "~"); a missing one reads "cost not reported"
     spoken: missing(cost)
       ? translate(locale, 'topbar.context.costMissing')

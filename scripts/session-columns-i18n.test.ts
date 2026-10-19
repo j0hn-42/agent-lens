@@ -41,7 +41,11 @@ test('#366: tokens under a replay loss are the last reading, incomplete: marked 
   assert.equal(rollupTokensCell(lossy).text, '12k?')
   assert.equal(rollupTokensCell(lossy).label, '12k tokens incomplete')
   assert.equal(rollupTokensCell(total({ complete: false })).text, '≥12k', 'other causes keep the lower bound')
-  assert.equal(costCell(lossy).text, '≥~$0.500', 'the cost keeps the mark of every other cost surface')
+  // #591: the cost is the context priced, so it is as absolute as the tokens: "?" and "incomplete", never "≥"
+  assert.equal(costCell(lossy).text, '~$0.500?')
+  assert.equal(costCell(lossy).label, 'context cost estimate $0.500, incomplete')
+  assert.equal(costCell(lossy, 'fr').label, 'estimation du coût du contexte $0.500, incomplète')
+  assert.equal(costCell(total({ complete: false })).text, '≥~$0.500', 'other causes keep the lower bound')
 })
 
 test('French durations say lower bound and unknown end as the English ones do', () => {

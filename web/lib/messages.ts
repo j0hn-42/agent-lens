@@ -922,6 +922,9 @@ const fr = {
   'rollup.session': 'total de la session',
   'rollup.family': 'total de la famille',
   'rollup.incompleteHelp': 'Total incomplet : le nombre de jetons de certains agents est inconnu, un parent manque, une session de la famille n’a aucune donnée, des branches sont imbriquées trop profondément, ou le relais n’a pas pu rejouer les événements d’une session qu’il compte ; le chiffre réel peut donc différer.',
+  // Totaux sous perte de rejeu (#591) : une lecture de contexte est absolue, jamais « au moins »
+  'usage.incomplete': '{v} (incomplet)',
+  'usage.incompleteEstimated': '{v} estimé (incomplet)',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1827,6 +1830,9 @@ const en: Record<MessageKey, string> = {
   'rollup.session': 'session total',
   'rollup.family': 'family total',
   'rollup.incompleteHelp': ROLLUP_INCOMPLETE_HELP,
+  // Totals under replay loss (#591): a context reading is absolute, never "at least"
+  'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
+  'usage.incompleteEstimated': `{v} ${USAGE_LABELS.estimated} ${USAGE_LABELS.incomplete}`,
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

@@ -1,11 +1,14 @@
-// #366: the token and cost totals (Cost panel on the canvas, spoken totals of the top bar) are lower bounds when the relay could not replay events.
+// #366, #591: the token and cost totals (Cost panel on the canvas, spoken totals of the top bar) are "(incomplete)" when the relay could not replay events:
+// a context reading is absolute (a lost compaction can lower it), so the cost priced from it is no lower bound either.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 
 import { drawCostSummaryPanel } from '@/components/agent-visualizer/canvas/draw-cost'
 import { replayLostForAgents, usageUnderLoss } from '@/lib/event-loss'
 import { topBarContextText } from '@/lib/chrome-utils'
-import type { UsageTotal } from '@/lib/usage'
+import { formatCostUsage, spokenCostUsage, formatTokenUsage, type UsageTotal } from '@/lib/usage'
+import { formatCost } from '@/lib/utils'
+import { usageText } from '@/lib/card-text'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function recordingCtx(texts: string[]): any {
@@ -31,13 +34,21 @@ function agent(id: string, sessionId: string): any {
 }
 const exact: UsageTotal = { value: 120000, status: 'available', estimated: false }
 
-test('usageUnderLoss: a complete figure becomes a lower bound, nothing else changes', () => {
-  assert.deepEqual(usageUnderLoss(exact, 3), { value: 120000, status: 'partial', estimated: false })
+test('usageUnderLoss: a complete figure becomes incomplete (no lower bound), nothing else changes', () => {
+  assert.deepEqual(usageUnderLoss(exact, 3), { value: 120000, status: 'available', estimated: false, incomplete: true })
   assert.equal(usageUnderLoss(exact, 0), exact)
   const none: UsageTotal = { value: null, status: 'unavailable', estimated: false }
   assert.equal(usageUnderLoss(none, 3), none)
   const est: UsageTotal = { value: 5, status: 'available', estimated: true }
-  assert.deepEqual(usageUnderLoss(est, 1), { value: 5, status: 'partial', estimated: true })
+  assert.deepEqual(usageUnderLoss(est, 1), { value: 5, status: 'available', estimated: true, incomplete: true })
+  const part: UsageTotal = { value: 7, status: 'partial', estimated: false }
+  assert.equal(usageUnderLoss(part, 2).incomplete, true, 'a partial figure under loss is incomplete too')
+  assert.equal(formatCostUsage(usageUnderLoss(part, 2)), '~$7.00 (incomplete)', 'and says no "at least"')
+  assert.equal(formatCostUsage(usageUnderLoss(est, 1)), '~$5.00 estimated (incomplete)')
+  assert.equal(spokenCostUsage(usageUnderLoss(exact, 1)), 'context cost estimate $120000 (incomplete)'.replace('$120000', '$' + formatCost(120000)))
+  assert.equal(formatTokenUsage(usageUnderLoss(exact, 1)), '120k (incomplete)')
+  assert.equal(usageText('fr', usageUnderLoss(est, 1)), '5 estimé (incomplet)')
+  assert.equal(usageText('fr', usageUnderLoss(exact, 1)), '120k (incomplet)')
 })
 
 test('replayLostForAgents: sessions the agents belong to, each once, never the whole tally', () => {
@@ -47,7 +58,7 @@ test('replayLostForAgents: sessions the agents belong to, each once, never the w
   assert.equal(replayLostForAgents(undefined, [agent('a', 's1')]), 0)
 })
 
-test('the Cost panel: header totals and rows read "at least" for a session with lost events, plain otherwise', () => {
+test('the Cost panel: header totals and rows read "(incomplete)" for a session with lost events, plain otherwise', () => {
   const agents = new Map<string, any>([['a', agent('a', 's1')], ['b', agent('b', 's2')]])
   const plain: string[] = []
   drawCostSummaryPanel(recordingCtx(plain), agents, new Map())
@@ -55,11 +66,12 @@ test('the Cost panel: header totals and rows read "at least" for a session with 
 
   const texts: string[] = []
   drawCostSummaryPanel(recordingCtx(texts), agents, new Map(), [], false, new Map([['s1', 5]]))
-  assert.ok(texts.some(t => /^at least ~\$/.test(t)), `header cost qualified: ${JSON.stringify(texts)}`)
-  assert.ok(texts.some(t => /^at least .* ctx tokens$/.test(t)), `header tokens qualified: ${JSON.stringify(texts)}`)
-  const costs = texts.filter(t => /^(at least )?~\$/.test(t))
-  assert.equal(costs.filter(t => t.startsWith('at least')).length, 2, `header and the row of the lossy session: ${JSON.stringify(costs)}`)
-  assert.ok(costs.some(t => !t.startsWith('at least')), 'the agent of the intact session keeps its plain figure')
+  assert.ok(texts.some(t => /^~\$[\d.]+ \(incomplete\)$/.test(t)), `header cost qualified: ${JSON.stringify(texts)}`)
+  assert.ok(texts.some(t => /^[\d.]+[kM]? ctx tokens \(incomplete\)$/.test(t)), `header tokens qualified: ${JSON.stringify(texts)}`)
+  assert.ok(!texts.some(t => /at least/.test(t)), `no lower bound: ${JSON.stringify(texts)}`)
+  const costs = texts.filter(t => /^~\$/.test(t))
+  assert.equal(costs.filter(t => t.endsWith('(incomplete)')).length, 2, `header and the row of the lossy session: ${JSON.stringify(costs)}`)
+  assert.ok(costs.some(t => !t.endsWith('(incomplete)')), 'the agent of the intact session keeps its plain figure')
 })
 
 test('the Cost panel header: a lossy session that only has unattributed usage in the view still qualifies the totals', () => {
@@ -67,12 +79,13 @@ test('the Cost panel header: a lossy session that only has unattributed usage in
   const rest = [{ sessionId: 's1', reason: 'no-agent', tokens: 5000, estimated: false }] as any[]
   const texts: string[] = []
   drawCostSummaryPanel(recordingCtx(texts), agents, new Map(), rest, false, new Map([['s1', 5]]))
-  assert.ok(texts.some(t => /^at least ~\$/.test(t)), `header cost qualified: ${JSON.stringify(texts)}`)
+  assert.ok(texts.some(t => /^~\$[\d.]+ \(incomplete\)$/.test(t)), `header cost qualified: ${JSON.stringify(texts)}`)
   const intact: string[] = []
   drawCostSummaryPanel(recordingCtx(intact), agents, new Map(), rest, false, new Map([['s9', 5]]))
-  assert.ok(!intact.some(t => /^at least ~\$/.test(t)), `a loss of another session: ${JSON.stringify(intact)}`)
+  assert.ok(!intact.some(t => /\(incomplete\)/.test(t)), `a loss of another session: ${JSON.stringify(intact)}`)
 })
 
+// BY TOOL rows are sums of per-call costs (each call adds, none subtracts): a lost call can only add, so "at least" IS proven there (#591)
 test('the Cost panel BY TOOL rows: a call of an agent of a lossy session makes its tool a lower bound, a call of an intact one stays exact', () => {
   const agents = new Map<string, any>([['a', agent('a', 's1')], ['b', agent('b', 's2')]])
   const call = (agentId: string, toolName: string): any => ({ agentId, toolName, tokenCost: 4000, tokenSource: 'reported', state: 'complete' })
@@ -88,11 +101,14 @@ test('the Cost panel BY TOOL rows: a call of an agent of a lossy session makes i
 })
 
 // The wiring of the top bar (index.tsx -> TopBar) is tested in loss-qualified-wiring.test.tsx; this is only the wording helper
-test('topBarContextText words a lower-bound usage "at least", an exact one plainly', () => {
+test('topBarContextText words a usage under loss "(incomplete)", an exact one plainly', () => {
   const cost: UsageTotal = { value: 2.1, status: 'available', estimated: true }
   const t = topBarContextText(usageUnderLoss(exact, 2), usageUnderLoss(cost, 2))
-  assert.match(t.tokens, /^at least 120k tokens in context$/)
-  assert.match(t.spoken, /at least/)
+  assert.match(t.tokens, /^120k tokens in context \(incomplete\)$/)
+  assert.match(t.spoken, /\(incomplete\)$/)
+  assert.doesNotMatch(t.tokens + t.spoken, /at least/)
+  const fr = topBarContextText(usageUnderLoss(exact, 2), usageUnderLoss(cost, 2), 'fr')
+  assert.match(fr.spoken, /\(incomplet\)$/)
   const clean = topBarContextText(exact, cost)
-  assert.doesNotMatch(clean.tokens + clean.spoken, /at least/)
+  assert.doesNotMatch(clean.tokens + clean.spoken, /at least|incomplete/)
 })
