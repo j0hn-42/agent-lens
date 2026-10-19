@@ -1,6 +1,8 @@
 /**
  * `event-loss` SSE message of the relay (#366): how many events per session the relay can no longer replay
  * (evicted from its buffer, or left out by the replay cap), sent once per connection before the replay.
+ * The VS Code extension sends the same message once per page (#592, read through the bridge): the events emitted
+ * before that page was ready that it will never receive.
  * Pure (no React, no path aliases: node:test imports it). The message is untrusted: parsed field by field.
  *
  * The relay's figure is a total since the relay started, not what a given client is missing. It is a lower
@@ -271,7 +273,7 @@ export function boundedCount(n: number, lost: number, singular: string, plural =
 /** What is missing, as a lower bound (the figure of the graph's first connection, never an exact one); empty when nothing is. */
 export function replayLostSentence(lost: number): string {
   if (!(lost > 0)) return ''
-  return lost === 1 ? 'at least 1 earlier event was not replayed by the relay' : `at least ${lost} earlier events were not replayed by the relay`
+  return lost === 1 ? 'at least 1 earlier event was not replayed' : `at least ${lost} earlier events were not replayed`
 }
 
 /** Events the relay could not replay for the sessions of these agents, each session counted once (0 when none is named). */
