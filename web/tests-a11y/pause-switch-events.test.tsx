@@ -100,8 +100,13 @@ test('leaving the review when the session changes: the view plays, the bar says 
   await act(async () => { post(ev('a', 1, 'agent_spawn')); post(ev('b', 1, 'agent_spawn')) })
   // A message gives the timeline an event: Review is unavailable on an empty one (#383)
   await act(async () => { post({ type: 'agent-event', event: { time: 2, type: 'message', payload: { agent: 'main-a', role: 'assistant', content: 'hello' }, sessionId: 'a' } }) })
-  await wait(300)
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Pause and review history' })) })
+  // #440: the message reaches the timeline with the simulation's throttled UI commit (UI_THROTTLE_MS after the
+  // previous one), not at a fixed time: wait until Review is available, a click on the grayed button does nothing
+  const review = () => r.getByRole('button', { name: 'Pause and review history' })
+  const deadline = Date.now() + 20_000
+  while (review().getAttribute('aria-disabled') === 'true' && Date.now() < deadline) await wait(50)
+  assert.notEqual(review().getAttribute('aria-disabled'), 'true', 'the message reached the timeline: Review is available')
+  await act(async () => { fireEvent.click(review()) })
   assert.ok(r.queryByRole('button', { name: 'Resume live' }), 'review mode is on')
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions:/ })) })
   await wait(100)
