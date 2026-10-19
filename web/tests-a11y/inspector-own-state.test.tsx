@@ -117,11 +117,11 @@ test('replay loss (#366): tool count and tool errors read "at least", a zero is 
   assert.ok(v.getByText('at least 4 tools'))
   v.rerender(<AgentDetailCard agent={a} toolErrors={2} replayLost={6} onClose={noop} freshnessClock={clock} />)
   assert.equal(v.getByTestId('inspector-errors').textContent, 'at least 2 tool errors')
-  assert.ok(v.getByText(/at least 6 earlier events were not replayed by the relay/))
+  assert.ok(v.getByText(/at least 6 earlier events were not replayed/))
   v.rerender(<AgentDetailCard agent={a} toolErrors={0} onClose={noop} freshnessClock={clock} />)
   assert.equal(v.getByTestId('inspector-errors').textContent, '0 tool errors')
   assert.ok(v.getByText('4 tools'))
-  assert.equal(v.queryByText(/not replayed by the relay/), null)
+  assert.equal(v.queryByText(/not replayed/), null)
 })
 
 test('replay loss (#366): the context window is the last reading, incomplete (an absolute reading: no "at least", no "≥")', () => {

@@ -95,7 +95,7 @@ test('French: a verdict keeps every figure, "at least" and the part that was not
   assert.equal(T.healthText('fr', VERDICTS[0]), 'Boucle observée')
   assert.equal(T.healthText('fr', VERDICTS[2]), 'Aucune boucle observée (1 appel d’outil)')
   assert.equal(T.healthText('fr', VERDICTS[3]), 'Aucune boucle observée (12 appels d’outil)')
-  assert.equal(T.healthText('fr', VERDICTS[5]), 'Aucune boucle dans la partie observée (12 sur 20 appels d’outil comparables; historique antérieur abandonné; au moins 4 événements antérieurs de cette session non rejoués par le relais)')
+  assert.equal(T.healthText('fr', VERDICTS[5]), 'Aucune boucle dans la partie observée (12 sur 20 appels d’outil comparables; historique antérieur abandonné; au moins 4 événements antérieurs de cette session non rejoués)')
   assert.equal(T.findingText('fr', FINDINGS[0]), 'Read appelé au moins 4× de suite avec la même entrée')
   assert.equal(T.findingText('fr', FINDINGS[2]), 'lecture → modification → échec 3× sur a.ts')
   assert.equal(T.findingText('fr', FINDINGS[3]), 'lecture → modification → échec au moins 5× sur b.ts')
