@@ -41,7 +41,9 @@ const AUDIT = (selector: string) => `(() => {
   const outside = [], cut = [], sticks = []
   const buttons = [...root.querySelectorAll('button')].filter(b => b.getClientRects().length > 0)
   for (const b of [root, ...buttons]) {
-    if (!inside(rect(b))) outside.push(name(b) + ' ' + JSON.stringify(rect(b)))
+    // a button inside the scrolling message list may sit above or below the visible part: only the sides count for it
+    const r0 = rect(b)
+    if (b === root ? !inside(r0) : (r0.l < -0.5 || r0.r > vw + 0.5)) outside.push(name(b) + ' ' + JSON.stringify(rect(b)))
     if (b.scrollWidth > b.clientWidth + 1) cut.push(name(b) + ' scroll ' + b.scrollWidth + ' > client ' + b.clientWidth)
   }
   const rr = rect(root)
@@ -51,9 +53,14 @@ const AUDIT = (selector: string) => `(() => {
     if (rect(e).r > rr.r + 1) sticks.push(name(e) + ' ' + JSON.stringify(rect(e)))
   }
   const overlap = []
-  for (let i = 0; i < buttons.length; i++) for (let j = i + 1; j < buttons.length; j++) {
-    const a = rect(buttons[i]), c = rect(buttons[j])
-    if (a.l < c.r - 1 && c.l < a.r - 1 && a.t < c.b - 1 && c.t < a.b - 1) overlap.push(name(buttons[i]) + ' / ' + name(buttons[j]))
+  // a row scrolled under the header is clipped by its scroller: only a button that is really drawn at its centre counts
+  const drawn = buttons.filter(b => {
+    const r = rect(b), hit = document.elementFromPoint((r.l + r.r) / 2, (r.t + r.b) / 2)
+    return !!hit && b.contains(hit)
+  })
+  for (let i = 0; i < drawn.length; i++) for (let j = i + 1; j < drawn.length; j++) {
+    const a = rect(drawn[i]), c = rect(drawn[j])
+    if (a.l < c.r - 1 && c.l < a.r - 1 && a.t < c.b - 1 && c.t < a.b - 1) overlap.push(name(drawn[i]) + ' / ' + name(drawn[j]))
   }
   return { missing: false, outside, cut, overlap, sticks, docScroll: document.documentElement.scrollWidth, vw }
 })()`
