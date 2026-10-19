@@ -67,6 +67,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
           inputData={tool.inputData}
           args={tool.args}
           compact={false}
+          outcome={tool.state === 'error' || tool.state === 'cancelled' || tool.state === 'expired' ? tool.state : undefined}
         />
       ) : (
         <div className="text-xs font-mono" style={{ color: COLORS.textPrimary }}>

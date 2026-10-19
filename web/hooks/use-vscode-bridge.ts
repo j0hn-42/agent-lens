@@ -18,7 +18,7 @@ import type { PermissionAction } from '@/lib/bridge-types'
 import { carriesRefusal, redirectMessage, refusalProbe } from '@/lib/permission-requests'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
-import { MOCK_SESSIONS } from '@/lib/mock-scenario'
+import { HAS_MOCK_SESSIONS, mockSessions } from '@/lib/mock-scenario'
 import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, runtimeRecheckKey, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
@@ -227,14 +227,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     setUseMockData(false)
     if (!demoSessionsRef.current) return
     demoSessionsRef.current = false
-    updateSessions(prev => prev.filter(s => !MOCK_SESSIONS.some(m => m.id === s.id)))
+    const demoIds = new Set(mockSessions().map(m => m.id))
+    updateSessions(prev => prev.filter(s => !demoIds.has(s.id)))
     if (selectedSessionIdRef.current === ALL_SESSIONS_ID) { selectedSessionIdRef.current = null; setSelectedSessionId(null) }
   }, [updateSessions])
   // Seeded after mount: the scenario is read from the URL, which the server render cannot know
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_DEMO === '0' || MOCK_SESSIONS.length === 0 || sessionsRef.current.length > 0) return
+    if (process.env.NEXT_PUBLIC_DEMO === '0' || !HAS_MOCK_SESSIONS || sessionsRef.current.length > 0) return
     demoSessionsRef.current = true
-    updateSessions(() => MOCK_SESSIONS)
+    updateSessions(() => mockSessions())
     selectedSessionIdRef.current = ALL_SESSIONS_ID
     setSelectedSessionId(ALL_SESSIONS_ID)
   }, [updateSessions])

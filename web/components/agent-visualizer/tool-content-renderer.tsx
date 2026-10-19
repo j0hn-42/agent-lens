@@ -18,9 +18,14 @@ interface ToolContentRendererProps {
   inputData?: Record<string, unknown>
   args?: string
   compact?: boolean  // shorter rendering for inline chat
+  /** The call ended without a change being proven (error, cancelled, expired): an Edit / MultiEdit says what it asked for, never a change */
+  outcome?: UnappliedOutcome
 }
 
-export function ToolContentRenderer({ toolName, inputData, args, compact = false }: ToolContentRendererProps) {
+/** How an Edit / MultiEdit call ended when it proved no change */
+export type UnappliedOutcome = 'error' | 'cancelled' | 'expired'
+
+export function ToolContentRenderer({ toolName, inputData, args, compact = false, outcome }: ToolContentRendererProps) {
   if (!inputData) {
     return <span style={{ color: COLORS.contentDim }}>{args || toolName}</span>
   }
@@ -29,9 +34,9 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
     case 'apply_patch':
       return <PatchContent data={inputData} compact={compact} />
     case 'Edit':
-      return <EditContent data={inputData} compact={compact} />
+      return <EditContent data={inputData} compact={compact} outcome={outcome} />
     case 'MultiEdit':
-      return <MultiEditContent data={inputData} compact={compact} />
+      return <MultiEditContent data={inputData} compact={compact} outcome={outcome} />
     case 'TodoWrite':
       return <TodoContent data={inputData} />
     case 'Bash':
@@ -135,8 +140,16 @@ const pairKind = ({ old, next }: EditPair) =>
  *  diff. A verb only when every block is of one kind (a MultiEdit that inserts here and deletes there replaces
  *  nothing); a deletion says "text removed from N lines", since old_string may be part of a line. Null when both
  *  strings are empty everywhere. */
-function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair[]): string | null {
+const UNAPPLIED_LEAD: Record<UnappliedOutcome, string> = {
+  error: 'call failed, not applied',
+  cancelled: 'call cancelled, not applied',
+  expired: 'no result received, not known to be applied',
+}
+
+function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair[], outcome: UnappliedOutcome | undefined): string | null {
   if (added === 0 && removed === 0) return null
+  // A call that proved no change says only what it asked for
+  if (outcome) return `${UNAPPLIED_LEAD[outcome]}: asked old ${plural(removed, 'line')}, new ${plural(added, 'line')}`
   const kinds = new Set(pairs.map(pairKind).filter(k => k !== 'none'))
   const kind = kinds.size === 1 ? [...kinds][0] : null
   if (kind === 'insert') return `${plural(added, 'line')} inserted`
@@ -147,13 +160,13 @@ function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair
 
 /** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. A patch is a real
  *  diff; an Edit / MultiEdit (`pairs`) only has the two strings, so it says what they are in words. */
-function EditSummary({ stats, pairs }: { stats: EditStats; pairs?: readonly EditPair[] }) {
-  const sentence = pairs ? replaceSentence(stats, pairs) : null
+function EditSummary({ stats, pairs, outcome }: { stats: EditStats; pairs?: readonly EditPair[]; outcome?: UnappliedOutcome }) {
+  const sentence = pairs ? replaceSentence(stats, pairs, outcome) : null
   if (pairs && sentence == null) return null
   return (
     <div role="group" aria-label="Edit summary" className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
       {sentence != null ? (
-        <span style={{ color: COLORS.contentDim }}>{sentence}</span>
+        <span lang={outcome ? 'en' : undefined} style={{ color: COLORS.contentDim }}>{sentence}</span>
       ) : (
         <>
           <span aria-hidden="true" style={{ color: COLORS.diffAdded }}>+{stats.added}</span>
@@ -166,28 +179,28 @@ function EditSummary({ stats, pairs }: { stats: EditStats; pairs?: readonly Edit
   )
 }
 
-function DiffBlock({ oldText, newText, maxLines }: { oldText: string; newText: string; maxLines: number }) {
+function DiffBlock({ oldText, newText, maxLines, asked = false }: { oldText: string; newText: string; maxLines: number; asked?: boolean }) {
   const old = truncateLines(oldText, maxLines)
   const next = truncateLines(newText, maxLines)
   return (
     <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
       {old.lines.map((line, i) => (
         <div key={`old-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffRemoved, background: COLORS.diffRemovedBg }}>
-          <span className="sr-only">Removed: </span>
+          <span className="sr-only" lang={asked ? 'en' : undefined}>{asked ? 'Asked old: ' : 'Removed: '}</span>
           <span aria-hidden="true" className="mr-1">-</span>{line || ' '}
         </div>
       ))}
       {old.hidden > 0 && (
-        <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} lines removed)</div>
+        <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} {asked ? 'old lines asked' : 'lines removed'})</div>
       )}
       {next.lines.map((line, i) => (
         <div key={`new-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffAdded, background: COLORS.diffAddedBg }}>
-          <span className="sr-only">Added: </span>
+          <span className="sr-only" lang={asked ? 'en' : undefined}>{asked ? 'Asked new: ' : 'Added: '}</span>
           <span aria-hidden="true" className="mr-1">+</span>{line || ' '}
         </div>
       ))}
       {next.hidden > 0 && (
-        <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} lines added)</div>
+        <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} {asked ? 'new lines asked' : 'lines added'})</div>
       )}
     </div>
   )
@@ -196,7 +209,7 @@ function DiffBlock({ oldText, newText, maxLines }: { oldText: string; newText: s
 const hiddenLines = (oldText: string, newText: string, max: number) =>
   truncateLines(oldText, max).hidden + truncateLines(newText, max).hidden
 
-function EditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+function EditContent({ data, compact, outcome }: { data: Record<string, unknown>; compact: boolean; outcome?: UnappliedOutcome }) {
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
   const oldText = String(data.old_string || '')
@@ -207,8 +220,8 @@ function EditContent({ data, compact }: { data: Record<string, unknown>; compact
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} pairs={[{ old: oldText, next: newText }]} />}
-      <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} />
+      {stats && <EditSummary stats={stats} pairs={[{ old: oldText, next: newText }]} outcome={outcome} />}
+      <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} asked={outcome !== undefined} />
       <ShowAllToggle visible={hiddenLines(oldText, newText, base) > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
     </div>
   )
@@ -260,7 +273,7 @@ function PatchContent({ data, compact }: { data: Record<string, unknown>; compac
   )
 }
 
-function MultiEditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+function MultiEditContent({ data, compact, outcome }: { data: Record<string, unknown>; compact: boolean; outcome?: UnappliedOutcome }) {
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
   const stats = editStats('MultiEdit', data)
@@ -271,11 +284,11 @@ function MultiEditContent({ data, compact }: { data: Record<string, unknown>; co
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} pairs={edits.map(e => ({ old: e.old_string, next: e.new_string }))} />}
+      {stats && <EditSummary stats={stats} pairs={edits.map(e => ({ old: e.old_string, next: e.new_string }))} outcome={outcome} />}
       {edits.map((e, i) => (
         <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
           <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>Block {i + 1} of {edits.length}</div>
-          <DiffBlock oldText={e.old_string} newText={e.new_string} maxLines={showAll ? Infinity : base} />
+          <DiffBlock oldText={e.old_string} newText={e.new_string} maxLines={showAll ? Infinity : base} asked={outcome !== undefined} />
         </div>
       ))}
       <ShowAllToggle
