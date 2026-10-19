@@ -350,6 +350,42 @@ test('event-loss (#366): outside relay mode there is none', () => {
   assert.equal(result.current.replayLost, 0)
 })
 
+test('event-loss (#592): in VS Code (no relay) the figure comes from the extension, once per page; a reset empties it', async () => {
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(FakeES.all.length, 0, 'no relay stream')
+  assert.equal(result.current.eventLoss, null)
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 }, otherEvents: 2 }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 })
+  const now = Date.now()
+  await act(async () => realDispatch({ type: 'session-list', sessions: [{ id: 'a', label: 'a', status: 'active', startTime: now, lastActivityTime: now }] }))
+  assert.equal(result.current.replayLost, 3, 'the same surfaces as with the relay: All counts the sessions it shows')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: 'junk' }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a message that does not parse never clears a figure')
+  // The extension resets the graph when a new page is ready, then sends that page's figure (or none)
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+  assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { b: 1 }, gap: { b: 9 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 1 }, otherEvents: 0 }, 'no cut link to resume in VS Code: a gap is never added')
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+})
+
+test('event-loss (#592): a figure the extension sent before the view mounted is not lost', async () => {
+  realDispatch({ type: 'event-loss', evicted: { early: 4 } })
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.deepEqual(result.current.eventLoss, { evicted: { early: 4 }, otherEvents: 0 })
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+  assert.equal(result.current.eventLoss, null)
+})
+
+test('event-loss (#592): with a relay stream, a figure from the frame is ignored (only the relay counts)', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
+  assert.equal(result.current.eventLoss, null)
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+})
+
 test('unmount closes the stream and cancels reconnect timers', async () => {
   relayEnv()
   const { unmount } = renderHook(() => useVSCodeBridge())

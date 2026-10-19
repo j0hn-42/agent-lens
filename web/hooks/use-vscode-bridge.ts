@@ -452,12 +452,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   useEffect(() => {
     if (!relayEnabled || source.status !== 'connected') setSystemStats(prev => (prev.length > 0 ? [] : prev))
   }, [relayEnabled, source.status])
-  // Without a relay stream there is no figure (demo, VS Code); a cut link keeps it, since the graph keeps its hole
+  // Without a relay stream the figure is the extension's (VS Code, #592: once per page, emptied by its reset), none in
+  // the demo; with one, a cut link keeps the relay's figure, since the graph keeps its hole
   useEffect(() => {
     if (relayEnabled) return
     connectionsRef.current = 0
     lastLinkStatusRef.current = 'connecting'
-    setEventLoss(prev => (prev === null ? prev : null))
+    if (!vscodeBridge) { setEventLoss(prev => (prev === null ? prev : null)); return }
+    setEventLoss(vscodeBridge.eventLoss)
+    return vscodeBridge.onEventLoss(loss => setEventLoss(loss))
   }, [relayEnabled])
 
   // Launching (#229): only a page served by the relay itself (same origin) can send POST /launch. The relay answers
