@@ -199,6 +199,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Remote access](docs/remote-access.md): a named tunnel with `--allow-host` and `--token-file`, pairing a device, what the startup refuses, and what is still to come
+- [Roadmap](docs/roadmap.md): which runtimes are delivered, partial or blocked, and what remains for remote access, mobile and the tray icon
 - [Launching an agent](docs/launch-security.md): the opt-in `--allow-launch` route, its token, guards, caps and journal
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
 - [MCP server](docs/mcp-server.md): give Claude the observations as MCP tools, and how to register it in `.mcp.json`
