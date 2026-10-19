@@ -474,9 +474,11 @@ test('the Go protocol module of the tray is checked in CI, listed in CONTRIBUTIN
     assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle}`)
   }
   assert.ok(fs.existsSync(path.join(root, 'app-tray/native/go.mod')))
-  // No compiled binary is committed: only Go sources and the module file
-  const files = fs.readdirSync(path.join(root, 'app-tray/native'), { recursive: true, withFileTypes: true }).filter(e => e.isFile())
-  for (const f of files) assert.match(f.name, /^(go\.mod|.+\.go)$/, `unexpected file in app-tray/native: ${f.name}`)
+  // No compiled binary is committed: only Go sources and the module files. The files git tracks, not the working
+  // tree: a local `go test -c`, `-coverprofile` or `.DS_Store` is not committed and must not fail the test (#613)
+  const files = execFileSync('git', ['ls-files', '-z', '--', 'app-tray/native'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
+  assert.ok(files.includes('app-tray/native/go.mod'), 'app-tray/native is tracked by git')
+  for (const f of files) assert.match(path.posix.basename(f), /^(go\.mod|go\.sum|.+\.go)$/, `unexpected file committed in app-tray/native: ${f}`)
 })
 
 test('relay-sources documents how Cursor hook payloads are ignored, with the doc they rely on (#472)', () => {

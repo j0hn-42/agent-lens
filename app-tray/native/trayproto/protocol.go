@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"unicode/utf8"
 )
 
 // Version is the protocol version, "v" on every line.
@@ -92,12 +93,73 @@ func object(raw []byte, keys ...string) (map[string]json.RawMessage, error) {
 	if len(o) != len(keys) {
 		return nil, refuse("unexpected key")
 	}
+	// encoding/json keeps the last of two equal keys without a word: a repeated key is refused (#613)
+	if !uniqueKeys(raw) {
+		return nil, refuse("repeated key")
+	}
 	for _, k := range keys {
 		if _, ok := o[k]; !ok {
 			return nil, refuse("unexpected key")
 		}
 	}
 	return o, nil
+}
+
+// uniqueKeys reports whether no key of the JSON object raw (already decoded once) is written twice.
+func uniqueKeys(raw []byte) bool {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return false
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		tok, err := dec.Token()
+		key, ok := tok.(string)
+		if err != nil || !ok || seen[key] {
+			return false
+		}
+		seen[key] = true
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// unsafeRune is a character a menu text never needs and that could change how it reads: a control
+// character other than tab and line feed, U+FFFD (what encoding/json puts in place of invalid UTF-8 or
+// a lone surrogate) and the bidirectional formatting characters (embeddings, overrides, isolates,
+// marks), which can reorder what the menu shows (#613).
+func unsafeRune(r rune) bool {
+	switch {
+	case r == '\t' || r == '\n':
+		return false
+	case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f:
+		return true
+	case r == utf8.RuneError:
+		return true
+	case r == 0x061c, r == 0x200e, r == 0x200f, r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+		return true
+	}
+	return false
+}
+
+// text is str for a menu text: valid UTF-8 as written, and no unsafe character once decoded.
+func text(raw json.RawMessage) (string, bool) {
+	if !utf8.Valid(raw) {
+		return "", false
+	}
+	s, ok := str(raw)
+	if !ok {
+		return "", false
+	}
+	for _, r := range s {
+		if unsafeRune(r) {
+			return "", false
+		}
+	}
+	return s, true
 }
 
 // encoding/json accepts null for a string, a bool or a slice without an error: these helpers do not.
@@ -162,7 +224,7 @@ func ParseDriverMessage(line []byte) (DriverMessage, error) {
 		if err != nil {
 			return DriverMessage{}, err
 		}
-		tooltip, ok := str(o["tooltip"])
+		tooltip, ok := text(o["tooltip"])
 		if !ok {
 			return DriverMessage{}, refuse("invalid tooltip")
 		}
@@ -185,7 +247,7 @@ func ParseDriverMessage(line []byte) (DriverMessage, error) {
 				return DriverMessage{}, refuse("repeated item id")
 			}
 			seen[ItemID(id)] = true
-			label, ok := str(fields["label"])
+			label, ok := text(fields["label"])
 			if !ok {
 				return DriverMessage{}, refuse("invalid item label")
 			}

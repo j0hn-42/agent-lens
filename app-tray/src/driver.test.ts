@@ -441,3 +441,17 @@ describe('startDriver: stop over the IPC channel instead of SIGTERM (#513)', () 
     assert.equal(fs.readFileSync(r.mark, 'utf8'), 'SIGTERM')
   })
 })
+
+// #613: the test double behaves like the real relay (app/src/parent-stop.ts): with --ipc-stop, a channel closed by
+// its parent (the driver killed) ends it, so no fake relay is left running after a test.
+describe('fake relay double (#613)', () => {
+  it('exits when its parent closes the IPC channel, like the real relay', async () => {
+    const child = childProcess.spawn(process.execPath, [FAKE_RELAY, '--ipc-stop'], { stdio: ['ignore', 'pipe', 'ignore', 'ipc'] })
+    pids.push(child.pid!)
+    const exited = new Promise<number | null>(resolve => child.once('exit', code => resolve(code)))
+    await new Promise<void>(resolve => child.stdout!.on('data', d => { if (String(d).includes('Server running at')) resolve() }))
+    child.disconnect()
+    const code = await Promise.race([exited, sleep(3000).then(() => 'still running' as const)])
+    assert.equal(code, 0)
+  })
+})

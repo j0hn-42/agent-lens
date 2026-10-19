@@ -63,7 +63,10 @@
     { "name": "enabled not a boolean", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"x\",\"enabled\":1}]}" },
     { "name": "label not a string", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":null,\"enabled\":true}]}" },
     { "name": "the same item twice", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"a\",\"enabled\":true},{\"id\":\"open\",\"label\":\"b\",\"enabled\":true}]}" },
-    { "name": "trailing data after the object", "line": "{\"v\":1,\"type\":\"quit\"} {\"v\":1,\"type\":\"quit\"}" }
+    { "name": "trailing data after the object", "line": "{\"v\":1,\"type\":\"quit\"} {\"v\":1,\"type\":\"quit\"}" },
+    { "name": "a key written twice", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"a\",\"tooltip\":\"b\",\"items\":[]}" },
+    { "name": "a tooltip with a bidi override (RLO)", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"Agent \\u202eLens\",\"items\":[]}" },
+    { "name": "a label with NUL", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"a\\u0000b\",\"enabled\":true}]}" }
   ],
   "binaryToDriver": [
     { "name": "ready", "message": { "type": "ready" }, "line": "{\"v\":1,\"type\":\"ready\"}" },
