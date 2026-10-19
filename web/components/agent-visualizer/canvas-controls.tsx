@@ -9,6 +9,7 @@ import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { NO_HIDDEN_NAMES, type HiddenNamesDisplay } from '@/lib/hidden-names-display'
 import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
@@ -37,6 +38,15 @@ interface CanvasControlsProps {
   onToggleAnimationsPaused: () => void
   onToggleNeverHide: () => void
   onChangeToolExpiry: (e: ChangeEvent<HTMLSelectElement>) => void
+  /**
+   * The "names hidden" button (issue 594), from the stable readings of planOverlays().hiddenAgentNames
+   * (useHiddenNamesDisplay): drawn or not, and its number (null = neutral label, no number). Absent = no button.
+   */
+  hiddenNames?: HiddenNamesDisplay
+  /** Opens the Sessions and agents list (the L panel). Absent = no button, and no room reserved for it */
+  onShowAgentList?: () => void
+  /** The single key that opens that list, quoted in the tooltip; null when single-key shortcuts are off */
+  agentListKey?: string | null
 }
 
 const ICON_PROPS = {
@@ -135,7 +145,7 @@ function usePopupDismiss(open: boolean, wrapRef: RefObject<HTMLElement | null>, 
  */
 export function CanvasControls({
   teams, present, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, locale, calmLayers, onToggleCalmLayer, neverHide, toolExpiryS,
-  onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry,
+  onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry, hiddenNames = NO_HIDDEN_NAMES, onShowAgentList, agentListKey = null,
 }: CanvasControlsProps) {
   const { env } = useDockSnapshot()
   const { controlBarH } = env
@@ -150,7 +160,9 @@ export function CanvasControls({
   // Folded only into a slot that is drawn (the control bar is hidden in full screen)
   const slot = useCanvasControlsSlot()
   const slotDrawn = slot !== null && (slot.parentElement?.getClientRects().length ?? 0) > 0
-  const folded = slotDrawn && !canvasControlsFit(env)
+  const showHiddenNames = hiddenNames.shown && !!onShowAgentList
+  // The room of the "names hidden" button is reserved whenever it can be shown, so folding never follows the zoom (#594)
+  const folded = slotDrawn && !canvasControlsFit(env, !!onShowAgentList)
   const [menuOpen, setMenuOpen] = useState(false)
   // The guided tour can show the legend: the folded block opens with it. Escape or a press outside still closes it
   // (until the tour stops showing the legend), so the block never stays open with the focus sent back to its button
@@ -167,7 +179,8 @@ export function CanvasControls({
   }, [tourWantsLegend])
   usePopupDismiss(menuShown, menuRef, menuButtonRef, closeMenu)
 
-  // Folding or unfolding with the focus on a control removes that control: the focus goes to the one that replaces it, not to <body> (2.4.3)
+  // Folding or unfolding with the focus on a control removes that control: the focus goes to the one that replaces it,
+  // not to <body> (2.4.3). Same when the "names hidden" button goes with the focus on it (#594)
   const rootRef = useRef<HTMLDivElement>(null)
   const focusWasInside = useRef(false)
   useEffect(() => {
@@ -189,57 +202,82 @@ export function CanvasControls({
     if (active && active !== document.body) return
     const next = folded ? menuButtonRef.current : viewRef.current
     next?.focus()
-  }, [folded])
+  }, [folded, showHiddenNames])
 
   const legend = <GraphLegend teams={teams} present={present} locale={locale} />
+  const hiddenNamesButton = showHiddenNames && (
+    // Its text is its name (2.5.3); no live region: the count follows the zoom and must not chatter (issue 594). With no
+    // stable count to show (it is changing), the neutral label names the list it opens: never a stale number
+    <button
+      type="button"
+      data-hidden-names={hiddenNames.count ?? ''}
+      title={t('controls.hiddenNames.title', { panel: agentListKey ? `${t('sessions.title')} (${agentListKey})` : t('sessions.title') })}
+      onClick={onShowAgentList}
+      className={CONTROL_BUTTON_CLASS}
+      style={BUTTON_STYLE}
+    >
+      {hiddenNames.count === null
+        ? t('sessions.title')
+        : t(new Intl.PluralRules(locale).select(hiddenNames.count) === 'one' ? 'controls.hiddenNames.one' : 'controls.hiddenNames.other', { n: hiddenNames.count })}
+    </button>
+  )
   const zoomAndView = (
     <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
-      {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378). Folded, the bar holds it */}
-      <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex items-center gap-2">
-        <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
+      {/* Issue 594: the "names hidden" button comes BEFORE the zoom buttons, on the side the row is not anchored to, so
+          its coming, going or width never moves Zoom, Fit or View under the pointer. Under the width where it does not
+          fit beside them it wraps onto the line above (normal wrap, the row grows upwards from the playback bar). It
+          reserves no edge (only the zoom row carries data-canvas-inset): the count does not change the safe area it is
+          computed in. Folded, the block scrolls from its top: the button goes last, under the zoom buttons */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {!folded && hiddenNamesButton}
+        {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378). Folded, the bar holds it */}
+        <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex flex-wrap items-center justify-end gap-2">
+          <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
+            <button
+              type="button"
+              aria-label={t('controls.zoomIn')}
+              title={`${t('controls.zoomIn')} (+)`}
+              onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
+              className={CONTROL_BUTTON_CLASS}
+              style={BUTTON_STYLE}
+            >
+              <MagnifierIcon sign="plus" />
+            </button>
+            <button
+              type="button"
+              aria-label={t('controls.zoomOut')}
+              title={`${t('controls.zoomOut')} (-)`}
+              onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
+              className={CONTROL_BUTTON_CLASS}
+              style={BUTTON_STYLE}
+            >
+              <MagnifierIcon sign="minus" />
+            </button>
+            <button
+              type="button"
+              aria-label={t('controls.fit')}
+              title={`${t('controls.fit')} (0)`}
+              onClick={doZoomToFit}
+              className={CONTROL_BUTTON_CLASS}
+              style={BUTTON_STYLE}
+            >
+              <FitIcon />
+            </button>
+          </div>
           <button
+            ref={viewRef}
             type="button"
-            aria-label={t('controls.zoomIn')}
-            title={`${t('controls.zoomIn')} (+)`}
-            onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            aria-controls={open ? panelId : undefined}
+            onClick={() => setOpen(o => !o)}
             className={CONTROL_BUTTON_CLASS}
-            style={BUTTON_STYLE}
+            style={{ ...BUTTON_STYLE, background: open ? COLORS.toggleActive : COLORS.panelBg }}
           >
-            <MagnifierIcon sign="plus" />
-          </button>
-          <button
-            type="button"
-            aria-label={t('controls.zoomOut')}
-            title={`${t('controls.zoomOut')} (-)`}
-            onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
-            className={CONTROL_BUTTON_CLASS}
-            style={BUTTON_STYLE}
-          >
-            <MagnifierIcon sign="minus" />
-          </button>
-          <button
-            type="button"
-            aria-label={t('controls.fit')}
-            title={`${t('controls.fit')} (0)`}
-            onClick={doZoomToFit}
-            className={CONTROL_BUTTON_CLASS}
-            style={BUTTON_STYLE}
-          >
-            <FitIcon />
+            {t('controls.view')}
           </button>
         </div>
-        <button
-          ref={viewRef}
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls={open ? panelId : undefined}
-          onClick={() => setOpen(o => !o)}
-          className={CONTROL_BUTTON_CLASS}
-          style={{ ...BUTTON_STYLE, background: open ? COLORS.toggleActive : COLORS.panelBg }}
-        >
-          {t('controls.view')}
-        </button>
+        {folded && hiddenNamesButton}
       </div>
       {open && (
         <div

@@ -19,6 +19,7 @@ import { useCanvasA11yMirror } from '@/hooks/use-canvas-a11y-mirror'
 import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
 import type { AnnounceLevel } from '@/lib/ui-preferences'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
+import { useHiddenNamesDisplay } from '@/hooks/use-hidden-names-display'
 import { useTourBridge } from './guided-tour-context'
 
 type PresentationFlags = { follow: boolean; mask: boolean }
@@ -28,7 +29,7 @@ export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList, agentListKey,
   } = props
   const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
   presentationRef.current = presentation ?? NO_PRESENTATION
@@ -79,6 +80,8 @@ export function AgentCanvas(props: CanvasProps) {
   onClusterSelectRef.current = onClusterSelect
   /** Clusters of the last drawn frame (read by the cluster click handler and the camera fit) */
   const clustersRef = useRef<Cluster[]>([])
+  /** Agent names the last planned frame does not draw (written by the draw loop, #594) */
+  const hiddenAgentNamesRef = useRef(0)
   const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null)
   const selectedClusterKeyRef = useRef<string | null>(null)
   selectedClusterKeyRef.current = selectedClusterKey
@@ -99,6 +102,8 @@ export function AgentCanvas(props: CanvasProps) {
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
     clustersRef, getInsets, scopeKey, presentationRef, reducedMotionRef: prefs.reducedMotionRef,
   })
+  // "N names hidden" (#594): shown, changed or removed only on a stable count with the camera at rest
+  const hiddenNames = useHiddenNamesDisplay(hiddenAgentNamesRef, isCameraBusy)
   const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
 
@@ -138,7 +143,7 @@ export function AgentCanvas(props: CanvasProps) {
   useCanvasDrawLoop({
     simulationRef, mainCanvasRef, tooltipRef, bubbleLayerRef, drawPropsRef, transformRef, simTimeRef, dimensions, dprRef,
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
-    heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
+    heldBubbleKeysRef, selectedClusterKeyRef, clustersRef, hiddenAgentNamesRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
     presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
     updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, getCovers, effectsRef, detectStateChanges,
@@ -297,6 +302,9 @@ export function AgentCanvas(props: CanvasProps) {
         onToggleAnimationsPaused={prefs.toggleAnimationsPaused}
         onToggleNeverHide={prefs.toggleNeverHide}
         onChangeToolExpiry={prefs.changeToolExpiry}
+        hiddenNames={hiddenNames}
+        onShowAgentList={onShowAgentList}
+        agentListKey={agentListKey}
       />
     </div>
   )

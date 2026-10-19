@@ -185,6 +185,12 @@ export interface OverlayPlanResult {
   hits: OverlayHits
   /** Many agents on screen: secondary overlays are limited to the priority agents */
   crowded: boolean
+  /**
+   * Agents drawn in the canvas area (centre of the node inside the safe area, or the viewport without one) whose name
+   * this plan does not draw: the label is hidden, or no label is drawn at this zoom (#594). A label shortened to one
+   * line still draws the name. Agents off screen, faded out or filtered out of the scene are not counted.
+   */
+  hiddenAgentNames: number
 }
 
 /**
@@ -225,6 +231,7 @@ export const EMPTY_PLAN: OverlayPlanResult = {
   plan: new Map(),
   hits: { clusterLabels: new Map(), edgeBubbles: new Map(), edgeBubbleRects: new Map(), collapsedBubbles: new Map() },
   crowded: false,
+  hiddenAgentNames: 0,
 }
 
 export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
@@ -460,7 +467,16 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     }
     else if (p.id.startsWith('bubbles:') && p.collapsed) hits.collapsedBubbles.set(p.id.slice('bubbles:'.length), toWorld(t, p.rect))
   }
-  return { plan, hits, crowded }
+  // Names the frame does not draw, among the agents drawn where the user can see them (#594)
+  const area = input.safeArea && input.safeArea.w > 0 && input.safeArea.h > 0 ? input.safeArea : { x: 0, y: 0, w: vp.w, h: vp.h }
+  let hiddenAgentNames = 0
+  for (const a of visible) {
+    const cx = a.x * s + t.x
+    const cy = a.y * s + t.y
+    if (cx < area.x || cx > area.x + area.w || cy < area.y || cy > area.y + area.h) continue
+    if (!input.lod.labels || plan.get(planKey.label(a.id))?.hidden !== false) hiddenAgentNames++
+  }
+  return { plan, hits, crowded, hiddenAgentNames }
 }
 
 /** The rect grown symmetrically to at least `min` px on each axis. */
