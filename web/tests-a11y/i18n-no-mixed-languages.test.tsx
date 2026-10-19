@@ -52,6 +52,12 @@ import { ProjectContextPanel } from '@/components/agent-visualizer/project-conte
 import { guidedSteps } from '@/lib/guided-steps'
 import { buildLiveTourSteps } from '@/lib/live-tour'
 import { panelName } from '@/lib/command-palette'
+import { ControlBar } from '@/components/agent-visualizer/control-bar'
+import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
+import { contextMenuItems } from '@/components/agent-visualizer/context-menu-items'
+import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
+import { SHORTCUTS } from '@/lib/shortcuts'
+import { shortcutKeyCap } from '@/lib/shortcuts-text'
 
 afterEach(() => {
   cleanup()
@@ -931,5 +937,75 @@ for (const locale of LOCALES) {
         cleanup()
       }
     } finally { setMobileView(false) }
+  })
+}
+
+// ─── Context menu, playback bar and shortcuts dialog (#586, #587, #588) ──────────────────────────────
+
+const menuActions = { showStats: true, showGrid: false, toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: noop, showAgentDetails: noop }
+// The icons of the menu items are decorative glyphs. Key caps that are key names, the same in both languages (letters, digits, symbols)
+const KEY_CAPS = new Set(SHORTCUTS.flatMap(s => s.display.split(' / ').flatMap(p => p.split('+'))).filter(p => /^[A-Za-z0-9$,?+-]$|^Ctrl$|^Cmd$/.test(p)))
+const BAR_DATA: readonly RegExp[] = [/^\d+:\d\d(:\d\d)?$/, /^\d+(\.\d+)?x$/, /^\d+:\d\d(:\d\d)? (of|sur) \d+:\d\d(:\d\d)?$/]
+const BAR_SYMBOLS = ['⏸', '▶', '⟲', '…']
+// A visible label is a glyph and a word ("⏸ Review"): the glyph is decorative, the word is checked
+const barStrangers = (locale: Locale, strings: string[]) => strangers(locale, strings.map(s => BAR_SYMBOLS.reduce((t, g) => t.split(g).join(''), s).trim()).filter(Boolean), { allow: new Set(['x']), data: BAR_DATA })
+
+for (const locale of LOCALES) {
+  test(`the context menu of the canvas and of an agent, armed or not, speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const strings: string[] = []
+    for (const onAgent of [true, false]) {
+      const view = render(<GlassContextMenu position={{ x: 10, y: 10 }} items={contextMenuItems(onAgent, menuActions, locale)} onClose={noop} />)
+      const menu = view.getByRole('menu')
+      assert.equal(langOf(menu), locale, `the menu declares lang=${locale}`)
+      assert.equal(menu.getAttribute('aria-label'), MESSAGES[locale]['menu.name'])
+      strings.push(...surfaceStrings(view.container))
+      if (!onAgent) {
+        fireEvent.click(view.getByRole('menuitem', { name: new RegExp(escapeRe(MESSAGES[locale]['menu.clear'])) }))
+        strings.push(...surfaceStrings(view.container))
+        assert.equal(view.getByRole('status').textContent, MESSAGES[locale]['menu.clear.confirm'], 'the armed confirmation is announced')
+      }
+      cleanup()
+    }
+    assert.ok(strings.length > 8)
+    assert.deepEqual(strangers(locale, strings, { allow: new Set(['✓', 'ℹ', '🔍', '📊', '⬡', '⟲', '↻']) }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+  })
+
+  test(`the playback bar (live, offline, demo, review, confirmation, truncated history) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const strings: string[] = []
+    const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, onResumeLive: noop, onEnterReview: noop }
+    const toolbarLang = (view: ReturnType<typeof render>) => assert.equal(langOf(view.getByRole('toolbar')), locale, `the bar declares lang=${locale}`)
+    for (const live of [{ connectionStatus: 'watching' }, { connectionStatus: 'disconnected' }, { connectionStatus: 'connecting' }, { isDemo: true }] as const) {
+      const view = render(<ControlBar {...common} {...live} />)
+      toolbarLang(view)
+      strings.push(...surfaceStrings(view.container))
+      cleanup()
+    }
+    const review = render(<ControlBar {...common} isReviewing />)
+    toolbarLang(review)
+    strings.push(...surfaceStrings(review.container))
+    assert.ok(review.getByRole('slider', { name: MESSAGES[locale]['bar.position'] }))
+    fireEvent.click(review.getByRole('button', { name: MESSAGES[locale]['bar.clear'] }))
+    strings.push(...surfaceStrings(review.container))
+    assert.ok(review.getByRole('group', { name: MESSAGES[locale]['bar.confirmGroup'] }))
+    assert.ok(strings.length > 20)
+    assert.deepEqual(barStrangers(locale, strings), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+  })
+
+  test(`the shortcuts dialog (title, groups, every shortcut, the single-key switch) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const view = render(<ShortcutsDialog open onClose={noop} singleKeyEnabled onSingleKeyEnabledChange={noop} />)
+    const dialog = view.getByRole('dialog', { name: MESSAGES[locale]['shortcut.title'] })
+    assert.equal(langOf(dialog), locale, `the dialog declares lang=${locale}`)
+    const strings = surfaceStrings(view.container)
+    assert.ok(strings.length > SHORTCUTS.length)
+    const capsOfTheLocale = new Set(SHORTCUTS.map(d => shortcutKeyCap(d, locale)))
+    assert.deepEqual(strangers(locale, strings, { allow: new Set([...KEY_CAPS, ...capsOfTheLocale]) }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings, capsOfTheLocale), [], `${locale}: words of the other language`)
+    assert.ok(view.getByRole('switch', { name: new RegExp(escapeRe(MESSAGES[locale]['settings.singleKey'])) }))
+    assert.equal(view.container.querySelectorAll('kbd').length, SHORTCUTS.length, 'each shortcut is listed with its key cap')
   })
 }
