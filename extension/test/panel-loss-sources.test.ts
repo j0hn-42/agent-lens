@@ -110,6 +110,48 @@ describe('JSONL event log connected again (#605 review)', () => {
     assert.ok(shown <= 211)
   })
 
+  /** The source's follow-up read, as its watcher or poll timer would run it */
+  const follow = (source: unknown) => (source as { readNewLines(): void }).readNewLines()
+
+  it('the log truncated while connected, then the same lines written again: never more than the events proven (#605 review round 3, M1)', () => {
+    const a = path.join(dir, 'a.jsonl')
+    const lines = ev('S', 1) + ev('S', 2) + ev('S', 3)
+    fs.writeFileSync(a, lines)
+    const source = new m.JsonlEventSource(a)
+    const wiring = m.wireJsonlSourceToPanel(source)
+    source.start()
+    try {
+      assert.deepEqual(figure(), { S: 3 })
+      fs.writeFileSync(a, '')
+      follow(source)
+      fs.writeFileSync(a, lines + ev('S', 4))
+      follow(source)
+      const shown = figure().S ?? 0
+      assert.ok(shown <= 4, `shown ${shown}, 4 distinct events`)
+      assert.ok(shown >= 3, `what was counted stays as a floor (shown ${shown})`)
+    } finally { wiring.dispose(); source.dispose() }
+  })
+
+  it('the log truncated, then rewritten over several reads: still never more than the events proven', () => {
+    const a = path.join(dir, 'a.jsonl')
+    const lines = ev('S', 1) + ev('S', 2) + ev('S', 3)
+    fs.writeFileSync(a, lines)
+    const source = new m.JsonlEventSource(a)
+    const wiring = m.wireJsonlSourceToPanel(source)
+    source.start()
+    try {
+      fs.writeFileSync(a, '')
+      follow(source)
+      fs.writeFileSync(a, ev('S', 1))
+      follow(source)
+      fs.appendFileSync(a, ev('S', 2) + ev('S', 3) + ev('S', 4))
+      follow(source)
+      const shown = figure().S ?? 0
+      assert.ok(shown <= 4, `shown ${shown}, 4 distinct events`)
+      assert.ok(shown >= 3, `what was counted stays as a floor (shown ${shown})`)
+    } finally { wiring.dispose(); source.dispose() }
+  })
+
   it('the events reach the panel unchanged (no replayed marker added)', () => {
     const a = path.join(dir, 'a.jsonl')
     fs.writeFileSync(a, ev('log-1', 1))

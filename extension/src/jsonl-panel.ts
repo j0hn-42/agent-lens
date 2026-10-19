@@ -19,8 +19,10 @@ export const JSONL_COUNTED_SESSIONS_MAX = 10_000
 
 export interface JsonlLikeSource {
   readonly onEvent: (listener: (event: AgentEvent) => void) => { dispose(): void }
-  /** True while the lines already in the file at start() are emitted */
+  /** True while the lines already in the file at start() are emitted, or the lines read again after a truncation */
   readonly readingExisting: boolean
+  /** The file shrank while connected: what follows is read from its first byte again */
+  readonly onTruncated?: (listener: () => void) => { dispose(): void }
 }
 
 /** Forward the source's events to the panel (also before its page is ready: the file is not read again when a page
@@ -36,9 +38,12 @@ export function wireJsonlSourceToPanel(source: JsonlLikeSource): { dispose(): vo
     }
     forwardToPanel(event, { requireReady: false, countLoss, reread: source.readingExisting })
   })
+  // Same as a new connection: what was counted stays as a floor, the lines read again do not add to it
+  const truncSub = source.onTruncated?.(() => { for (const sid of counted) panelLoss.release(sid) })
   return {
     dispose: () => {
       sub.dispose()
+      truncSub?.dispose()
       // The next connection reads these sessions from the start again: what was counted stays as a floor
       for (const sid of counted) panelLoss.release(sid)
       counted.clear()
