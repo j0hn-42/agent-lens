@@ -8,7 +8,7 @@ pnpm run dev:demo            # http://localhost:3000
 pnpm run dev:demo:classic    # l'ancienne démo, une seule session
 ```
 
-On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en mode démo (`?scenario=workflow` : le workflow seul).
+On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en mode démo (`?scenario=workflow` : le workflow seul ; `?scenario=team10` : une équipe de 10 agents, utilisée par le test e2e des libellés, voir `CONTRIBUTING.md`).
 
 ## Avant de commencer
 
