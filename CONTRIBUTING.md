@@ -52,6 +52,11 @@ If the change touches `app-tray/native/` (the Go module of the tray protocol, se
 test -z "$(gofmt -l .)"
 go vet ./...
 go test ./...      # includes an end-to-end run with the real Node driver: run pnpm install first
+# cross-compilation (#511): pure Go, no binary written
+for target in linux/amd64 darwin/arm64 windows/amd64; do
+  CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+  CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go vet ./...
+done
 ```
 
 If the change touches rendering, the canvas, CSS or accessibility, also run the browser suite (CI job `e2e-a11y`):

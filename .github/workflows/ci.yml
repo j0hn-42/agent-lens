@@ -97,6 +97,21 @@ jobs:
         working-directory: app-tray/native
         run: go test ./...
 
+      # Compilation croisée (#511) : le module compile et passe go vet pour les trois bureaux, en Go pur. Pas de
+      # package main encore (le binaire avec interface n'existe pas) : aucun binaire écrit ni publié (#512).
+      - name: Tray protocol module cross-build (linux/amd64, darwin/arm64, windows/amd64)
+        if: ${{ !cancelled() }}
+        working-directory: app-tray/native
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -eu
+          for target in linux/amd64 darwin/arm64 windows/amd64; do
+            echo "== $target"
+            GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+            GOOS="${target%/*}" GOARCH="${target#*/}" go vet ./...
+          done
+
   e2e-a11y-shard:
     # Layout-dependent checks jsdom cannot do: axe on the real page (including color
     # contrast), 320 px / 200 % reflow, prefers-reduced-motion and the full-page Tab order.
