@@ -21,6 +21,7 @@ import { rollupBranch, rollupRows, rollupUnderLoss, branchReplayLost, type Rollu
 import { replayLostForAgents } from '@/lib/event-loss'
 import { observedSessions, isSessionObserved } from '@/lib/session-model'
 import { useLocale, useT } from '@/lib/locale'
+import { ACTIVE_WINDOW_MINUTES } from '@/lib/show-mode'
 import * as C from '@/lib/card-text'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
@@ -105,6 +106,11 @@ interface SessionListPanelProps {
   /** 'Active only' filter (persisted by the parent, #372); when absent the panel keeps its own, on by default */
   activeOnly?: boolean
   onActiveOnlyChange?: (activeOnly: boolean) => void
+  /**
+   * #372: the setting 'Hide inactive' of the canvas (top bar and Settings), told in the line under the header next to
+   * Active only, so the two rules are seen side by side. Absent = not known here: the line says nothing of the canvas.
+   */
+  canvasHideInactive?: boolean
   /** Events the relay could not replay, per session id (#366): the tokens and costs of such a session are lower bounds */
   replayLost?: ReadonlyMap<string, number>
 }
@@ -304,7 +310,7 @@ export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, lossIndicator, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange, replayLost,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange, canvasHideInactive, replayLost,
 }: SessionListPanelProps) {
   const { locale } = useLocale()
   const t = useT()
@@ -550,6 +556,21 @@ export function SessionListPanel({
             {t('sessions.count', { active: activeCount, total: sessions.length })}
           </span>
         </PanelHeader>
+        {/* #372 (owner's decision): the two visibility filters stay, with their different rules; this line shows both
+            states as set, so a session listed on the canvas and not here (or the reverse) is explained. Plain text, no
+            control; the separator is drawn, not read */}
+        <p data-testid="sessions-filter-scope" className="m-0 px-2 pb-1.5 text-[11px]" style={{ color: COLORS.textMuted }}>
+          {/* "all sessions" only when nothing narrows the list: search, project, runtime and branch count as much as Active only */}
+          <span>{t(activeOnly ? (filtering ? 'sessions.scope.list.activeOnlyFiltered' : 'sessions.scope.list.activeOnly') : (filtering ? 'sessions.scope.list.filtered' : 'sessions.scope.list.all'))}</span>
+          {canvasHideInactive !== undefined && (
+            <>
+              <span aria-hidden="true">{' \u00b7 '}</span>
+              <span>{!canvasHideInactive ? t('sessions.scope.canvas.off')
+                : selectedSessionId === ALL_SESSIONS_ID ? t('sessions.scope.canvas.hideAll', { n: ACTIVE_WINDOW_MINUTES })
+                : t('sessions.scope.canvas.hideOne')}</span>
+            </>
+          )}
+        </p>
         {viewCounts && (
           // #523: the agent counts of the view, moved from the top bar with the same text, in the interface language
           // (#500); the full wording is read, the compact one drawn

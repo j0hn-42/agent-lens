@@ -39,6 +39,8 @@ pnpm --dir web exec playwright install chromium   # once
 pnpm --dir web run test:e2e                       # starts the demo app itself
 ```
 
+CI splits it into 4 shards (`e2e-a11y (shard n/4)`, then the aggregate check `e2e-a11y`, #611). To rerun only the failing shard: `E2E_SHARD=n/4 pnpm --dir web run test:e2e:shard`.
+
 ## Report
 
 State which commands passed, which failed (with the relevant output), and which were skipped and why. Do not claim the tree is green unless every command above ran and passed.

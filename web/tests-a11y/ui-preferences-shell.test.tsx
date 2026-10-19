@@ -59,7 +59,7 @@ async function reload(r: ReturnType<typeof render>) {
 }
 
 const conversationRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Conversation' })
-const filesRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Files accessed by agents' })
+const filesRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Files & repeats observed' })
 const timelineRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Execution timeline' })
 
 test('the first render equals the server render: stored panels are applied after mount, not during hydration', async () => {
@@ -104,7 +104,7 @@ test('the right dock width is stored on resize and applied after a reload', asyn
   const r = await mount()
   const root = () => r.container.querySelector<HTMLElement>('[data-dock-panel="files"]')!
   assert.equal(root().style.width, '380px')
-  await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize files panel' }), { target: { value: '520' } }) })
+  await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize Files & repeats panel' }), { target: { value: '520' } }) })
   assert.equal(root().style.width, '520px')
   await wait(60)
   assert.equal(stored().dockRightWidth, 520)

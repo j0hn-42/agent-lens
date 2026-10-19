@@ -25,7 +25,8 @@ export function overlayRoleOf(el: Pick<Element, 'getAttribute' | 'matches'>): Pi
 /** Elements that cover part of the canvas. Panels may opt in with data-canvas-inset. */
 const OVERLAY_SELECTOR = [
   '[data-canvas-inset]', '[role="toolbar"]', '[role="banner"]', 'header',
-  '[aria-label="Session transcript"]', '[aria-label="Files accessed by agents"]', '[aria-label="Execution timeline"]',
+  // The Files & repeats panel carries data-canvas-inset (dockAttrs): its region's name, which follows the language, is not a selector (#518)
+  '[aria-label="Session transcript"]', '[aria-label="Execution timeline"]',
 ].join(',')
 
 /**

@@ -60,5 +60,7 @@ export interface CanvasProps {
   onShowAgentList?: () => void
   /** The single key that opens that list, quoted in the button's tooltip; null when single-key shortcuts are off */
   agentListKey?: string | null
+  /** #372: raised by Settings > General to open the View popover of the canvas controls (CanvasControls.openViewRequest) */
+  openViewRequest?: number
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

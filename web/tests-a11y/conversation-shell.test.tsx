@@ -45,7 +45,7 @@ async function mountDemo() {
 }
 
 const conversationRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Conversation' })
-const filesRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Files accessed by agents' })
+const filesRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Files & repeats observed' })
 const timelineRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Execution timeline' })
 
 test('the top bar button is named Conversation (C) and toggles the panel; key C does the same', async () => {

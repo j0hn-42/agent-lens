@@ -64,12 +64,12 @@ test('the palette and the top bar button give a panel the same name (WCAG 3.2.4)
     }
   }
   assert.deepEqual((['files', 'conversation', 'context', 'system', 'cost', 'timeline', 'stats'] as const).map(id => panelName('fr', id)),
-    ['Fichiers', 'Conversation', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques'])
+    ['Fichiers et répétitions', 'Conversation', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques'])
 })
 
-test('the headings of the panels are in the catalog, English unchanged', () => {
-  assert.equal(MESSAGES.en['panel.heading.files'], 'FILE ATTENTION')
+test('the headings of the panels are in the catalog (Files & repeats renamed by #518)', () => {
+  assert.equal(MESSAGES.en['panel.heading.files'], 'FILES & REPEATS')
   assert.equal(MESSAGES.en['panel.heading.timeline'], 'EXECUTION TIMELINE')
   assert.equal(MESSAGES.en['panel.heading.context'], 'PROJECT CONTEXT')
-  assert.equal(MESSAGES.fr['panel.heading.files'], 'ATTENTION AUX FICHIERS')
+  assert.equal(MESSAGES.fr['panel.heading.files'], 'FICHIERS ET RÉPÉTITIONS')
 })

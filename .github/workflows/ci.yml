@@ -74,11 +74,19 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm run test:a11y
 
-  e2e-a11y:
+  e2e-a11y-shard:
     # Layout-dependent checks jsdom cannot do: axe on the real page (including color
     # contrast), 320 px / 200 % reflow, prefers-reduced-motion and the full-page Tab order.
+    # The e2e files are split into shards balanced by measured duration (web/tests-a11y/e2e/shard-weights.json,
+    # #611); each shard runs its files one at a time, so one demo server at a time, like test:e2e.
+    name: e2e-a11y (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
+    strategy:
+      # A failing shard lets the others finish: every failure of the run stays visible.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
 
@@ -94,20 +102,59 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Chromium build, keyed on the lockfile (it pins the Playwright version). The system packages still come
+      # from --with-deps on every run. Only shard 1 saves, so the shards never race for one key.
+      - name: Restore Playwright browser
+        id: playwright-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install Chromium for Playwright
+        id: playwright-install
         run: pnpm --dir web exec playwright install --with-deps chromium
 
-      # test:e2e starts the demo app itself on a free port and stops it at the end
+      - name: Save Playwright browser
+        if: ${{ matrix.shard == 1 && steps.playwright-install.outcome == 'success' && steps.playwright-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
+
+      # No cache of the Turbopack dev cache (web/.next-e2e/dev/cache): tried in #611, it saved at most ~5 s per
+      # shard (within noise) for ~85 MB of cache per source state.
+
+      # Each test file starts the demo app itself on a free port and stops it at the end. The runner prints the
+      # files of the shard first, and its totals (tests, pass, fail...) at the end and in the job summary.
       - name: Browser accessibility tests (Playwright + axe-core)
-        run: pnpm --dir web run test:e2e
+        env:
+          E2E_SHARD: ${{ matrix.shard }}/4
+        run: pnpm --dir web run test:e2e:shard
 
       # One log per e2e file (web/test-results/demo-server-<file>.log): pid, attempt, port, time, identity of
       # the process listening on the port, then the server output. Read it first on a "connection refused" (#575).
+      # One artifact per shard (#581), with the shard's TAP report (e2e-shard-<n>.tap).
       - name: Demo server logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-demo-server-log
+          name: e2e-demo-server-log-shard-${{ matrix.shard }}
           path: web/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  e2e-a11y:
+    # The check branch protection requires (contexts[]=e2e-a11y). It runs even when a shard failed, was cancelled
+    # or never started (always()), and fails unless every shard succeeded: a skipped required check would pass.
+    needs: e2e-a11y-shard
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every e2e shard succeeded
+        env:
+          SHARDS_RESULT: ${{ needs.e2e-a11y-shard.result }}
+        run: |
+          echo "e2e-a11y-shard: $SHARDS_RESULT (a failing shard is the red job 'e2e-a11y (shard n/4)' of this run)"
+          test "$SHARDS_RESULT" = success

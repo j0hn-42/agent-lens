@@ -2,11 +2,14 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
-import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
+import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, SESSION_LIST_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
 import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from './cost-rollup'
 
 /** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
 const INCOMPLETE = ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')
+
+/** The one French name of the Files & repeats panel (#518, WCAG 3.2.4): the English one is PANEL_NAMES.files. */
+const FILES_PANEL_FR = 'Fichiers et répétitions'
 
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
@@ -90,7 +93,7 @@ const fr = {
   'settings.shortcuts': 'Voir les raccourcis clavier',
   'settings.section.reset': 'Préférences',
   'settings.reset': 'Réinitialiser les préférences',
-  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Fichiers, Conversation, Chronologie, Statistiques, Coût), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
+  'settings.reset.help': `Remet par défaut les panneaux gardés ouverts (${FILES_PANEL_FR}, Conversation, Chronologie, Statistiques, Coût), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions. L’état ouvert des panneaux Sessions, Contexte et Système n’est pas mémorisé : ils s’ouvrent à la demande.`,
   'settings.reset.ask': 'Remettre ces préférences par défaut ?',
   'settings.reset.confirm': 'Réinitialiser maintenant',
   'settings.reset.cancel': 'Annuler',
@@ -462,8 +465,8 @@ const fr = {
   'sessions.project.none': 'Aucun dépôt',
   // Top bar panel buttons (#523): an icon under 1280 px wide, so the name and the tooltip are translated here.
   // The visible label is the name without its shortcut ("Contexte (P)" shows "Contexte").
-  'topbar.panel.files.name': 'Fichiers',
-  'topbar.panel.files.tooltip': 'Fichiers (F)',
+  'topbar.panel.files.name': FILES_PANEL_FR,
+  'topbar.panel.files.tooltip': `${FILES_PANEL_FR} (F)`,
   'topbar.panel.conversation.name': 'Conversation (C)',
   'topbar.panel.conversation.tooltip': 'Conversation (C)',
   'topbar.panel.context.name': 'Contexte (P)',
@@ -516,7 +519,7 @@ const fr = {
   'palette.panel.toggle': 'Basculer le panneau {name}',
   'palette.panel.toggleList': 'Basculer la liste {name}',
   'palette.panel.toggleOverlay': 'Basculer la superposition {name}',
-  'palette.panelName.files': 'Fichiers',
+  'palette.panelName.files': FILES_PANEL_FR,
   'palette.panelName.context': 'Contexte',
   'palette.panelName.system': 'Système',
   'palette.panelName.cost': 'Coût',
@@ -565,7 +568,7 @@ const fr = {
   'legend.edge-parent': 'Trait épais : parent vers sous-agent (confirmé par les événements)',
   'legend.edge-unverified': 'Trait en tirets : lien de parenté non vérifié',
   'legend.edge-tool': 'Trait fin ambre : appel d’outil',
-  'legend.edge-file-conflict': 'Trait rouge tiret-point avec un losange : conflit de fichier, les deux agents ont modifié le même fichier (chaque modification observée comme réussie). Le panneau Fichiers liste les fichiers',
+  'legend.edge-file-conflict': `Trait rouge tiret-point avec un losange : conflit de fichier, les deux agents ont modifié le même fichier (chaque modification observée comme réussie). Le panneau ${FILES_PANEL_FR} liste les fichiers`,
   'legend.edge-badge-hidden': 'Pastille +N : N agents masqués dans une branche repliée (cliquer pour déplier)',
   'legend.edge-badge-active': 'Pastille verte : agents actifs dans une branche repliée',
   'legend.particle-dispatch': 'Point violet : tâche envoyée',
@@ -579,7 +582,7 @@ const fr = {
   'legend.session-halo': 'Halo en pointillés : session. Son libellé donne l’environnement d’exécution, l’espace de travail, le statut et le coût ; cliquer dessus pour zoomer sur le groupe',
   'legend.orchestrator': 'Hexagone plus grand avec une couronne et un badge « LEAD » (équipe) ou « MAIN » (session) : orchestrateur',
   'legend.mark-loop': 'Flèche circulaire sur un nœud : boucle observée (le même appel {repeat} fois de suite avec la même entrée, ou {cycle} cycles lecture → modification → échec sur un même fichier). Elle est peut-être terminée ; ouvrez l’agent pour voir les preuves',
-  'legend.mark-repeated': 'Double chevron sur un nœud : lectures ou appels répétés observés ({rule}). Une répétition peut être voulue ; le panneau Fichiers les liste',
+  'legend.mark-repeated': `Double chevron sur un nœud : lectures ou appels répétés observés ({rule}). Une répétition peut être voulue ; le panneau ${FILES_PANEL_FR} les liste`,
   'legend.repeatRule': 'un fichier relu sans modification vue entre-temps, le même Glob relancé sans écriture vue entre-temps, ou la même commande Bash relancée juste après elle-même',
   'legend.link-flight': 'Longs tirets (violet) : message en transit',
   'legend.link-recent': 'Trait plein vert : message récent',
@@ -847,7 +850,7 @@ const fr = {
   'tour.live.edge-parent': 'Un trait épais relie un parent à son sous-agent ; les événements confirment le lien.',
   'tour.live.edge-unverified': 'Un trait en tirets est un lien de parenté que les événements ne confirment pas : considérez-le comme non prouvé.',
   'tour.live.edge-tool': 'Un trait fin ambre relie un appel d’outil à son agent.',
-  'tour.live.edge-file-conflict': 'Un trait rouge tiret-point avec un losange relie deux agents qui ont modifié le même fichier, chaque modification observée comme réussie. Le panneau Fichiers liste les fichiers.',
+  'tour.live.edge-file-conflict': `Un trait rouge tiret-point avec un losange relie deux agents qui ont modifié le même fichier, chaque modification observée comme réussie. Le panneau ${FILES_PANEL_FR} liste les fichiers.`,
   'tour.live.edge-badge-hidden': 'Une pastille « +N » signifie que N agents sont masqués dans une branche repliée. Cliquez dessus pour déplier.',
   'tour.live.edge-badge-active': 'Une pastille verte compte les agents actifs d’une branche repliée.',
   'tour.live.particle-dispatch': 'Un point violet porte une tâche d’un parent à un sous-agent.',
@@ -862,7 +865,7 @@ const fr = {
   'tour.live.orchestrator': 'Une couronne avec un badge LEAD (équipe) ou MAIN (session) marque l’orchestrateur.',
   'tour.live.team-row': 'La légende liste chaque équipe avec son nombre de membres.',
   'tour.live.mark-loop': 'Une flèche circulaire sur un nœud : une boucle a été observée (le même appel {repeat} fois de suite avec la même entrée, ou {cycle} cycles lecture, modification, échec sur un même fichier). Elle est peut-être terminée. Ouvrez l’agent pour voir les preuves.',
-  'tour.live.mark-repeated': 'Un double chevron sur un nœud : des lectures ou des appels répétés ont été observés ({rule}). Une répétition peut être voulue. Le panneau Fichiers les liste.',
+  'tour.live.mark-repeated': `Un double chevron sur un nœud : des lectures ou des appels répétés ont été observés ({rule}). Une répétition peut être voulue. Le panneau ${FILES_PANEL_FR} les liste.`,
   'tour.live.link-flight': 'Longs tirets violets : un message est en transit.',
   'tour.live.link-recent': 'Un trait plein vert : un message est arrivé récemment.',
   'tour.live.link-error': 'Un trait pointillé rouge : le lien de message a signalé une erreur.',
@@ -902,7 +905,7 @@ const fr = {
   'tour.group.links': 'Liens entre agents',
   'tour.group.context': 'Fenêtre de contexte',
   'tour.group.discoveries': 'Découvertes',
-  'panel.heading.files': 'ATTENTION AUX FICHIERS',
+  'panel.heading.files': FILES_PANEL_FR.toLocaleUpperCase('fr'),
   'panel.heading.timeline': 'CHRONOLOGIE D’EXÉCUTION',
   'panel.heading.context': 'CONTEXTE DU PROJET',
   // 'Afficher : actifs / tous' (#372): one control replaces 'Masquer les agents inactifs' and 'Afficher les sessions terminées'.
@@ -1079,8 +1082,8 @@ const fr = {
   'tok.unavailable': 'jetons non communiqués',
   'tok.word': 'jetons',
   'tok.none': '— jetons',
-  'files.resize': 'Redimensionner le panneau des fichiers',
-  'files.region': 'Fichiers consultés par les agents',
+  'files.resize': `Redimensionner le panneau ${FILES_PANEL_FR}`,
+  'files.region': `${FILES_PANEL_FR} observés`,
   'files.empty': 'Aucun fichier pour l’instant',
   'files.emptyIncomplete': 'Aucun fichier observé (incomplet)',
   'files.conflicts.heading': '{heading} : fichiers modifiés par plusieurs agents',
@@ -1138,6 +1141,15 @@ const fr = {
   'waste.limit': 'Limite de suivi atteinte : cette liste est un minorant',
   'waste.bash': 'Les modifications faites via Bash ne sont pas vues ; une répétition peut être voulue.',
   'waste.open': 'Ouvrir {label}',
+  // #518 : résumé du dépliant, compté sur la même liste, avec ses réserves sous perte ; « observé », jamais « gaspillé »
+  'waste.summary.count.one': '{heading} : {n} observé',
+  'waste.summary.count.other': '{heading} : {n} observés',
+  'waste.summary.atLeast.one': '{heading} : au moins {n} observé',
+  'waste.summary.atLeast.other': '{heading} : au moins {n} observés',
+  'waste.summary.none': '{heading} : aucun observé',
+  'waste.summary.noneIncomplete': '{heading} : aucun observé (incomplet)',
+  'waste.summary.uncompared.one': '{text}, {n} appel non comparé',
+  'waste.summary.uncompared.other': '{text}, {n} appels non comparés',
   'ctx.refresh': 'Actualiser',
   'ctx.refresh.aria': 'Actualiser le contexte du projet',
   'ctx.unreadable': '{name} est présent mais n’a pas été lu ({reason}).',
@@ -1292,6 +1304,18 @@ const fr = {
 
   // #383 : annonce du mode revue, avec le nom du bouton tel qu’affiché dans la barre
   'announce.reviewMode': 'Mode revue, utilisez « {button} » pour revenir',
+  // #372, décisions du propriétaire : les deux filtres restent, la tête du panneau Sessions dit l’état des deux ; Réglages > Général
+  // renvoie au bouton Affichage. {n} = la fenêtre de la vue « Toutes les sessions », en minutes (show-mode.ts).
+  'sessions.scope.list.activeOnly': 'Liste : Actives seulement',
+  'sessions.scope.list.all': 'Liste : toutes les sessions',
+  'sessions.scope.list.filtered': 'Liste : filtrée',
+  'sessions.scope.list.activeOnlyFiltered': 'Liste : Actives seulement, filtrée',
+  'sessions.scope.canvas.hideAll': 'Canevas : Masquer les inactifs ({n} min)',
+  'sessions.scope.canvas.hideOne': 'Canevas : Masquer les inactifs',
+  'sessions.scope.canvas.off': 'Canevas : Masquer les inactifs désactivé',
+  'settings.section.view': 'Animations et cartes',
+  'settings.view.help': 'Se règlent avec le bouton Affichage sous le canevas : Figer les animations, Calmer par couche, Garder les cartes affichées, Masquer les appels sans réponse après.',
+  'settings.view.open': 'Ouvrir les réglages d’affichage',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1370,7 +1394,7 @@ const en: Record<MessageKey, string> = {
   'settings.shortcuts': 'View keyboard shortcuts',
   'settings.section.reset': 'Preferences',
   'settings.reset': 'Reset preferences',
-  'settings.reset.help': 'Restores the defaults of the panels kept open (Files, Conversation, Timeline, Stats, Cost), the hex grid, the Hide inactive filter, the session list filters (Active only among them), single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width.',
+  'settings.reset.help': `Restores the defaults of the panels kept open (${PANEL_NAMES.files}, Conversation, Timeline, Stats, Cost), the hex grid, the Hide inactive filter, the session list filters (Active only among them), single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width. Whether the Sessions, Context and System panels are open is not remembered: they open on demand.`,
   'settings.reset.ask': 'Restore these preferences to their defaults?',
   'settings.reset.confirm': 'Reset now',
   'settings.reset.cancel': 'Cancel',
@@ -1740,8 +1764,8 @@ const en: Record<MessageKey, string> = {
   'sessions.resize.value': '{px} pixels wide',
   'sessions.project.none': 'No repository',
   // Top bar panel buttons (#523): the names they had before the icons, unchanged
-  'topbar.panel.files.name': 'Files',
-  'topbar.panel.files.tooltip': 'Files (F)',
+  'topbar.panel.files.name': PANEL_NAMES.files,
+  'topbar.panel.files.tooltip': `${PANEL_NAMES.files} (F)`,
   'topbar.panel.conversation.name': 'Conversation (C)',
   'topbar.panel.conversation.tooltip': 'Conversation (C)',
   'topbar.panel.context.name': 'Context (P)',
@@ -1795,7 +1819,7 @@ const en: Record<MessageKey, string> = {
   'palette.panel.toggle': 'Toggle {name} panel',
   'palette.panel.toggleList': 'Toggle {name} list',
   'palette.panel.toggleOverlay': 'Toggle {name} overlay',
-  'palette.panelName.files': 'Files',
+  'palette.panelName.files': PANEL_NAMES.files,
   'palette.panelName.context': 'Context',
   'palette.panelName.system': 'System',
   'palette.panelName.cost': 'Cost',
@@ -1844,7 +1868,7 @@ const en: Record<MessageKey, string> = {
   'legend.edge-parent': 'Thick line: parent to sub-agent (confirmed by the events)',
   'legend.edge-unverified': 'Dashed line: parent link not verified',
   'legend.edge-tool': 'Thin amber line: tool call',
-  'legend.edge-file-conflict': 'Red dash-dot line with a diamond: file conflict, both agents edited the same file (each edit observed to succeed). The Files panel lists the files',
+  'legend.edge-file-conflict': `Red dash-dot line with a diamond: file conflict, both agents edited the same file (each edit observed to succeed). The ${PANEL_NAMES.files} panel lists the files`,
   'legend.edge-badge-hidden': '+N badge: N agents hidden in a folded branch (click to unfold)',
   'legend.edge-badge-active': 'Green badge: active agents in a folded branch',
   'legend.particle-dispatch': 'Purple dot: task dispatched',
@@ -1858,7 +1882,7 @@ const en: Record<MessageKey, string> = {
   'legend.session-halo': 'Dotted halo: session. Its label gives runtime, workspace, status and cost; click it to zoom to the cluster',
   'legend.orchestrator': 'Larger hexagon with a crown and a LEAD (team) or MAIN (session) badge: orchestrator',
   'legend.mark-loop': 'Circular arrow on a node: loop observed (the same call {repeat} times in a row with the same input, or {cycle} read → edit → failure cycles on one file). It may be over; open the agent for the evidence',
-  'legend.mark-repeated': 'Double chevron on a node: repeated reads or calls observed ({rule}). A repeat may be intended; the Files panel lists them',
+  'legend.mark-repeated': `Double chevron on a node: repeated reads or calls observed ({rule}). A repeat may be intended; the ${PANEL_NAMES.files} panel lists them`,
   'legend.repeatRule': 'a file read again with no edit seen in between, the same Glob run again with no write seen in between, or the same Bash command run again right after itself',
   'legend.link-flight': 'Long dashes (purple): message in flight',
   'legend.link-recent': 'Solid green: recent message',
@@ -2126,7 +2150,7 @@ const en: Record<MessageKey, string> = {
   'tour.live.edge-parent': 'A thick line joins a parent to its sub-agent; the events confirm the link.',
   'tour.live.edge-unverified': 'A dashed line is a parent link that the events do not confirm: treat it as unproven.',
   'tour.live.edge-tool': 'A thin amber line joins a tool call to its agent.',
-  'tour.live.edge-file-conflict': 'A red dash-dot line with a diamond joins two agents that edited the same file, each edit observed to succeed. The Files panel lists the files.',
+  'tour.live.edge-file-conflict': `A red dash-dot line with a diamond joins two agents that edited the same file, each edit observed to succeed. The ${PANEL_NAMES.files} panel lists the files.`,
   'tour.live.edge-badge-hidden': 'A "+N" badge means N agents are hidden in a folded branch. Click it to unfold.',
   'tour.live.edge-badge-active': 'A green badge counts the active agents of a folded branch.',
   'tour.live.particle-dispatch': 'A purple dot carries a task from a parent to a sub-agent.',
@@ -2141,7 +2165,7 @@ const en: Record<MessageKey, string> = {
   'tour.live.orchestrator': 'A crown with a LEAD (team) or MAIN (session) badge marks the orchestrator.',
   'tour.live.team-row': 'The legend lists each team with its member count.',
   'tour.live.mark-loop': 'A circular arrow on a node: a loop was observed (the same call {repeat} times in a row with the same input, or {cycle} read, edit, failure cycles on one file). It may be over. Open the agent for the evidence.',
-  'tour.live.mark-repeated': 'A double chevron on a node: repeated reads or calls were observed ({rule}). A repeat may be intended. The Files panel lists them.',
+  'tour.live.mark-repeated': `A double chevron on a node: repeated reads or calls were observed ({rule}). A repeat may be intended. The ${PANEL_NAMES.files} panel lists them.`,
   'tour.live.link-flight': 'Long purple dashes: a message is in flight.',
   'tour.live.link-recent': 'A solid green line: a message arrived recently.',
   'tour.live.link-error': 'A dotted red line: the message link reported an error.',
@@ -2181,7 +2205,7 @@ const en: Record<MessageKey, string> = {
   'tour.group.links': 'Links between agents',
   'tour.group.context': CONTEXT_WINDOW_NAME,
   'tour.group.discoveries': 'Discoveries',
-  'panel.heading.files': 'FILE ATTENTION',
+  'panel.heading.files': PANEL_NAMES.files.toLocaleUpperCase('en'),
   'panel.heading.timeline': 'EXECUTION TIMELINE',
   'panel.heading.context': 'PROJECT CONTEXT',
   // 'Show: active / all' (#372): the label and the More entry come from the glossary
@@ -2354,8 +2378,8 @@ const en: Record<MessageKey, string> = {
   'tok.unavailable': 'tokens not reported',
   'tok.word': 'tokens',
   'tok.none': '— tokens',
-  'files.resize': 'Resize files panel',
-  'files.region': 'Files accessed by agents',
+  'files.resize': `Resize ${PANEL_NAMES.files} panel`,
+  'files.region': `${PANEL_NAMES.files} observed`,
   'files.empty': 'No files yet',
   'files.emptyIncomplete': 'No file observed (incomplete)',
   'files.conflicts.heading': '{heading}: files edited by several agents',
@@ -2413,6 +2437,15 @@ const en: Record<MessageKey, string> = {
   'waste.limit': 'Tracking limit reached: this list is a lower bound',
   'waste.bash': 'Edits made through Bash are not seen; a repeat may be intended.',
   'waste.open': 'Open {label}',
+  // #518: summary of the disclosure, counted on the same list, with its qualifiers under loss; "observed", never "wasted"
+  'waste.summary.count.one': '{heading}: {n} observed',
+  'waste.summary.count.other': '{heading}: {n} observed',
+  'waste.summary.atLeast.one': '{heading}: at least {n} observed',
+  'waste.summary.atLeast.other': '{heading}: at least {n} observed',
+  'waste.summary.none': '{heading}: none observed',
+  'waste.summary.noneIncomplete': '{heading}: none observed (incomplete)',
+  'waste.summary.uncompared.one': '{text}, {n} call not compared',
+  'waste.summary.uncompared.other': '{text}, {n} calls not compared',
   'ctx.refresh': 'Refresh',
   'ctx.refresh.aria': 'Refresh project context',
   'ctx.unreadable': '{name} is present but was not read ({reason}).',
@@ -2567,6 +2600,18 @@ const en: Record<MessageKey, string> = {
 
   // #383: announcement of review mode, naming the button as the bar shows it
   'announce.reviewMode': 'Review mode, use {button} to return',
+  // #372, the owner's decisions: the two filters stay, the head of the Sessions panel says both states; Settings > General
+  // points to the View button. {n} = the window of the All sessions view, in minutes (show-mode.ts).
+  'sessions.scope.list.activeOnly': `List: ${SESSION_LIST_LABELS.activeOnly}`,
+  'sessions.scope.list.all': 'List: all sessions',
+  'sessions.scope.list.filtered': 'List: filtered',
+  'sessions.scope.list.activeOnlyFiltered': `List: ${SESSION_LIST_LABELS.activeOnly}, filtered`,
+  'sessions.scope.canvas.hideAll': `Canvas: ${TOP_BAR_LABELS.filterHideInactive} ({n} min)`,
+  'sessions.scope.canvas.hideOne': `Canvas: ${TOP_BAR_LABELS.filterHideInactive}`,
+  'sessions.scope.canvas.off': `Canvas: ${TOP_BAR_LABELS.filterHideInactive} off`,
+  'settings.section.view': 'Motion and cards',
+  'settings.view.help': 'Set from the View button under the canvas: Freeze motion, Calm by layer, Pin cards, Hide unanswered calls after.',
+  'settings.view.open': 'Open View controls',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

@@ -10,7 +10,7 @@
 import { translate, type Locale, type MessageKey } from './messages'
 import { FILE_TIMELINE_MAX_STEPS } from './file-timeline'
 import type { UsageTotal } from './usage'
-import type { WasteItem } from './waste'
+import type { WasteItem, RepeatsDisclosure } from './waste'
 import type { FileConflict } from './file-conflicts'
 import type { ChecksSummary } from './session-work'
 import type { PairState } from './pair-filter'
@@ -209,6 +209,15 @@ export function wasteDescribeText(locale: Locale, item: WasteItem, lost = 0): st
 export function wasteTokensText(locale: Locale, item: WasteItem): string {
   if (item.costsKnown === 0) return t(locale, 'tok.unavailable')
   return tokensSpoken(locale, { value: item.tokens, status: item.costsUnknown > 0 ? 'partial' : 'available', estimated: item.estimated })
+}
+
+/** Summary of the folded section: "Repeated reads and calls: at least 5 observed, 2 calls not compared"; never a bare 0. */
+export function wasteDisclosureText(locale: Locale, d: RepeatsDisclosure): string {
+  const heading = t(locale, 'waste.heading')
+  const base = d.count > 0
+    ? pluralText(locale, d.lowerBound ? 'waste.summary.atLeast' : 'waste.summary.count', d.count, { heading })
+    : t(locale, d.lowerBound ? 'waste.summary.noneIncomplete' : 'waste.summary.none', { heading })
+  return d.uncompared > 0 ? pluralText(locale, 'waste.summary.uncompared', d.uncompared, { text: base }) : base
 }
 
 // ---- Context panel

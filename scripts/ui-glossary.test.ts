@@ -17,7 +17,7 @@ const msg = (id: string, type: ConversationMessage['type'], timestamp: number, c
   ({ id, type, timestamp, content, ...extra })
 
 test('the glossary fixes the panel names and the agent hierarchy', () => {
-  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats', system: 'System' })
+  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files & repeats', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats', system: 'System' })
   assert.equal(HIERARCHY_TERMS.main, 'Main')
   assert.equal(HIERARCHY_TERMS.lead, 'Lead')
 })
@@ -47,7 +47,7 @@ test('the Conversation button is named with its shortcut and the pill/close cont
 test('the shortcuts table names the panels with the glossary words; key C toggles the Conversation panel', () => {
   const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
   assert.equal(byKey.get('c')!.description, 'Toggle Conversation panel')
-  assert.equal(byKey.get('f')!.description, 'Toggle Files panel')
+  assert.equal(byKey.get('f')!.description, 'Toggle Files & repeats panel')
   assert.equal(byKey.get('t')!.description, 'Toggle Timeline panel')
   assert.equal(byKey.get('$')!.description, 'Toggle Cost overlay')
   for (const s of SHORTCUTS) assert.ok(!/transcript|chat|message feed/i.test(s.description), `old vocabulary in: ${s.description}`)
@@ -130,8 +130,8 @@ test('no accented character in UI code outside comments (the UI is English only,
 test('hidden panels sentence (#410): names the open panels a sheet hides, nothing when none', () => {
   assert.equal(hiddenPanelsText([]), '')
   assert.equal(hiddenPanelsText(['conversation']), '1 panel hidden: Conversation. Close the panel shown to see it.')
-  assert.equal(hiddenPanelsText(['detail', 'files', 'link']), '3 panels hidden: Agent card, Files, Link. Close the panel shown to see Link.')
-  assert.equal(hiddenPanelsText(['files', 'timeline']), '2 panels hidden: Files, Timeline. Close the panel shown to see Timeline.')
+  assert.equal(hiddenPanelsText(['detail', 'files', 'link']), '3 panels hidden: Agent card, Files & repeats, Link. Close the panel shown to see Link.')
+  assert.equal(hiddenPanelsText(['files', 'timeline']), '2 panels hidden: Files & repeats, Timeline. Close the panel shown to see Timeline.')
   // Context takes the Files slot of the dock: it is named Context while it is the one open
   assert.equal(hiddenPanelsText(['files'], { context: true }), '1 panel hidden: Context. Close the panel shown to see it.')
 })

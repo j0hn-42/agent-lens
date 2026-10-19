@@ -8,7 +8,7 @@ import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
 /** The panels of the app, under the one name each is called everywhere. */
 export const PANEL_NAMES = {
   conversation: 'Conversation',
-  files: 'Files',
+  files: 'Files & repeats',
   timeline: 'Timeline',
   cost: 'Cost',
   context: 'Context',
@@ -241,9 +241,9 @@ const DOCK_PANEL_NAMES: Record<PanelId, string> = {
  * oldest first: the sheet shows the newest, so closing it brings back the last hidden one. Context shares the
  * 'files' slot of the dock, so `context` names that slot Context instead of Files.
  */
-export function hiddenPanelsText(ids: readonly PanelId[], opts: { context?: boolean } = {}): string {
+export function hiddenPanelsText(ids: readonly PanelId[], opts: { context?: boolean; /** name of the Files panel in the language (default: English) */ files?: string } = {}): string {
   if (ids.length === 0) return ''
-  const names = ids.map(id => (id === 'files' && opts.context ? PANEL_NAMES.context : DOCK_PANEL_NAMES[id]))
+  const names = ids.map(id => (id === 'files' ? (opts.context ? PANEL_NAMES.context : opts.files ?? PANEL_NAMES.files) : DOCK_PANEL_NAMES[id]))
   const one = ids.length === 1
   return `${ids.length} ${one ? 'panel' : 'panels'} hidden: ${names.join(', ')}. Close the panel shown to see ${one ? 'it' : names[names.length - 1]}.`
 }
