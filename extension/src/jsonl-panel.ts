@@ -4,8 +4,9 @@
  * Each connection reads the file from its first byte (event-source.ts), so connecting the same file again, or going
  * back to it (agentVisualizer.eventLogPath A -> B -> A), emits the lines counted before once more. The sessions a
  * connection emitted are released when it is disconnected, and the first read of the next connection counts as a
- * history read again: a session then counts max(before, read again) + the lines after (panel-loss.ts), never the sum.
- * Lines appended while no source was connected are part of that first read: the max takes them in.
+ * history read again: a session still in the ledger then counts max(before, read again) + the lines after
+ * (panel-loss.ts); one dropped from it meanwhile (past 200 sessions) counts the read again alone. Lines appended
+ * while no source was connected are part of that first read: the max takes them in.
  *
  * At most JSONL_COUNTED_SESSIONS_MAX sessions per connection are counted (and released); the events of the sessions
  * beyond are left out of the figure, which stays a lower bound.

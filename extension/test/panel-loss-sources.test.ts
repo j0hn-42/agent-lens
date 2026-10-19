@@ -74,6 +74,42 @@ describe('JSONL event log connected again (#605 review)', () => {
     try { assert.deepEqual(figure(), { 'log-1': 2 }) } finally { again.disconnect() }
   })
 
+  /** Everything the page would be told, a running total of other sessions included if there were one */
+  const total = () => {
+    const loss = m.panelLoss.snapshotAfterReplay(() => {}) as { evicted: Record<string, number>; otherEvents?: number } | null
+    return loss ? Object.values(loss.evicted).reduce((x, y) => x + y, 0) + (loss.otherEvents ?? 0) : 0
+  }
+  const many = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => ev(`${prefix}${i}`, i)).join('')
+
+  it('A -> B -> A with 200 sessions in B: never more than the 250 events proven (#605 review round 2, B1)', () => {
+    const a = path.join(dir, 'a.jsonl')
+    const b = path.join(dir, 'b.jsonl')
+    fs.writeFileSync(a, Array.from({ length: 50 }, (_, i) => ev('a1', i)).join(''))
+    fs.writeFileSync(b, many('b', 200))
+    connect(a).disconnect()
+    connect(b).disconnect()
+    const again = connect(a)
+    try {
+      const shown = total()
+      assert.ok(shown <= 250, `shown ${shown}, proven 250`)
+      assert.equal(figure().a1, 50)
+    } finally { again.disconnect() }
+  })
+
+  it('disconnecting a log of 201 sessions keeps the other sources\' figure (#605 review round 2, M1)', () => {
+    const a = path.join(dir, 'a.jsonl')
+    fs.writeFileSync(a, many('j', 201))
+    const conn = connect(a)
+    // Another source (a Claude session) emits after the log was read: the most recent session
+    for (let i = 0; i < 10; i++) m.panelLoss.note({ time: i, type: 'message', payload: {}, sessionId: 'claude-1' } as unknown as AgentEvent)
+    conn.disconnect()
+    const after = figure()
+    assert.equal(after['claude-1'], 10)
+    const shown = total()
+    assert.ok(shown > 10, `the log's named sessions keep their count too (shown ${shown})`)
+    assert.ok(shown <= 211)
+  })
+
   it('the events reach the panel unchanged (no replayed marker added)', () => {
     const a = path.join(dir, 'a.jsonl')
     fs.writeFileSync(a, ev('log-1', 1))
