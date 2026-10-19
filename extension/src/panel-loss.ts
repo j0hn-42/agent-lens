@@ -34,7 +34,10 @@ export interface PanelLossSnapshot {
   evicted: Record<string, number>
 }
 
-/** One session's count. Before any release, `base` and `reread` are 0 and the count is `live`. */
+/**
+ * One session's count. Before any release `base` is 0, so the count is `reread + live`: where a history event goes
+ * makes no difference until a release gives `base` a value.
+ */
 interface SessionCount {
   /** Lower bound of the distinct events counted before the last release */
   base: number
@@ -42,7 +45,6 @@ interface SessionCount {
   reread: number
   /** Other events since the last release (or since the start): new ones */
   live: number
-  released: boolean
 }
 
 const cap = (n: number): number => Math.min(n, Number.MAX_SAFE_INTEGER)
@@ -80,7 +82,7 @@ export class PanelLossLedger {
     // A copy that reaches the open page stands for at most one event of that session it lacked (released or not)
     if (again) this.lowerPage(sid)
     const s = this.touch(sid)
-    if (s.released && again) s.reread = cap(s.reread + 1)
+    if (again) s.reread = cap(s.reread + 1)
     else s.live = cap(s.live + 1)
     this.drop()
   }
@@ -99,7 +101,6 @@ export class PanelLossLedger {
     s.base = total(s)
     s.reread = 0
     s.live = 0
-    s.released = true
   }
 
   /**
@@ -137,7 +138,7 @@ export class PanelLossLedger {
   }
 
   private touch(sid: string): SessionCount {
-    const s = this.sessions.get(sid) ?? { base: 0, reread: 0, live: 0, released: false }
+    const s = this.sessions.get(sid) ?? { base: 0, reread: 0, live: 0 }
     this.sessions.delete(sid)
     this.sessions.set(sid, s)
     return s
