@@ -30,6 +30,7 @@ import { useToastCenter } from "@/hooks/use-toast-center"
 import { useDialogsState } from "@/hooks/use-dialogs-state"
 import { useCanvasSelection } from "@/hooks/use-canvas-selection"
 import { useVisualizerShortcuts } from "@/hooks/use-visualizer-shortcuts"
+import { FOCUSABLE } from "@/hooks/use-focus-return"
 import { useChromeData } from "@/hooks/use-chrome-data"
 import { usePaletteItems } from "@/hooks/use-palette-items"
 import { usePanelsState } from "@/hooks/use-panels-state"
@@ -128,6 +129,14 @@ export function AgentVisualizer() {
     showContext, setShowContext, showSystem, setShowSystem,
     toggleExclusivePanel, openConversation, closeConversation, closeTopPanel, registerPanel,
   } = panels
+  // "N names hidden" (#594): opens the Sessions and agents list, or, when it is already open, moves the focus to the
+  // list's Tab stop (the row that takes Tab), not to the resize handle drawn before the header
+  const sessionsPanelRef = panels.panelRefs.sessions
+  const showAgentList = useCallback(() => {
+    const panel = sessionsPanelRef.current
+    if (showSessions) (panel?.querySelector<HTMLElement>('[data-row-main][tabindex="0"]') ?? panel?.querySelector<HTMLElement>(FOCUSABLE))?.focus()
+    else setShowSessions(true)
+  }, [showSessions, setShowSessions, sessionsPanelRef])
 
   // Relay origin for on-demand reads ('' = same origin, standalone app)
   const contextOrigin = bridge.relayPort ? `http://127.0.0.1:${bridge.relayPort}` : ''
@@ -416,6 +425,8 @@ export function AgentVisualizer() {
         health={health.byAgent}
         replayLost={replayLostBySession}
         presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
+        onShowAgentList={showAgentList}
+        agentListKey={singleKeyShortcuts ? "L" : null}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}

@@ -337,16 +337,15 @@ test('320x568 worst case in French: no sideways scroll, nothing cropped', async 
         if (r.left < -0.5 || r.right > w + 0.5 || r.right > hb.right + 0.5 || r.left < hb.left - 0.5) bad.push(name + ' ' + r.left.toFixed(1) + '..' + r.right.toFixed(1))
         else if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible') bad.push('text cut in ' + name)
       }
-      // Text cut with an ellipsis (class truncate): the full text stays in the DOM for screen readers, but a sighted person loses it
+      // Text cut with an ellipsis: the full text stays in the DOM for screen readers, but a sighted person loses it
       const ellipsis = [...header.querySelectorAll('*')].filter(e => getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1).map(e => (e.textContent || '').trim())
       return { bad, ellipsis, header: header.scrollWidth <= header.clientWidth + 1, bar: hb.height, controls: [...header.querySelectorAll('button, select')].filter(e => e.getBoundingClientRect().width > 1).length }
     })()`) as { bad: string[]; ellipsis: string[]; header: boolean; bar: number; controls: number }
     console.log(`#500 320px worst case fr: bar ${out.bar} px, ${out.controls} controls drawn, outside the window or clipped: ${out.bad.length}; cut with an ellipsis: ${JSON.stringify(out.ellipsis)}`)
     assert.deepEqual(out.bad, [])
     assert.ok(out.header, 'the bar does not scroll inside itself')
-    // Known, measured: the Sessions label (max-width 320 px, class truncate) loses its end when the "not observed" suffix is
-    // drawn next to it in French. Nothing else may be cut; the label is whole in the DOM (and for screen readers).
-    assert.deepEqual(out.ellipsis.filter(t => !t.startsWith('Sessions')), [], 'only the Sessions label is cut with an ellipsis')
+    // No text of the bar is cut with an ellipsis, the Sessions label included (#595)
+    assert.deepEqual(out.ellipsis, [])
   } finally {
     await page.context().close()
   }

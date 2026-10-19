@@ -56,5 +56,9 @@ export interface CanvasProps {
   health?: ReadonlyMap<string, HealthVerdict>
   /** Events the relay could not replay, per session id (#366): the tool count and the cost figures of that session's agents are lower bounds. Absent = none known */
   replayLost?: ReadonlyMap<string, number>
+  /** Opens the Sessions and agents list (the L panel): the "N names hidden" button of the canvas controls (#594). Absent = no button */
+  onShowAgentList?: () => void
+  /** The single key that opens that list, quoted in the button's tooltip; null when single-key shortcuts are off */
+  agentListKey?: string | null
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

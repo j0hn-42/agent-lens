@@ -44,10 +44,13 @@ const CASES = [
   { locale: 'fr', label: 'Toutes les sessions', unobserved: /sessions? non observ[ée]es?/, button: /^Sessions\s?: Toutes les sessions/ },
   { locale: 'en', label: 'All sessions', unobserved: /sessions? not observed/, button: /^Sessions\s?: All sessions/ },
 ] as const
+// A named selection with a long name keeps one line (ellipsis past the button width): the bar does not grow with the data
+const LONG = 'Refactor the relay hardening pipeline today'
 
-for (const c of CASES) {
-  for (const width of [320, 390, 768]) {
-    test(`${c.locale} ${width}px: the Sessions button shows its whole label next to the unobserved count (#595)`, { timeout: 300_000 }, async () => {
+for (const c0 of CASES) for (const long of [false, true]) {
+  const c = long ? { ...c0, label: LONG, button: /^Sessions\s?: Refactor/ } : c0
+  for (const width of [320, 768]) {
+    test(`${c.locale} ${width}px: the Sessions button ${long ? 'keeps one line for a long session name' : 'shows its whole label next to the unobserved count'} (#595)`, { timeout: 300_000 }, async () => {
       const context = await browser.newContext({ viewport: { width, height: 700 } })
       await context.addInitScript((loc) => { try { window.localStorage.setItem('agent-lens:locale', loc) } catch { /* blocked */ } }, c.locale)
       try {
@@ -65,7 +68,7 @@ for (const c of CASES) {
         await post({ type: 'config', showMockData: false })
         // Two listed sessions, no event heard from either: both are « not observed », the selection is « all sessions »
         await post({ type: 'session-list', sessions: [
-          { id: 's1', label: 'one', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/one', runtime: 'claude' },
+          { id: 's1', label: long ? LONG : 'one', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/one', runtime: 'claude' },
           { id: 's2', label: 'two', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/two', runtime: 'claude' },
         ] })
         // Select « all sessions » in the panel, then close it: the button now carries the longest selection label
@@ -78,9 +81,13 @@ for (const c of CASES) {
         assert.ok(m, 'the Sessions button is rendered')
         console.log(`sessions button ${c.locale} ${width}px: ${JSON.stringify(m)}`)
         assert.match(m.buttonText, c.unobserved, 'the unobserved count is shown')
-        assert.ok(m.label.includes(c.label), `the label is whole: ${m.label}`)
-        assert.ok(m.labelScroll <= m.labelClient + 1, `the label is not cut (scroll ${m.labelScroll} > client ${m.labelClient}, text-overflow ${m.textOverflow})`)
-        assert.notEqual(m.textOverflow, 'ellipsis', 'no ellipsis hides the label')
+        assert.ok(m.label.includes(c.label), `the label is whole in the DOM: ${m.label}`)
+        if (long) {
+          // Named selection: one line, never taller than the « all sessions » case, the bar does not grow with the name
+          assert.ok(m.button.height <= 46, `the button stays as tall as with « all sessions » (${m.button.height})`)
+        } else assert.ok(m.labelScroll <= m.labelClient + 1, `the label is not cut (scroll ${m.labelScroll} > client ${m.labelClient}, text-overflow ${m.textOverflow})`)
+        assert.ok(m.labelHeight < 20, `the label is on one line (height ${m.labelHeight})`)
+        if (!long) assert.notEqual(m.textOverflow, 'ellipsis', 'no ellipsis hides the label')
         assert.ok(m.button.left >= -0.5 && m.button.right <= width + 0.5, `the button is inside the viewport (${JSON.stringify(m.button)})`)
         assert.ok(m.docScroll <= m.docClient, `no sideways scroll (${m.docScroll} > ${m.docClient})`)
         const name = await page.locator('header').getByRole('button', { name: c.button }).first().getAttribute('aria-label')

@@ -500,7 +500,8 @@ export const TopBar = memo(function TopBar({
             wrap
             style={{ maxWidth: 'min(320px, 100%)' }}
           >
-            <span className="min-w-0 max-w-full break-words" data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
+            {/* The « all sessions » label wraps (#595); a named selection keeps one line, ending in an ellipsis past the button width, so a long name does not grow the bar */}
+            <span className={`min-w-0 max-w-full ${selectedSessionId === null || selectedSessionId === ALL_SESSIONS_ID ? 'break-words' : 'truncate'}`} data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
             <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
             {lossMarked && (
               // A symbol, never a colour alone; its words are read with the button name
