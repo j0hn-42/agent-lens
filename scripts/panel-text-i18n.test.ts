@@ -5,15 +5,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as P from '../web/lib/panel-text'
 import { MESSAGES, LOCALES, type MessageKey } from '../web/lib/messages'
-import { describeWaste, formatWasteTokens, type WasteItem } from '../web/lib/waste'
-import { conflictHeading, describeConflictEditors, type FileConflict } from '../web/lib/file-conflicts'
-import { boundedCount, replayLostSentence } from '../web/lib/event-loss'
+import { describeWaste, type WasteItem } from '../web/lib/waste'
+import { describeConflictEditors, type FileConflict } from '../web/lib/file-conflicts'
+import { boundedCount } from '../web/lib/event-loss'
 import { formatDroppedMessages } from '../web/lib/chrome-utils'
-import { checksLabel, type ChecksSummary } from '../web/lib/session-work'
-import { FILE_TIMELINE_LABELS, GIT_STRIP_LABELS, groupHeading, memberNoun } from '../web/lib/ui-glossary'
-import { pairChipLabel, pairSpokenLabel, pairAnnouncement, pairEmptyText, type PairState } from '../web/lib/pair-filter'
+import { type ChecksSummary } from '../web/lib/session-work'
+import { GIT_STRIP_LABELS, groupHeading, memberNoun } from '../web/lib/ui-glossary'
+import { type PairState } from '../web/lib/pair-filter'
 import { formatTokenUsage, qualify, type UsageTotal } from '../web/lib/usage'
-import { RESUME_UNAVAILABLE_TEXT } from '../web/lib/resume-command'
 import { teamChipGroups, COMM_LABELS } from '../web/lib/feed-utils'
 import { ROLE_COLORS } from '../web/lib/colors'
 import { COMPACTION_LABEL } from '../web/lib/compaction'
@@ -36,7 +35,7 @@ const ITEMS: WasteItem[] = [
 
 test('English: waste sentences and token costs are the ones of lib/waste', () => {
   for (const it of ITEMS) for (const lost of [0, 5]) assert.equal(P.wasteDescribeText('en', it, lost), describeWaste(it, lost))
-  for (const it of ITEMS) assert.equal(P.wasteTokensText('en', it), formatWasteTokens(it))
+  assert.deepEqual(ITEMS.map(it => P.wasteTokensText('en', it)), ['tokens not reported', 'at least 400 estimated tokens', '90 tokens', '90 estimated tokens'])
 })
 
 test('French: a repeat keeps its count and its lower bound; an unreported cost stays unreported', () => {
@@ -65,7 +64,7 @@ const CONFLICT: FileConflict = { path: '/a.ts', lastEditTime: 1, editors: [{ age
 test('English: conflicts are worded like lib/file-conflicts', () => {
   const label = (k: string) => k.split(':')[1]
   assert.equal(P.conflictEditorsText('en', CONFLICT, label), describeConflictEditors(CONFLICT, label))
-  for (const [n, lost] of [[0, 0], [0, 3], [1, 0], [2, 0], [1, 3], [4, 2]] as const) assert.equal(P.conflictHeadingText('en', n, lost), conflictHeading(n, lost))
+  for (const [n, lost] of [[0, 0], [0, 3], [1, 0], [2, 0], [1, 3], [4, 2]] as const) assert.equal(P.conflictHeadingText('en', n, lost), n > 0 ? `${lost > 0 ? 'at least ' : ''}${n} ${n === 1 ? 'conflict' : 'conflicts'}` : lost > 0 ? 'No conflict in the observed part' : null)
 })
 
 test('French: a conflict count keeps its lower bound, and no conflict is only said for the observed part', () => {
@@ -77,9 +76,11 @@ test('French: a conflict count keeps its lower bound, and no conflict is only sa
   assert.equal(P.conflictHeadingText('fr', 0, 0), null)
 })
 
-test('English: counts over an incomplete graph are the ones of boundedCount, the lost sentence of replayLostSentence', () => {
+test('English: counts over an incomplete graph are the ones of boundedCount, the lost sentence spelled out', () => {
   for (const [n, lost] of [[0, 0], [0, 2], [1, 0], [3, 0], [1, 4], [5, 4]] as const) assert.equal(P.boundedFilesText('en', n, lost), boundedCount(n, lost, 'file'))
-  for (const lost of [0, 1, 7]) assert.equal(P.lostSentence('en', lost), replayLostSentence(lost))
+  assert.equal(P.lostSentence('en', 0), '')
+  assert.equal(P.lostSentence('en', 1), 'at least 1 earlier event was not replayed by the relay')
+  assert.equal(P.lostSentence('en', 7), 'at least 7 earlier events were not replayed by the relay')
   assert.equal(P.boundedFilesText('fr', 0, 2), 'aucun fichier observé (incomplet)')
   assert.equal(P.boundedFilesText('fr', 3, 2), 'au moins 3 fichiers')
   assert.equal(P.boundedFilesText('fr', 1, 0), '1 fichier')
@@ -87,15 +88,18 @@ test('English: counts over an incomplete graph are the ones of boundedCount, the
   assert.equal(P.lostSentence('fr', 7), 'au moins 7 événements antérieurs n’ont pas été rejoués par le relais')
 })
 
-test('English: the file timeline sentences are the ones of FILE_TIMELINE_LABELS', () => {
-  const L = FILE_TIMELINE_LABELS
-  for (const n of [1, 2, 9]) for (const inc of [false, true]) assert.equal(P.fileTimelineText('en').summary(n, inc), L.summary(n, inc))
-  assert.equal(P.fileTimelineText('en').summaryOf('/a.ts').trim(), L.summaryOf('/a.ts').trim())
-  for (const n of [1, 4]) assert.equal(P.fileTimelineText('en').omitted(n), L.omitted(n))
-  assert.equal(P.fileTimelineText('en').list('/a.ts'), L.list('/a.ts'))
-  assert.equal(P.fileTimelineText('en').noCallId, L.noCallId)
-  assert.equal(P.fileTimelineText('en').noCommits, L.noCommits)
-  for (const k of ['read', 'edited', 'written'] as const) assert.equal(P.fileTimelineText('en').kinds[k], L.kinds[k])
+test('English: the file timeline sentences are the original ones', () => {
+  const en = P.fileTimelineText('en')
+  assert.equal(en.summary(1, false), '1 step observed')
+  assert.equal(en.summary(2, false), '2 steps observed')
+  assert.equal(en.summary(9, true), '9 steps observed (incomplete)')
+  assert.equal(en.summaryOf('/a.ts').trim(), 'of /a.ts')
+  assert.match(en.omitted(1), /^1 earlier step not kept \(the \d+ most recent are listed\)$/)
+  assert.match(en.omitted(4), /^4 earlier steps not kept \(the \d+ most recent are listed\)$/)
+  assert.equal(en.list('/a.ts'), 'Steps of /a.ts')
+  assert.equal(en.noCallId, 'call id not reported')
+  assert.equal(en.noCommits, 'Commits are not shown: no observed event ties a file to a commit.')
+  assert.deepEqual(en.kinds, { read: 'read', edited: 'edited', written: 'written' })
   assert.equal(P.fileTimelineText('fr').summary(3, true), '3 étapes observées (incomplet)')
   assert.equal(P.fileTimelineText('fr').summary(1, false), '1 étape observée')
 })
@@ -122,15 +126,19 @@ test('English: dropped markers, new-message counts, copy and export messages are
   assert.equal(P.t('en', 'conv.exportFailed'), 'Export failed: this view cannot save files')
 })
 
-test('English: pair filter texts are the ones of lib/pair-filter', () => {
+test('English: pair filter texts, in English', () => {
   const nameOf = (k: string) => k.toUpperCase()
   const pairs: PairState[] = [{ a: '', b: '' }, { a: 'x', b: '' }, { a: '', b: 'y' }, { a: 'x', b: 'x' }, { a: 'x', b: 'y' }]
-  for (const p of pairs) {
-    assert.equal(P.pairChipLabelText(p, nameOf), pairChipLabel(p, nameOf))
-    assert.equal(P.pairSpokenText('en', p, nameOf), pairSpokenLabel(p, nameOf))
-    for (const count of [0, 1, 4]) assert.equal(P.pairAnnouncementText('en', p, nameOf, count), pairAnnouncement(p, nameOf, count))
-    assert.equal(P.pairEmptyTextT('en', p, nameOf), pairEmptyText(p, nameOf))
-  }
+  assert.equal(P.pairChipLabelText(pairs[4], nameOf), 'X ↔ Y')
+  assert.equal(P.pairChipLabelText(pairs[1], nameOf), 'X ↔ ...')
+  assert.equal(P.pairSpokenText('en', pairs[1], nameOf), 'X and no agent')
+  assert.equal(P.pairSpokenText('en', pairs[4], nameOf), 'X and Y')
+  assert.equal(P.pairAnnouncementText('en', pairs[0], nameOf, 0), 'Pair filter cleared')
+  assert.equal(P.pairAnnouncementText('en', pairs[3], nameOf, 0), 'Select two different agents')
+  assert.equal(P.pairAnnouncementText('en', pairs[4], nameOf, 0), 'No messages between X and Y')
+  assert.equal(P.pairAnnouncementText('en', pairs[4], nameOf, 1), 'Showing 1 message between X and Y')
+  assert.equal(P.pairAnnouncementText('en', pairs[4], nameOf, 4), 'Showing 4 messages between X and Y')
+  assert.equal(P.pairEmptyTextT('en', pairs[4], nameOf), 'No messages between X and Y')
   assert.equal(P.pairAnnouncementText('fr', pairs[4], nameOf, 0), 'Aucun message entre X et Y')
   assert.equal(P.pairAnnouncementText('fr', pairs[4], nameOf, 1), 'Affichage de 1 message entre X et Y')
   assert.equal(P.pairAnnouncementText('fr', pairs[4], nameOf, 4), 'Affichage de 4 messages entre X et Y')
@@ -148,15 +156,18 @@ const CHECKS: ChecksSummary[] = [
   { state: 'unknown', total: 2, failing: 0, pending: 0 },
 ]
 
-test('English: checks are worded like checksLabel; French keeps each count', () => {
-  for (const c of CHECKS) assert.equal(P.checksText('en', c), checksLabel(c))
+test('English: checks are worded as before; French keeps each count', () => {
+  assert.deepEqual(CHECKS.map(c => P.checksText('en', c)), ['4 of 4 passing', '2 failing of 5', '2 failing, 1 pending of 5', '3 pending of 3', 'no checks reported', 'checks unknown', 'checks unknown (2 reported)'])
   assert.equal(P.checksText('fr', CHECKS[0]), '4 sur 4 réussies')
   assert.equal(P.checksText('fr', CHECKS[2]), '2 en échec, 1 en attente sur 5')
   assert.equal(P.checksText('fr', CHECKS[6]), 'vérifications inconnues (2 communiquées)')
 })
 
 test('English: resume reasons, role and communication labels are the original ones', () => {
-  for (const [k, v] of Object.entries(RESUME_UNAVAILABLE_TEXT)) assert.equal(P.resumeUnavailableText('en', k as keyof typeof RESUME_UNAVAILABLE_TEXT), v)
+  assert.equal(P.resumeUnavailableText('en', 'invalid-id'), 'No resume command: the session id is not one Claude Code can take.')
+  assert.equal(P.resumeUnavailableText('en', 'runtime'), 'No resume command: only Claude Code sessions can be resumed with claude --resume.')
+  assert.equal(P.resumeUnavailableText('en', 'imported'), 'No resume command: an imported transcript comes from another machine.')
+  assert.equal(P.resumeUnavailableText('en', 'cwd'), 'No resume command: the working directory of this session is unknown or not an absolute POSIX path.')
   for (const k of ['dispatch', 'return', 'return_error', 'message'] as const) assert.equal(P.commLabelText('en', k), COMM_LABELS[k])
   for (const type of ['assistant', 'thinking', 'user', 'compaction', 'system']) assert.equal(P.roleLabelText('en', type, undefined), (ROLE_COLORS[type] ?? ROLE_COLORS.assistant).label)
   assert.equal(P.roleLabelText('en', 'compaction', undefined), COMPACTION_LABEL)

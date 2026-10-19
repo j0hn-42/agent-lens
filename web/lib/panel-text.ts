@@ -16,7 +16,6 @@ import type { ChecksSummary } from './session-work'
 import type { PairState } from './pair-filter'
 import type { CommKind, TeamChipGroup } from './feed-utils'
 import type { ResumeUnavailableReason } from './resume-command'
-import type { GroupKind } from './ui-glossary'
 import { formatTokens } from './utils'
 import { replayLostText } from './card-text'
 
@@ -79,16 +78,11 @@ export function hierarchyTermText(locale: Locale, agent: { kind?: string; isMain
 
 /** Visible heading and accessible name of a team / workflow chip group, in the language of the panel. */
 export function teamChipTexts<T>(locale: Locale, g: Pick<TeamChipGroup<T>, 'kind' | 'name' | 'items' | 'sessionHint'>): { heading: string; label: string } {
-  const base = g.kind === 'workflow' ? `Workflow ${g.name}` : locale === 'fr' ? `Équipe ${g.name}` : `Team ${g.name}`
+  const base = g.kind === 'workflow' ? `Workflow ${g.name}` : t(locale, 'card.group.team', { title: g.name })
   const heading = g.sessionHint ? `${base} ${t(locale, 'conv.team.sessionHint', { id: g.sessionHint })}` : base
   const n = g.items.length
   const noun = g.kind === 'workflow' ? pluralText(locale, 'count.agent', n) : pluralText(locale, 'count.member', n)
   return { heading, label: `${heading}, ${noun}` }
-}
-
-/** What the group kind is called, for callers that only know the kind. */
-export function groupKindIsWorkflow(kind: GroupKind | undefined): boolean {
-  return kind === 'workflow'
 }
 
 export function copiedText(locale: Locale, label: string, truncatedChars: number, redactions: number): string {

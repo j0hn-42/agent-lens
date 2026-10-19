@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as T from '../web/lib/card-text'
-import { boundedCount, replayLostSentence } from '../web/lib/event-loss'
+import { boundedCount } from '../web/lib/event-loss'
 import { healthText, findingText, sessionHealthText, type HealthVerdict, type LoopFinding } from '../web/lib/loop-detection'
 import { filesReadText, durationText, resultText, delegationCountText, type DelegationDuration, type DelegationResult } from '../web/lib/delegation-report'
 import { formatTokenUsage, type UsageTotal } from '../web/lib/usage'
@@ -11,7 +11,6 @@ import { getStateLabel, getActivityLabel } from '../web/lib/state-labels'
 import { lastKnownStateText, silenceText } from '../web/hooks/simulation/freshness'
 import { activeSummaryText } from '../web/lib/active-time'
 import { GIT_STRIP_LABELS, groupHeading } from '../web/lib/ui-glossary'
-import { issueLinkLabel } from '../web/lib/issue-links'
 import { formatTeamSummary, SESSION_STATUS_TEXT } from '../web/lib/chrome-utils'
 import { formatAttention } from '../web/lib/attention'
 import { formatRelativeTime } from '../web/lib/session-tree'
@@ -55,7 +54,9 @@ test('English: counts that become a lower bound when events were lost', () => {
     assert.equal(T.boundedCountText('en', n, lost, 'tool'), boundedCount(n, lost, 'tool'))
     assert.equal(T.boundedCountText('en', n, lost, 'toolError'), boundedCount(n, lost, 'tool error'))
   }
-  for (const lost of [0, 1, 2, 40]) assert.equal(T.replayLostText('en', lost), replayLostSentence(lost))
+  assert.equal(T.replayLostText('en', 0), '')
+  assert.equal(T.replayLostText('en', 1), 'at least 1 earlier event was not replayed by the relay')
+  assert.equal(T.replayLostText('en', 40), 'at least 40 earlier events were not replayed by the relay')
 })
 
 test('French: a lower bound stays a lower bound, an incomplete count says so', () => {
@@ -152,9 +153,8 @@ test('English: git labels, group headings, issue links', () => {
   assert.equal(T.groupHeadingText('en', 'team', 'alpha'), groupHeading('team', 'alpha'))
   assert.equal(T.groupHeadingText('en', 'workflow', 'w'), groupHeading('workflow', 'w'))
   assert.equal(T.groupHeadingText('en', undefined, 'x'), groupHeading(undefined, 'x'))
-  for (const link of [{ kind: 'issue', number: 7, title: 'T', url: 'u', state: 'open' }, { kind: 'pr', number: 8, title: '', url: 'u', state: 'open', draft: true }] as const) {
-    assert.equal(T.issueLinkText('en', link), issueLinkLabel(link))
-  }
+  assert.equal(T.issueLinkText('en', { kind: 'issue', number: 7, title: 'T', url: 'u', state: 'open' }), 'Issue #7 T')
+  assert.equal(T.issueLinkText('en', { kind: 'pr', number: 8, title: '', url: 'u', state: 'open', draft: true }), 'PR #8 (draft)')
   assert.equal(T.groupHeadingText('fr', 'team', 'alpha'), 'Équipe alpha')
   assert.equal(T.groupHeadingText('fr', 'workflow', 'w'), 'Workflow w')
   assert.equal(T.gitLabels('fr').commits(5, true), '5 commits observés (incomplet)')

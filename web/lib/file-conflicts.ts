@@ -84,12 +84,3 @@ export function describeConflictEditors(conflict: FileConflict, label: (agentKey
   const parts = conflict.editors.map(e => `${label(e.agent)}: ${e.edits} successful ${e.edits === 1 ? 'edit' : 'edits'}`)
   return `edited by ${parts.join('; ')}`
 }
-
-/**
- * Heading of the conflicts list. Conflicts are proven, so a found one stays; the count is "at least" when the
- * relay could not replay events (#366), and no conflict is only said for the observed part. null: nothing to say.
- */
-export function conflictHeading(count: number, lost: number): string | null {
-  if (count > 0) return `${lost > 0 ? 'at least ' : ''}${count} ${count === 1 ? 'conflict' : 'conflicts'}`
-  return lost > 0 ? 'No conflict in the observed part' : null
-}

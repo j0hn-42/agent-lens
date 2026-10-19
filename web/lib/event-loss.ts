@@ -268,12 +268,6 @@ export function boundedCount(n: number, lost: number, singular: string, plural =
   return `at least ${n} ${n === 1 ? singular : plural}`
 }
 
-/** What is missing, as a lower bound (the figure of the graph's first connection, never an exact one); empty when nothing is. */
-export function replayLostSentence(lost: number): string {
-  if (!(lost > 0)) return ''
-  return lost === 1 ? 'at least 1 earlier event was not replayed by the relay' : `at least ${lost} earlier events were not replayed by the relay`
-}
-
 /** Events the relay could not replay for the sessions of these agents, each session counted once (0 when none is named). */
 export function replayLostForAgents(lost: ReadonlyMap<string, number> | null | undefined, agents: Iterable<{ sessionId?: string }>): number {
   if (!lost || lost.size === 0) return 0

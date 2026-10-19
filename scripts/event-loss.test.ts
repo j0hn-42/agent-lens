@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence,
+  parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount,
   truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, dismissTruncation, allViewSessionTotals,
   viewNormalizationStats,
 } from '../web/lib/event-loss'
@@ -127,12 +127,6 @@ test('boundedCount: a total over an incomplete graph reads "at least", a zero is
   assert.equal(boundedCount(3, 5, 'conflict'), 'at least 3 conflicts')
   assert.equal(boundedCount(1, 5, 'tool error'), 'at least 1 tool error')
   assert.equal(boundedCount(0, 5, 'tool error'), 'no tool error observed (incomplete)')
-})
-
-test('replayLostSentence names what is missing without claiming an exact figure', () => {
-  assert.equal(replayLostSentence(0), '')
-  assert.equal(replayLostSentence(1), 'at least 1 earlier event was not replayed by the relay')
-  assert.equal(replayLostSentence(7), 'at least 7 earlier events were not replayed by the relay')
 })
 
 test('replayLostForSession: an agent card reads its own session only, never the total of a view (#366)', () => {

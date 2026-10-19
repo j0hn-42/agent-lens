@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, PANEL_SUMMARIES, COST_LABELS, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, hiddenPanelsText,
+  PANEL_NAMES, PANEL_SUMMARIES, COST_LABELS, HIERARCHY_TERMS, emptyState, emptyMatch, hiddenPanelsText,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 import { MESSAGES } from '../web/lib/messages'
@@ -25,9 +25,8 @@ test('the glossary fixes the panel names and the agent hierarchy', () => {
 test('one empty-state wording: "No <things> yet", shared by the glossary and the message lists', () => {
   assert.equal(emptyState('files'), 'No files yet')
   assert.equal(emptyMatch('messages'), 'No matching messages')
-  assert.equal(CONVERSATION_LABELS.empty, 'No messages yet')
-  assert.equal(EMPTY_MESSAGES, CONVERSATION_LABELS.empty)
-  assert.equal(EMPTY_SEARCH, CONVERSATION_LABELS.emptySearch)
+  assert.equal(EMPTY_MESSAGES, 'No messages yet')
+  assert.equal(EMPTY_SEARCH, 'No matching messages')
 })
 
 test('the Conversation button is named with its shortcut and the pill/close controls use the same name', () => {
@@ -43,8 +42,6 @@ test('the Conversation button is named with its shortcut and the pill/close cont
   const catalog = readFileSync(join('web/lib', 'messages.ts'), 'utf8')
   assert.equal(catalog.includes(COST_LABELS.method), false, 'messages.ts does not copy COST_LABELS.method by hand')
   assert.equal(catalog.includes(PANEL_SUMMARIES.context), false, 'messages.ts does not copy PANEL_SUMMARIES.context by hand')
-  assert.equal(CONVERSATION_LABELS.open, 'Open Conversation')
-  assert.equal(CONVERSATION_LABELS.close, 'Close Conversation')
 })
 
 test('the shortcuts table names the panels with the glossary words; key C toggles the Conversation panel', () => {
