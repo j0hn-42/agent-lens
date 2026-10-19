@@ -75,7 +75,9 @@ for (const locale of ['fr', 'en'] as const) {
     try {
       const { getByRole } = render(announcer({ isReviewing: true }))
       const region = getByRole('status')
-      assert.equal(region.getAttribute('lang'), 'en')
+      // The whole region is in the locale now (#613), not English with one piece in the locale
+      assert.equal(region.getAttribute('lang'), locale)
+      assert.ok(region.textContent!.startsWith(translate(locale, 'announce.connection', { state: translate(locale, 'topbar.connection.watching').toLocaleLowerCase(locale) })), region.textContent!)
       assert.ok(region.textContent!.includes(translate(locale, 'bar.resumeLive')), region.textContent!)
       const piece = Array.from(region.querySelectorAll('[lang]')).find(e => e.textContent!.includes(translate(locale, 'bar.resumeLive')))!
       assert.equal(piece.getAttribute('lang'), locale)

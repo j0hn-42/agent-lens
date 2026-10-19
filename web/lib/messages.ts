@@ -947,7 +947,7 @@ const fr = {
   'bar.event.one': '{n} événement',
   'bar.event.other': '{n} événements',
   'bar.play': 'Lecture',
-  'bar.pause': 'Mettre en pause',
+  'bar.pause': 'Pause',
   'bar.position': 'Position de lecture',
   'bar.position.value': '{current} sur {total}',
   'bar.duration': 'Durée totale',
@@ -1366,6 +1366,27 @@ const fr = {
   'tl.block.failed': 'ÉCHEC',
   'tl.block.cancelled': 'ANNULÉ',
   'tl.block.expired': '(expiré, fin non observée)',
+  // Région polie du chrome (ChromeAnnouncer), toute la phrase dans la langue (#613)
+  'announce.connection': 'Connexion : {state}',
+  'announce.session': 'Session : {name}',
+  'announce.liveMode': 'Mode direct',
+  'announce.waiting': 'En attente d’une session d’agent',
+  'announce.unobserved.one': '{n} session listée, activité non observée',
+  'announce.unobserved.other': '{n} sessions listées, activité non observée',
+  'announce.fullscreen.on': 'Plein écran activé',
+  'announce.fullscreen.off': 'Plein écran désactivé',
+  'announce.presentation.on': 'Mode présentation activé',
+  'announce.presentation.off': 'Mode présentation désactivé',
+  // Mode présentation : badge (#613)
+  'presentation.badge': 'Mode présentation · V pour arrêter',
+  'presentation.badge.name': 'Arrêter le mode présentation',
+  'presentation.badge.title': 'Arrêter le mode présentation (V)',
+  // Aide clavier du graphe lue par les lecteurs d’écran (graphKeyboardHelp), touches dites en toutes lettres (#613)
+  'graph.help.entry': '{keys} : {description}.',
+  'shortcut.spoken.pan': 'Maj avec les flèches',
+  'shortcut.spoken.zoom': 'Plus et moins',
+  'shortcut.spoken.fit': 'Zéro',
+  'shortcut.spoken.menu': 'La touche Menu contextuel ou Maj F10',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1823,7 +1844,7 @@ const en: Record<MessageKey, string> = {
   'topbar.panel.context.tooltip': `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`,
   'topbar.panel.system.name': 'System (Y)',
   'topbar.panel.system.tooltip': 'System: CPU, memory, disk (Y)',
-  'topbar.panel.cost.name': '$Cost',
+  'topbar.panel.cost.name': PANEL_NAMES.cost,
   'topbar.panel.cost.tooltip': `Cost overlay ($). ${COST_LABELS.method}`,
   'topbar.panel.timeline.name': 'Timeline',
   'topbar.panel.timeline.tooltip': 'Timeline (T)',
@@ -2711,6 +2732,27 @@ const en: Record<MessageKey, string> = {
   'tl.block.failed': 'FAILED',
   'tl.block.cancelled': 'CANCELLED',
   'tl.block.expired': EXPIRED_LABEL_SUFFIX,
+  // Polite live region of the chrome (ChromeAnnouncer), the whole sentence in the locale (#613)
+  'announce.connection': 'Connection: {state}',
+  'announce.session': 'Session: {name}',
+  'announce.liveMode': 'Live mode',
+  'announce.waiting': 'Waiting for an agent session',
+  'announce.unobserved.one': '{n} session listed, activity not observed',
+  'announce.unobserved.other': '{n} sessions listed, activity not observed',
+  'announce.fullscreen.on': 'Full screen on',
+  'announce.fullscreen.off': 'Full screen off',
+  'announce.presentation.on': 'Presentation mode on',
+  'announce.presentation.off': 'Presentation mode off',
+  // Presentation mode: badge (#613)
+  'presentation.badge': 'Presentation mode · V to stop',
+  'presentation.badge.name': 'Stop presentation mode',
+  'presentation.badge.title': 'Stop presentation mode (V)',
+  // Keyboard help of the graph read by screen readers (graphKeyboardHelp), keys spelled out (#613)
+  'graph.help.entry': '{keys}: {description}.',
+  'shortcut.spoken.pan': 'Shift with arrow keys',
+  'shortcut.spoken.zoom': 'Plus and minus',
+  'shortcut.spoken.fit': 'Zero',
+  'shortcut.spoken.menu': 'The context menu key or Shift F10',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

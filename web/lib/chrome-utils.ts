@@ -401,6 +401,9 @@ export function liveBadge(status: ConnectionStatus, isDemo: boolean, locale: Loc
   return { label: d.label, live: status === 'watching', tone: d.tone }
 }
 
+/** A mode switched on or off, announced once after the change */
+export type ModeNote = 'on' | 'off'
+
 /** Text for the sr-only polite live region. Only state changes alter it. */
 export function buildAnnouncement(opts: {
   connection: ConnectionDisplay
@@ -409,33 +412,45 @@ export function buildAnnouncement(opts: {
   isEmpty: boolean
   /** Listed sessions with no received event (issue #52): their activity is unknown */
   unobservedSessions?: number
-  /** 'Full screen on' / 'Full screen off' after a change (#196) */
-  fullscreenNote?: string | null
-  /** 'Presentation mode on' / 'Presentation mode off' after a change (#245) */
-  presentationNote?: string | null
-  /** Language of the instruction that names the Resume live button (the rest of the sentence is still English) */
+  /** Full screen switched on or off, after a change (#196) */
+  fullscreenNote?: ModeNote | null
+  /** Presentation mode switched on or off, after a change (#245) */
+  presentationNote?: ModeNote | null
+  /** Language of the whole sentence (#613); English by default */
   locale?: Locale
 }): string {
   return buildAnnouncementParts(opts).map(p => p.text).join('. ')
 }
 
+/** The catalog key of the connection state a ConnectionDisplay shows (its label is one of these fixed words) */
+const CONNECTION_STATE_KEY: Readonly<Record<string, MessageKey>> = {
+  DEMO: 'topbar.connection.demo',
+  LIVE: 'topbar.connection.watching',
+  CONNECTED: 'topbar.connection.connected',
+  CONNECTING: 'topbar.connection.connecting',
+  OFFLINE: 'topbar.connection.offline',
+}
+
 /**
- * The announcement cut into pieces, each with its language: the sentence of review mode names the button with the
- * catalog text of the locale (the one the bar shows, WCAG 3.3.2) and carries that locale; the rest is English.
+ * The announcement cut into pieces, each with its language. Every piece is in the locale (#613): the connection state
+ * uses the words of the top bar, the review instruction names the button with the catalog text the bar shows (WCAG
+ * 3.3.2). The session name is data and is said as it is.
  */
 export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): { text: string; lang: Locale }[] {
   const locale = opts.locale ?? 'en'
-  const parts: { text: string; lang: Locale }[] = [{ text: `Connection: ${opts.connection.label.toLowerCase()}`, lang: 'en' }]
-  if (opts.sessionLabel) parts.push({ text: `Session: ${opts.sessionLabel}`, lang: 'en' })
-  parts.push(opts.isReviewing
-    ? { text: translate(locale, 'announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }), lang: locale }
-    : { text: 'Live mode', lang: 'en' })
-  if (opts.isEmpty) parts.push({ text: 'Waiting for an agent session', lang: 'en' })
-  if (opts.unobservedSessions && opts.unobservedSessions > 0) {
-    parts.push({ text: `${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`, lang: 'en' })
+  const t = (key: MessageKey, params?: Record<string, string | number>) => ({ text: translate(locale, key, params), lang: locale })
+  const stateKey = CONNECTION_STATE_KEY[opts.connection.label]
+  const state = (stateKey ? translate(locale, stateKey) : opts.connection.label).toLocaleLowerCase(locale)
+  const parts: { text: string; lang: Locale }[] = [t('announce.connection', { state })]
+  if (opts.sessionLabel) parts.push(t('announce.session', { name: opts.sessionLabel }))
+  parts.push(opts.isReviewing ? t('announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }) : t('announce.liveMode'))
+  if (opts.isEmpty) parts.push(t('announce.waiting'))
+  const unobserved = opts.unobservedSessions
+  if (unobserved && unobserved > 0) {
+    parts.push(t(new Intl.PluralRules(locale).select(unobserved) === 'one' ? 'announce.unobserved.one' : 'announce.unobserved.other', { n: unobserved }))
   }
-  if (opts.fullscreenNote) parts.push({ text: opts.fullscreenNote, lang: 'en' })
-  if (opts.presentationNote) parts.push({ text: opts.presentationNote, lang: 'en' })
+  if (opts.fullscreenNote) parts.push(t(opts.fullscreenNote === 'on' ? 'announce.fullscreen.on' : 'announce.fullscreen.off'))
+  if (opts.presentationNote) parts.push(t(opts.presentationNote === 'on' ? 'announce.presentation.on' : 'announce.presentation.off'))
   return parts
 }
 

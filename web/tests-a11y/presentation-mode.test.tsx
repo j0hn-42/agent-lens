@@ -8,7 +8,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
-import { PresentationSubtitle } from '@/components/agent-visualizer/presentation-subtitle'
+import { PresentationBadge, PresentationSubtitle } from '@/components/agent-visualizer/presentation-subtitle'
+import { setLocaleChoice } from '@/lib/locale'
 import { usePresentationSubtitle } from '@/hooks/use-presentation'
 import { PRESENTATION_STORAGE_KEY } from '@/lib/presentation'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
@@ -162,6 +163,24 @@ test('subtitle: masked, the agent is named by its role', async () => {
   await settle()
   const text = r.getByRole('status', { name: 'Presentation subtitle' }).textContent ?? ''
   assert.equal(text, 'Main agent: Thinking → Complete')
+})
+
+test('badge: its text, name and tooltip follow the language (#613)', () => {
+  for (const [locale, text, name, title] of [
+    ['en', 'Presentation mode · V to stop', 'Stop presentation mode', 'Stop presentation mode (V)'],
+    ['fr', 'Mode présentation · V pour arrêter', 'Arrêter le mode présentation', 'Arrêter le mode présentation (V)'],
+  ] as const) {
+    setLocaleChoice(locale)
+    try {
+      const r = render(<PresentationBadge onStop={() => {}} />)
+      const button = r.getByRole('button', { name })
+      assert.equal(button.textContent, text, locale)
+      assert.equal(button.getAttribute('title'), title, locale)
+      cleanup()
+    } finally {
+      setLocaleChoice('auto')
+    }
+  }
 })
 
 test('subtitle: replayed history says nothing', async () => {

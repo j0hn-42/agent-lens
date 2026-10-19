@@ -5,7 +5,7 @@
  */
 import { translate, type Locale, type MessageKey } from './messages'
 import { panelName } from './command-palette'
-import type { ShortcutDef } from './shortcuts'
+import { SHORTCUTS, type ShortcutDef } from './shortcuts'
 import { formatSpeed } from './chrome-utils'
 
 type PanelId = Parameters<typeof panelName>[1]
@@ -69,4 +69,23 @@ export function shortcutKeyCap(def: ShortcutDef, locale: Locale): string {
 
 export function shortcutGroupName(group: ShortcutDef['group'], locale: Locale): string {
   return translate(locale, `shortcut.group.${group}` as MessageKey)
+}
+
+/** The keys said in words, for the entries whose key cap reads badly aloud (the `spoken` of the table, in English) */
+const SPOKEN_KEY: Readonly<Record<string, MessageKey>> = {
+  'graph:pan': 'shortcut.spoken.pan',
+  'graph:zoom': 'shortcut.spoken.zoom',
+  'graph:fit': 'shortcut.spoken.fit',
+  'graph:menu': 'shortcut.spoken.menu',
+}
+
+/**
+ * Screen-reader description of the graph keyboard navigation in the language (#613), generated from the same table as
+ * the dialog; in English it is exactly `graphKeyboardHelp()` (scripts/chrome-i18n.test.ts).
+ */
+export function graphKeyboardHelpText(locale: Locale): string {
+  return SHORTCUTS.filter(s => s.group === 'Graph').map(s => translate(locale, 'graph.help.entry', {
+    keys: SPOKEN_KEY[s.key] ? translate(locale, SPOKEN_KEY[s.key]) : shortcutKeyCap(s, locale),
+    description: shortcutDescription(s, locale),
+  })).join(' ')
 }

@@ -5,6 +5,7 @@ import { useFullscreen } from '@/hooks/use-fullscreen'
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from '@/hooks/use-presentation'
 import { FULLSCREEN_BUTTON_ID, TOPBAR_MORE_ID } from '@/components/agent-visualizer/top-bar'
 import type { useAgentSimulation } from '@/hooks/use-agent-simulation'
+import type { ModeNote } from '@/lib/chrome-utils'
 
 /**
  * The two modes that take over the page chrome: full screen and presentation (#245).
@@ -22,11 +23,11 @@ export function useChromeModes(agents: ReturnType<typeof useAgentSimulation>['ag
   // Focus follows the chrome that disappears (#196) and the change is announced
   const exitFullscreenRef = useRef<HTMLButtonElement>(null)
   const wasImmersiveRef = useRef(false)
-  const [fullscreenNote, setFullscreenNote] = useState<string | null>(null)
+  const [fullscreenNote, setFullscreenNote] = useState<ModeNote | null>(null)
   useEffect(() => {
     if (immersive === wasImmersiveRef.current) return
     wasImmersiveRef.current = immersive
-    setFullscreenNote(immersive ? 'Full screen on' : 'Full screen off')
+    setFullscreenNote(immersive ? 'on' : 'off')
     if (immersive) exitFullscreenRef.current?.focus()
     // Under 768 px the button may be folded behind More (#476)
     else (document.getElementById(FULLSCREEN_BUTTON_ID) ?? document.getElementById(TOPBAR_MORE_ID))?.focus()
@@ -39,11 +40,11 @@ export function useChromeModes(agents: ReturnType<typeof useAgentSimulation>['ag
   usePresentationMaskAttribute(presentationMasked)
   const presentationSubtitle = usePresentationSubtitle(agents, { enabled: presentationOn && presentation.options.subtitles, mask: presentation.options.mask })
   const wasPresentingRef = useRef(false)
-  const [presentationNote, setPresentationNote] = useState<string | null>(null)
+  const [presentationNote, setPresentationNote] = useState<ModeNote | null>(null)
   useEffect(() => {
     if (presentationOn === wasPresentingRef.current) return
     wasPresentingRef.current = presentationOn
-    setPresentationNote(presentationOn ? 'Presentation mode on' : 'Presentation mode off')
+    setPresentationNote(presentationOn ? 'on' : 'off')
   }, [presentationOn])
   const stopPresentation = presentation.stop
   const closeTopPanelOrImmersiveOrPresentation = useCallback((): boolean => {

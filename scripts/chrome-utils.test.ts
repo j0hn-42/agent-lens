@@ -245,7 +245,22 @@ test('announcement of review mode names the button with the catalog text of the 
   assert.ok(!fr.includes('Resume live'), 'the English button name is not given as an instruction in French')
   const parts = buildAnnouncementParts({ ...base, locale: 'fr' })
   assert.equal(parts.find(p => p.text.includes('Reprendre en direct'))?.lang, 'fr')
-  assert.ok(parts.filter(p => !p.text.includes('Reprendre en direct')).every(p => p.lang === 'en'), 'the rest of the sentence is still English')
+  assert.ok(parts.every(p => p.lang === 'fr'), 'the whole sentence is in French (#613)')
   assert.ok(buildAnnouncementParts({ ...base, locale: 'en' }).every(p => p.lang === 'en'))
-  assert.equal(buildAnnouncement({ ...base, isReviewing: false, locale: 'fr' }), 'Connection: live. Live mode')
+  assert.equal(buildAnnouncement({ ...base, isReviewing: false, locale: 'fr' }), 'Connexion : en direct. Mode direct')
+})
+
+test('the whole announcement follows the locale: connection, session, live mode, empty, unobserved, full screen, presentation (#613)', () => {
+  const all = (locale: 'en' | 'fr', fullscreen: 'on' | 'off', presentation: 'on' | 'off', status: Parameters<typeof connectionDisplay>[0] = 'watching') => buildAnnouncement({
+    connection: connectionDisplay(status, false), sessionLabel: 'main', isReviewing: false, isEmpty: true, unobservedSessions: 2,
+    fullscreenNote: fullscreen, presentationNote: presentation, locale,
+  })
+  assert.equal(all('en', 'on', 'off'), 'Connection: live. Session: main. Live mode. Waiting for an agent session. 2 sessions listed, activity not observed. Full screen on. Presentation mode off')
+  assert.equal(all('fr', 'on', 'off'), 'Connexion : en direct. Session : main. Mode direct. En attente d’une session d’agent. 2 sessions listées, activité non observée. Plein écran activé. Mode présentation désactivé')
+  assert.equal(all('fr', 'off', 'on'), 'Connexion : en direct. Session : main. Mode direct. En attente d’une session d’agent. 2 sessions listées, activité non observée. Plein écran désactivé. Mode présentation activé')
+  for (const [status, fr] of [['connected', 'connecté'], ['connecting', 'connexion'], ['disconnected', 'hors ligne']] as const) {
+    assert.ok(all('fr', 'on', 'on', status).startsWith(`Connexion : ${fr}.`), status)
+  }
+  assert.ok(buildAnnouncement({ connection: connectionDisplay('watching', true), sessionLabel: null, isReviewing: false, isEmpty: false, locale: 'fr' }).startsWith('Connexion : démo.'))
+  assert.equal(buildAnnouncement({ connection: connectionDisplay('watching', false), sessionLabel: null, isReviewing: false, isEmpty: false, unobservedSessions: 1, locale: 'fr' }), 'Connexion : en direct. Mode direct. 1 session listée, activité non observée')
 })

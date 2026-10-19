@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { COLORS } from '@/lib/colors'
 import type { HitTarget, Cluster } from './canvas/index'
-import { graphKeyboardHelp } from '@/lib/shortcuts'
+import { graphKeyboardHelpText } from '@/lib/shortcuts-text'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { describeTooltip } from './canvas/tooltip'
 import type { CanvasProps } from './canvas/canvas-props'
@@ -244,7 +244,7 @@ export function AgentCanvas(props: CanvasProps) {
           {auxFocus.label}
         </div>
       )}
-      <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
+      <p id="graph-keyboard-help" className="sr-only" lang={prefs.locale}>{graphKeyboardHelpText(prefs.locale)}</p>
 
       <GraphA11yList
         model={a11yModel}
