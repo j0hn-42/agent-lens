@@ -72,10 +72,10 @@ test('(1) the line says both filters as set: Active only on, Hide inactive on in
 test('(1) the line follows the Active only button at once and the canvas setting as given', () => {
   const changes: boolean[] = []
   const view = render(panel({ activeOnly: undefined, canvasHideInactive: false, onActiveOnlyChange: v => changes.push(v) }))
-  assert.equal(scopeLine(view.container)!.textContent, 'List: Active only · Canvas: everything shown')
+  assert.equal(scopeLine(view.container)!.textContent, 'List: Active only · Canvas: Hide inactive off')
   fireEvent.click(view.getByRole('button', { name: 'Active only' }))
   assert.deepEqual(changes, [false])
-  assert.equal(scopeLine(view.container)!.textContent, 'List: all sessions · Canvas: everything shown')
+  assert.equal(scopeLine(view.container)!.textContent, 'List: all sessions · Canvas: Hide inactive off')
   view.rerender(panel({ activeOnly: false, canvasHideInactive: true }))
   assert.equal(scopeLine(view.container)!.textContent, `List: all sessions · Canvas: Hide inactive (${ACTIVE_WINDOW_MINUTES} min)`)
 })
@@ -99,7 +99,54 @@ test('(1) in French: the same line in the catalog, inside the panel that declare
   assert.equal(line.closest('[lang]')!.getAttribute('lang'), 'fr')
   fireEvent.click(view.getByRole('button', { name: 'Actives seulement' }))
   view.rerender(panel({ activeOnly: false, canvasHideInactive: false }))
-  assert.equal(scopeLine(view.container)!.textContent, 'Liste : toutes les sessions · Canevas : tout affiché')
+  assert.equal(scopeLine(view.container)!.textContent, 'Liste : toutes les sessions · Canevas : Masquer les inactifs désactivé')
+})
+
+// The line never says "all sessions" while a filter of the list is on (docs/reading-the-ui.md: no state that cannot be proven)
+const filterSessions: SessionInfo[] = [
+  { id: 'a', label: 'fix login', status: 'active', startTime: 0, lastActivityTime: 30, projectId: 'p1', projectName: 'one', runtime: 'claude', branch: 'main' },
+  { id: 'b', label: 'old work', status: 'completed', startTime: 0, lastActivityTime: 20, projectId: 'p2', projectName: 'two', runtime: 'codex', branch: 'dev' },
+]
+const filtered = (extra: Partial<React.ComponentProps<typeof SessionListPanel>>) =>
+  panel({ sessions: filterSessions, canvasHideInactive: false, ...extra })
+
+const FILTER_CASES: Array<[string, Partial<React.ComponentProps<typeof SessionListPanel>>]> = [
+  ['project', { filterProject: 'p1' }],
+  ['runtime', { filterRuntime: 'claude' }],
+  ['branch', { filterBranch: 'main' }],
+]
+
+for (const [name, props] of FILTER_CASES) {
+  test(`(1) a ${name} filter on, Active only off: the list half says filtered, never all sessions (en, fr)`, () => {
+    const view = render(filtered({ activeOnly: false, ...props }))
+    assert.equal(scopeLine(view.container)!.textContent, 'List: filtered · Canvas: Hide inactive off')
+    view.unmount()
+    setLocaleChoice('fr')
+    const fr = render(filtered({ activeOnly: false, ...props }))
+    assert.equal(scopeLine(fr.container)!.textContent, 'Liste : filtrée · Canevas : Masquer les inactifs désactivé')
+  })
+  test(`(1) a ${name} filter on with Active only on: both are said`, () => {
+    const view = render(filtered({ activeOnly: true, ...props }))
+    assert.equal(scopeLine(view.container)!.textContent, 'List: Active only, filtered · Canvas: Hide inactive off')
+    view.unmount()
+    setLocaleChoice('fr')
+    const fr = render(filtered({ activeOnly: true, ...props }))
+    assert.equal(scopeLine(fr.container)!.textContent, 'Liste : Actives seulement, filtrée · Canevas : Masquer les inactifs désactivé')
+  })
+}
+
+test('(1) a search on: the list half says filtered; clearing the search brings back "all sessions"', () => {
+  const view = render(filtered({ activeOnly: false }))
+  assert.equal(scopeLine(view.container)!.textContent, 'List: all sessions · Canvas: Hide inactive off')
+  fireEvent.change(view.getByRole('searchbox'), { target: { value: 'login' } })
+  assert.equal(scopeLine(view.container)!.textContent, 'List: filtered · Canvas: Hide inactive off')
+  fireEvent.change(view.getByRole('searchbox'), { target: { value: '  ' } })
+  assert.equal(scopeLine(view.container)!.textContent, 'List: all sessions · Canvas: Hide inactive off')
+})
+
+test('(1) a filter naming a project no session has any more is ignored, so nothing is filtered: all sessions', () => {
+  const view = render(filtered({ activeOnly: false, filterProject: 'gone' }))
+  assert.equal(scopeLine(view.container)!.textContent, 'List: all sessions · Canvas: Hide inactive off')
 })
 
 test('(1) axe finds nothing on the panel with its line, in English and in French', async () => {
@@ -205,6 +252,20 @@ test('(2) a second request opens it again; a re-render with the same request doe
   assert.equal(view.queryByRole('dialog', { name: 'View settings' }), null, 'same request: nothing reopens')
   act(() => { view.rerender(controls({ openViewRequest: 3, neverHide: true })) })
   assert.ok(view.getByRole('dialog', { name: 'View settings' }))
+})
+
+test('(2) popover already open when the request arrives: the focus goes in, and is not stolen later', () => {
+  const view = render(controls({ openViewRequest: 0 }))
+  fireEvent.click(view.getByRole('button', { name: 'View' }))
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  assert.ok(document.activeElement === document.body)
+  act(() => { view.rerender(controls({ openViewRequest: 1 })) })
+  // assert.ok on an identity: a failing assert.equal on two jsdom elements makes the runner hang while it prints them
+  assert.ok(document.activeElement === view.getByRole('button', { name: 'Freeze motion' }), 'the focus went into the open popover')
+  fireEvent.click(view.getByRole('button', { name: 'View' }))
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  fireEvent.click(view.getByRole('button', { name: 'View' }))
+  assert.ok(document.activeElement !== view.getByRole('button', { name: 'Freeze motion' }), 'a later opening by hand does not move the focus')
 })
 
 test('(2) Freeze motion locked by the system: the focus goes to the first control that can take it', () => {
