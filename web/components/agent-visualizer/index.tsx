@@ -97,6 +97,9 @@ export function AgentVisualizer() {
   const showMode = prefs.show
   const hideInactive = hidesInactiveAgents(showMode)
   const updateShowMode = useCallback((mode: ShowMode) => setPref('show', mode), [setPref])
+  // #372: Settings > General opens the View popover of the canvas controls; each press raises the counter once
+  const [viewControlsRequest, setViewControlsRequest] = useState(0)
+  const openViewControls = useCallback(() => setViewControlsRequest(n => n + 1), [])
   // Quota gauges of the top bar (#467): the runtime of the selected session decides what they say (undefined = none selected)
   const showQuota = prefs.showQuota
   const updateShowQuota = useCallback((show: boolean) => setPref('showQuota', show), [setPref])
@@ -427,6 +430,7 @@ export function AgentVisualizer() {
         presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
         onShowAgentList={showAgentList}
         agentListKey={singleKeyShortcuts ? "L" : null}
+        openViewRequest={viewControlsRequest}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
@@ -499,7 +503,7 @@ export function AgentVisualizer() {
         settings={{
           open: showSettings, onClose: closeSettings, tab: settingsTab, onTabChange: setSettingsTab, hexGrid: showHexGrid, onHexGridChange: setShowHexGrid,
           muted: isMuted, onToggleMute: handleToggleMute, showMode, onShowModeChange: updateShowMode, singleKeyEnabled: singleKeyShortcuts,
-          onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs,
+          onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs, onOpenViewControls: openViewControls,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: settingsAnnouncements,
           quota: quotaSettingActive ? { show: showQuota, onShowChange: updateShowQuota } : undefined,

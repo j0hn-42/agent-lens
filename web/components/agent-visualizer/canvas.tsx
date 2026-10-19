@@ -29,7 +29,7 @@ export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList, agentListKey,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList, agentListKey, openViewRequest,
   } = props
   const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
   presentationRef.current = presentation ?? NO_PRESENTATION
@@ -305,6 +305,7 @@ export function AgentCanvas(props: CanvasProps) {
         hiddenNames={hiddenNames}
         onShowAgentList={onShowAgentList}
         agentListKey={agentListKey}
+        openViewRequest={openViewRequest}
       />
     </div>
   )
