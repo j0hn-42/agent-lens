@@ -10,6 +10,7 @@ import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { waitFor } from './wait-for'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -103,16 +104,19 @@ test('leaving the review when the session changes: the view plays, the bar says 
   // #440: the message reaches the timeline with the simulation's throttled UI commit (UI_THROTTLE_MS after the
   // previous one), not at a fixed time: wait until Review is available, a click on the grayed button does nothing
   const review = () => r.getByRole('button', { name: 'Pause and review history' })
-  const deadline = Date.now() + 20_000
-  while (review().getAttribute('aria-disabled') === 'true' && Date.now() < deadline) await wait(50)
+  await waitFor(() => review().getAttribute('aria-disabled') !== 'true')
   assert.notEqual(review().getAttribute('aria-disabled'), 'true', 'the message reached the timeline: Review is available')
   await act(async () => { fireEvent.click(review()) })
   assert.ok(r.queryByRole('button', { name: 'Resume live' }), 'review mode is on')
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions:/ })) })
-  await wait(100)
-  const rows = Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]'))
-  await act(async () => { fireEvent.click(rows[rows.length - 1]) })
-  await wait(300)
+  const rows = () => Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]'))
+  await waitFor(() => rows().length >= 2)
+  assert.ok(rows().length >= 2, `the Sessions menu lists both sessions (${rows().length} rows)`)
+  await act(async () => { fireEvent.click(rows()[rows().length - 1]) })
+  // The switch ends the review through state updates and a status announcement: wait for them, not a fixed time
+  const reviewEnded = () => r.queryByRole('button', { name: 'Resume live' }) === null
+    && /Review ended/.test(r.container.ownerDocument.body.textContent ?? '')
+  await waitFor(reviewEnded)
   assert.equal(r.queryByRole('button', { name: 'Resume live' }), null, 'no review bar over a playing view')
   assert.ok(r.queryByRole('button', { name: 'Pause and review history' }))
   assert.match(r.container.ownerDocument.body.textContent ?? '', /Review ended/, 'announced in the status region')
