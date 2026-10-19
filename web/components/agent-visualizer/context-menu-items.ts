@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react"
 import type { GlassContextMenu } from "./glass-context-menu"
+import { translate, type Locale } from "../../lib/messages"
 
 export interface ContextMenuActions {
   /** Current state of the two overlays the menu toggles, so the menu items can say it */
@@ -15,18 +16,20 @@ export interface ContextMenuActions {
   showAgentDetails?: (() => void) | null
 }
 
-export function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
+/** Items of the menu, worded in `locale` (#586); English when omitted. */
+export function contextMenuItems(onAgent: boolean, a: ContextMenuActions, locale: Locale = 'en'): ComponentProps<typeof GlassContextMenu>['items'] {
+  const t = (key: Parameters<typeof translate>[1]) => translate(locale, key)
   if (onAgent) return [
-    ...(a.showAgentDetails ? [{ icon: 'ℹ', label: 'Show details', onClick: a.showAgentDetails }] : []),
-    { icon: '🔍', label: 'Zoom to fit', onClick: a.zoomToFit },
-    { icon: '📊', label: 'Toggle stats', checked: a.showStats, onClick: a.toggleStats },
+    ...(a.showAgentDetails ? [{ icon: 'ℹ', label: t('menu.showDetails'), onClick: a.showAgentDetails }] : []),
+    { icon: '🔍', label: t('menu.zoomFit'), onClick: a.zoomToFit },
+    { icon: '📊', label: t('menu.toggleStats'), checked: a.showStats, onClick: a.toggleStats },
   ]
   return [
-    { icon: '🔍', label: 'Zoom to fit', onClick: a.zoomToFit },
-    { icon: '📊', label: 'Toggle stats', checked: a.showStats, onClick: a.toggleStats },
-    { icon: '⬡', label: 'Toggle grid', checked: a.showGrid, onClick: a.toggleGrid },
+    { icon: '🔍', label: t('menu.zoomFit'), onClick: a.zoomToFit },
+    { icon: '📊', label: t('menu.toggleStats'), checked: a.showStats, onClick: a.toggleStats },
+    { icon: '⬡', label: t('menu.toggleGrid'), checked: a.showGrid, onClick: a.toggleGrid },
     { label: '', onClick: () => {}, separator: true },
-    { icon: '⟲', label: 'Clear history', confirmLabel: 'Confirm clear history', onClick: a.clearHistory },
-    ...(a.reloadSessionEvents ? [{ icon: '↻', label: 'Reload session events', onClick: a.reloadSessionEvents }] : []),
+    { icon: '⟲', label: t('menu.clear'), confirmLabel: t('menu.clear.confirm'), onClick: a.clearHistory },
+    ...(a.reloadSessionEvents ? [{ icon: '↻', label: t('menu.reload'), onClick: a.reloadSessionEvents }] : []),
   ]
 }

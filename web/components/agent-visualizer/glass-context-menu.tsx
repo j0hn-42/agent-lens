@@ -9,6 +9,8 @@ import { stopPropagationHandlers } from './shared-ui'
 import { clampMenuPosition, nextMenuIndex } from '@/lib/menu-nav'
 import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 
 interface ContextMenuProps {
   position: { x: number; y: number }
@@ -28,6 +30,7 @@ interface ContextMenuProps {
 }
 
 export function GlassContextMenu({ position, items, onClose }: ContextMenuProps) {
+  const { locale } = useLocale()
   const ref = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const onCloseRef = useRef(onClose)
@@ -106,6 +109,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   return (
     <div
       ref={ref}
+      lang={locale}
       {...stopPropagationHandlers}
       style={{
         position: 'fixed',
@@ -119,7 +123,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
         style={{ minWidth: 160 }}
       >
         {/* Roving tabindex: items carry the tab stop; -1 makes the menu focusable without adding one */}
-        <div role="menu" aria-label="Context menu" tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
+        <div role="menu" aria-label={translate(locale, 'menu.name')} tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
           {items.map((item, i) => {
             if (item.separator) {
               return <div key={i} role="separator" className="my-1 h-px" style={{ background: COLORS.holoBg10 }} />
