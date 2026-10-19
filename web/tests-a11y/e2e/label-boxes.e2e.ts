@@ -120,6 +120,31 @@ for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
   })
 }
 
+// #594: "N names hidden" is the plan's count of the frame drawn. With the whole team framed between the bars, it must
+// equal the team names the canvas did not paint in that frame (recorded with the real font, as above).
+for (const [width, height] of [[1024, 768], [1280, 800], [1920, 1080]] as const) {
+  test(`team of 10 at the fit zoom, ${width}x${height}: "N names hidden" equals the names not painted (#594)`, async () => {
+    const { page, close } = await openTeam(width, height)
+    try {
+      const all = await fittedTexts(page)
+      // the button reads the plan every 200 ms: give it one more read after the texts settled
+      await page.waitForTimeout(400)
+      const visible = all.filter(t => t.alpha > 0.05 && t.w > 0 && t.x + t.w > 0 && t.y + t.h > 0 && t.x < width && t.y < height)
+      const shown = TEAM_NAMES.filter(n => visible.some(t => t.text === n || t.text.startsWith(`${n} ·`)))
+      const hidden = TEAM_NAMES.length - shown.length
+      assert.ok(hidden > 0, `precondition: names are hidden at ${width}x${height}`)
+      const button = page.locator('[data-hidden-names]')
+      assert.equal((await button.textContent())?.trim(), `${hidden} names hidden`, `painted: ${shown.join(', ')}`)
+      console.log(`${width}x${height}: ${hidden} of ${TEAM_NAMES.length} names hidden, the button says "${(await button.textContent())?.trim()}"`)
+      // Its name is its text, and it opens the Sessions and agents list
+      await page.getByRole('button', { name: `${hidden} names hidden`, exact: true }).click()
+      await page.locator('#sessions-panel').waitFor({ state: 'visible', timeout: 10_000 })
+    } finally {
+      await close()
+    }
+  })
+}
+
 test('the real monospace stays within the 0.6 to 1 em per glyph the plan models', async () => {
   const { page, close } = await openTeam(1280, 800)
   try {
