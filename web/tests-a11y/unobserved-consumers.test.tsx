@@ -11,6 +11,8 @@ import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ChromeAnnouncer } from '@/components/agent-visualizer/chrome-announcer'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { connectionDisplay } from '@/lib/chrome-utils'
+import { setLocaleChoice } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { observedSessions, SESSION_NOT_OBSERVED_TEXT } from '@/lib/session-model'
 import { STALE_AFTER_MS } from '@/lib/canvas-constants'
@@ -65,6 +67,22 @@ function announcer(extra: Partial<React.ComponentProps<typeof ChromeAnnouncer>> 
       sessions={sessions} sessionsWithActivity={new Set()} {...extra}
     />
   )
+}
+
+for (const locale of ['fr', 'en'] as const) {
+  test(`announcer: review mode names the button as the bar shows it, and declares its language (${locale}, #383)`, () => {
+    setLocaleChoice(locale)
+    try {
+      const { getByRole } = render(announcer({ isReviewing: true }))
+      const region = getByRole('status')
+      assert.equal(region.getAttribute('lang'), 'en')
+      assert.ok(region.textContent!.includes(translate(locale, 'bar.resumeLive')), region.textContent!)
+      const piece = Array.from(region.querySelectorAll('[lang]')).find(e => e.textContent!.includes(translate(locale, 'bar.resumeLive')))!
+      assert.equal(piece.getAttribute('lang'), locale)
+    } finally {
+      setLocaleChoice('auto')
+    }
+  })
 }
 
 test('announcer: the live region announces unobserved sessions and updates when one is heard from', () => {
