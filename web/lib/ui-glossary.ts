@@ -93,6 +93,8 @@ export const USAGE_LABELS = {
   unavailable: 'not reported',
   atLeast: 'at least',
   estimated: 'estimated',
+  /** A figure built from absolute readings over a graph with lost events (#591): no direction is claimed */
+  incomplete: '(incomplete)',
 } as const
 
 /** The token total of the Cost panel (#545 review): short for "tokens in context", defined in the graph legend. */

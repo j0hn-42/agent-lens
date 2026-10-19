@@ -97,7 +97,8 @@ test('the cost pill of an agent is a lower bound when its session lost events', 
   const a = agent({ tokensUsed: 5_000_000 })
   const lossy: string[] = []
   drawCostLabels(recordingCtx(lossy), new Map([['s1:main', a]]), new Map(), opts)
-  assert.ok(lossy.some(t => /^at least ~\$/.test(t)), JSON.stringify(lossy))
+  assert.ok(lossy.some(t => /^~\$[\d.]+ \(incomplete\)$/.test(t)), JSON.stringify(lossy))
+  assert.ok(!lossy.some(t => /at least/.test(t)), JSON.stringify(lossy))
   const plain: string[] = []
   drawCostLabels(recordingCtx(plain), new Map([['s1:main', a]]), new Map(), { ...opts, replayLost: undefined })
   assert.ok(plain.some(t => /^~\$/.test(t)), JSON.stringify(plain))
