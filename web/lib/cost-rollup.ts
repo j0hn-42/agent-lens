@@ -25,7 +25,7 @@ export interface RollupWords { unknown: string; incomplete: string; estimated: s
 const ROLLUP_WORDS_EN: RollupWords = { unknown: ROLLUP_UNKNOWN_TEXT, incomplete: ROLLUP_INCOMPLETE_TEXT, estimated: USAGE_LABELS.estimated }
 /** Accessible explanation of the incomplete badge. */
 export const ROLLUP_INCOMPLETE_HELP =
-  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay could not replay events of a session it counts, so the real figure may differ.'
+  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay (or the VS Code extension) could not replay events of a session it counts, so the real figure may differ.'
 
 export interface RollupTotal {
   tokens: number

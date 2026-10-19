@@ -70,13 +70,20 @@ async function fittedTexts(page: Page): Promise<TextBox[]> {
   await page.getByRole('button', { name: 'Fit to view' }).click()
   await waitForStableLayout(page)
   // let the camera animation and the label plan settle: the boxes must be unchanged over three samples
-  let prev = ''
-  for (let i = 0; i < 40; i++) {
+  // The boxes are still when the same texts sit within 0.5 px of the previous sample: the agents keep a
+  // slight idle bob (about 0.1 px), and the diamond markers move all the time, so neither counts.
+  const sample = async () => (await page.evaluate(() => (window as unknown as { __lastFrameTexts: () => TextBox[] }).__lastFrameTexts())).filter(t => t.text !== '◆')
+  const still = (a: TextBox[], b: TextBox[]) => a.length === b.length && a.every((t, k) => t.text === b[k].text &&
+    Math.abs(t.x - b[k].x) <= 0.5 && Math.abs(t.y - b[k].y) <= 0.5 && Math.abs(t.w - b[k].w) <= 0.5 && Math.abs(t.alpha - b[k].alpha) <= 0.02)
+  let prev: TextBox[] = []
+  let same = 0
+  for (let i = 0; i < 40 && same < 2; i++) {
     await page.waitForTimeout(250)
-    const cur = JSON.stringify(await page.evaluate(() => (window as unknown as { __lastFrameTexts: () => TextBox[] }).__lastFrameTexts()))
-    if (cur === prev) break
+    const cur = await sample()
+    same = still(prev, cur) ? same + 1 : 0
     prev = cur
   }
+  assert.ok(same >= 2, 'the label boxes did not settle within 10 s: a frame taken during the camera animation proves nothing')
   return page.evaluate(() => (window as unknown as { __lastFrameTexts: () => TextBox[] }).__lastFrameTexts())
 }
 
@@ -85,7 +92,7 @@ const TEAM_NAMES = [
   'api-contract-checker', 'docs-writer', 'lint-fixer', 'performance-profiler',
 ]
 
-/** Name lines of the agents; the other lines of a label are found below them, by the same font and alignment. */
+/** Strict overlap of two rectangles: boxes that only touch do not overlap. */
 const overlap = (a: TextBox, b: TextBox) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
 test('control: the overlap test sees boxes that share a pixel and ignores boxes that only touch', () => {
@@ -153,7 +160,7 @@ test('the real monospace stays within the 0.6 to 1 em per glyph the plan models'
     assert.ok(names.length >= 3, `name lines found: ${names.length}`)
     for (const t of names) {
       const em = t.w / (t.modelW / 0.6)
-      assert.ok(em <= 1 * 1.0001 && em > 0, `"${t.text}": ${em.toFixed(3)} em per glyph in ${t.font}`)
+      assert.ok(em >= 0.6 * 0.999 && em <= 1 * 1.0001, `"${t.text}": ${em.toFixed(3)} em per glyph in ${t.font}`)
     }
   } finally {
     await close()
