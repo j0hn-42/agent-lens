@@ -32,3 +32,6 @@ extension/package-lock.json
 
 # Playwright e2e output (demo server log)
 test-results/
+
+# Graphify output (knowledge graph, rebuilt locally)
+graphify-out/
