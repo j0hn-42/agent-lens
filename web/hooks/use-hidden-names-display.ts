@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { HIDDEN_NAMES_INITIAL, NO_HIDDEN_NAMES, stepHiddenNames, type HiddenNamesDisplay } from '@/lib/hidden-names-display'
 
 /** How often the "N names hidden" button reads the count of the last planned frame (#594) */
-export const HIDDEN_NAMES_POLL_MS = 200
+const HIDDEN_NAMES_POLL_MS = 200
 
 /** The "names hidden" button has the keyboard focus (it is kept while focused, see stepHiddenNames) */
 function buttonFocused(): boolean {

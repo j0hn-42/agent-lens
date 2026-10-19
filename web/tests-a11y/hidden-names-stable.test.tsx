@@ -6,9 +6,11 @@ import { strict as assert } from 'node:assert'
 import React, { useRef } from 'react'
 import { render, cleanup, act } from '@testing-library/react'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
-import { useHiddenNamesDisplay, HIDDEN_NAMES_POLL_MS } from '@/hooks/use-hidden-names-display'
+import { useHiddenNamesDisplay } from '@/hooks/use-hidden-names-display'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 
+/** The hook reads the count every 200 ms */
+const POLL_MS = 200
 let countRef: { current: number } = { current: 0 }
 let busy = false
 
@@ -32,7 +34,7 @@ afterEach(() => { cleanup(); mock.timers.reset(); document.body.replaceChildren(
 
 const read = async (raw: number) => {
   countRef.current = raw
-  await act(async () => { mock.timers.tick(HIDDEN_NAMES_POLL_MS); await Promise.resolve() })
+  await act(async () => { mock.timers.tick(POLL_MS); await Promise.resolve() })
 }
 
 test('a count alternating 0 / 1 between two readings changes nothing in the DOM', async () => {

@@ -3,9 +3,11 @@
 // number that is not the reading of the frame drawn: while the count changes, it shows the neutral label (no number).
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { HIDDEN_NAMES_INITIAL, HIDDEN_NAMES_STABLE_MS, stepHiddenNames, type HiddenNamesState } from '../web/lib/hidden-names-display'
+import { HIDDEN_NAMES_INITIAL, stepHiddenNames, type HiddenNamesState } from '../web/lib/hidden-names-display'
 
-type Read = { raw: number; busy?: boolean; focused?: boolean }
+/** The stable delay of web/lib/hidden-names-display.ts */
+const STABLE_MS = 500
+type Read ={ raw: number; busy?: boolean; focused?: boolean }
 /** Feeds one reading every 200 ms; returns what the button showed after each one */
 function run(reads: Read[], start: HiddenNamesState = HIDDEN_NAMES_INITIAL) {
   let s = start
@@ -22,7 +24,7 @@ test('no reading of names hidden: no button', () => {
 test('the button appears only once the count stayed the same for the stable delay, camera at rest', () => {
   const out = run([{ raw: 3 }, { raw: 3 }, { raw: 3 }, { raw: 3 }])
   const firstShown = out.findIndex(o => o.shown)
-  assert.ok(firstShown * 200 >= HIDDEN_NAMES_STABLE_MS, `appears after ${firstShown * 200} ms`)
+  assert.ok(firstShown * 200 >= STABLE_MS, `appears after ${firstShown * 200} ms`)
   assert.deepEqual(out.at(-1), { shown: true, count: 3 })
 })
 

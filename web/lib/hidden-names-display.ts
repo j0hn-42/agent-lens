@@ -8,7 +8,7 @@
  *   button keeps its place with the neutral label (`count: null`, no number): never a stale or unproven number.
  * - The button stays while it has the keyboard focus (neutral label when no name is hidden), so the focus is not lost.
  */
-export const HIDDEN_NAMES_STABLE_MS = 500
+const HIDDEN_NAMES_STABLE_MS = 500
 
 export interface HiddenNamesDisplay {
   /** The button is drawn */
