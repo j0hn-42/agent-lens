@@ -98,6 +98,8 @@ test('leaving the review when the session changes: the view plays, the bar says 
   })
   await wait(100)
   await act(async () => { post(ev('a', 1, 'agent_spawn')); post(ev('b', 1, 'agent_spawn')) })
+  // A message gives the timeline an event: Review is unavailable on an empty one (#383)
+  await act(async () => { post({ type: 'agent-event', event: { time: 2, type: 'message', payload: { agent: 'main-a', role: 'assistant', content: 'hello' }, sessionId: 'a' } }) })
   await wait(300)
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Pause and review history' })) })
   assert.ok(r.queryByRole('button', { name: 'Resume live' }), 'review mode is on')
