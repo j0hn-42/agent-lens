@@ -38,7 +38,7 @@ interface CanvasControlsProps {
   onToggleNeverHide: () => void
   onChangeToolExpiry: (e: ChangeEvent<HTMLSelectElement>) => void
   /**
-   * Agent names the overlay plan of the frame drawn does not draw (#594, planOverlays().hiddenAgentNames). Above 0 a
+   * Agent names the overlay plan of the frame drawn does not draw (issue 594, planOverlays().hiddenAgentNames). Above 0 a
    * button says how many and opens the Sessions and agents list; 0 or absent, no button.
    */
   hiddenNames?: number
@@ -203,7 +203,7 @@ export function CanvasControls({
   const zoomAndView = (
     <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
       {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378). Folded, the bar holds it */}
-      {/* Wraps from the end (#594): under 640 px the "names hidden" button goes above the zoom buttons, not past the window */}
+      {/* Wraps from the end (issue 594): under 640 px the "names hidden" button goes above the zoom buttons, not past the window */}
       <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex flex-wrap-reverse items-center justify-end gap-2">
         <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
           <button
@@ -250,7 +250,7 @@ export function CanvasControls({
           {t('controls.view')}
         </button>
         {showHiddenNames && (
-          // Its text is its name (2.5.3); no live region: the count follows the zoom and must not chatter (#594)
+          // Its text is its name (2.5.3); no live region: the count follows the zoom and must not chatter (issue 594)
           <button
             type="button"
             data-hidden-names={hiddenNames}
