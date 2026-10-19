@@ -25,13 +25,10 @@ function bar(eventCount: number, onEnterReview: () => void) {
   )
 }
 
-test('0 event: Review is unavailable, says why, and does not enter review', async () => {
-  let entered = 0
-  const { getByRole, container } = bar(0, () => { entered++ })
+test('0 event: Review is unavailable and says why', async () => {
+  const { getByRole, container } = bar(0, noop)
   const btn = getByRole('button', { name: /review/i })
   assert.equal(btn.getAttribute('aria-disabled'), 'true')
-  fireEvent.click(btn)
-  assert.equal(entered, 0)
   const reason = btn.getAttribute('aria-describedby')
   assert.ok(reason, 'the reason is linked to the button')
   assert.match(container.ownerDocument.getElementById(reason!)?.textContent ?? '', /no events to review/i)
@@ -65,4 +62,34 @@ test('1 event: Review enters review', () => {
   assert.notEqual(btn.getAttribute('aria-disabled'), 'true')
   fireEvent.click(btn)
   assert.equal(entered, 1)
+})
+
+test('0 event: a click on the grayed Review button still reaches the handler, which refuses with a toast (#383 review)', () => {
+  let entered = 0
+  const { getByRole } = bar(0, () => { entered++ })
+  fireEvent.click(getByRole('button', { name: 'Pause and review history' }))
+  assert.equal(entered, 1, 'the click is not swallowed: the handler says why it refuses')
+})
+
+test('in review, Pause still works when a reload emptied the timeline (#383 review)', () => {
+  const calls: string[] = []
+  const toasts: string[] = []
+  const hook = renderHook(() => useReviewControls({
+    sim: {
+      isPlaying: true, maxTimeReached: 0, play: noop, pause: () => calls.push('pause'), restart: noop, seekToTime: noop,
+      saveSnapshot: (() => ({})) as never, restoreSnapshot: noop, setSpeed: noop,
+    },
+    bridge: { pendingEvents: [], selectedSessionIdRef: { current: null }, flushSessionEvents: noop } as never,
+    isReviewing: true, setIsReviewing: noop, pushToast: t => { toasts.push(t.message) },
+    seekingRef: { current: false }, zoomToFit: noop, autoPlay: false, eventCount: 0,
+  }))
+  act(() => { hook.result.current.handlePlayPause() })
+  assert.deepEqual(calls, ['pause'])
+  assert.ok(!toasts.some(m => /no events/i.test(m)))
+})
+
+test('the reason carries lang="en" (not translated yet) so a French screen reader does not use a French voice', () => {
+  const { getByRole, container } = bar(0, noop)
+  const reason = container.ownerDocument.getElementById(getByRole('button', { name: 'Pause and review history' }).getAttribute('aria-describedby')!)
+  assert.equal(reason?.getAttribute('lang'), 'en')
 })

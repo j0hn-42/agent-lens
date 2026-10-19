@@ -226,12 +226,12 @@ function LiveControlBar({
         <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
           {pluralize(eventCount, 'event')}
         </span>
-        {eventCount === 0 && <span id={reviewReasonId} className="sr-only">No events to review yet</span>}
+        {noEvents && <span id={reviewReasonId} lang="en" className="sr-only">No events to review yet</span>}
 
         {/* Review button */}
         <button
           type="button"
-          onClick={noEvents ? undefined : onEnterReview}
+          onClick={onEnterReview}
           data-primary-control=""
           aria-disabled={noEvents || undefined}
           aria-describedby={noEvents ? reviewReasonId : undefined}

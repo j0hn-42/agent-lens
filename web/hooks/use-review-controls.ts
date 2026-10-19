@@ -47,14 +47,14 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
 
   const handlePlayPause = useCallback(() => {
     if (isPlaying) {
-      if (nothingToReview) { refuseEmptyReview(); return }
+      if (nothingToReview && !isReviewing) { refuseEmptyReview(); return }
       pause()
       setIsReviewing(true)
       announceReview()
     } else {
       play()
     }
-  }, [isPlaying, play, pause, announceReview, setIsReviewing, nothingToReview, refuseEmptyReview])
+  }, [isPlaying, isReviewing, play, pause, announceReview, setIsReviewing, nothingToReview, refuseEmptyReview])
 
   const handleEnterReview = useCallback(() => {
     if (nothingToReview) { refuseEmptyReview(); return }

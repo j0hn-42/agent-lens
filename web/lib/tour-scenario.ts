@@ -13,14 +13,17 @@ const PAYMENTS = 'tour-payments'
 const RELEASE = 'tour-release'
 const DOCS = 'tour-docs'
 
-// Dated from the page load, not from a fixed instant: a fixed one reads "1062 d ago" and "1062d 22h" of runtime
-const START = Date.now() - 90_000
-
-export const TOUR_SESSIONS: SessionInfo[] = [
-  { id: PAYMENTS, label: 'payments-api · refactor', status: 'active', startTime: START, lastActivityTime: START + 90_000, runtime: 'claude', workspace: 'payments-api', cwd: '/work/payments-api', projectId: 'proj-payments', projectName: 'payments-api' },
-  { id: RELEASE, label: 'payments-api · release', status: 'active', startTime: START + 14_000, lastActivityTime: START + 90_000, runtime: 'claude', workspace: 'payments-api-release', cwd: '/work/payments-api-release', projectId: 'proj-payments', projectName: 'payments-api' },
-  { id: DOCS, label: 'docs-site · Codex', status: 'active', startTime: START + 30_000, lastActivityTime: START + 90_000, runtime: 'codex', workspace: 'docs-site', cwd: '/work/docs-site', projectId: 'proj-docs', projectName: 'docs-site' },
-]
+/** The three sessions, dated from `now` and not from a fixed instant: a fixed one reads "1062 d ago" and "1062d 22h" of
+ *  runtime. Called when the demo seeds its sessions in the browser (after mount), never at module load: a module
+ *  evaluated on the server, or long before the page is used, would date them from the wrong instant. */
+export function tourSessions(now: number = Date.now()): SessionInfo[] {
+  const START = now - 90_000
+  return [
+    { id: PAYMENTS, label: 'payments-api · refactor', status: 'active', startTime: START, lastActivityTime: START + 90_000, runtime: 'claude', workspace: 'payments-api', cwd: '/work/payments-api', projectId: 'proj-payments', projectName: 'payments-api' },
+    { id: RELEASE, label: 'payments-api · release', status: 'active', startTime: START + 14_000, lastActivityTime: START + 90_000, runtime: 'claude', workspace: 'payments-api-release', cwd: '/work/payments-api-release', projectId: 'proj-payments', projectName: 'payments-api' },
+    { id: DOCS, label: 'docs-site · Codex', status: 'active', startTime: START + 30_000, lastActivityTime: START + 90_000, runtime: 'codex', workspace: 'docs-site', cwd: '/work/docs-site', projectId: 'proj-docs', projectName: 'docs-site' },
+  ]
+}
 
 type Payload = Record<string, unknown>
 const events: SimulationEvent[] = []

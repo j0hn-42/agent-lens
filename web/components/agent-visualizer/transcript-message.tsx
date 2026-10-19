@@ -110,7 +110,7 @@ export function TranscriptMessage({ message, searchQuery }: {
               inputData={message.inputData}
               args={message.content}
               compact
-              failed={message.isError === true}
+              outcome={message.callOutcome}
             />
           ) : (
             <div className="text-xs font-mono" style={{ color: COLORS.contentDim }}>

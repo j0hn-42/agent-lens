@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { TOUR_SCENARIO, TOUR_SESSIONS } from '../web/lib/tour-scenario'
+import { TOUR_SCENARIO, tourSessions } from '../web/lib/tour-scenario'
 import { processEvent, eventSessionId, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
@@ -21,7 +21,7 @@ const ctx: ProcessEventContext = {
 
 test('the demo sessions are dated now, not years ago: no "1062 d ago", no "1062d 22h" of runtime (#383)', () => {
   const DAY = 86_400_000
-  for (const s of TOUR_SESSIONS) {
+  for (const s of tourSessions()) {
     assert.ok(Math.abs(Date.now() - s.lastActivityTime) < DAY, `${s.id} last activity is within a day of now`)
     assert.ok(Date.now() - s.startTime < DAY, `${s.id} started within a day of now`)
   }
@@ -32,6 +32,11 @@ function play(events: SimulationEvent[]): SimulationState {
   for (const e of events) state = processEvent(e, { ...state, currentTime: e.time }, ctx)
   return state
 }
+
+test('the demo sessions are dated from the instant they are asked for, not from the module load (#383 review)', () => {
+  const at = Date.parse('2031-01-01T00:00:00Z')
+  for (const s of tourSessions(at)) assert.ok(at - s.startTime < 120_000 && s.lastActivityTime <= at, `${s.id} is dated from the given instant`)
+})
 
 test('the tour is sorted by time: the player reads it in array order and would stall on a late entry', () => {
   for (let i = 1; i < TOUR_SCENARIO.length; i++) {
@@ -45,16 +50,16 @@ test('the tour plays every event type the simulation understands', () => {
 })
 
 test('every event names a declared session, and every declared session is used', () => {
-  const declared = new Set(TOUR_SESSIONS.map(s => s.id))
+  const declared = new Set(tourSessions().map(s => s.id))
   const used = new Set(TOUR_SCENARIO.map(e => eventSessionId(e)))
   assert.deepEqual([...used].filter(s => !declared.has(s)), [])
   assert.deepEqual([...declared].filter(s => !used.has(s)), [])
 })
 
 test('the sessions cover both runtimes and a project shared by two sessions (Fleet / All grouping)', () => {
-  assert.ok(TOUR_SESSIONS.some(s => s.runtime === 'claude') && TOUR_SESSIONS.some(s => s.runtime === 'codex'))
+  assert.ok(tourSessions().some(s => s.runtime === 'claude') && tourSessions().some(s => s.runtime === 'codex'))
   const byProject = new Map<string, number>()
-  for (const s of TOUR_SESSIONS) if (s.projectId) byProject.set(s.projectId, (byProject.get(s.projectId) ?? 0) + 1)
+  for (const s of tourSessions()) if (s.projectId) byProject.set(s.projectId, (byProject.get(s.projectId) ?? 0) + 1)
   assert.ok([...byProject.values()].some(n => n >= 2))
 })
 
