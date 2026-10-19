@@ -8,7 +8,7 @@
  * recorded on a real machine (step 0 of #472). Real HTTP over 127.0.0.1 on an ephemeral port.
  */
 import './helpers/alias-vscode'
-import { describe, it, before } from 'node:test'
+import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import * as fs from 'node:fs'
@@ -20,6 +20,7 @@ const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-cursor-hook-home-'))
 process.env.HOME = fakeHome
 delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
+after(() => fs.rmSync(fakeHome, { recursive: true, force: true }))
 
 /** Common fields of every Cursor hook input (doc example, not a real capture). */
 const COMMON = {
@@ -132,6 +133,47 @@ describe('HookServer ignores Cursor payloads', () => {
       assert.equal(server.getNormalizationStats('cursor-sess').malformed, 0)
       const state = (server as unknown as { sessionState: Map<string, unknown> }).sessionState
       assert.equal(state.size, 0, 'no session state created')
+    } finally { server.dispose() }
+  })
+
+  it('logs one line per server instance, with no field of the payload (#613)', async () => {
+    const lines: string[] = []
+    const saved = { log: console.log, warn: console.warn, error: console.error }
+    const capture = (...args: unknown[]) => { lines.push(args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')) }
+    console.log = capture; console.warn = capture; console.error = capture
+    // Hand-made variant of the doc example: an e-mail and values that must not reach the log
+    const secret = { ...DOC_EXAMPLES.preToolUse, user_email: 'someone@example.invalid', conversation_id: 'conv-secret-id', tool_input: { command: 'cat secret-file' } }
+    try {
+      for (let round = 0; round < 2; round++) {
+        const { server, port } = await start()
+        try {
+          for (let i = 0; i < 3; i++) assert.equal((await post(port, secret)).status, 200)
+        } finally { server.dispose() }
+      }
+    } finally { Object.assign(console, saved) }
+    const cursorLines = lines.filter(l => /Cursor/.test(l))
+    assert.equal(cursorLines.length, 2, `one line per instance (got ${JSON.stringify(cursorLines)})`)
+    for (const l of lines) {
+      for (const value of ['someone@example.invalid', 'conv-secret-id', 'cat secret-file', 'gen-1', '/project']) {
+        assert.ok(!l.includes(value), `the log holds a payload field (${value}): ${l}`)
+      }
+    }
+  })
+
+  it('a Cursor flood is still held by the per-IP limiter (before the body is read); never by the malformed counters (#613)', async () => {
+    const { server, port } = await start()
+    try {
+      // In batches of 25 connections: past the burst (200) far faster than the refill (100 per second)
+      const statuses: number[] = []
+      for (let batch = 0; batch < 32; batch++) {
+        statuses.push(...await Promise.all(Array.from({ length: 25 }, () => post(port, DOC_EXAMPLES.preToolUse).then(r => r.status))))
+      }
+      const ok = statuses.filter(st => st === 200).length
+      const limited = statuses.filter(st => st === 429).length
+      assert.equal(ok + limited, statuses.length, `only 200 and 429 (got ${[...new Set(statuses)].join(', ')})`)
+      assert.ok(limited > 0, 'the per-IP limiter answers 429 past its burst')
+      assert.deepEqual(server.getForeignHookStats(), { cursor: ok }, 'only the payloads that got through are counted')
+      assert.equal(server.getNormalizationStats().malformed, 0)
     } finally { server.dispose() }
   })
 
