@@ -20,6 +20,7 @@ import { OperatorControl, setOperatorControl } from './operator-control'
 import { discoveryDir } from './claude-config-dir'
 import { SessionWatcher } from './session-watcher'
 import { VisualizerPanel } from './webview-provider'
+import { panelLoss } from './panel-loss'
 import { AgentEvent } from './protocol'
 import {
   ORCHESTRATOR_NAME, HOOK_SERVER_NOT_STARTED,
@@ -101,6 +102,9 @@ export async function startClaudeRuntime(
   // loaded are held and replayed deduplicated. Survivors come back on watcher.onHookEvent.
   if (hookPort !== HOOK_SERVER_NOT_STARTED) {
     context.subscriptions.push(watcher.onHookEvent((event) => {
+      // A page that opens later gets a reset, never this event (#592). Hook events dropped below (no ready panel)
+      // never get here and are not counted: they may duplicate transcript events, so the count stays a lower bound
+      panelLoss.note(event)
       const panel = VisualizerPanel.getCurrent()
       if (panel && panel.isReady) panel.sendEvent(event)
     }))
