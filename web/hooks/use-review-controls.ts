@@ -36,9 +36,8 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
     return () => clearTimeout(timer)
   }, [play, autoPlay])
 
-  const announceReview = useCallback(() => {
-    pushToast({ message: 'Review mode - press LIVE to resume', durationMs: 4000 })
-  }, [pushToast])
+  // No toast on entering review (#383): it covered the bottom of the canvas and repeated what the chrome live region
+  // already announces (buildAnnouncement). The review bar swaps in; its button reads "▶ LIVE" and is named "Resume live" (aria-label, catalog key bar.resumeLive).
 
   const nothingToReview = eventCount === 0
   const refuseEmptyReview = useCallback(() => {
@@ -50,18 +49,16 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
       if (nothingToReview && !isReviewing) { refuseEmptyReview(); return }
       pause()
       setIsReviewing(true)
-      announceReview()
     } else {
       play()
     }
-  }, [isPlaying, isReviewing, play, pause, announceReview, setIsReviewing, nothingToReview, refuseEmptyReview])
+  }, [isPlaying, isReviewing, play, pause, setIsReviewing, nothingToReview, refuseEmptyReview])
 
   const handleEnterReview = useCallback(() => {
     if (nothingToReview) { refuseEmptyReview(); return }
     pause()
     setIsReviewing(true)
-    announceReview()
-  }, [pause, announceReview, setIsReviewing, nothingToReview, refuseEmptyReview])
+  }, [pause, setIsReviewing, nothingToReview, refuseEmptyReview])
 
   // Speed only applies in review mode: in live mode it would silently distort the time axis.
   // The keys 1 to 4 are not silent there: a toast says why nothing changed (#411).
