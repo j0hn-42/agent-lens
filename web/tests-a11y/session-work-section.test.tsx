@@ -71,7 +71,7 @@ test('nothing is requested while the panel is closed, without relay, or without 
   render(panel({ visible: false }))
   render(panel({ relayOrigin: null }))
   render(panel({ sessionId: null }))
-  render(panel({ unavailableReason: 'Not available in demo mode.' }))
+  render(panel({ unavailableReason: 'demo' }))
   await flush()
   assert.deepEqual(fetched.filter(u => u.includes('scope=session')), [])
 })
