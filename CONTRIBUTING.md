@@ -46,6 +46,14 @@ pnpm --dir web run lint:a11y
 pnpm run test:a11y
 ```
 
+If the change touches `app-tray/native/` (the Go module of the tray protocol, see [docs/tray.md](docs/tray.md)), CI also runs, from that directory, with the Go version of its `go.mod`:
+
+```bash
+test -z "$(gofmt -l .)"
+go vet ./...
+go test ./...      # includes an end-to-end run with the real Node driver: run pnpm install first
+```
+
 If the change touches rendering, the canvas, CSS or accessibility, also run the browser suite (CI job `e2e-a11y`):
 
 ```bash

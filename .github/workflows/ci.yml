@@ -74,6 +74,29 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm run test:a11y
 
+      # Module Go du protocole du binaire de menu (#510) : bibliothèque standard seulement, aucune interface
+      # graphique. go test inclut le bout en bout avec le vrai pilote Node (d'où l'ordre : après pnpm install).
+      - uses: actions/setup-go@v5
+        if: ${{ !cancelled() }}
+        with:
+          go-version-file: app-tray/native/go.mod
+          cache: false
+
+      - name: Tray protocol module format (gofmt)
+        if: ${{ !cancelled() }}
+        working-directory: app-tray/native
+        run: test -z "$(gofmt -l .)"
+
+      - name: Tray protocol module vet
+        if: ${{ !cancelled() }}
+        working-directory: app-tray/native
+        run: go vet ./...
+
+      - name: Tray protocol module tests (Go, no GUI)
+        if: ${{ !cancelled() }}
+        working-directory: app-tray/native
+        run: go test ./...
+
   e2e-a11y-shard:
     # Layout-dependent checks jsdom cannot do: axe on the real page (including color
     # contrast), 320 px / 200 % reflow, prefers-reduced-motion and the full-page Tab order.

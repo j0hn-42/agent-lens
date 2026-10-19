@@ -460,6 +460,25 @@ test('the reading guide says a detail popup never covers a permission request, a
   }
 })
 
+test('the Go protocol module of the tray is checked in CI, listed in CONTRIBUTING and documented, without claiming an icon (#510)', () => {
+  const ci = read('.github/workflows/ci.yml')
+  assert.match(ci, /go-version-file: app-tray\/native\/go\.mod/, 'ci.yml installs Go from app-tray/native/go.mod')
+  const goSteps = ci.slice(ci.indexOf('go-version-file: app-tray/native/go.mod'))
+  for (const run of ['test -z "$(gofmt -l .)"', 'go vet ./...', 'go test ./...']) {
+    assert.ok(goSteps.includes(`run: ${run}`), `ci.yml runs ${run}`)
+    assert.ok(read('CONTRIBUTING.md').includes(run), `CONTRIBUTING should list ${run}`)
+  }
+  assert.match(goSteps, /working-directory: app-tray\/native/)
+  const doc = read('docs/tray.md')
+  for (const needle of ['app-tray/native/', 'protocol-fixtures.json', 'no icon is drawn', 'not part of this repository yet']) {
+    assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle}`)
+  }
+  assert.ok(fs.existsSync(path.join(root, 'app-tray/native/go.mod')))
+  // No compiled binary is committed: only Go sources and the module file
+  const files = fs.readdirSync(path.join(root, 'app-tray/native'), { recursive: true, withFileTypes: true }).filter(e => e.isFile())
+  for (const f of files) assert.match(f.name, /^(go\.mod|.+\.go)$/, `unexpected file in app-tray/native: ${f.name}`)
+})
+
 test('relay-sources documents how Cursor hook payloads are ignored, with the doc they rely on (#472)', () => {
   const doc = read('docs/relay-sources.md')
   assert.match(doc, /## Cursor hook payloads are ignored \(#472\)/)
