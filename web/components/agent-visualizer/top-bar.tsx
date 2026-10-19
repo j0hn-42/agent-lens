@@ -89,7 +89,7 @@ export const TOPBAR_MORE_ID = 'topbar-more'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, barCue }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, barCue, wrap }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -120,6 +120,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   lang?: string
   /** Active, a 2 px bar under the button: the non-colour cue that still works on an icon (#523, WCAG 1.4.1) */
   barCue?: boolean
+  /** Content wraps onto a second line instead of squeezing its first item (#595); the text is never cut */
+  wrap?: boolean
 }) {
   return (
     <button
@@ -139,7 +141,7 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       lang={lang}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state (with the bar under a panel button)
-      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -495,9 +497,10 @@ export const TopBar = memo(function TopBar({
             lang={locale}
             shortcut="l"
             keepsInspector
+            wrap
             style={{ maxWidth: 'min(320px, 100%)' }}
           >
-            <span className="truncate" data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
+            <span className="min-w-0 max-w-full break-words" data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
             <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
             {lossMarked && (
               // A symbol, never a colour alone; its words are read with the button name
