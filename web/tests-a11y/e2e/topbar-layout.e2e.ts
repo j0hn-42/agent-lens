@@ -35,7 +35,7 @@ async function open(w: number, h = 900, locale?: 'fr' | 'en'): Promise<Page> {
   return page
 }
 
-const PANELS = ['Files', 'Conversation (C)', 'Context (P)', 'System (Y)', '$Cost', 'Timeline', 'Stats']
+const PANELS = ['Files & repeats', 'Conversation (C)', 'Context (P)', 'System (Y)', '$Cost', 'Timeline', 'Stats']
 
 interface Box { top: number; bottom: number; left: number; right: number; width: number; height: number }
 interface Layout {
@@ -166,8 +166,8 @@ test('1440x900: the bar draws no summary text; the agent counts are drawn in the
 test('1100x900: an icon shows its tooltip on hover and on focus; Escape closes it and the focus stays', async () => {
   const page = await open(1100)
   try {
-    const files = page.locator('header').getByRole('button', { name: 'Files', exact: true })
-    // "Files (F)" adds the shortcut to the name, so it is linked by aria-describedby; only Conversation, whose tooltip is exactly its name, is not (#545 review)
+    const files = page.locator('header').getByRole('button', { name: 'Files & repeats', exact: true })
+    // "Files & repeats (F)" adds the shortcut to the name, so it is linked by aria-describedby; only Conversation, whose tooltip is exactly its name, is not (#545 review)
     const tipId = await page.locator('#topbar-toggle-files').evaluate((b: Element) => b.parentElement!.querySelector('[role="tooltip"]')!.id)
     assert.ok(tipId)
     assert.ok(((await files.getAttribute('aria-describedby')) ?? '').split(' ').includes(tipId), 'Files is linked to its tooltip')
@@ -226,7 +226,7 @@ test('768x900: one folded row (Sessions, state, More, Commands), More opens ever
     for (const p of expanded.panels) assert.ok(p.iconWidth > 0 && p.labelWidth <= 1 && p.width >= 24 && p.height >= 24, `${p.name} is an icon of at least 24 px`)
     // A panel opened from More folds More (the panel stays docked: no drawer between 768 and 1023 px). As at every width
     // the open panel takes the focus; closing it gives the focus back to More, which stands for the folded button
-    await header.getByRole('button', { name: 'Files', exact: true }).click()
+    await header.getByRole('button', { name: 'Files & repeats', exact: true }).click()
     assert.equal(await more.getAttribute('aria-expanded'), 'false')
     assert.equal(await page.locator('[data-mobile-drawer]').count(), 0, 'no drawer')
     await page.waitForFunction(`document.activeElement && document.activeElement !== document.body && !document.querySelector('header').contains(document.activeElement)`)

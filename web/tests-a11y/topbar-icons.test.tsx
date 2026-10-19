@@ -42,10 +42,10 @@ const base: TopBarProps = {
 const PANELS = ['files', 'conversation', 'context', 'system', 'cost', 'timeline', 'stats'] as const
 /** The accessible names the buttons had before #523, unchanged */
 const EN_NAMES: Record<(typeof PANELS)[number], string> = {
-  files: 'Files', conversation: 'Conversation (C)', context: 'Context (P)', system: 'System (Y)', cost: '$Cost', timeline: 'Timeline', stats: 'Stats',
+  files: 'Files & repeats', conversation: 'Conversation (C)', context: 'Context (P)', system: 'System (Y)', cost: '$Cost', timeline: 'Timeline', stats: 'Stats',
 }
 const FR_NAMES: Record<(typeof PANELS)[number], string> = {
-  files: 'Fichiers', conversation: 'Conversation (C)', context: 'Contexte (P)', system: 'Système (Y)', cost: 'Coût', timeline: 'Chronologie', stats: 'Statistiques',
+  files: 'Fichiers et répétitions', conversation: 'Conversation (C)', context: 'Contexte (P)', system: 'Système (Y)', cost: 'Coût', timeline: 'Chronologie', stats: 'Statistiques',
 }
 const nameKey = (p: string) => `topbar.panel.${p}.name` as MessageKey
 const tipKey = (p: string) => `topbar.panel.${p}.tooltip` as MessageKey
@@ -129,7 +129,7 @@ test('each panel button has a role=tooltip and no native title (no double bubble
 
 test('the tooltip opens on focus and on hover, stays while hovered, closes after the pointer leaves', async () => {
   const view = render(<TopBar {...base} />)
-  const files = view.getByRole('button', { name: 'Files' })
+  const files = view.getByRole('button', { name: 'Files & repeats' })
   const tip = tooltipOf(files)!
   act(() => files.focus())
   assert.ok(shown(tip), 'focus opens it')
@@ -201,7 +201,7 @@ test('a click on the button closes its tooltip (it would cover the panel it open
 
 test('opened by the keyboard focus alone, Escape hides the tooltip and still reaches the page (closing panels one by one)', () => {
   const view = render(<TopBar {...base} />)
-  const files = view.getByRole('button', { name: 'Files' })
+  const files = view.getByRole('button', { name: 'Files & repeats' })
   const tip = tooltipOf(files)!
   act(() => files.focus())
   assert.ok(shown(tip))
@@ -220,7 +220,7 @@ test('opened by the keyboard focus alone, Escape hides the tooltip and still rea
 
 test('an active panel button has a non-colour cue that works on an icon: a bottom bar', () => {
   const view = render(<TopBar {...base} showFileAttention showStats />)
-  for (const name of ['Files', 'Stats']) {
+  for (const name of ['Files & repeats', 'Stats']) {
     const b = view.getByRole('button', { name })
     assert.equal(b.getAttribute('aria-pressed'), 'true')
     assert.match(b.style.boxShadow, /inset 0(px)? -2px 0(px)?/, `${name}: bottom bar`)
@@ -243,7 +243,7 @@ test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2
   const header = view.container.querySelector('header')!
   const stops = tabStops(header)
   const at = (re: RegExp) => { const i = stops.findIndex(s => re.test(s)); assert.ok(i >= 0, `${re} in ${stops.join(' | ')}`); return i }
-  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /^Files$/, /^Conversation/, /^Context/, /^System/, /^\$Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
+  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^\$Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
   const idx = order.map(at)
   assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${stops.join(' | ')}`)
   // The groups: identity and filters (row 1), status (quota, spoken totals), panels and tools (row 2)
@@ -277,7 +277,7 @@ test('768 to 1023 px: the bar folds behind More, Commands stays in the bar, no 4
   assert.equal(more.id, TOPBAR_MORE_ID)
   assert.equal(more.getAttribute('aria-expanded'), 'false')
   assert.ok(view.getByRole('button', { name: 'Commands' }), 'Commands stays in the folded bar')
-  assert.equal(view.queryByRole('button', { name: 'Files' }), null, 'the panel buttons fold')
+  assert.equal(view.queryByRole('button', { name: 'Files & repeats' }), null, 'the panel buttons fold')
   assert.equal(view.queryByRole('button', { name: /^Hide inactive/ }), null, 'the filters fold')
   // The 44 px classes only act under 768 px (max-md); they are the same classes as before
   for (const b of Array.from(header.querySelectorAll('button'))) assert.ok(b.className.includes(TOUCH_TARGET))
@@ -290,7 +290,7 @@ test('768 to 1023 px: More shows every control; a panel button folds More again 
   const toggled: string[] = []
   const view = render(<TopBar {...base} onTogglePanel={p => toggled.push(p)} onToggleTimeline={() => toggled.push('timeline')} />)
   const more = view.getByRole('button', { name: /^More/ })
-  for (const [name, id] of [['Files', 'files'], ['Conversation (C)', 'conversation'], ['Timeline', 'timeline']] as const) {
+  for (const [name, id] of [['Files & repeats', 'files'], ['Conversation (C)', 'conversation'], ['Timeline', 'timeline']] as const) {
     fireEvent.click(more)
     assert.equal(more.getAttribute('aria-expanded'), 'true')
     for (const n of ['Hide inactive: agents and sessions', 'Stats', 'Settings', 'Keyboard shortcuts', 'Commands']) assert.ok(view.getByRole('button', { name: n }), `${n} shown`)
@@ -312,7 +312,7 @@ test('crossing 1024 px keeps the focus: on Commands it stays on Commands, on a p
   assert.equal(document.activeElement, commands, 'the same Commands button keeps the focus')
   assert.equal(view.getByRole('button', { name: /^More/ }).getAttribute('aria-expanded'), 'false', 'More stays folded')
   setViewportWidth(1440)
-  view.getByRole('button', { name: 'Files' }).focus()
+  view.getByRole('button', { name: 'Files & repeats' }).focus()
   setViewportWidth(900)
   assert.equal(document.activeElement?.id, PANEL_BUTTON_IDS.files)
   assert.equal(view.getByRole('button', { name: /^More/ }).getAttribute('aria-expanded'), 'true')

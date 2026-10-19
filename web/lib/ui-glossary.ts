@@ -8,7 +8,7 @@ import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
 /** The panels of the app, under the one name each is called everywhere. */
 export const PANEL_NAMES = {
   conversation: 'Conversation',
-  files: 'Files',
+  files: 'Files & repeats',
   timeline: 'Timeline',
   cost: 'Cost',
   context: 'Context',

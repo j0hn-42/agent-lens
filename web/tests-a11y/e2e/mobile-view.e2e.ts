@@ -78,7 +78,7 @@ test('375x667: the folded top bar is short and every chrome control is at least 
     await more.click()
     assert.equal(await more.getAttribute('aria-expanded'), 'true')
     expectTargets(await controls(page, CHROME_TARGETS['top bar']), 'top bar expanded')
-    assert.ok(await page.getByRole('button', { name: 'Files', exact: true }).isVisible(), 'More shows the panel buttons')
+    assert.ok(await page.getByRole('button', { name: 'Files & repeats', exact: true }).isVisible(), 'More shows the panel buttons')
     assert.ok(await noHorizontalScroll(page), 'expanded: no horizontal page scroll')
     // Taller than the window, the expanded bar scrolls inside itself instead of running off the screen
     const grown = (await page.locator('header').boundingBox())!
@@ -118,13 +118,13 @@ test('375x667: Sessions opens a drawer; Tab stays inside, Escape closes it and g
   }
 })
 
-test('375x667: Files from More opens below the bars, More folds, closing gives the focus to More', async () => {
+test('375x667: Files & repeats from More opens below the bars, More folds, closing gives the focus to More', async () => {
   const page = await open(375, 667)
   try {
     const more = page.locator('header').getByRole('button', { name: /^More/ })
     await more.click()
-    await page.getByRole('button', { name: 'Files', exact: true }).click()
-    const drawer = page.getByRole('dialog', { name: 'Files' })
+    await page.getByRole('button', { name: 'Files & repeats', exact: true }).click()
+    const drawer = page.getByRole('dialog', { name: 'Files & repeats' })
     await drawer.waitFor()
     assert.equal(await more.getAttribute('aria-expanded'), 'false', 'More folded again')
     await page.waitForFunction(`!!document.activeElement && !!document.activeElement.closest('[data-mobile-drawer]')`)
@@ -136,7 +136,7 @@ test('375x667: Files from More opens below the bars, More folds, closing gives t
     assert.ok(d.y + d.height <= bar.y + 0.5, `the drawer ends at ${d.y + d.height}, above the playback bar at ${bar.y}`)
     await page.locator('[data-mobile-drawer] [data-panel-close]').click()
     await page.waitForFunction(`!document.querySelector('[data-mobile-drawer]')`)
-    assert.equal(await page.evaluate(`document.activeElement && document.activeElement.id`), 'topbar-more', 'the focus is on More (the Files button is folded)')
+    assert.equal(await page.evaluate(`document.activeElement && document.activeElement.id`), 'topbar-more', 'the focus is on More (the Files & repeats button is folded)')
   } finally {
     await page.context().close()
   }

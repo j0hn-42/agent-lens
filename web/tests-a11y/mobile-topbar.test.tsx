@@ -34,7 +34,7 @@ const buttonNames = (root: HTMLElement) => Array.from(root.querySelectorAll('but
 test('768 px and wider: no More button, the panel buttons are in the bar', () => {
   const view = render(<TopBar {...base} />)
   assert.equal(view.container.querySelector(`#${TOPBAR_MORE_ID}`), null)
-  assert.ok(view.getByRole('button', { name: 'Files' }))
+  assert.ok(view.getByRole('button', { name: 'Files & repeats' }))
   assert.ok(view.getByRole('toolbar', { name: 'View controls' }))
 })
 
@@ -66,7 +66,7 @@ test('under 768 px: More shows the panel buttons, the filters and the totals', (
   // More controls the filters (row 1) and row 2 (#523): every id names a rendered element
   const regions = more.getAttribute('aria-controls')!.split(' ').map(id => document.getElementById(id))
   assert.ok(regions.length > 0 && regions.every(Boolean), 'aria-controls names rendered elements')
-  for (const name of ['Files', 'Timeline', 'Hide inactive: agents', 'Settings', 'Keyboard shortcuts']) {
+  for (const name of ['Files & repeats', 'Timeline', 'Hide inactive: agents', 'Settings', 'Keyboard shortcuts']) {
     assert.ok(view.getByRole('button', { name }), `${name} is shown`)
   }
   assert.ok(regions.some(r => r!.contains(view.getByRole('toolbar', { name: 'View controls' }))), 'the panel buttons are what More controls')
@@ -78,7 +78,7 @@ test('under 768 px: a panel button folds More again and leaves the focus on More
   const toggled: string[] = []
   const view = render(<TopBar {...base} onTogglePanel={p => toggled.push(p)} onToggleTimeline={() => toggled.push('timeline')} />)
   const more = view.getByRole('button', { name: /^More/ })
-  for (const [name, id] of [['Files', 'files'], ['Timeline', 'timeline']] as const) {
+  for (const [name, id] of [['Files & repeats', 'files'], ['Timeline', 'timeline']] as const) {
     fireEvent.click(more)
     const button = view.getByRole('button', { name })
     button.focus()
@@ -115,7 +115,7 @@ test('every control of the top bar takes the 44 px target classes (folded and ex
 
 test('crossing 768 px with the focus on a panel button keeps it (More opens to keep the button)', () => {
   const view = render(<TopBar {...base} />)
-  const files = view.getByRole('button', { name: 'Files' })
+  const files = view.getByRole('button', { name: 'Files & repeats' })
   files.focus()
   setMobileView(true)
   assert.equal(document.activeElement?.id, PANEL_BUTTON_IDS.files)

@@ -1,6 +1,6 @@
 'use client'
 
-import { emptyState } from '@/lib/ui-glossary'
+import { emptyState, PANEL_NAMES } from '@/lib/ui-glossary'
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
@@ -280,7 +280,7 @@ export function GraphA11yList({
         {model.fileConflicts && model.fileConflicts.length > 0 && (
           <>
             <h3>File conflicts</h3>
-            <p>Files that two or more agents edited, each edit observed to succeed. The Files panel lists them too.</p>
+            <p>Files that two or more agents edited, each edit observed to succeed. The {PANEL_NAMES.files} panel lists them too.</p>
             <ul aria-label="File conflicts">
               {model.fileConflicts.map(c => <li key={c.path}>{c.text}</li>)}
             </ul>
