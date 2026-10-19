@@ -416,7 +416,7 @@ export function buildAnnouncement(opts: {
 }): string {
   const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
   if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
-  parts.push(opts.isReviewing ? 'Review mode' : 'Live mode')
+  parts.push(opts.isReviewing ? 'Review mode, use Resume live to return' : 'Live mode')
   if (opts.isEmpty) parts.push('Waiting for an agent session')
   if (opts.unobservedSessions && opts.unobservedSessions > 0) {
     parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)

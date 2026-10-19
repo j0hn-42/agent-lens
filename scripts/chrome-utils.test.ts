@@ -52,7 +52,7 @@ test('announcement and missed events', () => {
   const connection = connectionDisplay('watching', false)
   assert.equal(
     buildAnnouncement({ connection, sessionLabel: 'main', isReviewing: true, isEmpty: false }),
-    'Connection: live. Session: main. Review mode',
+    'Connection: live. Session: main. Review mode, use Resume live to return',
   )
   assert.match(buildAnnouncement({ connection, sessionLabel: null, isReviewing: false, isEmpty: true }), /Waiting for an agent session/)
   assert.equal(formatMissedEvents(0), null)

@@ -421,7 +421,7 @@ export function ConversationPanel({
             <h2 id={titleId} className="m-0 text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
               {CONVERSATION_LABELS.title}
             </h2>
-            <span className="text-[11px] font-mono" style={{ color: COLORS.panelLabelDim }}>
+            <span className="text-[11px] font-mono whitespace-nowrap shrink-0" style={{ color: COLORS.panelLabelDim }}>
               {searching ? `${messages.length}/${totalCount}` : totalCount} messages
             </span>
             {presetAgent && presetColor && (
