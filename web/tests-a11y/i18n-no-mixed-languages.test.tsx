@@ -125,9 +125,9 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** One regex per catalog value: a {placeholder} stands for a number or a short word. A shortcut hint " (+)" may follow. */
 function catalogPatterns(locale: Locale): RegExp[] {
   return (Object.values(MESSAGES[locale]) as string[]).map(v => {
-    // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values
+    // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values (a panel name such as "Files & repeats", #518)
     // A value written with a leading or trailing space (a part joined to another) is matched as the text node renders, trimmed
-    const body = v.trim().split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()<$\'’ _—~*-]+')
+    const body = v.trim().split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()<$\'’ _—~*&-]+')
     return new RegExp(`^${body}(?: \\([+\\-0]\\))?$`, 'u')
   })
 }
@@ -676,7 +676,7 @@ for (const locale of LOCALES) {
       assert.ok(strings.some(x => shape.test(x)), `${key} was rendered`)
     }
     assert.ok(strings.includes(MESSAGES[locale]['palette.key.shiftF']), 'the Shift+F key cap is in the language')
-    assert.ok(strings.some(x => x === MESSAGES[locale]['palette.panel.toggle'].replace('{name}', locale === 'fr' ? 'Fichiers' : 'Files')), 'the Files panel is named in the language')
+    assert.ok(strings.some(x => x === MESSAGES[locale]['palette.panel.toggle'].replace('{name}', MESSAGES[locale]['palette.panelName.files'])), 'the Files panel is named in the language')
     assert.ok(strings.length > 60, 'the palette was rendered')
     assert.deepEqual(foreignWords(locale, strings, LOCAL_ALLOW), [])
     assert.deepEqual([...new Set(listed(locale, strings))], [])

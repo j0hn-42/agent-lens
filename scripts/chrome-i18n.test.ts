@@ -43,7 +43,7 @@ test('shortcuts: the English description of every shortcut is the one of the tab
 test('shortcuts: in French every description differs from the English one and carries the French panel names', () => {
   for (const s of SHORTCUTS) assert.notEqual(shortcutDescription(s, 'fr'), s.description, s.key)
   const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
-  assert.equal(shortcutDescription(byKey.get('f')!, 'fr'), 'Basculer le panneau Fichiers')
+  assert.equal(shortcutDescription(byKey.get('f')!, 'fr'), 'Basculer le panneau Fichiers et répétitions')
   assert.equal(shortcutDescription(byKey.get('l')!, 'fr'), 'Basculer la liste Sessions et agents')
   assert.equal(shortcutDescription(byKey.get('$')!, 'fr'), 'Basculer la superposition Coût')
   assert.equal(shortcutDescription(byKey.get('2')!, 'fr'), 'Vitesse 1x')

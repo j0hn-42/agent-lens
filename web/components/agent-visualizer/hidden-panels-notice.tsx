@@ -5,6 +5,8 @@ import { SCENE } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { SHEET_NOTICE_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP } from '@/lib/panel-layout'
 import { hiddenPanelsText } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { panelName } from '@/lib/command-palette'
 import { useDockSnapshot } from './shared-ui'
 
 /**
@@ -16,7 +18,8 @@ import { useDockSnapshot } from './shared-ui'
  */
 function HiddenPanelsNotice({ contextOpen = false }: { contextOpen?: boolean }) {
   const { layout } = useDockSnapshot()
-  const text = hiddenPanelsText(layout.hidden, { context: contextOpen })
+  const { locale } = useLocale()
+  const text = hiddenPanelsText(layout.hidden, { context: contextOpen, files: panelName(locale, 'files') })
   return (
     <div role="status" data-testid="hidden-panels-notice">
       {text && (

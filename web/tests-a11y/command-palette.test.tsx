@@ -196,7 +196,7 @@ test('Ctrl+K inside the palette closes it', async () => {
 
 test('the shortcut of an option is shown to sighted users and announced', () => {
   const r = render(<Host />)
-  const files = r.getByRole('option', { name: /Toggle Files panel/ })
+  const files = r.getByRole('option', { name: /Toggle Files & repeats panel/ })
   assert.match(files.textContent ?? '', /F$/)
   assert.match(files.getAttribute('aria-keyshortcuts') ?? '', /F/)
 })
@@ -255,7 +255,7 @@ test('session and agent names carry data-sensitive, fixed commands do not (prese
   assert.match(sensitiveText(sessionOption), /payments-api/)
   assert.match(sensitiveText(sessionOption), /feat\/refund/)
   assert.match(sensitiveText(r.getByRole('option', { name: /^main-agent/ })), /main-agent/)
-  assert.equal(r.getByRole('option', { name: /Toggle Files panel/ }).querySelector('[data-sensitive]'), null)
+  assert.equal(r.getByRole('option', { name: /Toggle Files & repeats panel/ }).querySelector('[data-sensitive]'), null)
   assert.equal(r.getByRole('option', { name: /^All sessions/ }).querySelector('[data-sensitive]'), null)
 })
 

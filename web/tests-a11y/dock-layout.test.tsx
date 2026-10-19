@@ -71,7 +71,7 @@ test('files panel: right dock rect, data-canvas-inset=right, the range control f
   assert.equal(root.getAttribute('data-canvas-inset'), 'right')
   assert.equal(root.style.width, '380px')
   assert.equal(parseFloat(root.style.left), 1600 - 12 - 380)
-  const input = getByRole('slider', { name: 'Resize files panel' }) as HTMLInputElement
+  const input = getByRole('slider', { name: 'Resize Files & repeats panel' }) as HTMLInputElement
   assert.equal(input.type, 'range', 'a native range input, not a div with a tabindex')
   assert.equal(input.getAttribute('aria-controls'), root.id, 'it controls the panel root')
   assert.ok(root.id.length > 0)
@@ -99,7 +99,7 @@ test('the panel width equals the layout width right after a resize step (no tran
     <FileAttentionPanel visible fileAttention={new Map()} onClose={() => {}} />,
   )
   const root = container.querySelector<HTMLElement>('[data-dock-panel="files"]')!
-  const input = getByRole('slider', { name: 'Resize files panel' })
+  const input = getByRole('slider', { name: 'Resize Files & repeats panel' })
   for (const w of [400, 420, 500]) {
     fireEvent.change(input, { target: { value: String(w) } })
     // the rendered width IS the layout width (what the no-overlap guarantee is computed on) ...

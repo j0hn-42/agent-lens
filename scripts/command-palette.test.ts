@@ -45,7 +45,7 @@ test('every panel the app has is reachable, under its glossary name', () => {
   const items = buildPaletteItems(source())
   const panels = items.filter(i => i.group === 'Panels').map(i => i.label)
   assert.deepEqual(panels, [
-    'Toggle Sessions and agents list', 'Toggle Files panel', 'Toggle Conversation panel', 'Toggle Timeline panel',
+    'Toggle Sessions and agents list', 'Toggle Files & repeats panel', 'Toggle Conversation panel', 'Toggle Timeline panel',
     'Toggle Context panel', 'Toggle System panel', 'Toggle Stats panel', 'Toggle Cost overlay',
   ])
 })
@@ -53,7 +53,7 @@ test('every panel the app has is reachable, under its glossary name', () => {
 test('items run the handler they stand for', () => {
   calls.length = 0
   const items = buildPaletteItems(source({ sessions: [session('s1')], agents: [{ id: 'k1', name: 'main', sessionId: 's1' }] }))
-  byLabel(items, 'Toggle Files panel').run()
+  byLabel(items, 'Toggle Files & repeats panel').run()
   byLabel(items, 'Play / pause').run()
   byLabel(items, 'Open settings').run()
   byLabel(items, 'session s1').run()
@@ -73,8 +73,8 @@ test('the System entry toggles the System panel under its Y shortcut', () => {
 test('shortcuts are shown only while they work', () => {
   const on = buildPaletteItems(source({ singleKeyEnabled: true }))
   const off = buildPaletteItems(source({ singleKeyEnabled: false }))
-  assert.equal(byLabel(on, 'Toggle Files panel').shortcut, 'F')
-  assert.equal(byLabel(off, 'Toggle Files panel').shortcut, undefined)
+  assert.equal(byLabel(on, 'Toggle Files & repeats panel').shortcut, 'F')
+  assert.equal(byLabel(off, 'Toggle Files & repeats panel').shortcut, undefined)
   // ? is a single-key shortcut too (WCAG 2.1.4, #376): hidden while the preference is off
   assert.equal(byLabel(on, 'Show keyboard shortcuts').shortcut, '?')
   assert.equal(byLabel(off, 'Show keyboard shortcuts').shortcut, undefined)
@@ -129,7 +129,7 @@ test('item ids are unique', () => {
 
 test('panels and agents move focus themselves; plain actions and session jumps do not', () => {
   const items = buildPaletteItems(source({ sessions: [session('a')], agents: [{ id: 'k', name: 'n', sessionId: 's' }] }))
-  assert.equal(byLabel(items, 'Toggle Files panel').movesFocus, true)
+  assert.equal(byLabel(items, 'Toggle Files & repeats panel').movesFocus, true)
   assert.equal(byLabel(items, 'n').movesFocus, true)
   assert.equal(byLabel(items, 'Play / pause').movesFocus, false)
   assert.equal(byLabel(items, 'session a').movesFocus, false)
@@ -149,7 +149,7 @@ test('an empty query lists every group in order, capped per group, with the hidd
 test('terms must all match, in any order, case-insensitively', () => {
   const items = buildPaletteItems(source())
   const flat = (q: string) => searchPalette(items, q).flatMap(s => s.items.map(i => i.label))
-  assert.deepEqual(flat('PANEL files'), ['Toggle Files panel'])
+  assert.deepEqual(flat('PANEL files'), ['Toggle Files & repeats panel'])
   assert.deepEqual(flat('zzz'), [])
 })
 
@@ -265,7 +265,7 @@ test('each theme is a command of its own group, the current one marked, found by
 test('the Files panel is found by the repeated reads and calls it lists', () => {
   const items = buildPaletteItems(source())
   for (const q of ['waste', 'repeated']) {
-    assert.equal(searchPalette(items, q).find(s => s.group === 'Panels')?.items[0]?.label, 'Toggle Files panel', q)
+    assert.equal(searchPalette(items, q).find(s => s.group === 'Panels')?.items[0]?.label, 'Toggle Files & repeats panel', q)
   }
 })
 
@@ -306,13 +306,13 @@ test('one launch entry per role and session opens the card of the first agent be
 
 // ---- French palette (#503): the language of the text changes, nothing else ----
 
-const FR_PANELS = ['Fichiers', 'Conversation', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques']
+const FR_PANELS = ['Fichiers et répétitions', 'Conversation', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques']
 
 test('French: the panels are named in French, the Sessions list keeps its catalog name', () => {
   const items = buildPaletteItems(source({ locale: 'fr' }))
   const panels = items.filter(i => i.group === 'Panels').map(i => i.label)
   assert.deepEqual(panels, [
-    'Basculer la liste Sessions et agents', 'Basculer le panneau Fichiers', 'Basculer le panneau Conversation', 'Basculer le panneau Chronologie',
+    'Basculer la liste Sessions et agents', 'Basculer le panneau Fichiers et répétitions', 'Basculer le panneau Conversation', 'Basculer le panneau Chronologie',
     'Basculer le panneau Contexte', 'Basculer le panneau Système', 'Basculer le panneau Statistiques', 'Basculer la superposition Coût',
   ])
   for (const name of FR_PANELS) assert.ok(panels.some(p => p.endsWith(name)), name)

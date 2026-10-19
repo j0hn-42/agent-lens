@@ -284,3 +284,17 @@ export function wasteSummary(ledger: WasteLedger): WasteSummary {
   const items = listWaste(ledger)
   return { items, repeats: items.reduce((s, i) => s + i.repeats, 0), uncompared: ledger.uncompared, limitReached: ledger.limitReached }
 }
+
+/** What the folded "Repeated reads and calls" summary may say (#518): the count of the listed findings, nothing else. */
+export interface RepeatsDisclosure {
+  /** Findings listed (the rows shown plus the ones counted as "more"): the same data as the list */
+  count: number
+  /** The tracking limit was reached or the relay could not replay events: the count is a lower bound, an empty list is incomplete */
+  lowerBound: boolean
+  /** Calls without input details, never compared: a repeat may hide among them */
+  uncompared: number
+}
+
+export function repeatsDisclosure(summary: Pick<WasteSummary, 'items' | 'uncompared' | 'limitReached'>, replayLost = 0): RepeatsDisclosure {
+  return { count: summary.items.length, lowerBound: summary.limitReached || replayLost > 0, uncompared: summary.uncompared }
+}

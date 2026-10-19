@@ -10,6 +10,7 @@
  */
 import { findingText, type HealthVerdict, type LoopFinding } from './loop-detection'
 import { describeWaste, listWaste, type WasteItem, type WasteLedger } from './waste'
+import { PANEL_NAMES } from './ui-glossary'
 
 export type RepeatMarkKind = 'loop' | 'repeated'
 
@@ -37,7 +38,7 @@ export function repeatMarks(
     }
   }
   if (waste && waste.items.size > 0) {
-    // Costliest first, the order of the Files panel
+    // Costliest first, the order of the Files & repeats panel
     for (const item of listWaste(waste)) {
       if (!scene.has(item.agentId) || item.repeats < 1) continue
       const mark = marks.get(item.agentId)
@@ -55,7 +56,7 @@ export function repeatMarks(
  * the text of its findings (`findingText`), which names the base name of the file for a read, edit, failure
  * cycle: the screen-reader outline is not masked by presentation mode (docs/reading-the-ui.md).
  */
-export function repeatMarkText(mark: RepeatMark): { short: string; detail: string } {
+export function repeatMarkText(mark: RepeatMark, filesPanel: string = PANEL_NAMES.files): { short: string; detail: string } {
   if (mark.kind === 'loop') {
     const spoken = mark.findings.slice(0, LOOP_FINDINGS_SPOKEN).map(f => findingText(f))
     const more = mark.findings.length - spoken.length
@@ -64,7 +65,7 @@ export function repeatMarkText(mark: RepeatMark): { short: string; detail: strin
   }
   const [top] = mark.items
   const more = mark.items.length - 1
-  const tail = more > 0 ? `; and ${more} more in the Files panel` : ''
+  const tail = more > 0 ? `; and ${more} more in the ${filesPanel} panel` : ''
   const reads = mark.items.some(i => i.kind === 'reread')
   const calls = mark.items.some(i => i.kind !== 'reread')
   const what = reads && calls ? 'reads and calls' : reads ? 'reads' : 'calls'

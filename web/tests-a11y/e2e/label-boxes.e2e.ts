@@ -57,10 +57,16 @@ async function openTeam(width: number, height: number): Promise<{ page: Page; cl
   await page.addInitScript(RECORDER)
   await page.goto(`${server.url}/?scenario=team10`)
   await page.getByRole('button', { name: 'Files' }).waitFor()
-  // the whole scenario is played within a few seconds: wait for the 10 agents to be listed
+  // the whole scenario is played within a few seconds: wait for the 10 agents to be listed in the graph outline (the
+  // text twin of the canvas). Not for a name painted on the canvas: the label plan hides the names that would collide,
+  // so at 1024x768 "performance-profiler" is painted for a few frames at most, or never (#594, CI run 39275573505).
   await page.waitForFunction(
-    () => (window as unknown as { __lastFrameTexts: () => TextBox[] }).__lastFrameTexts().some(t => t.text === 'performance-profiler'),
-    null, { timeout: 60_000 },
+    names => {
+      const outline = document.querySelector('section[aria-label="Agent graph outline"]')
+      const items = outline ? [...outline.querySelectorAll('[data-graph-node]')].map(b => b.textContent ?? '') : []
+      return names.every(n => items.some(t => t.startsWith(`${n},`)))
+    },
+    TEAM_NAMES, { timeout: 60_000 },
   )
   return { page, close: () => context.close() }
 }
@@ -134,14 +140,17 @@ for (const [width, height] of [[1024, 768], [1280, 800], [1920, 1080]] as const)
     const { page, close } = await openTeam(width, height)
     try {
       const all = await fittedTexts(page)
-      // the button reads the plan every 200 ms and shows a count once it held 500 ms with the camera at rest
-      await page.waitForTimeout(1000)
       const visible = all.filter(t => t.alpha > 0.05 && t.w > 0 && t.x + t.w > 0 && t.y + t.h > 0 && t.x < width && t.y < height)
       const shown = TEAM_NAMES.filter(n => visible.some(t => t.text === n || t.text.startsWith(`${n} ·`)))
       const hidden = TEAM_NAMES.length - shown.length
       assert.ok(hidden > 0, `precondition: names are hidden at ${width}x${height}`)
       const button = page.locator('[data-hidden-names]')
       const label = `${hidden} ${hidden === 1 ? 'name' : 'names'} hidden`
+      // the button reads the plan every 200 ms and shows a count once it held 500 ms with the camera at rest: wait for
+      // that number (no fixed delay); a wrong or missing number fails on the assertion below, with what was painted
+      await page.waitForFunction(
+        l => document.querySelector('[data-hidden-names]')?.textContent?.trim() === l, label, { timeout: 10_000 },
+      ).catch(() => undefined)
       assert.equal((await button.textContent())?.trim(), label, `painted: ${shown.join(', ')}`)
       console.log(`${width}x${height}: ${hidden} of ${TEAM_NAMES.length} names hidden, the button says "${(await button.textContent())?.trim()}"`)
       // Its name is its text, and it opens the Sessions and agents list
