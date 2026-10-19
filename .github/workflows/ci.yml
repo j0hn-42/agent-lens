@@ -122,19 +122,8 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
 
-      # Turbopack's dev cache of the demo server (NEXT_DIST_DIR=.next-e2e): without it the first file of each
-      # shard compiles the app from scratch. Turbopack checks its inputs itself, so an older cache (restore-keys)
-      # can only be slower, not wrong. Only shard 1 saves, once per lockfile + sources the app compiles (the key
-      # lists them; web/node_modules and the build output stay out of the hash).
-      - name: Restore Next dev cache
-        id: next-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: web/.next-e2e/dev/cache
-          key: next-e2e-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('web/app/**', 'web/components/**', 'web/lib/**', 'web/hooks/**', 'web/public/**', 'web/*.json', 'web/*.mjs') }}
-          restore-keys: |
-            next-e2e-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-            next-e2e-${{ runner.os }}-
+      # No cache of the Turbopack dev cache (web/.next-e2e/dev/cache): tried in #611, it saved at most ~5 s per
+      # shard (within noise) for ~85 MB of cache per source state.
 
       # Each test file starts the demo app itself on a free port and stops it at the end. The runner prints the
       # files of the shard first, and its totals (tests, pass, fail...) at the end and in the job summary.
@@ -142,13 +131,6 @@ jobs:
         env:
           E2E_SHARD: ${{ matrix.shard }}/4
         run: pnpm --dir web run test:e2e:shard
-
-      - name: Save Next dev cache
-        if: ${{ !cancelled() && matrix.shard == 1 && steps.next-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
-        with:
-          path: web/.next-e2e/dev/cache
-          key: ${{ steps.next-cache.outputs.cache-primary-key }}
 
       # One log per e2e file (web/test-results/demo-server-<file>.log): pid, attempt, port, time, identity of
       # the process listening on the port, then the server output. Read it first on a "connection refused" (#575).

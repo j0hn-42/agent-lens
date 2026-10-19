@@ -45,15 +45,15 @@ test('the e2e-a11y check aggregates the shards and fails unless all succeeded (#
   assert.ok(!/^    name:/m.test(agg), 'no display name: the check name is the job id')
 })
 
-test('the shards cache the Playwright browser and the Turbopack dev cache, saved by one shard only (#611)', () => {
+test('the shards cache the Playwright browser, saved by one shard only (#611)', () => {
   const shard = job('e2e-a11y-shard')
-  for (const p of ['~/.cache/ms-playwright', 'web/.next-e2e/dev/cache']) {
-    assert.ok(shard.includes(`path: ${p}`), `caches ${p}`)
-  }
-  assert.equal((shard.match(/uses: actions\/cache\/restore@v4/g) ?? []).length, 2)
+  assert.ok(shard.includes('path: ~/.cache/ms-playwright'))
+  assert.equal((shard.match(/uses: actions\/cache\/restore@v4/g) ?? []).length, 1)
   const saves = [...shard.matchAll(/- (?:name: .*\n\s+)?if: (.*)\n\s+uses: actions\/cache\/save@v4/g)]
-  assert.equal(saves.length, 2, 'two save steps')
-  for (const s of saves) assert.match(s[1], /matrix\.shard == 1/, 'only shard 1 saves, so the shards never race for one key')
-  assert.match(shard, /key: next-e2e-\$\{\{ runner\.os \}\}-\$\{\{ hashFiles\('pnpm-lock\.yaml'\) \}\}-/)
+  assert.equal(saves.length, 1, 'one save step')
+  assert.match(saves[0][1], /matrix\.shard == 1/, 'only shard 1 saves, so the shards never race for one key')
   assert.match(shard, /key: playwright-\$\{\{ runner\.os \}\}-\$\{\{ hashFiles\('pnpm-lock\.yaml'\) \}\}/)
+  // Tried in #611 and measured: restoring web/.next-e2e/dev/cache saved at most ~5 s per shard, within noise,
+  // for ~85 MB of cache per source state. Not shipped; this keeps it from coming back unmeasured.
+  assert.ok(!/^\s+path: .*\.next-e2e/m.test(shard), 'no Turbopack cache without a measured gain')
 })
