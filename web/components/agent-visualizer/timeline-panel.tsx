@@ -1,8 +1,9 @@
 'use client'
 
-import { emptyState } from '@/lib/ui-glossary'
 import { useLocale } from '@/lib/locale'
-import { translate } from '@/lib/messages'
+import { translate, type Locale } from '@/lib/messages'
+import { DATA_EN } from '@/lib/panel-text'
+import { stateLabelText, stateGlyphText, arrowKindText, arrowLabelText, timelineLabelText, earlierMessagesText, blockLabelParts, type LabelPart } from '@/lib/timeline-text'
 import { panelName } from '@/lib/command-palette'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
@@ -13,9 +14,7 @@ import {
   buildTimelineRows,
   computeTimelineRange,
   timelineMarkers,
-  timelineAriaLabel,
   timelineBlockState,
-  TIMELINE_STATE_LABELS,
   buildSwimlaneArrows,
   buildMessageRows,
   hitTestArrow,
@@ -61,16 +60,6 @@ const LABEL_WIDTH = 104
 const FONT = '11px monospace'
 const MAX_NAME_CHARS = 13
 const SWIMLANE_LAYOUT = { labelWidth: LABEL_WIDTH, headerHeight: HEADER_HEIGHT, rowHeight: ROW_HEIGHT }
-
-/** Short glyphs so narrow blocks never rely on color alone. */
-const STATE_GLYPH: Record<TimelineStateKey, string> = {
-  idle: 'I',
-  thinking: 'T',
-  tool_call: 'C',
-  waiting_permission: 'P',
-  error: 'E',
-  complete: 'D',
-}
 
 type PatternKind = 'none' | 'dots' | 'diagonal' | 'vertical' | 'cross' | 'horizontal'
 
@@ -150,6 +139,7 @@ function drawTimeline(
   dpr: number,
   arrows: readonly SwimlaneArrow[] = [],
   hoveredArrowId?: string,
+  locale: Locale = 'en',
 ) {
   ctx.clearRect(0, 0, width * dpr, height * dpr)
   ctx.save()
@@ -159,7 +149,7 @@ function drawTimeline(
     ctx.font = FONT
     ctx.fillStyle = COLORS.textMutedOpaque
     ctx.textAlign = 'center'
-    ctx.fillText(emptyState('timeline data'), width / 2, height / 2)
+    ctx.fillText(translate(locale, 'tl.empty'), width / 2, height / 2)
     ctx.restore()
     return
   }
@@ -238,7 +228,7 @@ function drawTimeline(
         ctx.clip()
         ctx.fillStyle = uiColor(block.color, state)
         ctx.textAlign = 'left'
-        ctx.fillText(blockW > 40 ? block.label : STATE_GLYPH[state], x + (blockW > 40 ? 4 : 3), trackY + trackH / 2 + 4)
+        ctx.fillText(blockW > 40 ? blockLabelParts(locale, block.label).map(p => p.text).join('') : stateGlyphText(locale, state), x + (blockW > 40 ? 4 : 3), trackY + trackH / 2 + 4)
         ctx.restore()
       }
     }
@@ -279,6 +269,19 @@ function drawTimeline(
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+/** The label of a block: the fixed words come from the catalog, the tool call (name, arguments) is data and declares its language. */
+function LabelParts({ parts }: { parts: readonly LabelPart[] }) {
+  return <>{parts.map((p, i) => p.data ? <span key={i} {...DATA_EN}>{p.text}</span> : <span key={i}>{p.text}</span>)}</>
+}
+
+/** "Idle (Starting)": the state, then the label of the block between parentheses when it adds something. */
+function StateCell({ locale, state, detail }: { locale: Locale; state: TimelineStateKey; detail: string }) {
+  const stateText = stateLabelText(locale, state)
+  const parts = detail ? blockLabelParts(locale, detail) : []
+  const showDetail = parts.length > 0 && parts.map(p => p.text).join('') !== stateText
+  return <>{stateText}{showDetail && <>{' ('}<LabelParts parts={parts} />{')'}</>}</>
+}
+
 export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, links }: TimelinePanelProps) {
   const { locale } = useLocale()
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -304,10 +307,15 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     const all = buildSwimlaneArrows(sortedEntries.map(e => e.agentId), links, id => nameById.get(id) ?? id)
     return isPairComplete(pair) ? filterArrowsByPair(all, pair.a, pair.b) : all
   }, [visible, links, sortedEntries, nameById, pair])
-  const messageRows = useMemo(() => buildMessageRows(arrows), [arrows])
+  // The words of the arrows come from the catalog; the names and the content are data
+  const arrowText = (a: SwimlaneArrow) => arrowLabelText(locale, a.kind, a.isError, a.fromName, a.toName)
+  const messageRows = useMemo(() => buildMessageRows(arrows, {
+    kindLabel: (kind, isError) => arrowKindText(locale, kind, isError),
+    label: a => arrowLabelText(locale, a.kind, a.isError, a.fromName, a.toName),
+  }), [arrows, locale])
   const cappedButtons = useMemo(() => capMessageRows(messageRows), [messageRows])
   const activeArrow = arrows.find(a => a.id === activeArrowId)
-  const ariaLabel = timelineAriaLabel(sortedEntries, currentTime)
+  const ariaLabel = timelineLabelText(locale, sortedEntries, currentTime)
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
 
@@ -342,9 +350,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     canvas.style.width = `${width}px`
     canvas.style.height = `${canvasHeight}px`
 
-    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId)
+    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId, locale)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- redraw on every prop change (component only re-renders on data/time updates)
-  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w])
+  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w, locale])
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -374,9 +382,10 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
       labelLang={locale}
       style={dock.hidden ? { display: 'none' } : dockRect ? undefined : { maxWidth: 700, margin: '0 auto' }}
     >
-      <div className="glass-card relative flex flex-col" role="region" aria-label="Execution timeline" style={{ maxHeight: dockRect?.h }}>
+      <div className="glass-card relative flex flex-col" role="region" aria-label={translate(locale, 'tl.region')} lang={locale} style={{ maxHeight: dockRect?.h }}>
         <PanelHeader
           onClose={onClose}
+          closeLabel={translate(locale, 'common.close')}
           actions={
             <div className="flex items-center gap-1">
             {links && (
@@ -384,11 +393,11 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 type="button"
                 onClick={() => setSequence(v => !v)}
                 aria-pressed={sequence}
-                title="Order rows by first interaction"
+                title={translate(locale, 'tl.sequence.title')}
                 className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
                 style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
               >
-                Sequence
+                {translate(locale, 'tl.sequence')}
               </button>
             )}
             <button
@@ -399,7 +408,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
               style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
             >
-              Table view
+              {translate(locale, 'tl.table')}
             </button>
             </div>
           }
@@ -413,7 +422,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           ref={scrollRef}
           tabIndex={0}
           role="group"
-          aria-label="Timeline scroll area"
+          aria-label={translate(locale, 'tl.scroll')}
           className={`min-h-0 overflow-auto ${FOCUS_RING}`}
           style={{ maxHeight: 300 }}
         >
@@ -427,49 +436,53 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               onMouseLeave={() => { setHoveredName(undefined); setActiveArrowId(undefined) }}
               style={{ display: 'block' }}
             >
-              {ariaLabel}. Open the table view for the list of agents, states, start and end times.
+              {translate(locale, 'tl.canvasFallback', { label: ariaLabel })}
             </canvas>
           </div>
 
+          {/* Hidden, the table sits in a 1 px clipped box: a table is never narrower than its content, so as `sr-only` itself it
+              stuck out of the panel and made it wider than the window for nothing (measured in French at 320 px) */}
+          <div className={tableView ? undefined : 'sr-only'}>
           <table
             id={tableId}
-            className={tableView ? 'w-full text-xs font-mono border-collapse' : 'sr-only'}
+            className="w-full text-xs font-mono border-collapse"
             style={tableView ? { color: COLORS.textPrimary } : undefined}
           >
             <caption className="sr-only">{ariaLabel}</caption>
             <thead>
               <tr style={{ color: COLORS.textMutedOpaque }}>
-                <th scope="col" className="text-left px-2 py-1 font-normal">Agent</th>
-                <th scope="col" className="text-left px-2 py-1 font-normal">State</th>
-                <th scope="col" className="text-left px-2 py-1 font-normal">Start</th>
-                <th scope="col" className="text-left px-2 py-1 font-normal">End</th>
+                <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.col.agent')}</th>
+                <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.col.state')}</th>
+                <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.col.start')}</th>
+                <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.col.end')}</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={4} className="px-2 py-1">{emptyState('timeline data')}</td></tr>
+                <tr><td colSpan={4} className="px-2 py-1">{translate(locale, 'tl.empty')}</td></tr>
               )}
               {rows.map((r, i) => (
                 <tr key={`${r.agentId}-${i}`} style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
                   <th scope="row" className="text-left px-2 py-1 font-normal break-all">{r.agentName}</th>
-                  <td className="px-2 py-1">{r.stateLabel}{r.detail && r.detail !== r.stateLabel ? ` (${r.detail})` : ''}</td>
+                  <td className="px-2 py-1 [overflow-wrap:anywhere]"><StateCell locale={locale} state={r.state} detail={r.detail} /></td>
                   <td className="px-2 py-1">{r.start}</td>
-                  <td className="px-2 py-1">{r.end}</td>
+                  <td className="px-2 py-1">{r.endTime === null ? translate(locale, 'tl.ongoing') : r.end}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
 
           {messageRows.length > 0 && tableView && (
             <table id={messagesTableId} className="w-full text-xs font-mono border-collapse mt-2" style={{ color: COLORS.textPrimary }}>
-              <caption className="text-left px-2 py-1" style={{ color: COLORS.textMutedOpaque }}>Messages between agents</caption>
+              <caption className="text-left px-2 py-1" style={{ color: COLORS.textMutedOpaque }}>{translate(locale, 'tl.msgs.caption')}</caption>
               <thead>
                 <tr style={{ color: COLORS.textMutedOpaque }}>
-                  <th scope="col" className="text-left px-2 py-1 font-normal">Time</th>
-                  <th scope="col" className="text-left px-2 py-1 font-normal">Kind</th>
-                  <th scope="col" className="text-left px-2 py-1 font-normal">From</th>
-                  <th scope="col" className="text-left px-2 py-1 font-normal">To</th>
-                  <th scope="col" className="text-left px-2 py-1 font-normal">Content</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.msgs.col.time')}</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.msgs.col.kind')}</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.msgs.col.from')}</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.msgs.col.to')}</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.msgs.col.content')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -479,7 +492,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                     <th scope="row" className="text-left px-2 py-1 font-normal break-words">{r.kindLabel}</th>
                     <td className="px-2 py-1 break-words">{r.from}</td>
                     <td className="px-2 py-1 break-words">{r.to}</td>
-                    <td className="px-2 py-1 break-words whitespace-pre-wrap">{r.content.slice(0, 300)}{r.content.length > 300 ? '…' : ''}</td>
+                    <td {...DATA_EN} className="px-2 py-1 break-words whitespace-pre-wrap">{r.content.slice(0, 300)}{r.content.length > 300 ? '…' : ''}</td>
                   </tr>
                 ))}
               </tbody>
@@ -489,7 +502,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
         {isPairComplete(pair) && (
           <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
-            <PairFilterChip pair={pair} nameOf={id => nameById.get(id) ?? id} count={arrows.length} onClear={clearPair} />
+            <PairFilterChip pair={pair} nameOf={id => nameById.get(id) ?? id} count={arrows.length} onClear={clearPair} locale={locale} />
           </div>
         )}
 
@@ -498,7 +511,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
             <div
               role="group"
-              aria-label="Messages between agents"
+              aria-label={translate(locale, 'tl.msgs.caption')}
               className="flex flex-wrap gap-1 overflow-auto"
               style={{ maxHeight: 56 }}
             >
@@ -518,12 +531,17 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               ))}
               {cappedButtons.hidden > 0 && (
                 <span className="text-[11px] font-mono self-center" style={{ color: COLORS.textMutedOpaque }}>
-                  +{cappedButtons.hidden} earlier messages, see Table view
+                  {earlierMessagesText(locale, cappedButtons.hidden)}
                 </span>
               )}
             </div>
             <div role="status" className="text-[11px] font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
-              {activeArrow ? `${activeArrow.label}: ${activeArrow.content.slice(0, 400)}${activeArrow.content.length > 400 ? '…' : ''}` : ''}
+              {activeArrow && (
+                <>
+                  {arrowText(activeArrow)}{': '}
+                  <span {...DATA_EN}>{activeArrow.content.slice(0, 400)}{activeArrow.content.length > 400 ? '…' : ''}</span>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -538,7 +556,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 style={{ background: legendSwatchBackground(item.state, item.color), border: `1px solid ${item.color}` }}
               />
               <span className="text-[11px] font-mono" style={{ color: COLORS.textMutedOpaque }}>
-                {TIMELINE_STATE_LABELS[item.state]}
+                {stateLabelText(locale, item.state)}
               </span>
             </div>
           ))}

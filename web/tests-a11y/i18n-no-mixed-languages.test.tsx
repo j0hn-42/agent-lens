@@ -4,8 +4,8 @@
 // Context panels) are rendered and every visible
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
-// lang) is left out. Surfaces not yet translated (the Cost, Timeline and Stats panels)
-// are out of this test on purpose: see docs/reading-the-ui.md. Control by control, the top bar also has
+// lang) is left out. The Timeline panel is rendered here too, with no exemption of its own. The words the canvas draws for the
+// Cost and Stats overlays are out of this test on purpose: see docs/reading-the-ui.md. Control by control, the top bar also has
 // topbar-i18n.test.tsx.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -61,7 +61,9 @@ import { SHORTCUTS } from '@/lib/shortcuts'
 import { shortcutKeyCap } from '@/lib/shortcuts-text'
 import { ConversationHarness, createPanelRegistry } from './conversation-harness'
 import { clearPair, setPair } from '@/lib/pair-filter-store'
-import type { Agent, FileAttention } from '@/lib/agent-types'
+import type { Agent, FileAttention, TimelineBlock, TimelineEntry } from '@/lib/agent-types'
+import type { AgentLink } from '@/hooks/simulation/types'
+import { SCENE } from '@/lib/colors'
 import { emptyWasteLedger, recordToolStart, recordToolEnd, type WasteLedger } from '@/lib/waste'
 import type { ProjectContextData } from '@/lib/project-context'
 import type { SessionCapabilities } from '@/lib/session-capabilities'
@@ -1351,3 +1353,144 @@ for (const locale of LOCALES) {
     assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
   })
 }
+
+// ---- Timeline panel (#373) ----
+
+const TL_FIXTURE_NAMES = ['tl-lead', 'tl-explore', 'tl-audit']
+for (const d of TL_FIXTURE_NAMES) FIXTURE_DATA.add(d)
+const tlBlock = (id: string, type: TimelineBlock['type'], startTime: number, label: string, color: string, endTime?: number): TimelineBlock =>
+  ({ id, type, startTime, label, color, ...(endTime === undefined ? {} : { endTime }) })
+/** Every state of a block, every fixed label, a failed and a cancelled call, an expired one and a block still running. */
+const TL_ENTRIES = new Map<string, TimelineEntry>([
+  ['tl-lead', { id: 'tl-lead', agentId: 'tl-lead', agentName: 'tl-lead', startTime: 0, blocks: [
+    tlBlock('a', 'idle', 0, 'Starting', SCENE.idle, 1), tlBlock('b', 'thinking', 1, 'Thinking...', SCENE.thinking, 3),
+    tlBlock('c', 'tool_call', 3, 'Read: src/foo.ts', SCENE.tool, 5), tlBlock('d', 'tool_call', 5, 'Bash: FAILED', SCENE.error, 6),
+    tlBlock('e', 'idle', 6, 'Permission', SCENE.waiting_permission, 8), tlBlock('f', 'tool_call', 8, 'Grep: CANCELLED', SCENE.idle, 9),
+    tlBlock('g', 'tool_call', 9, 'Read: b.ts (expired, end not observed)', SCENE.tool, 10), tlBlock('h', 'thinking', 10, 'Thinking...', SCENE.thinking),
+  ] }],
+  ['tl-explore', { id: 'tl-explore', agentId: 'tl-explore', agentName: 'tl-explore', startTime: 2, endTime: 9, blocks: [
+    tlBlock('i', 'idle', 2, 'Resumed', SCENE.idle, 4), tlBlock('j', 'complete', 9, 'Done', SCENE.complete, 9),
+  ] }],
+  ['tl-audit', { id: 'tl-audit', agentId: 'tl-audit', agentName: 'tl-audit', startTime: 4, blocks: [] }],
+])
+const tlMsg = (id: string, type: string, timestamp: number, content: string, from: string, to: string, isError = false) =>
+  ({ id, type, timestamp, content, from, to, isError }) as unknown as ConversationMessage
+const tlLinks = (extra = 0) => new Map<string, AgentLink>([
+  ['l1', { id: 'l1', from: 'tl-lead', to: 'tl-explore', kind: 'spawn', sessionId: 's', dropped: 0, messages: [
+    tlMsg('m1', 'dispatch', 2, 'please explore the code', 'tl-lead', 'tl-explore'), tlMsg('m2', 'return', 8, 'found three files', 'tl-explore', 'tl-lead'),
+    tlMsg('m3', 'return', 9, 'it failed badly', 'tl-explore', 'tl-lead', true), tlMsg('m4', 'message', 5, 'a peer note', 'tl-audit', 'tl-explore'),
+    ...Array.from({ length: extra }, (_, i) => tlMsg(`x${i}`, 'message', 5.5 + i / 100, `extra ${i}`, 'tl-audit', 'tl-lead')),
+  ] } as unknown as AgentLink],
+])
+
+for (const locale of LOCALES) {
+  test(`the Timeline panel (every state, table view, messages, pair filter, empty and incomplete states) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const T = (k: MessageKey, p?: Record<string, string | number>) => translate(locale, k, p)
+    const strings: string[] = []
+    const scenarios: Array<{ entries: Map<string, TimelineEntry>; links?: Map<string, AgentLink>; pair?: [string, string]; tableView?: boolean; sequence?: boolean }> = [
+      { entries: TL_ENTRIES, links: tlLinks() },
+      { entries: TL_ENTRIES, links: tlLinks(), tableView: true },
+      { entries: TL_ENTRIES, links: tlLinks(), sequence: true },
+      { entries: TL_ENTRIES, links: tlLinks(), pair: ['tl-lead', 'tl-explore'] },
+      { entries: TL_ENTRIES, links: tlLinks(), pair: ['tl-lead', 'tl-audit'] },
+      // more messages than buttons: the "earlier messages" line, once with one hidden and once with several
+      { entries: TL_ENTRIES, links: tlLinks(37) },
+      { entries: TL_ENTRIES, links: tlLinks(42) },
+      // no link channel: no Sequence button; no entry at all: the empty state, also in the table view
+      { entries: TL_ENTRIES },
+      { entries: new Map() },
+      { entries: new Map(), tableView: true },
+      { entries: new Map([['tl-audit', TL_ENTRIES.get('tl-audit')!]]), tableView: true },
+    ]
+    for (const sc of scenarios) {
+      clearPair()
+      if (sc.pair) act(() => setPair(sc.pair![0], sc.pair![1]))
+      const view = render(<TimelinePanel visible timelineEntries={sc.entries} currentTime={12} onClose={noop} links={sc.links} />)
+      const region = view.getByRole('region', { name: T('tl.region') })
+      assert.equal(langOf(region), locale, 'the panel declares its language')
+      if (sc.sequence) fireEvent.click(view.getByRole('button', { name: T('tl.sequence') }))
+      if (sc.tableView) fireEvent.click(view.getByRole('button', { name: T('tl.table') }))
+      strings.push(...surfaceStrings(view.container))
+      assert.deepEqual(labelInNameViolations(view.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
+      cleanup()
+    }
+    clearPair()
+    // the words that must have been rendered, in the catalog's language
+    for (const key of ['tl.region', 'tl.sequence', 'tl.table', 'tl.scroll', 'tl.col.agent', 'tl.col.state', 'tl.col.start', 'tl.col.end', 'tl.ongoing', 'tl.empty',
+      'tl.msgs.caption', 'tl.msgs.col.time', 'tl.msgs.col.kind', 'tl.msgs.col.from', 'tl.msgs.col.to', 'tl.msgs.col.content',
+      'tl.kind.dispatch', 'tl.kind.return', 'tl.kind.returnError', 'tl.kind.message', 'tl.state.idle', 'tl.state.thinking', 'tl.state.tool_call',
+      'tl.state.waiting_permission', 'tl.state.error', 'tl.state.complete'] as MessageKey[]) {
+      assert.ok(strings.includes(T(key)), `${key} was rendered`)
+    }
+    assert.ok(strings.includes(T('tl.aria.none')), 'the accessible name of an empty timeline')
+    assert.ok(strings.includes(T('tl.aria.range.other', { n: 3, from: '0:00', to: '0:12' })), 'the accessible name of the canvas')
+    assert.ok(strings.includes(T('tl.earlier.one', { n: 1 })) && strings.includes(T('tl.earlier.other', { n: 6 })), 'the earlier-messages line, singular and plural')
+    assert.ok(strings.includes(T('tl.sequence.title')), 'the title of the Sequence button')
+    for (const w of ['tl.block.thinking', 'tl.block.starting', 'tl.block.done', 'tl.block.permission', 'tl.block.resumed']) {
+      assert.ok(strings.some(s => s.includes(T(w as MessageKey))), `${w} was rendered`)
+    }
+    assert.ok(strings.some(s => s.includes(T('tl.block.failed'))) && strings.some(s => s.includes(T('tl.block.cancelled'))) && strings.some(s => s.includes(T('tl.block.expired'))))
+    assert.ok(strings.length > 80, `${strings.length} strings`)
+    assert.deepEqual(strangers(locale, strings, { allow: PANEL_ALLOW, data: PANEL_DATA }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+  })
+
+  test(`the Timeline panel marks what came from the data lang="en" and nothing else, in ${locale}`, () => {
+    setLocaleChoice(locale)
+    clearPair()
+    const view = render(<TimelinePanel visible timelineEntries={TL_ENTRIES} currentTime={12} onClose={noop} links={tlLinks()} />)
+    fireEvent.click(view.getByRole('button', { name: translate(locale, 'tl.table') }))
+    const exempt = Array.from(view.container.querySelectorAll('[data-i18n-exempt]'))
+    assert.ok(exempt.length >= 4, `${exempt.length} pieces of data`)
+    for (const e of exempt) assert.equal(e.getAttribute('lang'), 'en', `${e.textContent} declares lang="en"`)
+    const texts = exempt.map(e => e.textContent)
+    for (const data of ['Read: src/foo.ts', 'please explore the code', 'found three files']) assert.ok(texts.includes(data), `${data} is marked as data`)
+    // a translated word is never inside such a piece
+    for (const word of [translate(locale, 'tl.block.thinking'), translate(locale, 'tl.block.starting'), translate(locale, 'tl.block.failed')]) {
+      assert.ok(!texts.some(t => t?.includes(word)), `${word} is not marked as English data`)
+    }
+    cleanup()
+    // the message read under the swimlane on hover or focus: the words are ours, the content is data
+    const live = render(<TimelinePanel visible timelineEntries={TL_ENTRIES} currentTime={12} onClose={noop} links={tlLinks()} />)
+    const dispatch = live.getAllByRole('button').find(b => b.textContent?.includes(translate(locale, 'conv.comm.dispatch')))
+    assert.ok(dispatch, 'a message button is named with the word of the language')
+    fireEvent.focus(dispatch)
+    const status = live.getAllByRole('status').find(s => s.textContent?.includes('please explore the code'))
+    assert.ok(status, 'the content is read in a live region')
+    assert.equal(status.querySelector('[data-i18n-exempt]')?.textContent, 'please explore the code')
+    assert.ok(status.textContent?.startsWith(`tl-lead -> tl-explore - ${translate(locale, 'conv.comm.dispatch')}: `))
+    assert.equal(langOf(status), locale)
+    cleanup()
+  })
+}
+
+test('the Timeline panel draws its canvas texts through the catalog: the empty state and the state words, in French', () => {
+  setLocaleChoice('fr')
+  const calls: string[] = []
+  const proto = HTMLCanvasElement.prototype as unknown as { getContext: (id: string) => unknown }
+  const original = proto.getContext
+  const noopFn = () => {}
+  const ctx = new Proxy({ measureText: (s: string) => ({ width: s.length * 6 }), fillText: (s: string) => { calls.push(s) } } as Record<string, unknown>, {
+    get: (target, prop: string) => (prop in target ? target[prop] : noopFn), set: (target, prop: string, v) => { target[prop] = v; return true },
+  })
+  proto.getContext = () => ctx
+  // jsdom has no layout: give the scroll area a width so that the blocks are wide enough to carry a word, and narrow ones a letter
+  const widthDesc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 400 })
+  try {
+    for (const entries of [new Map<string, TimelineEntry>(), TL_ENTRIES]) {
+      render(<TimelinePanel visible timelineEntries={entries} currentTime={12} onClose={noop} />)
+      cleanup()
+    }
+  } finally {
+    proto.getContext = original
+    if (widthDesc) Object.defineProperty(HTMLElement.prototype, 'clientWidth', widthDesc); else delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth
+  }
+  assert.ok(calls.includes(MESSAGES.fr['tl.empty']), 'the empty state is drawn in French')
+  assert.ok(!calls.includes('No timeline data yet'))
+  assert.ok(calls.includes(MESSAGES.fr['tl.block.thinking']), 'a French block label is drawn')
+  assert.ok(calls.includes(MESSAGES.fr['tl.glyph.tool_call']), 'a French state letter is drawn in a block too narrow for its label (O for outil, C in English)')
+  assert.ok(!calls.includes('C'), 'the English letter C is not drawn in French')
+  assert.ok(!calls.includes('Thinking...') && !calls.includes('Starting'), 'no English fixed label is drawn')
+})

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { buildTimelineRows, timelineAriaLabel, timelineBlockState, computeTimelineRange, timelineMarkers } from '../web/lib/timeline-rows'
+import { buildTimelineRows, timelineBlockState, computeTimelineRange, timelineMarkers } from '../web/lib/timeline-rows'
 import { formatDuration } from '../web/lib/utils'
 import { SCENE } from '../web/lib/colors'
 import type { TimelineEntry } from '../web/lib/agent-types'
@@ -37,11 +37,8 @@ test('rows keep full agent names and format times', () => {
   assert.equal(rows[0].end, '0:05')
 })
 
-test('range and aria label', () => {
+test('range', () => {
   assert.deepEqual(computeTimelineRange(entries, 20), { minTime: 0, maxTime: 70 })
-  assert.equal(timelineAriaLabel(entries, 20), 'Timeline of 2 agents, from 0:00 to 1:10')
-  assert.equal(timelineAriaLabel([entries[1]], 20), 'Timeline of 1 agent, from 0:04 to 1:10')
-  assert.equal(timelineAriaLabel([], 0), 'Timeline: no data')
 })
 
 // #378: the header labels of the Timeline were spaced by the time span only (1 s up to 10 s, 2 s up to 20 s,
