@@ -357,6 +357,8 @@ export interface TeamChipGroup<T> {
   heading: string
   /** Accessible name: "Workflow tempo-wave-a, 5 agents" */
   label: string
+  /** First characters of the lead session id when two groups share a name (what the heading adds), else null: lets a caller word the heading in another language */
+  sessionHint: string | null
   items: T[]
 }
 
@@ -380,7 +382,7 @@ export function teamChipGroups<T extends { sessionId: string; teamName?: string;
     let g = groups.get(key)
     if (!g) {
       const kind = normalizeGroupKind(team?.kind ?? it.teamKind)
-      g = { key, name: team?.name ?? it.teamName, kind, heading: '', label: '', items: [], lead: team?.leadSessionId ?? it.sessionId }
+      g = { key, name: team?.name ?? it.teamName, kind, heading: '', label: '', sessionHint: null, items: [], lead: team?.leadSessionId ?? it.sessionId }
       groups.set(key, g)
     }
     g.items.push(it)
@@ -391,7 +393,7 @@ export function teamChipGroups<T extends { sessionId: string; teamName?: string;
   return out.map(({ lead, ...g }) => {
     const dup = (sameName.get(`${g.kind}:${g.name}`) ?? 0) > 1
     const heading = dup && lead ? `${groupHeading(g.kind, g.name)} (session ${lead.slice(0, CHIP_SESSION_HINT_LEN)})` : groupHeading(g.kind, g.name)
-    return { ...g, heading, label: `${heading}, ${g.items.length} ${memberNoun(g.kind, g.items.length)}` }
+    return { ...g, heading, sessionHint: dup && lead ? lead.slice(0, CHIP_SESSION_HINT_LEN) : null, label: `${heading}, ${g.items.length} ${memberNoun(g.kind, g.items.length)}` }
   })
 }
 

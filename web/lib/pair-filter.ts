@@ -67,33 +67,3 @@ export function messageMatchesPair(m: { type: string; from?: string; to?: string
   if (!isPairComplete(p) || !COMM_TYPES.has(m.type)) return false
   return (m.from === p.a && m.to === p.b) || (m.from === p.b && m.to === p.a)
 }
-
-/** Chip text, e.g. 'orchestrator <-> audit-ux' (rendered with a real double arrow). */
-export function pairChipLabel(p: PairState, nameOf: (key: string) => string): string {
-  const first = p.a !== '' ? nameOf(p.a) : '...'
-  const second = p.b !== '' ? nameOf(p.b) : '...'
-  return `${first} ↔ ${second}`
-}
-
-/** Spoken equivalent of the chip. */
-export function pairSpokenLabel(p: PairState, nameOf: (key: string) => string): string {
-  const first = p.a !== '' ? nameOf(p.a) : 'no agent'
-  const second = p.b !== '' ? nameOf(p.b) : 'no agent'
-  return `${first} and ${second}`
-}
-
-/** Text for the polite live region. */
-export function pairAnnouncement(p: PairState, nameOf: (key: string) => string, count: number): string {
-  if (!isPairSet(p)) return 'Pair filter cleared'
-  if (p.a !== '' && p.a === p.b) return 'Select two different agents'
-  if (!isPairComplete(p)) return `Pair filter started with ${nameOf(p.a || p.b)}. Pick a second agent.`
-  const who = pairSpokenLabel(p, nameOf)
-  return count === 0
-    ? `No messages between ${who}`
-    : `Showing ${count} ${count === 1 ? 'message' : 'messages'} between ${who}`
-}
-
-/** Empty-state text of a list filtered on a complete pair. */
-export function pairEmptyText(p: PairState, nameOf: (key: string) => string): string {
-  return `No messages between ${pairSpokenLabel(p, nameOf)}`
-}

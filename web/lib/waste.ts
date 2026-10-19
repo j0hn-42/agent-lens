@@ -14,7 +14,7 @@
  * makes the figure a lower bound, never 0. The ledger is bounded: past the limit new calls are not tracked
  * and the summary says it is a lower bound.
  */
-import { isValue, formatTokenUsage, USAGE_LABELS, type TokenSource, type UsageTotal } from './usage'
+import { isValue, type TokenSource, type UsageTotal } from './usage'
 
 /** Calls, ids and written paths tracked at once; findings are capped at MAX_WASTE_FINDINGS. */
 export const MAX_WASTE_TRACKED = 4000
@@ -265,12 +265,6 @@ export function describeWaste(item: WasteItem, lost = 0): string {
   if (item.kind === 'reread') return `read again ${times}, no edit seen in between`
   if (item.toolName === 'Glob') return `same Glob run again ${times}, no edit seen in between`
   return `same ${item.toolName} command run again ${times}, right after itself`
-}
-
-/** Tokens of the repeats of one finding, qualified ("at least 400 tokens", "tokens not reported"). */
-export function formatWasteTokens(item: WasteItem): string {
-  const usage = wasteUsage(item)
-  return usage.value === null ? `tokens ${USAGE_LABELS.unavailable}` : `${formatTokenUsage(usage)} tokens`
 }
 
 /** Findings, costliest first (known tokens, then repeats, then most recent). */

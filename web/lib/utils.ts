@@ -5,13 +5,17 @@ export function alphaHex(alpha: number): string {
   return Math.floor(alpha * 255).toString(16).padStart(2, '0')
 }
 
-/** Format a token count for display (e.g. 640 → '640', 1500 → '1.5k', 128500 → '128k', 1200000 → '1.2M') */
-export function formatTokens(tokens: number): string {
+/**
+ * Format a token count for display (e.g. 640 → '640', 1500 → '1.5k', 128500 → '128k', 1200000 → '1.2M').
+ * With a `locale` the decimal separator follows it (fr: '1,5k'); the figure is always truncated, never rounded up.
+ */
+export function formatTokens(tokens: number, locale?: string): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return '0'
+  const num = (n: number) => (locale ? new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(n) : n.toString())
   if (tokens < 1000) return String(Math.floor(tokens))
-  if (tokens < 10_000) return `${(Math.floor(tokens / 100) / 10).toString()}k`
+  if (tokens < 10_000) return `${num(Math.floor(tokens / 100) / 10)}k`
   if (tokens < 1_000_000) return `${Math.floor(tokens / 1000)}k`
-  if (tokens < 10_000_000) return `${(Math.floor(tokens / 100_000) / 10).toString()}M`
+  if (tokens < 10_000_000) return `${num(Math.floor(tokens / 100_000) / 10)}M`
   return `${Math.floor(tokens / 1_000_000)}M`
 }
 

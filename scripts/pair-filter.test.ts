@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   EMPTY_PAIR, isPairComplete, isPairSet, makePair, pickPairAgent, prunePair, messageMatchesPair,
-  pairChipLabel, pairAnnouncement, pairEmptyText, pairSpokenLabel,
 } from '../web/lib/pair-filter'
+import { pairChipLabelText, pairAnnouncementText, pairEmptyTextT, pairSpokenText } from '../web/lib/panel-text'
 import { getPair, setPair, pickPair, clearPair, subscribePair } from '../web/lib/pair-filter-store'
 
 const names: Record<string, string> = { o: 'orchestrator', u: 'audit-ux', e: 'explore' }
@@ -43,16 +43,16 @@ const msgs = [
 
 test('chip label, announcements and empty state wording', () => {
   const p = { a: 'o', b: 'u' }
-  assert.equal(pairChipLabel(p, nameOf), 'orchestrator ↔ audit-ux')
-  assert.equal(pairChipLabel({ a: 'o', b: '' }, nameOf), 'orchestrator ↔ ...')
-  assert.equal(pairSpokenLabel(p, nameOf), 'orchestrator and audit-ux')
-  assert.equal(pairAnnouncement(p, nameOf, 2), 'Showing 2 messages between orchestrator and audit-ux')
-  assert.equal(pairAnnouncement(p, nameOf, 1), 'Showing 1 message between orchestrator and audit-ux')
-  assert.equal(pairAnnouncement(p, nameOf, 0), 'No messages between orchestrator and audit-ux')
-  assert.equal(pairAnnouncement(EMPTY_PAIR, nameOf, 0), 'Pair filter cleared')
-  assert.match(pairAnnouncement({ a: 'o', b: '' }, nameOf, 0), /second agent/)
-  assert.equal(pairAnnouncement({ a: 'o', b: 'o' }, nameOf, 0), 'Select two different agents')
-  assert.equal(pairEmptyText(p, nameOf), 'No messages between orchestrator and audit-ux')
+  assert.equal(pairChipLabelText(p, nameOf), 'orchestrator ↔ audit-ux')
+  assert.equal(pairChipLabelText({ a: 'o', b: '' }, nameOf), 'orchestrator ↔ ...')
+  assert.equal(pairSpokenText('en', p, nameOf), 'orchestrator and audit-ux')
+  assert.equal(pairAnnouncementText('en', p, nameOf, 2), 'Showing 2 messages between orchestrator and audit-ux')
+  assert.equal(pairAnnouncementText('en', p, nameOf, 1), 'Showing 1 message between orchestrator and audit-ux')
+  assert.equal(pairAnnouncementText('en', p, nameOf, 0), 'No messages between orchestrator and audit-ux')
+  assert.equal(pairAnnouncementText('en', EMPTY_PAIR, nameOf, 0), 'Pair filter cleared')
+  assert.match(pairAnnouncementText('en', { a: 'o', b: '' }, nameOf, 0), /second agent/)
+  assert.equal(pairAnnouncementText('en', { a: 'o', b: 'o' }, nameOf, 0), 'Select two different agents')
+  assert.equal(pairEmptyTextT('en', p, nameOf), 'No messages between orchestrator and audit-ux')
 })
 
 test('shared store notifies once per change and clears', () => {
