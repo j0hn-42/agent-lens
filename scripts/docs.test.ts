@@ -459,3 +459,11 @@ test('the reading guide says a detail popup never covers a permission request, a
     assert.ok(section.includes(needle), `the Permission requests section should mention ${needle}`)
   }
 })
+
+test('relay-sources documents how Cursor hook payloads are ignored, with the doc they rely on (#472)', () => {
+  const doc = read('docs/relay-sources.md')
+  assert.match(doc, /## Cursor hook payloads are ignored \(#472\)/)
+  for (const term of ['https://cursor.com/docs/hooks', 'https://cursor.com/docs/reference/third-party-hooks', '`cursor_version`', 'getForeignHookStats', 'step 0', 'not real captures']) {
+    assert.ok(doc.includes(term), `docs/relay-sources.md should mention "${term}"`)
+  }
+})
