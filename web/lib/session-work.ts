@@ -119,17 +119,6 @@ export async function loadSessionWork(
   }
 }
 
-/** What the checks of a PR prove, in words (colour never carries the state alone). */
-export function checksLabel(c: ChecksSummary): string {
-  switch (c.state) {
-    case 'passing': return `${c.total} of ${c.total} passing`
-    case 'failing': return `${c.failing} failing${c.pending > 0 ? `, ${c.pending} pending` : ''} of ${c.total}`
-    case 'pending': return `${c.pending} pending of ${c.total}`
-    case 'none': return 'no checks reported'
-    default: return c.total > 0 ? `checks unknown (${c.total} reported)` : 'checks unknown'
-  }
-}
-
 export function sortPrsByBranch(prs: ReadonlyArray<SessionPr>): SessionPr[] {
   return [...prs].sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : a.number - b.number))
 }

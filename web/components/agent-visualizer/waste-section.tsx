@@ -4,9 +4,10 @@ import { useId } from 'react'
 import type { Agent } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
-import { pluralize, truncatePath } from '@/lib/utils'
-import { replayLostSentence } from '@/lib/event-loss'
-import { describeWaste, formatWasteTokens, wasteSummary, type WasteLedger } from '@/lib/waste'
+import { truncatePath } from '@/lib/utils'
+import { wasteSummary, type WasteLedger } from '@/lib/waste'
+import { useLocale } from '@/lib/locale'
+import { DATA_EN, t as tr, pluralText, lostSentence, wasteDescribeText, wasteTokensText } from '@/lib/panel-text'
 
 /** Rows drawn at once; the rest is counted, never silently dropped. */
 export const WASTE_ROWS_SHOWN = 20
@@ -25,6 +26,8 @@ interface WasteSectionProps {
  */
 export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: WasteSectionProps) {
   const headingId = useId()
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   const { items, uncompared, limitReached } = wasteSummary(waste)
   const shown = items.slice(0, WASTE_ROWS_SHOWN)
   const hidden = items.length - shown.length
@@ -33,10 +36,10 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: Wast
   return (
     <section aria-labelledby={headingId} className="mb-2">
       <h3 id={headingId} className="m-0 mb-1 text-[11px] font-mono font-normal uppercase tracking-wider" style={{ color: COLORS.textPrimary }}>
-        Repeated reads and calls
+        {t('waste.heading')}
       </h3>
       {items.length === 0 ? (
-        <p className="m-0 text-[11px] font-mono" style={note}>{replayLost > 0 ? 'No repeat observed (incomplete)' : 'No repeat observed'}</p>
+        <p className="m-0 text-[11px] font-mono" style={note}>{replayLost > 0 ? t('waste.noneIncomplete') : t('waste.none')}</p>
       ) : (
         <ul className="space-y-1 list-none p-0 m-0">
           {shown.map((item) => {
@@ -44,7 +47,7 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: Wast
             const agentName = agents?.get(item.agentId)?.displayName ?? item.agentId
             const target = item.kind === 'reread' ? truncatePath(item.target) : item.target
             const label = (
-              <span className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: COLORS.tool }}>
+              <span {...DATA_EN} className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: COLORS.tool }}>
                 {item.toolName} {target}
               </span>
             )
@@ -59,7 +62,7 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: Wast
                     type="button"
                     onClick={() => onOpenFile?.(item.target)}
                     title={item.target}
-                    aria-label={`Open ${item.target}`}
+                    aria-label={t('waste.open', { label: `${item.toolName} ${target}` })}
                     className={`flex items-center gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {label}
@@ -68,26 +71,26 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: Wast
                   <div className="flex items-center gap-2 min-h-6" title={item.target}>{label}</div>
                 )}
                 <div className="mt-1 text-[11px] font-mono" style={note}>
-                  <span>{agentName}</span>: <span>{describeWaste(item, replayLost)}</span>
+                  <span>{t('waste.itemLine', { agent: agentName, text: wasteDescribeText(locale, item, replayLost) })}</span>
                 </div>
-                <div className="text-[11px] font-mono" style={note}>{formatWasteTokens(item)}</div>
+                <div className="text-[11px] font-mono" style={note}>{wasteTokensText(locale, item)}</div>
               </li>
             )
           })}
         </ul>
       )}
-      {hidden > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{hidden} more not shown</p>}
+      {hidden > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{pluralText(locale, 'waste.more', hidden)}</p>}
       {uncompared > 0 && (
         <p className="m-0 mt-1 text-[11px] font-mono" style={note}>
-          {pluralize(uncompared, 'call')} had no input details and {uncompared === 1 ? 'was' : 'were'} not compared
+          {pluralText(locale, 'waste.uncompared', uncompared)}
         </p>
       )}
       {limitReached && (
-        <p className="m-0 mt-1 text-[11px] font-mono" style={note}>Tracking limit reached: this list is a lower bound</p>
+        <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{t('waste.limit')}</p>
       )}
-      {replayLost > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{replayLostSentence(replayLost)}</p>}
+      {replayLost > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{lostSentence(locale, replayLost)}</p>}
       <p className="m-0 mt-1 text-[11px] font-mono" style={note}>
-        Edits made through Bash are not seen; a repeat may be intended.
+        {t('waste.bash')}
       </p>
     </section>
   )

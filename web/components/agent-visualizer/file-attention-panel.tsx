@@ -4,15 +4,14 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { emptyState, FILE_TIMELINE_LABELS } from '@/lib/ui-glossary'
 import { useLocale } from '@/lib/locale'
-import { translate } from '@/lib/messages'
+import { translate, type Locale } from '@/lib/messages'
 import { panelName } from '@/lib/command-palette'
 import { fileStepTotal, type FileTimeline } from '@/lib/file-timeline'
-import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
+import { combineUsage, type UsageTotal } from '@/lib/usage'
+import { DATA_EN, t as tr, pluralText, tokensSpoken, conflictHeadingText, conflictEditorsText, boundedFilesText, lostSentence, succeededNoteText, fileTimelineText } from '@/lib/panel-text'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
-import { deriveFileConflicts, conflictPath, conflictPathSet, conflictHeading, describeConflictEditors } from '@/lib/file-conflicts'
-import { boundedCount, replayLostSentence } from '@/lib/event-loss'
+import { deriveFileConflicts, conflictPath, conflictPathSet } from '@/lib/file-conflicts'
 import type { Agent } from '@/lib/agent-types'
 import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
 import { WasteSection } from './waste-section'
@@ -40,30 +39,21 @@ function fileUsage(f: FileAttention): UsageTotal {
 }
 
 /**
- * The calls started count failures and calls still running: when fewer were observed to succeed, say how many
- * did. Without per-agent tracking nothing is claimed.
- */
-function succeededNote(started: number, perAgent: readonly { succeeded: number }[] | undefined): string {
-  if (!perAgent) return ''
-  const succeeded = perAgent.reduce((s, a) => s + a.succeeded, 0)
-  return succeeded < started ? ` (${succeeded} succeeded)` : ''
-}
-
-/**
  * The observed steps of one file (#385), oldest first, in a native disclosure: each step says its kind in words,
  * its agent and its call id. Steps past the cap are counted; commits are never shown.
  */
-function FileTimelineDetails({ path, timeline, label, incomplete }: {
+function FileTimelineDetails({ path, timeline, label, incomplete, locale }: {
   path: string
   timeline: FileTimeline
   label: (agentKey: string) => string
   incomplete: boolean
+  locale: Locale
 }) {
-  const L = FILE_TIMELINE_LABELS
+  const L = fileTimelineText(locale)
   return (
     <details className="mt-1 text-[11px] font-mono">
       <summary className={`cursor-pointer min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`} style={{ color: COLORS.textMuted }}>
-        {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{L.summaryOf(path)}</span>
+        {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{' '}{L.summaryOfParts()[0]}<span {...DATA_EN}>{path}</span>{L.summaryOfParts()[1]}</span>
       </summary>
       {timeline.omitted > 0 && (
         <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{L.omitted(timeline.omitted)}</p>
@@ -72,8 +62,8 @@ function FileTimelineDetails({ path, timeline, label, incomplete }: {
         {timeline.steps.map(s => (
           <li key={s.callId} style={{ color: COLORS.textPrimary }}>
             <span className="font-semibold">{L.kinds[s.kind]}</span>
-            {' by '}{label(s.agentId)}
-            <span style={{ color: COLORS.textMuted }}>{' · '}{s.toolUseId ? <span className="break-all">call {s.toolUseId}</span> : L.noCallId}</span>
+            {' '}{L.by(label(s.agentId))}
+            <span style={{ color: COLORS.textMuted }}>{' · '}{s.toolUseId ? <span className="break-all">{L.call(s.toolUseId)}</span> : L.noCallId}</span>
           </li>
         ))}
       </ol>
@@ -84,6 +74,7 @@ function FileTimelineDetails({ path, timeline, label, incomplete }: {
 
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents, replayLost = 0 }: FileAttentionPanelProps) {
   const { locale } = useLocale()
+  const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
   const dock = useDockPanel('files', visible)
   const { rect } = dock
@@ -108,9 +99,9 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       labelLang={locale}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
-      <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
-      <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h }}>
-        <PanelHeader onClose={onClose}>
+      <DockResizer label={t('files.resize')} valueText={px => t('sessions.resize.value', { px })} controls={dockPanelDomId('files')} />
+      <div lang={locale} className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h }}>
+        <PanelHeader onClose={onClose} closeLabel={t('common.close')}>
           <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
             {translate(locale, 'panel.heading.files')}
           </span>
@@ -119,29 +110,29 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
         {/* File list */}
         <div
           role="region"
-          aria-label="Files accessed by agents"
+          aria-label={t('files.region')}
           tabIndex={0}
           className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING_INSET}`}
         >
           <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} replayLost={replayLost} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
-              {replayLost > 0 ? 'No file observed (incomplete)' : emptyState('files')}
+              {replayLost > 0 ? t('files.emptyIncomplete') : t('files.empty')}
             </div>
           )}
           {conflicts.length === 0 && replayLost > 0 && (
             <p data-testid="file-conflicts-incomplete" className="m-0 mb-2 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
-              {conflictHeading(0, replayLost)}: {replayLostSentence(replayLost)}
+              {t('files.conflicts.lostLine', { heading: conflictHeadingText(locale, 0, replayLost) ?? '', sentence: lostSentence(locale, replayLost) })}
             </p>
           )}
           {conflicts.length > 0 && (
             <div className="mb-2">
               <h3 id="file-conflicts-heading" className="text-[11px] font-mono font-semibold mb-1" style={{ color: COLORS.error }}>
-                {conflictHeading(conflicts.length, replayLost)}: files edited by several agents
+                {t('files.conflicts.heading', { heading: conflictHeadingText(locale, conflicts.length, replayLost) ?? '' })}
               </h3>
-              <ul aria-label="File conflicts" className="space-y-1 list-none p-0 m-0">
+              <ul aria-label={t('files.conflicts.list')} className="space-y-1 list-none p-0 m-0">
                 {conflicts.map(c => {
-                  const who = describeConflictEditors(c, label)
+                  const who = conflictEditorsText(locale, c, label)
                   return (
                     <li key={c.path} className="rounded px-2 py-1.5 text-[11px] font-mono" style={{ background: COLORS.fileCardBg, border: `1px solid ${COLORS.error}40` }}>
                       {onOpenFile ? (
@@ -149,14 +140,14 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                           type="button"
                           onClick={() => onOpenFile(c.path)}
                           title={c.path}
-                          aria-label={`Open ${c.path}, conflict: ${who}`}
+                          aria-label={t('files.conflicts.openAria', { path: c.path, who })}
                           className={`block w-full min-h-6 truncate rounded text-left hover:brightness-125 ${FOCUS_RING_INSET}`}
                           style={{ color: COLORS.textPrimary }}
                         >
-                          {truncatePath(c.path)}
+                          <span {...DATA_EN}>{truncatePath(c.path)}</span>
                         </button>
                       ) : (
-                        <div className="truncate" title={c.path} style={{ color: COLORS.textPrimary }}>{c.path}</div>
+                        <div className="truncate" title={c.path} style={{ color: COLORS.textPrimary }}><span {...DATA_EN}>{c.path}</span></div>
                       )}
                       <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{who}</p>
                     </li>
@@ -177,23 +168,23 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             const usage = fileUsage(file)
             const hasTokens = file.totalTokens > 0
             // Nothing counted and nothing missing: a dash. Nothing counted but a call gave no figure: unknown, not 0.
-            const tokenSpoken = hasTokens ? qualify(usage, formatTokens(file.totalTokens)) : file.tokensPartial ? 'tokens not reported' : null
+            const tokenSpoken = hasTokens ? tokensSpoken(locale, usage) : file.tokensPartial ? t('tok.unavailable') : null
             const tokenMark = hasTokens ? `${file.tokensPartial ? '≥' : ''}${file.tokensEstimated ? '~' : ''}` : ''
-            const tokenLabel = tokenSpoken ? (hasTokens ? `${tokenSpoken} tokens` : tokenSpoken) : '— tokens'
+            const tokenLabel = tokenSpoken ?? t('tok.none')
             const conflicted = inConflict.has(conflictPath(file.path) ?? '')
             const headerInner = (
               <>
-                <span className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: heatColor }}>
+                <span {...DATA_EN} className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: heatColor }}>
                   {displayPath}
                 </span>
                 <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
                   {tokenSpoken === null ? '—' : hasTokens ? (
                     <>
-                      <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens)}`}</span>
+                      <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens, locale)}`}</span>
                       <span className="sr-only">{tokenLabel}</span>
                     </>
                   ) : (
-                    <><span className="sr-only">tokens </span><span>not reported</span></>
+                    <><span className="sr-only">{t('tok.unavailable')}</span><span aria-hidden="true">{tr(locale, 'usage.unavailable')}</span></>
                   )}
                 </span>
               </>
@@ -214,7 +205,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     type="button"
                     onClick={() => onOpenFile?.(file.path)}
                     title={file.path}
-                    aria-label={`Open ${file.path}, ${tokenLabel}${conflicted ? ', conflict' : ''}`}
+                    aria-label={conflicted ? t('files.openTokensConflict', { path: file.path, tokens: tokenLabel }) : t('files.openTokens', { path: file.path, tokens: tokenLabel })}
                     className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {headerInner}
@@ -233,27 +224,27 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
                   {file.reads > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.filePathActive }}>
-                      {file.reads} read{file.reads > 1 ? 's' : ''}{succeededNote(file.reads, file.readers)}
+                      {pluralText(locale, 'files.reads', file.reads)}{succeededNoteText(locale, file.reads, file.readers)}
                     </span>
                   )}
                   {file.edits > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.tool }}>
-                      {file.edits} edit{file.edits > 1 ? 's' : ''}{succeededNote(file.edits, file.editors)}
+                      {pluralText(locale, 'files.edits', file.edits)}{succeededNoteText(locale, file.edits, file.editors)}
                     </span>
                   )}
                   {conflicted && (
-                    <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.error }}>conflict</span>
+                    <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.error }}>{t('files.conflict')}</span>
                   )}
                   {file.agents.length > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}
                       title={file.agents.join(', ')}
                     >
-                      {file.agents.length} agent{file.agents.length > 1 ? 's' : ''}
+                      {pluralText(locale, 'count.agent', file.agents.length)}
                     </span>
                   )}
                 </div>
                 {file.timeline && fileStepTotal(file.timeline) > 0 && (
-                  <FileTimelineDetails path={file.path} timeline={file.timeline} label={label} incomplete={replayLost > 0} />
+                  <FileTimelineDetails path={file.path} timeline={file.timeline} label={label} incomplete={replayLost > 0} locale={locale} />
                 )}
               </li>
             )
@@ -267,8 +258,8 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             borderTop: `1px solid ${COLORS.holoBorder08}`,
             color: COLORS.textMuted,
           }}>
-            <span>{boundedCount(files.length, replayLost, 'file')}</span>
-            <span>{formatTokenUsage(combineUsage(files.map(fileUsage)))} tokens in file reads</span>
+            <span>{boundedFilesText(locale, files.length, replayLost)}</span>
+            <span>{t('files.summary.tokens', { tokens: tokensSpoken(locale, combineUsage(files.map(fileUsage))) })}</span>
           </div>
         )}
       </div>

@@ -9,8 +9,9 @@ import {
 } from '../web/hooks/simulation/session-visibility'
 import { computeClusters, clusterLabelLines, clusterAnnouncement } from '../web/components/agent-visualizer/canvas/cluster-model'
 import {
-  EMPTY_PAIR, pairAfterShiftClick, pairChipLabel, prunePair,
+  EMPTY_PAIR, pairAfterShiftClick, prunePair,
 } from '../web/lib/pair-filter'
+import { pairChipLabelText } from '../web/lib/panel-text'
 import { agentNameOf } from '../web/lib/feed-utils'
 
 const HOUR = 60 * 60 * 1000
@@ -141,7 +142,7 @@ test('a pair is pruned when an agent leaves the simulation and the chip falls ba
   const pruned = prunePair(pair, k => agents.has(k))
   assert.deepEqual(pruned, { a: 's1:orch', b: '' })
   const nameOf = (k: string) => agentNameOf(agents, k)
-  assert.equal(pairChipLabel(pair, nameOf), 'orchestrator ↔ ux', 'a missing agent shows its name part, not the raw key')
+  assert.equal(pairChipLabelText(pair, nameOf), 'orchestrator ↔ ux', 'a missing agent shows its name part, not the raw key')
 })
 
 // ─── --topbar-h measurement ──────────────────────────────────────────────────

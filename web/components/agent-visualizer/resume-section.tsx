@@ -6,7 +6,9 @@ import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { copyText } from '@/lib/comms-export'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { hasControlChars } from '@/lib/control-chars'
-import { resumeCommand, RESUME_UNAVAILABLE_TEXT, type ResumableSession } from '@/lib/resume-command'
+import { resumeCommand, type ResumableSession } from '@/lib/resume-command'
+import { useLocale } from '@/lib/locale'
+import { DATA_EN, t as tr, resumeUnavailableText } from '@/lib/panel-text'
 
 /**
  * RESUME block of the Context panel (#240, PR 1): the command that reopens the session in Claude Code from a
@@ -15,14 +17,14 @@ import { resumeCommand, RESUME_UNAVAILABLE_TEXT, type ResumableSession } from '@
  */
 export function ResumeSection({ session, onOpenTerminal }: { session: ResumableSession; onOpenTerminal?: (sessionId: string) => void }) {
   const { message: feedback, notify } = useCopyFeedback()
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   const result = resumeCommand(session)
   const titleId = useId()
 
   const copy = async () => {
     if (!result.ok) return
-    notify(await copyText(result.command)
-      ? 'Resume command copied. Paste it in a terminal on the machine where the session ran.'
-      : 'Copy failed: select the command and copy it by hand')
+    notify(await copyText(result.command) ? t('resume.copied') : t('resume.copyFailed'))
   }
 
   // Inside VS Code only (#240, PR 2). The extension holds the directory and checks it again; here it only has to be known.
@@ -32,44 +34,45 @@ export function ResumeSection({ session, onOpenTerminal }: { session: ResumableS
     if (!onOpenTerminal) return
     onOpenTerminal(session.id)
     // Only what is known: the request was sent. Whether the terminal opened is VS Code's to show.
-    notify('Asked VS Code to open a terminal in the directory of this session. Nothing is run in it.')
+    notify(t('resume.terminalAsked'))
   }
 
   return (
     <section aria-labelledby={titleId} className="mb-2">
-      <h3 id={titleId} className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>RESUME</h3>
+      <h3 id={titleId} className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{t('resume.heading')}</h3>
       {result.ok ? (
         <>
           <div className="flex items-start gap-1 py-1">
             <code
+              {...DATA_EN}
               className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[11px] font-mono rounded p-1"
               style={{ background: COLORS.holoBg05, color: COLORS.assistantText }}
             >{result.command}</code>
             <button
               type="button"
               onClick={() => { void copy() }}
-              aria-label="Copy resume command"
+              aria-label={t('resume.copy.aria')}
               className={`shrink-0 text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted }}
             >
-              Copy
+              {t('resume.copy')}
             </button>
           </div>
-          <p className="text-[11px] font-mono m-0" style={{ color: COLORS.textMuted }}>Paste it in a terminal on the machine where the session ran. Nothing is run from here.</p>
+          <p className="text-[11px] font-mono m-0" style={{ color: COLORS.textMuted }}>{t('resume.help')}</p>
         </>
       ) : (
-        <p className="text-[11px] font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{RESUME_UNAVAILABLE_TEXT[result.reason]}</p>
+        <p className="text-[11px] font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{resumeUnavailableText(locale, result.reason)}</p>
       )}
       {canOpenTerminal && (
         <div className="py-1">
           <button
             type="button"
             onClick={openTerminal}
-            aria-label="Go to terminal: open a terminal in the session directory"
+            aria-label={t('resume.terminal.aria')}
             className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
             style={{ color: COLORS.textMuted }}
           >
-            Go to terminal
+            {t('resume.terminal')}
           </button>
         </div>
       )}

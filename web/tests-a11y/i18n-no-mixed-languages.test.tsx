@@ -1,9 +1,10 @@
 // #373: a surface covered by the message catalog never mixes the two languages. For each locale, the surfaces
 // already translated (Settings tab by tab, the canvas controls and their View panel, the agent card, the Sessions panel, the
-// command palette, the legend, the guided tour, the panel titles and the whole top bar) are rendered and every visible
+// command palette, the legend, the guided tour, the panel titles, the whole top bar and the Conversation, Files and
+// Context panels) are rendered and every visible
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
-// lang) is left out. Surfaces not yet translated (the panels)
+// lang) is left out. Surfaces not yet translated (the Cost, Timeline and Stats panels)
 // are out of this test on purpose: see docs/reading-the-ui.md. Control by control, the top bar also has
 // topbar-i18n.test.tsx.
 import { test, afterEach, beforeEach } from 'node:test'
@@ -58,6 +59,14 @@ import { contextMenuItems } from '@/components/agent-visualizer/context-menu-ite
 import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
 import { SHORTCUTS } from '@/lib/shortcuts'
 import { shortcutKeyCap } from '@/lib/shortcuts-text'
+import { ConversationHarness, createPanelRegistry } from './conversation-harness'
+import { clearPair, setPair } from '@/lib/pair-filter-store'
+import type { Agent, FileAttention } from '@/lib/agent-types'
+import { emptyWasteLedger, recordToolStart, recordToolEnd, type WasteLedger } from '@/lib/waste'
+import type { ProjectContextData } from '@/lib/project-context'
+import type { SessionCapabilities } from '@/lib/session-capabilities'
+import type { ResumableSession } from '@/lib/resume-command'
+import type { ConversationMessage } from '@/hooks/simulation/types'
 
 afterEach(() => {
   cleanup()
@@ -115,7 +124,8 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function catalogPatterns(locale: Locale): RegExp[] {
   return (Object.values(MESSAGES[locale]) as string[]).map(v => {
     // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values
-    const body = v.split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()<$\'’ -]+')
+    // A value written with a leading or trailing space (a part joined to another) is matched as the text node renders, trimmed
+    const body = v.trim().split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()<$\'’ _—~*-]+')
     return new RegExp(`^${body}(?: \\([+\\-0]\\))?$`, 'u')
   })
 }
@@ -900,7 +910,7 @@ for (const locale of LOCALES) {
       <SystemPanel visible samples={[]} onClose={noop} />
       <TimelinePanel visible timelineEntries={new Map()} currentTime={0} onClose={noop} />
       <FileAttentionPanel visible fileAttention={new Map()} onClose={noop} />
-      <ProjectContextPanel visible sessionId={null} unavailableReason="none" fetchContext={async () => 'unavailable'} onClose={noop} />
+      <ProjectContextPanel visible sessionId={null} unavailableReason="demo" fetchContext={async () => 'unavailable'} onClose={noop} />
     </>)
     const headings = Array.from(view.container.querySelectorAll('h2')).map(h => ({ text: h.textContent, lang: langOf(h.querySelector('[lang]') ?? h) }))
     for (const text of [panelName(locale, 'system'), T('panel.heading.timeline'), T('panel.heading.files'), T('panel.heading.context')]) {
@@ -919,7 +929,7 @@ for (const locale of LOCALES) {
       for (const [id, el] of [
         ['timeline', <TimelinePanel key="t" visible timelineEntries={new Map()} currentTime={0} onClose={noop} />],
         ['files', <FileAttentionPanel key="f" visible fileAttention={new Map()} onClose={noop} />],
-        ['context', <ProjectContextPanel key="c" visible sessionId={null} unavailableReason="none" fetchContext={async () => 'unavailable'} onClose={noop} />],
+        ['context', <ProjectContextPanel key="c" visible sessionId={null} unavailableReason="demo" fetchContext={async () => 'unavailable'} onClose={noop} />],
         ['system', <SystemPanel key="s" visible samples={[]} onClose={noop} />],
       ] as const) {
         const view = render(el)
@@ -1042,5 +1052,302 @@ for (const locale of LOCALES) {
     assert.deepEqual(foreignWords(locale, strings, capsOfTheLocale), [], `${locale}: words of the other language`)
     assert.ok(view.getByRole('switch', { name: new RegExp(escapeRe(MESSAGES[locale]['settings.singleKey'])) }))
     assert.equal(view.container.querySelectorAll('kbd').length, SHORTCUTS.length, 'each shortcut is listed with its key cap')
+  })
+}
+
+// ---- The Conversation, Context and Files panels (#599, suite de #373) ----
+// What the data brings is left as it came: file names, texts of messages and tools, the content of CLAUDE.md, the titles
+// of PRs. Each such piece declares lang="en" and data-i18n-exempt; everything else is a value of the catalog.
+
+for (const d of ['orchestrator', 'audit-ux', 'explore', 'plan the work', 'think about it', 'audit the ux please', 'ux audit done', 'auditing', 'scanning files', '**/*.ts', 'ls', 's1:main', 's1:main, s2:main',
+  'alpha (session Main)', 'beta (session Fix)', 'alpha', 'beta', 'toolu_read1', 'toolu_edit2', 'CLAUDE.md', 'MEMORY.md', 'feat/b', 'feat/a',
+  'github', 'Notion', 'issue_read', 'loop', 'kit', 'lint', 'kit:lint', 'Project', 'AutoMem', 'Default', 'Orchestrator']) FIXTURE_DATA.add(d)
+
+const PANEL_DATA = [/^[≥~]+[\d.,]+[kM]?$/, /^[\w-]+ \([\p{L}’ ]+\)$/u, /^(?:Filtrer une paire :|Copier le message [\p{L} ()]+,|Filter pair|Copy [\p{L} ()]+,) [\w-]+ -> [\w-]+$/u, /^https:\/\/[\w./-]+$/, /^\/[\w./-]+$/, /^\.{3}$/, /^#\d+(?: \(brouillon\)| \(draft\))? PR title \d+$/, /^#\d+ Orphan issue$/, /^(?:PR|Issue) #\d+ .*$/, /^(?:PR|issue) #\d+$/, /^[\w-]+ ↔ [\w-]+$/, /^[\w-]+ -> [\w-]+ - [\p{L}() ]+$/u]
+/**
+ * WCAG 2.5.3 Label in Name: a control whose accessible name is an aria-label must contain the text it shows
+ * (what a voice user says), in the language of the panel. Hidden (sr-only) text is not visible text.
+ */
+function labelInNameViolations(root: Element): string[] {
+  const norm = (x: string) => x.replace(/[≥~]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const out: string[] = []
+  for (const el of Array.from(root.querySelectorAll('button[aria-label], a[aria-label], [role="tab"][aria-label]'))) {
+    const clone = el.cloneNode(true) as Element
+    for (const h of Array.from(clone.querySelectorAll('.sr-only, svg'))) h.remove()
+    const name = norm(el.getAttribute('aria-label') ?? '')
+    // each piece of visible text (a text element of its own) must be in the name; symbols and bare numbers alone are not words
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const piece = norm(n.textContent ?? '')
+      if (/\p{L}/u.test(piece) && !name.includes(piece)) out.push(`visible "${piece}" is not in the name "${name}"`)
+    }
+  }
+  return out
+}
+
+const PANEL_ALLOW = new Set(['✓', '↔', '→', '●', '○', '$', '×', '–', '+', '-', '—', '.', '/', '…', ',', ':', '·', 'PR', 'issue', 'CLAUDE', 'Conversation', '#',
+  // the words around a path ("dans" / "in", "de" / "of"): the path is a piece of its own, lang="en"
+  'dans', 'in', 'de', 'of'])
+
+const msgOf = (id: string, type: ConversationMessage['type'], timestamp: number, content: string, extra: Record<string, unknown> = {}) =>
+  ({ id, type, timestamp, content, ...extra }) as ConversationMessage
+
+const convAgent = (id: string, name: string, extra: Record<string, unknown> = {}) =>
+  ({ id, agentKey: id, sessionId: id.split(':')[0], localId: id, displayName: name, name, parentKey: null, state: 'idle', isMain: false, ...extra }) as unknown as Agent
+
+const longText = 'a long message '.repeat(20)
+
+const TOOL_MESSAGES: ConversationMessage[] = [
+  msgOf('t1', 'tool_call', 10, 'Edit a.ts', { toolName: 'Edit', inputData: { file_path: '/repo/src/a.ts', old_string: 'one\ntwo\nthree\nfour\nfive\nsix', new_string: 'x' }, callOutcome: 'error' }),
+  msgOf('t2', 'tool_call', 11, 'Edit b.ts', { toolName: 'Edit', inputData: { file_path: '/repo/src/b.ts', old_string: 'a', new_string: 'b\nc' } }),
+  msgOf('t3', 'tool_call', 12, 'MultiEdit', { toolName: 'MultiEdit', inputData: { file_path: '/repo/src/c.ts', edits: [{ old_string: 'a', new_string: 'b' }, { old_string: '', new_string: 'new' }] } }),
+  msgOf('t4', 'tool_call', 13, 'Write', { toolName: 'Write', inputData: { file_path: '/repo/src/d.ts', content: 'l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10' } }),
+  msgOf('t5', 'tool_call', 14, 'Read', { toolName: 'Read', inputData: { file_path: '/repo/src/e.ts', offset: 5, limit: 10 } }),
+  msgOf('t6', 'tool_call', 15, 'Read', { toolName: 'Read', inputData: { file_path: '/repo/src/f.ts', offset: 3 } }),
+  msgOf('t7', 'tool_call', 16, 'Grep', { toolName: 'Grep', inputData: { pattern: 'needle', path: '/repo/src', glob: '*.ts' } }),
+  msgOf('t8', 'tool_call', 17, 'Glob', { toolName: 'Glob', inputData: { pattern: '**/*.ts', path: '/repo/src' } }),
+  msgOf('t9', 'tool_call', 18, 'Bash', { toolName: 'Bash', inputData: { command: 'git status && pytest -q', description: 'check the tree' } }),
+  msgOf('t10', 'tool_call', 19, 'Todo', { toolName: 'TodoWrite', inputData: { todos: [{ content: 'write it', status: 'completed' }, { content: 'test it', status: 'in_progress' }, { content: 'ship it', status: 'pending' }] } }),
+  msgOf('t11', 'tool_call', 20, 'Search', { toolName: 'WebSearch', inputData: { query: 'wcag language of parts' } }),
+  msgOf('t12', 'tool_call', 21, 'Fetch', { toolName: 'WebFetch', inputData: { url: 'https://example.com/page', prompt: 'summarise' } }),
+  msgOf('t13', 'tool_call', 22, 'Ask', { toolName: 'AskUserQuestion', inputData: { questions: [{ question: 'which one', options: ['first', 'second'] }] } }),
+  msgOf('t14', 'tool_call', 23, 'Task', { toolName: 'Task', inputData: { subagent_type: 'Explore', description: 'look around' } }),
+  msgOf('t15', 'tool_call', 24, 'Patch', { toolName: 'apply_patch', inputData: { patch: '*** Begin Patch\n*** Update File: /repo/src/p.ts\n-old\n+new\n*** End Patch' } }),
+  msgOf('t16', 'tool_call', 25, 'no input', { toolName: 'Custom' }),
+  msgOf('t17', 'tool_result', 26, `< ${'output '.repeat(40)}`, { toolName: 'Bash', resultPill: { kind: 'link', link: { kind: 'pr', number: 7, url: 'https://github.com/o/r/pull/7' } } }),
+  msgOf('t18', 'tool_result', 27, '< 3 files', { toolName: 'Glob', resultPill: { kind: 'count', files: 3 } }),
+]
+
+const CONVERSATIONS = new Map<string, ConversationMessage[]>([
+  ['s1:o', [
+    msgOf('a1', 'assistant', 1, 'plan the work'),
+    msgOf('a0', 'thinking', 1.5, 'think about it'),
+    msgOf('u1', 'user', 1.6, 'plan the work'),
+    msgOf('c1', 'compaction', 1.7, 'context compacted'),
+    msgOf('d1', 'dispatch', 2, 'audit the ux please', { from: 's1:o', to: 's1:u' }),
+    msgOf('m1', 'message', 3, 'plan the work', { from: 's1:o', to: 's1:u' }),
+    msgOf('l1', 'assistant', 3.5, longText),
+    ...TOOL_MESSAGES,
+  ]],
+  ['s1:u', [msgOf('a2', 'assistant', 4, 'auditing'), msgOf('r1', 'return', 5, 'ux audit done', { from: 's1:u', to: 's1:o' }), msgOf('r2', 'return', 5.5, 'ux audit done', { from: 's1:u', to: 's1:o', isError: true })]],
+  ['s1:e', [msgOf('a3', 'assistant', 6, 'scanning files')]],
+])
+const CONV_AGENTS = new Map<string, Agent>([
+  ['s1:o', convAgent('s1:o', 'orchestrator', { isMain: true, state: 'thinking' })],
+  ['s1:u', convAgent('s1:u', 'audit-ux', { teamName: 'alpha', teamColor: '#ff8800', kind: 'teammate', state: 'tool_calling' })],
+  ['s1:e', convAgent('s1:e', 'explore', { state: 'complete', kind: 'subagent' })],
+])
+
+for (const locale of LOCALES) {
+  test(`the Conversation panel (pill, tabs, search, pair filter, every message and tool row, copy feedback) speaks only ${locale}`, async () => {
+    setLocaleChoice(locale)
+    const registry = createPanelRegistry()
+    const strings: string[] = []
+    const props = { conversations: CONVERSATIONS, agents: CONV_AGENTS, links: new Map(), teams: new Map(), droppedMessages: new Map([['s1:o', 3], ['s1:u', 1]]), onAgentClick: noop }
+    const view = render(<ConversationHarness registry={registry} selectedAgentId={null} {...props} />)
+    const pill = view.getByRole('button', { name: new RegExp(escapeRe(translate(locale, 'conv.open', { name: panelName(locale, 'conversation') }))) })
+    assert.equal(langOf(pill), locale, 'the pill declares its language')
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.click(pill)
+    assert.equal(langOf(view.getByRole('log')), locale, 'the open panel declares its language')
+    strings.push(...surfaceStrings(view.container))
+    // the long texts of the messages and of the tools, expanded
+    const showAll = [MESSAGES[locale]['tool.showAll'], MESSAGES[locale]['conv.showAll'].split(' (')[0]]
+    for (const b of Array.from(view.container.querySelectorAll('button[aria-expanded="false"]'))) {
+      if (showAll.some(w => (b.textContent ?? '').trim().startsWith(w))) fireEvent.click(b)
+    }
+    strings.push(...surfaceStrings(view.container))
+    // search with no match, then with some
+    fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['conv.search'] }))
+    const box = view.getByRole('searchbox', { name: MESSAGES[locale]['conv.search'] })
+    fireEvent.change(box, { target: { value: 'zzz-no-match' } })
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.change(box, { target: { value: 'plan' } })
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.change(box, { target: { value: '' } })
+    // pair filter: the picker, then a pair
+    fireEvent.click(view.getAllByRole('button', { name: MESSAGES[locale]['conv.pair.button'] })[0])
+    strings.push(...surfaceStrings(view.container))
+    const selects = view.getAllByRole('combobox')
+    assert.equal(selects.length, 2)
+    fireEvent.change(selects[0], { target: { value: 's1:o' } })
+    fireEvent.change(selects[1], { target: { value: 's1:u' } })
+    await flush()
+    strings.push(...surfaceStrings(view.container))
+    assert.deepEqual(labelInNameViolations(view.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
+    // a copy action and the tool toggle
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => {} }, configurable: true })
+    fireEvent.click(view.getAllByRole('button', { name: new RegExp(`^${escapeRe(MESSAGES[locale]['conv.row.copy'])}`) })[0])
+    await flush()
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['conv.toolCalls'] }))
+    clearPair()
+    fireEvent.click(view.getByRole('tab', { name: new RegExp(escapeRe('audit-ux')) }))
+    strings.push(...surfaceStrings(view.container))
+    assert.ok(strings.length > 60, `${strings.length} strings`)
+    assert.deepEqual(strangers(locale, strings, { allow: PANEL_ALLOW, data: PANEL_DATA }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+    // what the data brings declares lang="en" and is left out of the check on purpose
+    assert.ok(view.container.querySelector('[lang="en"][data-i18n-exempt]'), 'message and tool texts declare lang="en"')
+  })
+}
+
+// ---- Files panel ----
+
+const FP = '/repo/src/'
+const fileOf = (name: string, extra: Partial<FileAttention> = {}): FileAttention =>
+  ({ path: `${FP}${name}`, reads: 0, edits: 0, totalTokens: 0, lastAccessed: 1, agents: ['s1:main'], ...extra })
+const PANEL_FILES = new Map<string, FileAttention>([
+  ['a', fileOf('a.ts', { reads: 2, edits: 2, totalTokens: 3000, tokensPartial: true, tokensEstimated: true, agents: ['s1:main', 's2:main'],
+    readers: [{ agent: 's1:main', started: 2, succeeded: 1 }],
+    editors: [{ agent: 's1:main', started: 1, succeeded: 1, lastEditTime: 3 }, { agent: 's2:main', started: 1, succeeded: 1, lastEditTime: 5 }],
+    timeline: { steps: [{ kind: 'read', callId: 'c1', toolUseId: 'toolu_read1', agentId: 's1:main', time: 1 }, { kind: 'edited', callId: 'c2', toolUseId: 'toolu_edit2', agentId: 's1:main', time: 2 }, { kind: 'written', callId: 'c3', agentId: 's1:main', time: 3 }], omitted: 4 } })],
+  ['b', fileOf('b.ts', { reads: 1, totalTokens: 100 })],
+  ['c', fileOf('c.ts', { reads: 1, totalTokens: 0, tokensPartial: true })],
+  ['d', fileOf('d.ts', { reads: 1 })],
+  ['e', fileOf('e.ts', { reads: 1, totalTokens: 1200, tokensEstimated: true })],
+])
+const FILE_LABELS: Record<string, string> = { 's1:main': 'alpha (session Main)', 's2:main': 'beta (session Fix)' }
+
+function wasteLedger(): WasteLedger {
+  let n = 0
+  let ledger = emptyWasteLedger()
+  const call = (toolName: string, inputData: Record<string, unknown>, cost?: number) => {
+    const id = `tc${++n}`
+    ledger = recordToolStart(ledger, { sessionId: 's1', agentId: 's1:main', toolName, inputData, toolUseId: id, toolCallId: id, time: n })
+    if (cost !== undefined) ledger = recordToolEnd(ledger, id, cost, 'reported')
+  }
+  for (let i = 0; i < 3; i++) call('Read', { file_path: `${FP}a.ts` }, 150)
+  call('Read', { file_path: `${FP}b.ts` }); call('Read', { file_path: `${FP}b.ts` })
+  call('Glob', { pattern: '**/*.ts' }); call('Glob', { pattern: '**/*.ts' })
+  call('Bash', { command: 'ls' }); call('Bash', { command: 'ls' })
+  call('Bash', { description: 'no command' }); call('Bash', { description: 'no command' })
+  return ledger
+}
+
+for (const locale of LOCALES) {
+  test(`the Files panel (files, tokens, conflicts, steps of a file, repeated reads, empty and incomplete states) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const strings: string[] = []
+    const agents = new Map<string, Agent>([['s1:main', convAgent('s1:main', 'alpha')]])
+    const label = (k: string) => FILE_LABELS[k] ?? k
+    for (const [files, lost, waste] of [
+      [PANEL_FILES, 0, wasteLedger()], [PANEL_FILES, 6, wasteLedger()], [new Map<string, FileAttention>(), 0, emptyWasteLedger()], [new Map<string, FileAttention>(), 4, emptyWasteLedger()],
+    ] as const) {
+      const view = render(<FileAttentionPanel visible fileAttention={files} replayLost={lost} waste={waste} agents={agents} agentLabel={label} onOpenFile={noop} onClose={noop} />)
+      const body = view.getByRole('region', { name: MESSAGES[locale]['files.region'] })
+      assert.equal(langOf(body), locale, 'the panel declares its language')
+      strings.push(...surfaceStrings(view.container))
+      if (files.size > 0) assert.ok(view.container.querySelector('button [lang="en"][data-i18n-exempt]'), 'a file name declares lang="en"')
+      assert.deepEqual(labelInNameViolations(view.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
+      cleanup()
+    }
+    assert.ok(strings.length > 40, `${strings.length} strings`)
+    assert.deepEqual(strangers(locale, strings, { allow: PANEL_ALLOW, data: PANEL_DATA }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+  })
+}
+
+// ---- Context panel ----
+
+const CTX_ORIGIN = 'http://127.0.0.1:4321'
+const CTX_URL = 'https://github.com/o/r'
+const ctxWork = () => ({
+  scope: 'session', session: 's1', repo: CTX_URL,
+  prs: [
+    { number: 11, title: 'PR title 11', url: `${CTX_URL}/pull/11`, branch: 'feat/b', checks: { state: 'failing', total: 4, failing: 1, pending: 1 } },
+    { number: 10, title: 'PR title 10', url: `${CTX_URL}/pull/10`, branch: 'feat/a', draft: true, checks: { state: 'none', total: 0, failing: 0, pending: 0 } },
+    { number: 12, title: 'PR title 12', url: `${CTX_URL}/pull/12`, branch: 'feat/c', checks: { state: 'unknown', total: 2, failing: 0, pending: 0 } },
+  ],
+  issues: [{ number: 40, title: 'Orphan issue', url: `${CTX_URL}/issues/40` }],
+  prsTruncated: true, issuesTruncated: true,
+})
+const CAPS: SessionCapabilities = {
+  status: 'ok', partial: true, truncated: true,
+  instructions: [{ type: 'Project', name: 'CLAUDE.md' }, { type: 'AutoMem', name: 'MEMORY.md' }],
+  skillsInvoked: [{ name: 'kit:lint', calls: 2 }],
+  skillsListed: ['loop', 'kit:lint'],
+  mcpServers: [{ name: 'github', announced: true, calls: 3, tools: [{ name: 'issue_read', calls: 3 }] }, { name: 'Notion', announced: false, calls: 0, tools: [] }],
+}
+const ctxData = (over: Partial<ProjectContextData> = {}): ProjectContextData => ({
+  sessionId: 's1', loadedAt: 1,
+  files: [
+    { kind: 'claude-md', name: 'CLAUDE.md', found: true, text: 'Project rules for everyone', bytes: 99_000, truncated: true },
+    { kind: 'memory', name: 'MEMORY.md', found: false, text: '', bytes: 0, truncated: false },
+    { kind: 'memory', name: 'a.md', found: false, unreadable: 'symlink', text: '', bytes: 0, truncated: false },
+    { kind: 'memory', name: 'b.md', found: false, unreadable: 'not-a-file', text: '', bytes: 0, truncated: false },
+    { kind: 'memory', name: 'c.md', found: false, unreadable: 'unreadable', text: '', bytes: 0, truncated: false },
+  ],
+  issues: [12, 64],
+  capabilities: CAPS,
+  ...over,
+} as ProjectContextData)
+const sessionOf = (over: Partial<ResumableSession> = {}): ResumableSession => ({ id: 's1', runtime: 'claude', cwd: '/repo', ...over }) as ResumableSession
+
+for (const d of ['a.md', 'b.md', 'c.md', 'feat/c', 'PR title 11', 'PR title 10', 'PR title 12', 'Orphan issue']) FIXTURE_DATA.add(d)
+
+for (const locale of LOCALES) {
+  test(`the Context panel (files, issues, capabilities, resume, pull requests and issues, every state) speaks only ${locale}`, async () => {
+    setLocaleChoice(locale)
+    const strings: string[] = []
+    const realFetchLocal = g.fetch
+    g.fetch = async () => ({ ok: true, json: async () => ctxWork() })
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => {} }, configurable: true })
+    try {
+      // loaded, with the resume block, the terminal button (VS Code) and the work of the session
+      const loaded = render(<ProjectContextPanel visible sessionId={`ctx-${locale}`} session={sessionOf({ id: `ctx-${locale}` })} onOpenTerminal={noop} sessionBranch="feat/b" relayOrigin={CTX_ORIGIN}
+        fetchContext={async () => ctxData()} onClose={noop} />)
+      await flush()
+      await flush()
+      assert.equal(langOf(loaded.getByRole('button', { name: MESSAGES[locale]['ctx.refresh.aria'] })), locale, 'the panel declares its language')
+      strings.push(...surfaceStrings(loaded.container))
+      assert.ok(loaded.container.querySelector('pre[lang="en"][data-i18n-exempt]'), 'the text of CLAUDE.md declares lang="en"')
+      assert.ok(loaded.container.querySelector('code[lang="en"][data-i18n-exempt]'), 'the resume command declares lang="en"')
+      assert.ok(loaded.container.querySelector('table a [lang="en"][data-i18n-exempt]'), 'the title of a pull request declares lang="en"')
+      assert.deepEqual(labelInNameViolations(loaded.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
+      assert.ok(loaded.container.querySelector('h3 [lang="en"][data-i18n-exempt]'), 'the heading of the issues declares lang="en"')
+      assert.ok(loaded.container.querySelector('th [lang="en"][data-i18n-exempt]'), 'the column Pull request declares lang="en"')
+      fireEvent.click(loaded.getByRole('button', { name: MESSAGES[locale]['resume.copy.aria'] }))
+      await flush()
+      strings.push(...surfaceStrings(loaded.container))
+      fireEvent.click(loaded.getByRole('button', { name: MESSAGES[locale]['resume.terminal.aria'] }))
+      strings.push(...surfaceStrings(loaded.container))
+      cleanup()
+      // the other states: no capabilities, invalid, unreadable, no repository, unknown project, every reason of no resume command
+      for (const [caps, work] of [[undefined, { ...ctxWork(), repo: null }], ['invalid', ctxWork()], [{ status: 'unreadable' }, ctxWork()]] as const) {
+        g.fetch = async () => ({ ok: true, json: async () => work })
+        const v = render(<ProjectContextPanel visible sessionId={`ctx2-${locale}-${String(caps)}`} sessionBranch={undefined} relayOrigin={CTX_ORIGIN}
+          fetchContext={async () => ctxData({ capabilities: caps as ProjectContextData['capabilities'], issues: [] })} onClose={noop} />)
+        await flush()
+        await flush()
+        strings.push(...surfaceStrings(v.container))
+        cleanup()
+      }
+      for (const over of [{ id: '-bad' }, { runtime: 'codex' }, { imported: true }, { cwd: 'relative' }] as const) {
+        const v = render(<ProjectContextPanel visible sessionId="s1" session={sessionOf(over as Partial<ResumableSession>)} fetchContext={async () => ctxData()} onClose={noop} />)
+        await flush()
+        strings.push(...surfaceStrings(v.container))
+        cleanup()
+      }
+      const states: Array<[string, React.ReactElement]> = [
+        ['loading', <ProjectContextPanel key="1" visible sessionId="s1" fetchContext={() => new Promise(() => {})} onClose={noop} />],
+        ['error', <ProjectContextPanel key="2" visible sessionId="s1" fetchContext={async () => { throw new Error('boom') }} onClose={noop} />],
+        ['unavailable', <ProjectContextPanel key="3" visible sessionId="s1" fetchContext={async () => 'unavailable'} onClose={noop} />],
+        ['no session', <ProjectContextPanel key="4" visible sessionId={null} fetchContext={async () => 'unavailable'} onClose={noop} />],
+        ['demo', <ProjectContextPanel key="5" visible sessionId="s1" unavailableReason="demo" fetchContext={async () => 'unavailable'} onClose={noop} />],
+        ['vscode', <ProjectContextPanel key="6" visible sessionId="s1" unavailableReason="vscode" fetchContext={async () => 'unavailable'} onClose={noop} />],
+      ]
+      for (const [, el] of states) {
+        const v = render(el)
+        await flush()
+        strings.push(...surfaceStrings(v.container))
+        cleanup()
+      }
+    } finally {
+      g.fetch = realFetchLocal
+    }
+    assert.ok(strings.length > 80, `${strings.length} strings`)
+    assert.deepEqual(strangers(locale, strings, { allow: PANEL_ALLOW, data: PANEL_DATA }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
   })
 }
