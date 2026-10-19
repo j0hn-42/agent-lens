@@ -37,6 +37,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup(); document.body.replaceChildren(); resetDefaultUiPreferencesStore()
+  // The bridge is a singleton: the extension's figure of a test would outlive it
+  vscodeBridge!.dispatch({ type: 'event-loss', evicted: {} })
   window.HTMLCanvasElement.prototype.getContext = realGetContext
   try { window.sessionStorage.clear() } catch { /* nothing stored */ }
 })
@@ -193,32 +195,198 @@ test('once dismissed, the loss stays visible outside the Sessions panel: a mark 
   assert.equal(sessionsMark() === null, true, 'no mark while the banner shows again')
 })
 
-test('a stale dismissal (relay restarted: the total is now lower than the one dismissed at) does not hide a new loss', async () => {
-  // Dismissed at 100 in this tab before the relay restarted; the new relay's graph lost 6
+// ─── #605 review, round 4: the VS Code extension's figure (no relay stream: this file's mode) ─────────────────
+// The rule is stateless: the notice shows only when the view's total is ABOVE the one it was dismissed at. A lower total,
+// even for a moment (a view rebuilt), never brings it back and never rewrites the stored dismissal. The relay keeps the
+// stricter rule of #569: see truncation-relay.test.tsx.
+
+/** The extension's figure, as it sends it after its reset or when a history read again reaches the page */
+const figure = async (evicted: Record<string, number>) => {
+  await act(async () => { post({ type: 'event-loss', evicted }) })
+  await wait(100)
+}
+const stored = () => JSON.parse(window.sessionStorage.getItem(TRUNCATION_DISMISS_STORAGE_KEY) ?? '{}') as Record<string, number>
+const NO_LOSS = { ignoredEvents: 0, malformed: 0, droppedByCap: 0, clampedFields: 0, duplicateEvents: 0 }
+const statsOf = async (sid: string, stats: typeof STATS, time: number) => {
+  await act(async () => { post(ev(sid, 'normalization_stats', stats, time)) })
+  await wait(400)
+}
+const sessionRow = (label: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>('#sessions-panel [data-row-main]')).findIndex(el => (el.textContent ?? '').includes(label))
+
+test('VS Code extension: a stored dismissal above the total keeps the notice closed; the mark on the Sessions button still names the loss', async () => {
   window.sessionStorage.setItem(TRUNCATION_DISMISS_STORAGE_KEY, JSON.stringify({ 'view:all': 100, 'sel:s1': 100 }))
   const r = await mount()
-  assert.ok(banner(r), 'a lower total is a new loss: the banner shows')
+  assert.equal(banner(r) === null, true, '6 is not above 100: closed')
+  assert.ok(sessionsMark(), 'the loss stays visible on the Sessions button')
+  assert.deepEqual(stored(), { 'view:all': 100, 'sel:s1': 100 }, 'nothing rewritten')
 })
 
-test('VS Code extension: its figure lowered while the page is open stays dismissed; a rise above the lower figure brings it back (#605 review round 3, M2)', async () => {
+test('VS Code extension: its figure lowered while the page is open stays dismissed; only a total above the dismissed one brings it back', async () => {
   const r = await mount()
+  await figure({ s1: 4 })
+  assert.ok(banner(r), '6 discarded + 4 not replayed: shown')
+  await dismiss(r)
+  assert.equal(banner(r) === null, true, 'dismissed at 10')
+  await figure({ s1: 2 })
+  assert.equal(banner(r) === null, true, '8: part of the loss already dismissed, not a new one')
+  assert.equal(stored()['sel:s1'] ?? stored()['view:all'], 10, 'a lower total never rewrites the dismissal')
+  await figure({ s1: 3 })
+  assert.equal(banner(r) === null, true, '9: still not above 10 (the honest limit, the mark stays)')
+  assert.ok(sessionsMark(), 'the mark on the Sessions button names the loss')
+  await figure({ s1: 5 })
+  assert.ok(banner(r), '11: above the dismissed total, a new loss: back')
+})
+
+test('R9: a view rebuilt (a new session, a total down to 4 for a moment) does not bring the notice back nor rewrite the dismissal', async () => {
+  const r = await mount({ s1: STATS, s2: STATS })
+  await openSessions()
+  await selectRow(0)
+  await figure({ s1: 4 })
+  assert.ok(banner(r), 'All: 6 + 6 + 4 = 16, shown')
+  await dismiss(r)
+  assert.equal(stored()['view:all'], 16, 'dismissed in All at 16')
+  // A new session without loss appears, and the view is rebuilt: its total falls to 4 for a moment, then is 16 again
+  const now = Date.now()
+  await act(async () => {
+    post({ type: 'session-list', sessions: ['s1', 's2', 's3'].map(id => ({ id, label: `e2e-${id}`, status: 'active', startTime: now - 1000, lastActivityTime: now })) })
+  })
+  await wait(100)
+  await statsOf('s1', NO_LOSS, 2)
+  await statsOf('s2', NO_LOSS, 2)
+  assert.equal(banner(r) === null, true, 'total 4 for a moment: closed')
+  assert.equal(stored()['view:all'], 16, 'the dismissal is not rewritten at 4')
+  await statsOf('s1', STATS, 3)
+  await statsOf('s2', STATS, 3)
+  assert.equal(banner(r) === null, true, 'back to 16: still dismissed')
+  assert.equal(stored()['view:all'], 16)
+})
+
+test('R1: dismissed in All, the figure goes down while a session is open; back in All the notice stays closed', async () => {
+  const r = await mount({ s1: STATS, s2: STATS })
+  await openSessions()
+  await selectRow(0)
+  await figure({ s1: 4 })
+  await dismiss(r)
+  assert.equal(stored()['view:all'], 16, 'All dismissed at 16 (s1 at 10)')
+  await selectRow(sessionRow('e2e-s1'))
+  assert.equal(banner(r) === null, true, 's1 opens closed at 10')
+  await figure({ s1: 2 })
+  assert.equal(banner(r) === null, true, 's1 at 8: closed')
+  await selectRow(0)
+  assert.equal(banner(r) === null, true, 'All at 14, under 16: closed')
+  assert.equal(stored()['view:all'], 16)
+  assert.equal(stored()['sel:s1'], 10)
+})
+
+test('R2: the figure goes down in All, then a session it counted is opened: closed there too', async () => {
+  const r = await mount({ s1: STATS, s2: STATS })
+  await openSessions()
+  await selectRow(0)
+  await figure({ s1: 4 })
+  await dismiss(r)
+  await figure({ s1: 2 })
+  assert.equal(banner(r) === null, true, 'All at 14: closed')
+  await selectRow(sessionRow('e2e-s1'))
+  assert.equal(banner(r) === null, true, 's1 at 8, dismissed at 10 by the All dismissal: closed')
+  assert.equal(stored()['sel:s1'], 10)
+})
+
+test('R3: shown after a rise, then the total falls back under the dismissed one: the notice goes, the focus inside it goes to the Sessions button, nothing is announced', async () => {
+  const r = await mount()
+  await figure({ s1: 4 })
+  await dismiss(r)
+  await figure({ s1: 6 })
+  assert.ok(banner(r), '12 above 10: shown')
+  const details = r.getByRole('button', { name: 'Details' })
+  details.focus()
+  assert.equal(document.activeElement === details, true)
+  await figure({ s1: 3 })
+  assert.equal(banner(r) === null, true, '9, not above 10: the notice goes without a gesture')
+  assert.equal(document.activeElement === sessionsButton(), true, `the focus is on the Sessions button, not ${document.activeElement?.tagName}`)
+  assert.equal(stored()['sel:s1'] ?? stored()['view:all'], 10, 'the dismissal is not rewritten')
+  const announcer = Array.from(document.querySelectorAll('[role="status"]')).find(el => el.textContent?.includes('Graph incomplete or truncated'))
+  assert.equal(announcer, undefined, 'nothing announced once the notice is gone')
+})
+
+test('a total falling back while the focus is elsewhere does not move it', async () => {
+  const r = await mount()
+  await figure({ s1: 4 })
+  await dismiss(r)
+  await figure({ s1: 6 })
+  assert.ok(banner(r))
+  const sessions = sessionsButton()
+  const enter = r.getByRole('button', { name: 'Enter full screen' })
+  enter.focus()
+  await figure({ s1: 3 })
+  assert.equal(banner(r) === null, true)
+  assert.equal(document.activeElement === enter, true, 'the focus stays where the user left it')
+  assert.notEqual(document.activeElement, sessions)
+})
+
+test('remount with the figure at 0 for a moment: the dismissal stored for the tab is kept', async () => {
+  const first = await mount()
+  await figure({ s1: 4 })
+  await dismiss(first)
+  const key = Object.keys(stored()).find(k => stored()[k] === 10)
+  assert.ok(key, `dismissed at 10 (${JSON.stringify(stored())})`)
+  cleanup(); document.body.replaceChildren(); resetDefaultUiPreferencesStore()
+  await figure({})
+  const again = await mount()
+  assert.equal(stored()[key!], 10, 'the 0 and the 6 of the remount did not rewrite it')
+  await figure({ s1: 4 })
+  assert.equal(banner(again) === null, true, 'back to 10: still dismissed')
+  assert.equal(stored()[key!], 10)
+})
+
+test('StrictMode: a lower total does not bring the notice back nor rewrite the dismissal', async () => {
+  const r = render(<React.StrictMode><AgentVisualizer /></React.StrictMode>)
+  const now = Date.now()
+  await act(async () => {
+    post({ type: '__vscode-bridge-init' })
+    post({ type: 'session-list', sessions: [{ id: 's1', label: 'e2e-s1', status: 'active', startTime: now - 1000, lastActivityTime: now }] })
+  })
+  await wait(100)
+  await act(async () => { post(ev('s1', 'agent_spawn', { name: 'main-s1', isMain: true }, 0)); post(ev('s1', 'normalization_stats', STATS, 1)) })
+  await wait(400)
+  await figure({ s1: 4 })
+  assert.ok(banner(r), '10: shown')
+  await dismiss(r)
+  const before = window.sessionStorage.getItem(TRUNCATION_DISMISS_STORAGE_KEY)
+  await figure({ s1: 1 })
+  await statsOf('s1', NO_LOSS, 2)
+  await statsOf('s1', STATS, 3)
+  assert.equal(banner(r) === null, true, 'closed through the fall and the return')
+  assert.equal(window.sessionStorage.getItem(TRUNCATION_DISMISS_STORAGE_KEY), before, 'storage untouched')
+})
+
+test('no frame of notice nor announcement while the total goes down (MutationRecords)', async () => {
+  const r = await mount()
+  await figure({ s1: 4 })
+  await dismiss(r)
+  assert.equal(banner(r) === null, true)
+  const ANNOUNCE = 'Graph incomplete or truncated'
+  const records: MutationRecord[] = []
+  const observer = new MutationObserver(list => { records.push(...list) })
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true })
   try {
-    await act(async () => { post({ type: 'event-loss', evicted: { s1: 4 } }) })
-    await wait(100)
-    assert.ok(banner(r), '6 discarded + 4 not replayed: shown')
-    await dismiss(r)
-    assert.equal(banner(r) === null, true, 'dismissed at 10')
-    // A history read again reached the page: the extension sends its figure again, lower
-    await act(async () => { post({ type: 'event-loss', evicted: { s1: 2 } }) })
-    await wait(100)
-    assert.equal(banner(r) === null, true, '8: part of the loss already dismissed, not a new one')
-    await act(async () => { post({ type: 'event-loss', evicted: { s1: 3 } }) })
-    await wait(100)
-    assert.ok(banner(r), '9 after 8: one more event lost after the dismissal')
+    await figure({ s1: 2 })
+    await statsOf('s1', NO_LOSS, 2)
+    await figure({ s1: 1 })
+    await statsOf('s1', STATS, 3)
+    await figure({ s1: 4 })
   } finally {
-    // The bridge is a singleton: its figure would outlive this test
-    await act(async () => { post({ type: 'event-loss', evicted: {} }) })
+    records.push(...observer.takeRecords())
+    observer.disconnect()
   }
+  const bannerAdded = records.some(m => Array.from(m.addedNodes).some(n =>
+    n instanceof Element && (n.matches('[data-truncation-banner]') || n.querySelector('[data-truncation-banner]') !== null)))
+  assert.equal(bannerAdded, false, 'no notice node was ever added')
+  const announced = records.some(m =>
+    (m.type === 'characterData' && (m.target.textContent ?? '').includes(ANNOUNCE)) ||
+    Array.from(m.addedNodes).some(n => (n.textContent ?? '').includes(ANNOUNCE)))
+  assert.equal(announced, false, 'the live region never received the announcement')
+  assert.ok(records.length > 0, 'precondition: the page did render during the fall')
 })
 
 test('leaving full screen does not take the focus back to Details after a reopen from the indicator', async () => {

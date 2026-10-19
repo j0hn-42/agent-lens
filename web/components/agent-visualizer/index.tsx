@@ -53,7 +53,7 @@ import { CostTotalsText } from "./cost-totals-text"
 import { TruncationBanner, TruncationAnnouncer, TruncationIndicator } from "./truncation-banner"
 import {
   truncationBannerState, replayLostForAgents, usageUnderLoss, truncationDismissKey, readTruncationDismissals, writeTruncationDismissals,
-  tabStorage, dismissTruncation, allViewSessionTotals, viewNormalizationStats, followDismissalDown,
+  tabStorage, dismissTruncation, allViewSessionTotals, viewNormalizationStats,
 } from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
@@ -79,14 +79,11 @@ export function AgentVisualizer() {
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
   /**
-   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns when the total
-   * differs: more lost, or a lower one after a relay restart). Kept for the tab in sessionStorage (#567), so a reload or
-   * a relaunch in the same tab does not show it again.
+   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns when more is
+   * lost, or, with the relay's figure, at a lower total after a relay restart: truncationBannerState). Kept for the tab in
+   * sessionStorage (#567), so a reload or a relaunch in the same tab does not show it again. Only a user gesture writes it.
    */
   const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => readTruncationDismissals(tabStorage()))
-  // The view's truncation total on the previous render, and the dismissals last followed down to it (#605 review round 3)
-  const [truncationSeen, setTruncationSeen] = useState<{ key: string; total: number } | null>(null)
-  const [truncationFollowed, setTruncationFollowed] = useState<ReadonlyMap<string, number> | null>(null)
   /**
    * The view whose banner the indicator reopened, and how many times: remounts the banner with its details open.
    * `focus`: the focus request of that reopen, not yet spent by the banner.
@@ -249,24 +246,10 @@ export function AgentVisualizer() {
     [normalizationStats, bridge.selectedSessionId, bridge.viewSessionIds],
   )
   // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
-  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))
-  // VS Code extension: its figure goes down while the page is open (#605 review, round 3). Seen going down live in the
-  // same view, the dismissal follows it during this render (never a frame of notice in between, which the live region
-  // would announce), so the notice stays closed for that part of the loss and comes back only when more is lost after
-  // it. Not on a first render: a remount at the same total stays closed, a stale higher dismissal does not hide a loss.
-  if (truncationSeen === null || truncationSeen.key !== truncationKey || truncationSeen.total !== truncation.total) {
-    if (bridge.eventLossSource === 'extension') {
-      const next = followDismissalDown(truncationDismissed, truncationKey, truncation.total, truncationSeen)
-      if (next !== truncationDismissed) {
-        setTruncationDismissed(new Map(next))
-        setTruncationFollowed(next)
-      }
-    }
-    setTruncationSeen({ key: truncationKey, total: truncation.total })
-  }
-  useEffect(() => {
-    if (truncationFollowed !== null) writeTruncationDismissals(tabStorage(), truncationFollowed)
-  }, [truncationFollowed])
+  // The rule depends on where the replay figure comes from (#605 review, round 4): the VS Code extension lowers its figure
+  // while the page is open, so with it only a total above the dismissed one brings the notice back; with the relay a lower
+  // total is a new loss too (#569)
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey), bridge.eventLossSource)
   const truncationShown = truncation.show && !immersive
   // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
   const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey

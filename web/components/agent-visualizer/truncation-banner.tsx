@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { truncationHeadline, truncationTotal, type NormalizationStats } from '@/lib/event-normalize'
@@ -92,6 +92,19 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
     toggleRef.current.focus({ preventScroll: true })
     onFocusTaken?.()
   }, [takeFocus, onFocusTaken])
+  // Gone without the user's gesture (its total fell back to the one dismissed at, #605 review round 4): a focus left inside
+  // would fall to the document body. It goes where a dismissal by the user sends it (WCAG 2.4.3). A dismissal by the user
+  // has already moved it out, so this does nothing then.
+  const unmountRef = useRef<{ node: HTMLDivElement | null; returnFocusId?: string }>({ node: null })
+  useLayoutEffect(() => { unmountRef.current.returnFocusId = returnFocusId }, [returnFocusId])
+  useLayoutEffect(() => {
+    const box = unmountRef.current
+    return () => {
+      const id = box.returnFocusId
+      if (!id || !box.node || !box.node.contains(document.activeElement)) return
+      document.getElementById(id)?.focus({ preventScroll: true })
+    }
+  }, [])
   if (!truncated && lost === 0) return null
   const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
 
@@ -101,6 +114,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
       lang={locale}
       aria-label={t('truncation.group')}
       data-truncation-banner
+      ref={node => { unmountRef.current.node = node }}
       className="glass-card flex flex-col gap-1 px-3 py-1.5 text-xs font-mono w-fit max-w-full"
       style={{ color: COLORS.textPrimary }}
     >

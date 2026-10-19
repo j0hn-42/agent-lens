@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount,
   truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, dismissTruncation, allViewSessionTotals,
-  viewNormalizationStats, followDismissalDown,
+  viewNormalizationStats,
 } from '../web/lib/event-loss'
 
 /** The sessionStorage key the dismissals live under (#567) */
@@ -120,31 +120,28 @@ test('truncationBannerState: shown while something was lost, back when more is l
   assert.equal(truncationBannerState({ ...none, clampedFields: 9, duplicateEvents: 9 }, 0, undefined).show, false, 'benign counters never trigger it')
 })
 
-test('truncationBannerState: a lower total brings a dismissed notice back, the relay rule of #569 (#605 review round 3, M2)', () => {
+test('truncationBannerState, relay: a lower total brings a dismissed notice back, the rule of #569 (#605 review)', () => {
   const none = createStats()
   // Relay (#569): a total below the one dismissed at means the relay restarted or the graph was reloaded: a new loss
-  assert.equal(truncationBannerState(none, 7, 10).show, true, 'relay restarted: a new loss')
-  assert.equal(truncationBannerState(none, 10, 10).show, false, 'same total: still dismissed')
-  assert.equal(truncationBannerState(none, 11, 10).show, true, 'more lost: it comes back')
+  assert.equal(truncationBannerState(none, 7, 10, 'relay').show, true, 'relay restarted: a new loss')
+  assert.equal(truncationBannerState(none, 10, 10, 'relay').show, false, 'same total: still dismissed')
+  assert.equal(truncationBannerState(none, 11, 10, 'relay').show, true, 'more lost: it comes back')
+  assert.equal(truncationBannerState(none, 7, 10).show, true, 'the relay rule is the default')
 })
 
-test('followDismissalDown: in the VS Code extension a dismissal follows a total seen going down live, so a later rise is a new loss (#605 review round 3, M2)', () => {
-  const key = truncationDismissKey(null)
-  const at10 = new Map([[key, 10]])
-  const seen10 = { key, total: 10 }
-  assert.equal(followDismissalDown(at10, key, 10, seen10), at10, 'same total: unchanged')
-  assert.equal(followDismissalDown(at10, key, 12, seen10), at10, 'higher total: unchanged (the notice shows)')
-  assert.equal(followDismissalDown(new Map(), key, 3, seen10).size, 0, 'nothing dismissed: unchanged')
-  const at7 = followDismissalDown(at10, key, 7, seen10)
-  assert.equal(at7.get(key), 7, 'the figure went down to 7 while the page was open: the dismissal now holds at 7')
-  assert.equal(truncationBannerState(createStats(), 7, at7.get(key)).show, false, '7: part of the loss already dismissed')
-  assert.equal(truncationBannerState(createStats(), 9, at7.get(key)).show, true, '7 then 9: 2 events lost after the dismissal')
-  assert.equal(followDismissalDown(at10, key, 0, seen10).has(key), false, 'down to 0: the dismissal is let go')
-  // Not seen going down: the relay rule stays (a first render, or another view)
-  assert.equal(followDismissalDown(at10, key, 7, null), at10, 'first render (a page mounted on a stale dismissal): not followed')
-  assert.equal(followDismissalDown(at10, key, 0, null), at10, 'first render at 0, events not arrived yet: the dismissal is kept')
-  assert.equal(followDismissalDown(at10, key, 7, { key: truncationDismissKey('other'), total: 12 }), at10, 'the previous total was another view\'s: not followed')
-  assert.equal(followDismissalDown(at10, key, 7, { key, total: 6 }), at10, 'seen going up to 7, not down: not followed')
+test('truncationBannerState, VS Code extension: only a total ABOVE the one dismissed at brings the notice back, a lower one never does (#605 review round 4)', () => {
+  const none = createStats()
+  // The extension lowers its figure while the page is open (a history read again reaches it): part of the loss already dismissed
+  assert.equal(truncationBannerState(none, 7, 10, 'extension').show, false, 'lower: part of the loss already dismissed')
+  assert.equal(truncationBannerState(none, 1, 10, 'extension').show, false, 'transiently much lower (a view rebuilt): still closed')
+  assert.equal(truncationBannerState(none, 10, 10, 'extension').show, false, 'same total: still dismissed')
+  assert.equal(truncationBannerState(none, 11, 10, 'extension').show, true, 'above the dismissed total: a new loss, back')
+  assert.equal(truncationBannerState(none, 7, undefined, 'extension').show, true, 'never dismissed: shown')
+  assert.equal(truncationBannerState(none, 0, 10, 'extension').show, false, 'nothing lost: nothing to show')
+  // Stateless: the lowest total seen is never kept, so 7 then 9 (both under 10) stays closed. The honest limit, said in the
+  // docs: a new loss smaller than the gap between the dismissed total and the lowest total seen is not signalled by the
+  // notice (the mark on the Sessions button stays).
+  assert.equal(truncationBannerState(none, 9, 10, 'extension').show, false, '7 then 9, under 10: not signalled by the notice')
 })
 
 test('boundedCount: a total over an incomplete graph reads "at least", a zero is never a clean zero (#366)', () => {

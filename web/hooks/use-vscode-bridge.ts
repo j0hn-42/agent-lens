@@ -143,7 +143,7 @@ interface BridgeHookResult {
   replayLost: number
   /** Where the figure of eventLoss comes from: 'extension' without a relay stream (VS Code, #592; the demo has no figure),
    *  else 'relay'. The VS Code extension lowers its figure while the page is open; the relay's only goes down when it
-   *  restarts (see followDismissalDown and truncationBannerState). */
+   *  restarts or the graph is reloaded (see truncationBannerState, whose rule depends on it). */
   eventLossSource: LossSource
   /**
    * Sessions a union view counts (#366): a team's sessions, or the ones All shows (null = every session). The scope of
