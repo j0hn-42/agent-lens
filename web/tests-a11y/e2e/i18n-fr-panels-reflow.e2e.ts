@@ -1,4 +1,4 @@
-// French Conversation and Files panels at reflow sizes (#599, suite de #373; WCAG 1.4.10), measured in a real browser against
+// French Conversation, Files and Timeline panels at reflow sizes (#599, #373; WCAG 1.4.10), measured in a real browser against
 // the demo app (`pnpm --dir web run test:e2e`). The French labels of the header actions, the search, the pair filter and the
 // file rows are longer than the English ones: at 320 px and at 1280 px / 200 % (a 640 x 512 window) nothing may scroll
 // sideways, leave the window, be cut or sit on top of another button. The Context panel needs a relay (it is not available
@@ -113,6 +113,34 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
       await panel.getByRole('region', { name: 'Fichiers consultés par les agents' }).waitFor()
       await waitForStableLayout(page)
       await expectFits(page, '[data-dock-panel="files"]', `${w}x${h} files`)
+    } finally {
+      await page.context().close()
+    }
+  })
+
+  // #373: the French Timeline (header actions, legend, table view, message buttons). The demo has no link channel on opening, so the
+  // Sequence button and the message list may be absent: said out loud below, not skipped silently.
+  test(`fr ${w}x${h}: the Timeline panel (header, legend, table view) fits (#373)`, { timeout: 180_000 }, async () => {
+    const page = await open(w, h)
+    try {
+      await page.locator('body').press('t')
+      const panel = page.locator('[data-dock-panel="timeline"]')
+      await panel.waitFor()
+      await panel.getByRole('region', { name: 'Chronologie d’exécution' }).waitFor()
+      // the first-launch offer of the tour sits over the bottom of the window and takes the clicks: not the subject here
+      const later = page.getByRole('button', { name: 'Pas maintenant' })
+      if (await later.waitFor({ timeout: 4000 }).then(() => true, () => false)) await later.click()
+      await later.waitFor({ state: 'detached' }).catch(() => {})
+      await panel.getByRole('button', { name: 'Vue en tableau' }).waitFor()
+      await waitForStableLayout(page)
+      const hasSequence = await panel.getByRole('button', { name: 'Séquence' }).count() > 0
+      if (!hasSequence) console.log(`# [${w}x${h}] no Sequence button in the demo (no link channel): its French width is not measured here`)
+      await expectFits(page, '[data-dock-panel="timeline"]', `${w}x${h} timeline`)
+      await panel.getByRole('button', { name: 'Vue en tableau' }).click()
+      await panel.getByRole('columnheader', { name: 'Début' }).waitFor()
+      await waitForStableLayout(page)
+      await expectFits(page, '[data-dock-panel="timeline"]', `${w}x${h} timeline, table view`)
+      assert.equal(await panel.locator('canvas').evaluate(c => c.closest('[role="img"]')?.hasAttribute('hidden')), true, 'the canvas is replaced by the table')
     } finally {
       await page.context().close()
     }

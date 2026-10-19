@@ -439,9 +439,12 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </canvas>
           </div>
 
+          {/* Hidden, the table sits in a 1 px clipped box: a table is never narrower than its content, so as `sr-only` itself it
+              stuck out of the panel and made it wider than the window for nothing (measured in French at 320 px) */}
+          <div className={tableView ? undefined : 'sr-only'}>
           <table
             id={tableId}
-            className={tableView ? 'w-full text-xs font-mono border-collapse' : 'sr-only'}
+            className="w-full text-xs font-mono border-collapse"
             style={tableView ? { color: COLORS.textPrimary } : undefined}
           >
             <caption className="sr-only">{ariaLabel}</caption>
@@ -460,13 +463,14 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               {rows.map((r, i) => (
                 <tr key={`${r.agentId}-${i}`} style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
                   <th scope="row" className="text-left px-2 py-1 font-normal break-all">{r.agentName}</th>
-                  <td className="px-2 py-1"><StateCell locale={locale} state={r.state} detail={r.detail} /></td>
+                  <td className="px-2 py-1 [overflow-wrap:anywhere]"><StateCell locale={locale} state={r.state} detail={r.detail} /></td>
                   <td className="px-2 py-1">{r.start}</td>
                   <td className="px-2 py-1">{r.endTime === null ? translate(locale, 'tl.ongoing') : r.end}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
 
           {messageRows.length > 0 && tableView && (
             <table id={messagesTableId} className="w-full text-xs font-mono border-collapse mt-2" style={{ color: COLORS.textPrimary }}>
