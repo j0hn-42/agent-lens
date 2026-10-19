@@ -200,6 +200,27 @@ test('a stale dismissal (relay restarted: the total is now lower than the one di
   assert.ok(banner(r), 'a lower total is a new loss: the banner shows')
 })
 
+test('VS Code extension: its figure lowered while the page is open stays dismissed; a rise above the lower figure brings it back (#605 review round 3, M2)', async () => {
+  const r = await mount()
+  try {
+    await act(async () => { post({ type: 'event-loss', evicted: { s1: 4 } }) })
+    await wait(100)
+    assert.ok(banner(r), '6 discarded + 4 not replayed: shown')
+    await dismiss(r)
+    assert.equal(banner(r) === null, true, 'dismissed at 10')
+    // A history read again reached the page: the extension sends its figure again, lower
+    await act(async () => { post({ type: 'event-loss', evicted: { s1: 2 } }) })
+    await wait(100)
+    assert.equal(banner(r) === null, true, '8: part of the loss already dismissed, not a new one')
+    await act(async () => { post({ type: 'event-loss', evicted: { s1: 3 } }) })
+    await wait(100)
+    assert.ok(banner(r), '9 after 8: one more event lost after the dismissal')
+  } finally {
+    // The bridge is a singleton: its figure would outlive this test
+    await act(async () => { post({ type: 'event-loss', evicted: {} }) })
+  }
+})
+
 test('leaving full screen does not take the focus back to Details after a reopen from the indicator', async () => {
   const r = await mount()
   await dismiss(r)

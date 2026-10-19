@@ -156,30 +156,32 @@ export function acceptEventLoss(connections: number, current: EventLoss | null, 
 export type LossSource = 'relay' | 'extension'
 
 /** Whether the truncation banner shows, and the total it was computed on (what a dismissal stores). */
-export function truncationBannerState(
-  stats: NormalizationStats,
-  replayLost: number,
-  dismissedAt: number | undefined,
-  opts: { source?: LossSource } = {},
-): { show: boolean; total: number } {
+export function truncationBannerState(stats: NormalizationStats, replayLost: number, dismissedAt: number | undefined): { show: boolean; total: number } {
   const lost = Number.isSafeInteger(replayLost) && replayLost > 0 ? replayLost : 0
   const total = add(truncationTotal(stats), lost)
-  // A dismissal holds only at the total it was made at (#569 review). More lost: back. With the relay, LESS than that
-  // total is a new loss too, never a smaller part of the old one: the relay restarted (its figure starts again from 0)
-  // or the graph was reloaded. The VS Code extension instead lowers its figure while the page is open, when a history
-  // read again reaches it (#605 review, round 3): the lower figure is part of the loss already dismissed, so only a
-  // total above the dismissed one brings the notice back (followDismissalDown keeps that bar at the lower figure).
-  const comesBack = dismissedAt === undefined || (opts.source === 'extension' ? total > dismissedAt : total !== dismissedAt)
-  const show = total > 0 && comesBack
+  // A dismissal holds only at the total it was made at (#569 review). More lost: back. LESS than that total is a new loss
+  // too, never a smaller part of the old one: the relay restarted (its figure starts again from 0) or the graph was
+  // reloaded, so a dismissal stored for the tab before that no longer describes what the view lacks. The one exception,
+  // the VS Code extension lowering its figure while the page is open, is handled before: followDismissalDown.
+  const show = total > 0 && (dismissedAt === undefined || total !== dismissedAt)
   return { show, total }
 }
 
 /**
- * VS Code extension only (#605 review, round 3): the view's total fell below the one its notice was dismissed at. The
- * dismissal follows it down, so a later rise above the lower figure (a new loss) brings the notice back. Down to 0, the
- * dismissal is let go. Returns `prev` itself when nothing changes.
+ * VS Code extension only (#605 review, round 3): it lowers its figure while the page is open, when a history read again
+ * reaches it, and that lower figure is part of the loss already dismissed. So when the view's total is seen going down
+ * live (`seen`: the total this same view had on the previous render of this page) below the one its notice was dismissed
+ * at, the dismissal follows it down; a later rise above the lower figure (a new loss) brings the notice back. Down to 0,
+ * the dismissal is let go. A total found lower on a first render (a page mounted on a stale dismissal, a view just
+ * opened) is not followed: truncationBannerState's rule applies. Returns `prev` itself when nothing changes.
  */
-export function followDismissalDown(prev: ReadonlyMap<string, number>, key: string, total: number): ReadonlyMap<string, number> {
+export function followDismissalDown(
+  prev: ReadonlyMap<string, number>,
+  key: string,
+  total: number,
+  seen: { key: string; total: number } | null,
+): ReadonlyMap<string, number> {
+  if (seen === null || seen.key !== key || !(total < seen.total)) return prev
   const at = prev.get(key)
   if (at === undefined || !(total < at)) return prev
   const next = new Map(prev)

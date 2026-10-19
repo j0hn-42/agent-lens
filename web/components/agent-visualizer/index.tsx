@@ -84,6 +84,9 @@ export function AgentVisualizer() {
    * a relaunch in the same tab does not show it again.
    */
   const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => readTruncationDismissals(tabStorage()))
+  // The view's truncation total on the previous render, and the dismissals last followed down to it (#605 review round 3)
+  const [truncationSeen, setTruncationSeen] = useState<{ key: string; total: number } | null>(null)
+  const [truncationFollowed, setTruncationFollowed] = useState<ReadonlyMap<string, number> | null>(null)
   /**
    * The view whose banner the indicator reopened, and how many times: remounts the banner with its details open.
    * `focus`: the focus request of that reopen, not yet spent by the banner.
@@ -246,16 +249,24 @@ export function AgentVisualizer() {
     [normalizationStats, bridge.selectedSessionId, bridge.viewSessionIds],
   )
   // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
-  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey), { source: bridge.eventLossSource })
-  // VS Code extension: its figure goes down while the page is open (#605 review, round 3). The dismissal follows it
-  // down, so the notice stays closed for that part of the loss and comes back only when more is lost after it.
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))
+  // VS Code extension: its figure goes down while the page is open (#605 review, round 3). Seen going down live in the
+  // same view, the dismissal follows it during this render (never a frame of notice in between, which the live region
+  // would announce), so the notice stays closed for that part of the loss and comes back only when more is lost after
+  // it. Not on a first render: a remount at the same total stays closed, a stale higher dismissal does not hide a loss.
+  if (truncationSeen === null || truncationSeen.key !== truncationKey || truncationSeen.total !== truncation.total) {
+    if (bridge.eventLossSource === 'extension') {
+      const next = followDismissalDown(truncationDismissed, truncationKey, truncation.total, truncationSeen)
+      if (next !== truncationDismissed) {
+        setTruncationDismissed(new Map(next))
+        setTruncationFollowed(next)
+      }
+    }
+    setTruncationSeen({ key: truncationKey, total: truncation.total })
+  }
   useEffect(() => {
-    if (bridge.eventLossSource !== 'extension') return
-    const next = followDismissalDown(truncationDismissed, truncationKey, truncation.total)
-    if (next === truncationDismissed) return
-    writeTruncationDismissals(tabStorage(), next)
-    setTruncationDismissed(new Map(next))
-  }, [bridge.eventLossSource, truncationDismissed, truncationKey, truncation.total])
+    if (truncationFollowed !== null) writeTruncationDismissals(tabStorage(), truncationFollowed)
+  }, [truncationFollowed])
   const truncationShown = truncation.show && !immersive
   // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
   const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey

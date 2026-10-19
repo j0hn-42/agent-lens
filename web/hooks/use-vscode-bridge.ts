@@ -141,8 +141,9 @@ interface BridgeHookResult {
   eventLoss: EventLoss | null
   /** Events of the selection the relay could not replay (0 when none is proven), see lib/event-loss */
   replayLost: number
-  /** Where the figure of eventLoss comes from: 'extension' inside VS Code (no relay stream, #592), else 'relay'. The VS Code
-   *  extension lowers its figure while the page is open; the relay's only goes down when it restarts (see truncationBannerState). */
+  /** Where the figure of eventLoss comes from: 'extension' without a relay stream (VS Code, #592; the demo has no figure),
+   *  else 'relay'. The VS Code extension lowers its figure while the page is open; the relay's only goes down when it
+   *  restarts (see followDismissalDown and truncationBannerState). */
   eventLossSource: LossSource
   /**
    * Sessions a union view counts (#366): a team's sessions, or the ones All shows (null = every session). The scope of
@@ -838,7 +839,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     quota,
     eventLoss,
     replayLost,
-    eventLossSource: (isVSCode && !relayEnabled ? 'extension' : 'relay') as LossSource,
+    // The same switch as the effect that reads the figure: without a relay stream it is the extension's (none in the demo)
+    eventLossSource: (relayEnabled ? 'relay' : 'extension') as LossSource,
     viewSessionIds,
   }
 }
