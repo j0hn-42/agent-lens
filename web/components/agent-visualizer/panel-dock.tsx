@@ -11,6 +11,7 @@ import type { UseUiPreferences } from "@/hooks/use-ui-preferences"
 import { isUnionSelection } from "@/lib/bridge-types"
 import { scopeEmptyHint } from "@/lib/relay-scope"
 import type { AgentStateCounts } from "@/lib/chrome-utils"
+import { hidesInactiveAgents } from "@/lib/show-mode"
 import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { SessionListPanel } from "./session-list-panel"
@@ -104,6 +105,7 @@ export function PanelDock({
           scopeHint={scopeEmptyHint(bridge.relayScope)}
           activeOnly={prefs.sessionListActiveOnly}
           onActiveOnlyChange={v => setPref('sessionListActiveOnly', v)}
+          canvasHideInactive={hidesInactiveAgents(prefs.show)}
           onFilterChange={change => {
             if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
             if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)

@@ -57,8 +57,10 @@ test('(1) the line says both filters as set: Active only on, Hide inactive on in
   assert.ok(line, 'the line is drawn')
   assert.equal(line.textContent, `List: Active only · Canvas: Hide inactive (${ACTIVE_WINDOW_MINUTES} min)`)
   // Under the header, before the list: read before the rows
-  const header = view.getByText('Sessions', { selector: 'span' })
-  assert.ok(header.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING, 'after the header')
+  const title = document.getElementById('session-list-title')!
+  assert.ok(title.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING, 'after the header')
+  const firstRow = view.container.querySelector('[data-closable-id]')!
+  assert.ok(line.compareDocumentPosition(firstRow) & Node.DOCUMENT_POSITION_FOLLOWING, 'before the rows')
   // Plain text, no new control: nothing focusable, no role
   assert.equal(line.querySelector('button, a, input, [tabindex]'), null)
   assert.equal(line.getAttribute('role'), null)
@@ -130,7 +132,7 @@ test('(2) General has a "Motion and cards" row: its button is named by its visib
   assert.ok(section.contains(button))
   assert.equal(button.textContent, 'Open View controls', 'the name is the visible text (2.5.3)')
   const help = document.getElementById(button.getAttribute('aria-describedby') ?? '')
-  assert.equal(help?.textContent, 'Set from the View button under the canvas: Freeze motion, the Calm layers, Pin cards, Hide unanswered calls after.')
+  assert.equal(help?.textContent, 'Set from the View button under the canvas: Freeze motion, Calm by layer, Pin cards, Hide unanswered calls after.')
 })
 
 test('(2) the button closes Settings first, then asks for the View controls', () => {
@@ -161,7 +163,7 @@ test('(2) in French: the row, its help and its button come from the catalog', ()
   assert.ok(view.getByRole('tabpanel', { name: 'Général' }).querySelector('section[aria-label="Animations et cartes"]'))
   const button = view.getByRole('button', { name: 'Ouvrir les réglages d’affichage' })
   assert.equal(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent,
-    'Se règlent avec le bouton Affichage sous le canevas : Figer les animations, les couches Calmer, Garder les cartes affichées, Masquer les appels sans réponse après.')
+    'Se règlent avec le bouton Affichage sous le canevas : Figer les animations, Calmer par couche, Garder les cartes affichées, Masquer les appels sans réponse après.')
 })
 
 test('(2) axe finds nothing on the General tab with the row', async () => {

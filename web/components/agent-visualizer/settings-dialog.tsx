@@ -37,6 +37,12 @@ export interface SettingsDialogProps {
   onSingleKeyEnabledChange: (enabled: boolean) => void
   /** Opens the keyboard shortcuts dialog (this dialog closes first) */
   onOpenShortcuts: () => void
+  /**
+   * #372 (owner's decision): opens the View popover of the canvas controls (Freeze motion, Calm by layer, Pin cards, Hide
+   * unanswered calls after), this dialog closing first. Those settings stay under the canvas, one press away from it
+   * (WCAG 2.2.2); General only points to them. The row is left out when absent.
+   */
+  onOpenViewControls?: () => void
   /** Restores the defaults of the preference blob (#372); the 'Reset preferences' button is left out when absent */
   onResetPrefs?: () => void
   /** Presentation mode (#245) and its three options; the section is left out when absent */
@@ -312,7 +318,7 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
 export function SettingsDialog({
   open, onClose, tab, onTabChange, hexGrid, onHexGridChange, muted, onToggleMute, showMode, onShowModeChange,
   singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota,
-  onResetPrefs,
+  onResetPrefs, onOpenViewControls,
 }: SettingsDialogProps) {
   const { locale, choice, setChoice } = useLocale()
   const t = useT()
@@ -322,6 +328,7 @@ export function SettingsDialog({
   const titleId = useId()
   const themeId = useId()
   const tabsId = useId()
+  const viewHelpId = useId()
   const [ownTab, setOwnTab] = useState<SettingsTab>(tab ?? DEFAULT_SETTINGS_TAB)
   // A tab with nothing to show is left out (no notification channel and no announcement setting given)
   const tabs = visibleSettingsTabs({ notifications: Boolean(notifications), announcements: Boolean(announcements) })
@@ -481,6 +488,22 @@ export function SettingsDialog({
           <Section title={t('settings.section.sound')}>
             <SwitchRow label={t('settings.sound')} help={t('settings.sound.help')} checked={!muted} onChange={() => onToggleMute()} />
           </Section>
+
+          {onOpenViewControls && (
+            // #372: a link row on the model of 'View keyboard shortcuts', not a copy of the View controls
+            <Section title={t('settings.section.view')}>
+              <p id={viewHelpId} className="m-0 mb-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.view.help')}</p>
+              <button
+                type="button"
+                aria-describedby={viewHelpId}
+                onClick={() => { onClose(); onOpenViewControls() }}
+                className={`min-h-6 rounded px-2 py-1 text-[11px] font-mono underline ${FOCUS_RING}`}
+                style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+              >
+                {t('settings.view.open')}
+              </button>
+            </Section>
+          )}
           </div>
 
           <div role="tabpanel" id={panelDomId('sessions')} aria-labelledby={tabDomId('sessions')} hidden={current !== 'sessions'}>

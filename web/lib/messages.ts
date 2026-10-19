@@ -2,7 +2,7 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
-import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
+import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, SESSION_LIST_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
 import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from './cost-rollup'
 
 /** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
@@ -1289,6 +1289,17 @@ const fr = {
   // Totaux sous perte de rejeu (#591) : une lecture de contexte est absolue, jamais « au moins »
   'usage.incomplete': '{v} (incomplet)',
   'usage.incompleteEstimated': '{v} estimé (incomplet)',
+
+  // #372, décisions du propriétaire : les deux filtres restent, la tête du panneau Sessions dit l’état des deux ; Réglages > Général
+  // renvoie au bouton Affichage. {n} = la fenêtre de la vue « Toutes les sessions », en minutes (show-mode.ts).
+  'sessions.scope.list.activeOnly': 'Liste : Actives seulement',
+  'sessions.scope.list.all': 'Liste : toutes les sessions',
+  'sessions.scope.canvas.hideAll': 'Canevas : Masquer les inactifs ({n} min)',
+  'sessions.scope.canvas.hideOne': 'Canevas : Masquer les inactifs',
+  'sessions.scope.canvas.off': 'Canevas : tout affiché',
+  'settings.section.view': 'Animations et cartes',
+  'settings.view.help': 'Se règlent avec le bouton Affichage sous le canevas : Figer les animations, Calmer par couche, Garder les cartes affichées, Masquer les appels sans réponse après.',
+  'settings.view.open': 'Ouvrir les réglages d’affichage',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -2561,6 +2572,17 @@ const en: Record<MessageKey, string> = {
   // Totals under replay loss (#591): a context reading is absolute, never "at least"
   'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
   'usage.incompleteEstimated': `{v} ${USAGE_LABELS.estimated} ${USAGE_LABELS.incomplete}`,
+
+  // #372, the owner's decisions: the two filters stay, the head of the Sessions panel says both states; Settings > General
+  // points to the View button. {n} = the window of the All sessions view, in minutes (show-mode.ts).
+  'sessions.scope.list.activeOnly': `List: ${SESSION_LIST_LABELS.activeOnly}`,
+  'sessions.scope.list.all': 'List: all sessions',
+  'sessions.scope.canvas.hideAll': `Canvas: ${TOP_BAR_LABELS.filterHideInactive} ({n} min)`,
+  'sessions.scope.canvas.hideOne': `Canvas: ${TOP_BAR_LABELS.filterHideInactive}`,
+  'sessions.scope.canvas.off': 'Canvas: everything shown',
+  'settings.section.view': 'Motion and cards',
+  'settings.view.help': 'Set from the View button under the canvas: Freeze motion, Calm by layer, Pin cards, Hide unanswered calls after.',
+  'settings.view.open': 'Open View controls',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })
