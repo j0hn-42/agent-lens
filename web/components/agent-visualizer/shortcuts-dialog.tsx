@@ -107,9 +107,9 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
               <ul className="m-0 list-none p-0">
                 {SHORTCUTS.filter(s => s.group === group).map(s => (
                   <li key={s.key} className="flex items-center justify-between gap-3 py-0.5 text-xs font-mono">
-                    <span style={{ color: COLORS.textPrimary }}>{shortcutDescription(s, locale)}</span>
+                    <span className="min-w-0" style={{ color: COLORS.textPrimary }}>{shortcutDescription(s, locale)}</span>
                     <kbd
-                      className="min-w-6 rounded px-1.5 py-0.5 text-center text-[11px]"
+                      className="min-w-6 shrink-0 rounded px-1.5 py-0.5 text-center text-[11px]"
                       style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
                     >
                       {shortcutKeyCap(s, locale)}

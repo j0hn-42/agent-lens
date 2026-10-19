@@ -50,12 +50,20 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    // Measured from the top-left corner of the window: a fixed box placed next to the right edge is squeezed to the room
+    // left on its right (shrink-to-fit), so measured where it stands it looks narrow and the clamp would let it overflow.
+    const { left, top } = el.style
+    el.style.left = '0px'
+    el.style.top = '0px'
     // offsetWidth/Height ignore the open animation's scale(0.95) transform
-    setPos(clampMenuPosition(position, { width: el.offsetWidth, height: el.offsetHeight }, {
+    const size = { width: el.offsetWidth, height: el.offsetHeight }
+    el.style.left = left
+    el.style.top = top
+    setPos(clampMenuPosition(position, size, {
       width: window.innerWidth,
       height: window.innerHeight,
     }))
-  }, [position, items.length])
+  }, [position, items.length, armed])
 
   // Focus the first item on open, restore focus on close
   useEffect(() => {
