@@ -10,6 +10,7 @@ import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { waitFor } from './wait-for'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -37,8 +38,7 @@ const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const ev = (sessionId: string, time: number, type = 'agent_activity') => ({
   type: 'agent-event', event: { time, type, payload: { name: `main-${sessionId}`, isMain: true }, sessionId },
 })
-const info = (id: string) => ({ id, label: id, status: 'active', startTime: Date.now() - 1000, lastActivityTime: Date.now() })
-const wait = (ms = 300) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
+const info = (id: string, lastActivityTime = Date.now()) => ({ id, label: id, status: 'active', startTime: lastActivityTime - 1000, lastActivityTime })
 
 test('events queued while paused are not counted as consumed when the session is left', () => {
   const { result } = renderHook(() => useVSCodeBridge())
@@ -92,22 +92,40 @@ test('a replay flush still waiting in the queue is not counted as consumed', () 
 
 test('leaving the review when the session changes: the view plays, the bar says live again', async () => {
   const r = render(<AgentVisualizer />)
+  // #440: the clock ticking between the two info() calls must not change which session is auto-selected
+  // (the most recently active one): force a tick on every Date.now() call while the list is built
+  const realNow = Date.now
+  let fake = realNow()
+  Date.now = () => ++fake
+  // The message goes to 'a': make it the most recently active session, whatever the clock does
+  const sessions = [info('a', fake), info('b', fake - 60_000)]
+  Date.now = realNow
   await act(async () => {
     post({ type: '__vscode-bridge-init' })
-    post({ type: 'session-list', sessions: [info('a'), info('b')] })
+    post({ type: 'session-list', sessions })
   })
-  await wait(100)
+  const sessionsButton = () => r.getByRole('button', { name: /^Sessions:/ })
+  await waitFor(() => /^Sessions: a\b/.test(sessionsButton().getAttribute('aria-label') ?? sessionsButton().textContent ?? ''))
+  assert.match(sessionsButton().getAttribute('aria-label') ?? sessionsButton().textContent ?? '', /^Sessions: a\b/, "'a', the most recently active session, is auto-selected")
   await act(async () => { post(ev('a', 1, 'agent_spawn')); post(ev('b', 1, 'agent_spawn')) })
   // A message gives the timeline an event: Review is unavailable on an empty one (#383)
   await act(async () => { post({ type: 'agent-event', event: { time: 2, type: 'message', payload: { agent: 'main-a', role: 'assistant', content: 'hello' }, sessionId: 'a' } }) })
-  await wait(300)
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Pause and review history' })) })
+  // #440: the message reaches the timeline with the simulation's throttled UI commit (UI_THROTTLE_MS after the
+  // previous one), not at a fixed time: wait until Review is available, a click on the grayed button does nothing
+  const review = () => r.getByRole('button', { name: 'Pause and review history' })
+  await waitFor(() => review().getAttribute('aria-disabled') !== 'true')
+  assert.notEqual(review().getAttribute('aria-disabled'), 'true', 'the message reached the timeline: Review is available')
+  await act(async () => { fireEvent.click(review()) })
   assert.ok(r.queryByRole('button', { name: 'Resume live' }), 'review mode is on')
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions:/ })) })
-  await wait(100)
-  const rows = Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]'))
-  await act(async () => { fireEvent.click(rows[rows.length - 1]) })
-  await wait(300)
+  await act(async () => { fireEvent.click(sessionsButton()) })
+  const rows = () => Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]'))
+  await waitFor(() => rows().length >= 2)
+  assert.ok(rows().length >= 2, `the Sessions menu lists both sessions (${rows().length} rows)`)
+  await act(async () => { fireEvent.click(rows()[rows().length - 1]) })
+  // The switch ends the review through state updates and a status announcement: wait for them, not a fixed time
+  const reviewEnded = () => r.queryByRole('button', { name: 'Resume live' }) === null
+    && /Review ended/.test(r.container.ownerDocument.body.textContent ?? '')
+  await waitFor(reviewEnded)
   assert.equal(r.queryByRole('button', { name: 'Resume live' }), null, 'no review bar over a playing view')
   assert.ok(r.queryByRole('button', { name: 'Pause and review history' }))
   assert.match(r.container.ownerDocument.body.textContent ?? '', /Review ended/, 'announced in the status region')

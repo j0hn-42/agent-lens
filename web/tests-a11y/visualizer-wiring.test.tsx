@@ -13,6 +13,7 @@ import { clearPair } from '@/lib/pair-filter-store'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { withSlowFrames } from './slow-frames'
 import { linkDashCount } from './link-dashes'
+import { waitFor } from './wait-for'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -167,8 +168,7 @@ test('proven session links reach the canvas: a child session drawn with the dott
   await withSlowFrames(8, async () => { // #440: fewer frames must not matter
     await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)
     // The link shows once the layout has placed both halos: wait for that, not for a fixed time a loaded machine may overrun
-    const deadline = Date.now() + 20_000
-    while (dots() <= baseline && Date.now() < deadline) await wait(50)
+    await waitFor(() => dots() > baseline)
   })
   assert.ok(dots() > baseline, `a Task link is drawn between the two session halos (${dots()} vs ${baseline})`)
 })
