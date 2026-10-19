@@ -72,6 +72,31 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
     }
   })
 
+  // #613: the way a user gets there at 320 px (from More in the top bar, not the F key), then the repeats unfolded: the summary
+  // (« Lectures et appels répétés : … répétitions observées ») and its list are measured too
+  if (w === 320) test(`fr ${w}x${h}: Files & repeats opened from More, its summary unfolded, fits (#613)`, { timeout: 180_000 }, async () => {
+    const page = await open(w, h)
+    try {
+      const later = page.getByRole('button', { name: 'Pas maintenant' })
+      if (await later.waitFor({ timeout: 4000 }).then(() => true, () => false)) await later.click()
+      await later.waitFor({ state: 'detached' }).catch(() => {})
+      await page.locator('header').getByRole('button', { name: /^Plus/ }).click()
+      await page.locator('header').getByRole('button', { name: 'Fichiers et répétitions' }).click()
+      const panel = page.locator('[data-dock-panel="files"]')
+      await panel.waitFor()
+      await panel.getByRole('region', { name: 'Fichiers et répétitions observés' }).waitFor()
+      const summary = panel.locator('details > summary').first()
+      assert.match(await summary.innerText(), /^Lectures et appels répétés : /)
+      const details = panel.locator('details').first()
+      if (!(await details.evaluate(d => (d as HTMLDetailsElement).open))) await summary.click()
+      assert.equal(await details.evaluate(d => (d as HTMLDetailsElement).open), true, 'the repeats are unfolded')
+      await waitForStableLayout(page)
+      await expectFits(page, '[data-dock-panel="files"]', `${w}x${h} files from More, repeats unfolded`)
+    } finally {
+      await page.context().close()
+    }
+  })
+
   // #373: the French Timeline (header actions, legend, table view, message buttons). The demo has no link channel on opening, so the
   // Sequence button and the message list may be absent: said out loud below, not skipped silently.
   test(`fr ${w}x${h}: the Timeline panel (header, legend, table view) fits (#373)`, { timeout: 180_000 }, async () => {

@@ -60,7 +60,7 @@ test('the repeats are a native disclosure, folded while files are listed, with t
   assert.ok(details, 'a details element')
   assert.equal(details.open, false, 'folded: the file list comes first')
   const summary = summaryOf(container)
-  assert.equal(summary.textContent, 'Repeated reads and calls: 5 observed')
+  assert.equal(summary.textContent, 'Repeated reads and calls: 5 repeats observed')
   // 2.5.3: the summary has no aria-label, its name is its visible text
   assert.equal(summary.getAttribute('aria-label'), null)
   // The section stays reachable by headings (1.3.1): an h3 outside the summary names it
@@ -72,6 +72,33 @@ test('the repeats are a native disclosure, folded while files are listed, with t
 test('open when no file is listed, so the section is not hidden behind an empty list', () => {
   const { container } = panel(repeats(2), 0)
   assert.equal((container.querySelector('details') as HTMLDetailsElement).open, true)
+})
+
+test('afterwards only the user folds or unfolds it: files arriving or leaving never move it (WCAG 3.2.2, #613)', () => {
+  const props = (fileCount: number) => ({ visible: true, fileAttention: files(fileCount), waste: repeats(2), onClose: noop })
+  // Opened with no file: open. Files arrive: still open
+  const view = render(<FileAttentionPanel {...props(0)} />)
+  const details = () => view.container.querySelector('details') as HTMLDetailsElement
+  assert.equal(details().open, true, 'open with no file')
+  view.rerender(<FileAttentionPanel {...props(3)} />)
+  assert.equal(details().open, true, 'files arrived: not folded under the user')
+  // The user folds it: files leaving do not unfold it, files coming back do not either
+  fireEvent.click(summaryOf(view.container))
+  assert.equal(details().open, false, 'folded by the user')
+  view.rerender(<FileAttentionPanel {...props(0)} />)
+  assert.equal(details().open, false, 'no file any more: stays as the user left it')
+  view.rerender(<FileAttentionPanel {...props(2)} />)
+  assert.equal(details().open, false)
+  // And the other way: opened with files (folded), unfolded by the user, files leaving and coming back keep it open
+  cleanup()
+  const other = render(<FileAttentionPanel {...props(2)} />)
+  const d2 = () => other.container.querySelector('details') as HTMLDetailsElement
+  assert.equal(d2().open, false, 'folded with files')
+  fireEvent.click(summaryOf(other.container))
+  assert.equal(d2().open, true, 'unfolded by the user')
+  other.rerender(<FileAttentionPanel {...props(0)} />)
+  other.rerender(<FileAttentionPanel {...props(4)} />)
+  assert.equal(d2().open, true, 'still open')
 })
 
 test('opening and closing: a click on the summary (Enter and Space on a native summary) toggles the list', () => {
@@ -96,23 +123,23 @@ test('the summary draws the focus ring of the repo and a 24 px target', () => {
 
 test('the count is the number of findings, the list shows 20 and counts the rest', () => {
   const { container } = panel(repeats(25), 1)
-  assert.equal(summaryOf(container).textContent, 'Repeated reads and calls: 25 observed')
+  assert.equal(summaryOf(container).textContent, 'Repeated reads and calls: 25 repeats observed')
   const details = container.querySelector('details')!
   assert.equal(details.querySelectorAll('li').length, 20)
   assert.match(details.textContent ?? '', /5 more not shown/)
 })
 
 test('under loss the summary keeps the qualifiers of the list: "at least", "incomplete", calls not compared', () => {
-  assert.equal(summaryOf(panel(repeats(2), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: at least 2 observed')
+  assert.equal(summaryOf(panel(repeats(2), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: at least 2 repeats observed')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(2, { limitReached: true }), 1).container).textContent, 'Repeated reads and calls: at least 2 observed')
+  assert.equal(summaryOf(panel(repeats(2, { limitReached: true }), 1).container).textContent, 'Repeated reads and calls: at least 2 repeats observed')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: none observed (incomplete)')
+  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: no repeat observed (incomplete)')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(0, { uncompared: 2 }), 1).container).textContent, 'Repeated reads and calls: none observed, 2 calls not compared')
+  assert.equal(summaryOf(panel(repeats(0, { uncompared: 2 }), 1).container).textContent, 'Repeated reads and calls: no repeat observed, 2 calls not compared')
   cleanup()
   act(() => setLocaleChoice('fr'))
-  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Lectures et appels répétés : aucun observé (incomplet)')
+  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Lectures et appels répétés : aucune répétition observée (incomplet)')
 })
 
 test('axe finds nothing, folded and unfolded, in both languages', async () => {
