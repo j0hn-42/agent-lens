@@ -2,7 +2,7 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
-import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
+import { CONTEXT_WINDOW_NAME, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, SESSION_LIST_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
 import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from './cost-rollup'
 
 /** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
@@ -93,7 +93,7 @@ const fr = {
   'settings.shortcuts': 'Voir les raccourcis clavier',
   'settings.section.reset': 'Préférences',
   'settings.reset': 'Réinitialiser les préférences',
-  'settings.reset.help': `Remet par défaut les panneaux gardés ouverts (${FILES_PANEL_FR}, Conversation, Chronologie, Statistiques, Coût), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.`,
+  'settings.reset.help': `Remet par défaut les panneaux gardés ouverts (${FILES_PANEL_FR}, Conversation, Chronologie, Statistiques, Coût), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions. L’état ouvert des panneaux Sessions, Contexte et Système n’est pas mémorisé : ils s’ouvrent à la demande.`,
   'settings.reset.ask': 'Remettre ces préférences par défaut ?',
   'settings.reset.confirm': 'Réinitialiser maintenant',
   'settings.reset.cancel': 'Annuler',
@@ -1304,6 +1304,18 @@ const fr = {
 
   // #383 : annonce du mode revue, avec le nom du bouton tel qu’affiché dans la barre
   'announce.reviewMode': 'Mode revue, utilisez « {button} » pour revenir',
+  // #372, décisions du propriétaire : les deux filtres restent, la tête du panneau Sessions dit l’état des deux ; Réglages > Général
+  // renvoie au bouton Affichage. {n} = la fenêtre de la vue « Toutes les sessions », en minutes (show-mode.ts).
+  'sessions.scope.list.activeOnly': 'Liste : Actives seulement',
+  'sessions.scope.list.all': 'Liste : toutes les sessions',
+  'sessions.scope.list.filtered': 'Liste : filtrée',
+  'sessions.scope.list.activeOnlyFiltered': 'Liste : Actives seulement, filtrée',
+  'sessions.scope.canvas.hideAll': 'Canevas : Masquer les inactifs ({n} min)',
+  'sessions.scope.canvas.hideOne': 'Canevas : Masquer les inactifs',
+  'sessions.scope.canvas.off': 'Canevas : Masquer les inactifs désactivé',
+  'settings.section.view': 'Animations et cartes',
+  'settings.view.help': 'Se règlent avec le bouton Affichage sous le canevas : Figer les animations, Calmer par couche, Garder les cartes affichées, Masquer les appels sans réponse après.',
+  'settings.view.open': 'Ouvrir les réglages d’affichage',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1382,7 +1394,7 @@ const en: Record<MessageKey, string> = {
   'settings.shortcuts': 'View keyboard shortcuts',
   'settings.section.reset': 'Preferences',
   'settings.reset': 'Reset preferences',
-  'settings.reset.help': `Restores the defaults of the panels kept open (${PANEL_NAMES.files}, Conversation, Timeline, Stats, Cost), the hex grid, the Hide inactive filter, the session list filters (Active only among them), single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width.`,
+  'settings.reset.help': `Restores the defaults of the panels kept open (${PANEL_NAMES.files}, Conversation, Timeline, Stats, Cost), the hex grid, the Hide inactive filter, the session list filters (Active only among them), single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width. Whether the Sessions, Context and System panels are open is not remembered: they open on demand.`,
   'settings.reset.ask': 'Restore these preferences to their defaults?',
   'settings.reset.confirm': 'Reset now',
   'settings.reset.cancel': 'Cancel',
@@ -2588,6 +2600,18 @@ const en: Record<MessageKey, string> = {
 
   // #383: announcement of review mode, naming the button as the bar shows it
   'announce.reviewMode': 'Review mode, use {button} to return',
+  // #372, the owner's decisions: the two filters stay, the head of the Sessions panel says both states; Settings > General
+  // points to the View button. {n} = the window of the All sessions view, in minutes (show-mode.ts).
+  'sessions.scope.list.activeOnly': `List: ${SESSION_LIST_LABELS.activeOnly}`,
+  'sessions.scope.list.all': 'List: all sessions',
+  'sessions.scope.list.filtered': 'List: filtered',
+  'sessions.scope.list.activeOnlyFiltered': `List: ${SESSION_LIST_LABELS.activeOnly}, filtered`,
+  'sessions.scope.canvas.hideAll': `Canvas: ${TOP_BAR_LABELS.filterHideInactive} ({n} min)`,
+  'sessions.scope.canvas.hideOne': `Canvas: ${TOP_BAR_LABELS.filterHideInactive}`,
+  'sessions.scope.canvas.off': `Canvas: ${TOP_BAR_LABELS.filterHideInactive} off`,
+  'settings.section.view': 'Motion and cards',
+  'settings.view.help': 'Set from the View button under the canvas: Freeze motion, Calm by layer, Pin cards, Hide unanswered calls after.',
+  'settings.view.open': 'Open View controls',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

@@ -47,6 +47,12 @@ interface CanvasControlsProps {
   onShowAgentList?: () => void
   /** The single key that opens that list, quoted in the tooltip; null when single-key shortcuts are off */
   agentListKey?: string | null
+  /**
+   * #372: a counter raised by Settings > General ("Open View controls"). Each new value opens the View popover (and the
+   * folded "Canvas controls" block first when the controls are folded) and puts the focus on its first control that
+   * can take it; Escape gives it back to View. A value already there when the controls mount is not replayed.
+   */
+  openViewRequest?: number
 }
 
 const ICON_PROPS = {
@@ -146,6 +152,7 @@ function usePopupDismiss(open: boolean, wrapRef: RefObject<HTMLElement | null>, 
 export function CanvasControls({
   teams, present, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, locale, calmLayers, onToggleCalmLayer, neverHide, toolExpiryS,
   onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry, hiddenNames = NO_HIDDEN_NAMES, onShowAgentList, agentListKey = null,
+  openViewRequest = 0,
 }: CanvasControlsProps) {
   const { env } = useDockSnapshot()
   const { controlBarH } = env
@@ -178,6 +185,32 @@ export function CanvasControls({
     if (tourWantsLegend) setTourLegendDismissed(true)
   }, [tourWantsLegend])
   usePopupDismiss(menuShown, menuRef, menuButtonRef, closeMenu)
+
+  // #372: opened from Settings. The request is taken once (its value changed); the focus waits for the render that
+  // draws the popover, after the Settings dialog gave the focus back to its opener
+  const panelRef = useRef<HTMLDivElement>(null)
+  const takenRequest = useRef(openViewRequest)
+  const focusPanelNext = useRef(false)
+  // The request is also state: with the popover already open, setOpen(true) changes nothing, and the focus effect
+  // below must still run for it
+  const [focusRequest, setFocusRequest] = useState(0)
+  useEffect(() => {
+    if (openViewRequest === takenRequest.current) return
+    takenRequest.current = openViewRequest
+    focusPanelNext.current = true
+    setOpen(true)
+    if (folded) setMenuOpen(true)
+    setFocusRequest(n => n + 1)
+  }, [openViewRequest, folded])
+  // A pending focus does not survive the popover closing: a later opening by hand must not move the focus
+  useEffect(() => { if (!open) focusPanelNext.current = false }, [open])
+  useEffect(() => {
+    if (!focusPanelNext.current || !open) return
+    const first = panelRef.current?.querySelector<HTMLElement>('button:not([disabled]), select:not([disabled])')
+    if (!first) return
+    focusPanelNext.current = false
+    first.focus()
+  }, [open, menuShown, focusRequest])
 
   // Folding or unfolding with the focus on a control removes that control: the focus goes to the one that replaces it,
   // not to <body> (2.4.3). Same when the "names hidden" button goes with the focus on it (#594)
@@ -281,6 +314,7 @@ export function CanvasControls({
       </div>
       {open && (
         <div
+          ref={panelRef}
           id={panelId}
           role="dialog"
           aria-label={t('controls.viewSettings')}
