@@ -288,7 +288,8 @@ export interface TeamSessionTags { teamName: string; memberName?: string }
 export interface TeamWatcherHost {
   /** Sessions the runtime currently watches */
   listSessions(): Array<{ sessionId: string; filePath: string; startTime: number }>
-  emitTeamInfo(sessionId: string, payload: TeamInfoPayload): void
+  /** `replayed`: the same team_info, already sent for this lead, re-sent after the lead was forgotten and found again */
+  emitTeamInfo(sessionId: string, payload: TeamInfoPayload, opts?: { replayed?: boolean }): void
   /** One inbox message; the runtime routes it through the transcript parser's dedupe */
   emitInbox(sessionId: string, from: string, to: string, content: string): void
   /** The lead's team name maps to the orchestrator node */
@@ -316,6 +317,8 @@ interface TeamState {
   payload: TeamInfoPayload
   sig: string
   emittedKey?: string
+  /** The lead was forgotten after this exact team_info was sent: sending it again repeats it (#592) */
+  sentBeforeForget?: string
   timer?: NodeJS.Timeout
   inboxes: Map<string, InboxState>
   memberSessions: Map<string, string>
@@ -360,7 +363,10 @@ export class TeamWatcher {
     this.headers.delete(sessionId)
     this.tags.delete(sessionId)
     for (const t of this.teams.values()) {
-      if (t.cfg.leadSessionId === sessionId) t.emittedKey = undefined
+      if (t.cfg.leadSessionId === sessionId) {
+        if (t.emittedKey !== undefined) t.sentBeforeForget = t.emittedKey
+        t.emittedKey = undefined
+      }
       for (const [member, sid] of t.memberSessions) if (sid === sessionId) t.memberSessions.delete(member)
     }
   }
@@ -512,8 +518,12 @@ export class TeamWatcher {
     if (this.disposed) return
     const lead = state.cfg.leadSessionId
     if (!this.isWatched(lead)) return
-    state.emittedKey = `${lead}|${state.sig}`
-    this.opts.host.emitTeamInfo(lead, state.payload)
+    const key = `${lead}|${state.sig}`
+    // The same roster sent before the lead was forgotten: a repeat, not news (it is not counted twice, panel-loss.ts)
+    const replayed = state.sentBeforeForget === key
+    state.sentBeforeForget = undefined
+    state.emittedKey = key
+    this.opts.host.emitTeamInfo(lead, state.payload, replayed ? { replayed: true } : undefined)
   }
 
   private tag(sessionId: string, tags: TeamSessionTags): void {

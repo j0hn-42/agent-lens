@@ -79,9 +79,9 @@ export function AgentVisualizer() {
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
   /**
-   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns when the total
-   * differs: more lost, or a lower one after a relay restart). Kept for the tab in sessionStorage (#567), so a reload or
-   * a relaunch in the same tab does not show it again.
+   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns when more is
+   * lost, or, with the relay's figure, at a lower total after a relay restart: truncationBannerState). Kept for the tab in
+   * sessionStorage (#567), so a reload or a relaunch in the same tab does not show it again. Only a user gesture writes it.
    */
   const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => readTruncationDismissals(tabStorage()))
   /**
@@ -249,7 +249,10 @@ export function AgentVisualizer() {
     [normalizationStats, bridge.selectedSessionId, bridge.viewSessionIds],
   )
   // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
-  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))
+  // The rule depends on where the replay figure comes from (#605 review, round 4): the VS Code extension lowers its figure
+  // while the page is open, so with it only a total above the dismissed one brings the notice back; with the relay a lower
+  // total is a new loss too (#569)
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey), bridge.eventLossSource)
   const truncationShown = truncation.show && !immersive
   // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
   const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey

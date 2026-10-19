@@ -55,7 +55,7 @@ test('a loss on s1: its agents, branch, session and family totals are incomplete
   const { container } = panel(new Map([['s1', 4]]))
   const text = container.textContent!
   assert.ok(text.includes(ROLLUP_INCOMPLETE_TEXT), text)
-  assert.match(text, /could not replay events of a session it counts/)
+  assert.match(text, /could not replay events of a session this total counts/)
   assert.match(text, /may differ/)
   assert.ok(container.querySelector('[aria-label*="last reading (incomplete)"], [title*="last reading"]') || /last reading \(incomplete\)/.test(container.innerHTML), 'the token cell spells it out')
   const rows = cellLabels(container, 's1')

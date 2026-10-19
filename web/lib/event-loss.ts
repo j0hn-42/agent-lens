@@ -1,8 +1,9 @@
 /**
  * `event-loss` SSE message of the relay (#366): how many events per session the relay can no longer replay
  * (evicted from its buffer, or left out by the replay cap), sent once per connection before the replay.
- * The VS Code extension sends the same message once per page (#592, read through the bridge): the events emitted
- * before that page was ready that it will never receive.
+ * The VS Code extension sends the same message after each reset (#592, read through the bridge): the events emitted
+ * before that page was ready that it will never receive; and again, lower, while the page is open when a history read
+ * again reaches it (so a lower figure from it is not a new loss, see truncationBannerState).
  * Pure (no React, no path aliases: node:test imports it). The message is untrusted: parsed field by field.
  *
  * The relay's figure is a total since the relay started, not what a given client is missing. It is a lower
@@ -151,14 +152,32 @@ export function acceptEventLoss(connections: number, current: EventLoss | null, 
   return { evicted, otherEvents: current?.otherEvents ?? 0 }
 }
 
-/** Whether the truncation banner shows, and the total it was computed on (what a dismissal stores). */
-export function truncationBannerState(stats: NormalizationStats, replayLost: number, dismissedAt: number | undefined): { show: boolean; total: number } {
+/** Where the replay figure comes from: the relay's SSE stream, or the VS Code extension without a relay (#592) */
+export type LossSource = 'relay' | 'extension'
+
+/**
+ * Whether the truncation banner shows, and the total it was computed on (what a dismissal stores). Stateless: it reads
+ * only the total now and the one dismissed at, so a total that goes down for a moment (a view rebuilt) changes nothing
+ * once it is back, and nothing here ever rewrites a dismissal.
+ */
+export function truncationBannerState(
+  stats: NormalizationStats,
+  replayLost: number,
+  dismissedAt: number | undefined,
+  source: LossSource = 'relay',
+): { show: boolean; total: number } {
   const lost = Number.isSafeInteger(replayLost) && replayLost > 0 ? replayLost : 0
   const total = add(truncationTotal(stats), lost)
-  // A dismissal holds only at the total it was made at (#569 review). More lost: back. LESS than that total is a new loss
-  // too, never a smaller part of the old one: the relay restarted (its figure starts again from 0) or the graph was
-  // reloaded, so a dismissal stored for the tab before that no longer describes what the view lacks.
-  const show = total > 0 && (dismissedAt === undefined || total !== dismissedAt)
+  if (!(total > 0)) return { show: false, total }
+  if (dismissedAt === undefined) return { show: true, total }
+  // Relay (#569 review): a dismissal holds only at the total it was made at. More lost: back. LESS is a new loss too,
+  // never a smaller part of the old one: the relay restarted (its figure starts again from 0) or the graph was reloaded,
+  // so a dismissal stored for the tab before that no longer describes what the view lacks.
+  // VS Code extension (#605 review, round 4): it lowers its figure while the page is open (a history read again reaches
+  // it), and a lower figure is part of the loss already dismissed: only a total ABOVE the dismissed one brings the notice
+  // back. Honest limit: a new loss smaller than the gap between the dismissed total and the lowest total seen since is
+  // not signalled by the notice (the mark on the Sessions button and the indicator stay).
+  const show = source === 'extension' ? total > dismissedAt : total !== dismissedAt
   return { show, total }
 }
 

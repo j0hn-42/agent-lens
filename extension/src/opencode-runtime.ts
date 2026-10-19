@@ -21,6 +21,9 @@ export function startOpenCodeRuntime(context: vscode.ExtensionContext): AgentRun
 
   const wiring = wireWatcherToPanel(watcher, {
     sessionLabelPrefix: 'OpenCode',
+    // Its re-reads (a replaced database, an evicted session that comes back) are emitted without `replayed`, so they
+    // cannot be told from new events: left out of the panel's loss figure rather than counted twice (#592)
+    countPanelLoss: false,
   })
 
   watcher.start()

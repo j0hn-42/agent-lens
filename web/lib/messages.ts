@@ -927,7 +927,7 @@ const fr = {
   'rollup.branch': 'total de la branche',
   'rollup.session': 'total de la session',
   'rollup.family': 'total de la famille',
-  'rollup.incompleteHelp': 'Total incomplet : le nombre de jetons de certains agents est inconnu, un parent manque, une session de la famille n’a aucune donnée, des branches sont imbriquées trop profondément, ou le relais (ou l’extension VS Code) n’a pas pu rejouer les événements d’une session qu’il compte ; le chiffre réel peut donc différer.',
+  'rollup.incompleteHelp': 'Total incomplet : le nombre de jetons de certains agents est inconnu, un parent manque, une session de la famille n’a aucune donnée, des branches sont imbriquées trop profondément, ou le relais (ou l’extension VS Code) n’a pas pu rejouer les événements d’une session que ce total compte ; le chiffre réel peut donc différer.',
 
   // Menu contextuel du canvas et de l’agent (#586)
   'menu.name': 'Menu contextuel',

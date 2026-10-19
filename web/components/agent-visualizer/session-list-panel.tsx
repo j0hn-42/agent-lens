@@ -208,7 +208,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
   const selected = a.id === selectedAgentId
   const { detail, stale, role, drawn } = agentRowView(a, freshnessNow, locale)
   // The orchestrator plus its sub-agents, each counted once (issue #58)
-  // A lower bound when the relay could not replay events of a session it counts (#366)
+  // A lower bound when the relay or the VS Code extension could not replay events of a session this total counts (#366, #592)
   const branch = useMemo(() => (node.children.length > 0 ? rollupUnderLoss(rollupBranch(node), branchReplayLost(node, lost)) : null), [node, lost])
   // This agent alone (its sub-agents are in the branch total)
   const ownLost = replayLostForAgents(lost, [node.agent])
