@@ -1063,8 +1063,31 @@ for (const d of ['orchestrator', 'audit-ux', 'explore', 'plan the work', 'think 
   'alpha (session Main)', 'beta (session Fix)', 'alpha', 'beta', 'toolu_read1', 'toolu_edit2', 'CLAUDE.md', 'MEMORY.md', 'feat/b', 'feat/a',
   'github', 'Notion', 'issue_read', 'loop', 'kit', 'lint', 'kit:lint', 'Project', 'AutoMem', 'Default', 'Orchestrator']) FIXTURE_DATA.add(d)
 
-const PANEL_DATA = [/^[≥~]+[\d.]+[kM]?$/, /^[\w-]+ \([\p{L}’ ]+\)$/u, /^(?:Filtrer la paire|Copier le message [\p{L} ()]+,|Filter pair|Copy [\p{L} ()]+,) [\w-]+ -> [\w-]+$/u, /^https:\/\/[\w./-]+$/, /^\/[\w./-]+$/, /^\.{3}$/, /^#\d+(?: \(brouillon\)| \(draft\))? PR title \d+$/, /^#\d+ Orphan issue$/, /^(?:PR|Issue) #\d+ .*$/, /^(?:PR|issue) #\d+$/, /^[\w-]+ ↔ [\w-]+$/, /^[\w-]+ -> [\w-]+ - [\p{L}() ]+$/u]
-const PANEL_ALLOW = new Set(['✓', '↔', '→', '●', '○', '$', '×', '–', '+', '-', '—', '.', '/', '…', ',', ':', '·', 'PR', 'issue', 'CLAUDE', 'Conversation', '#'])
+const PANEL_DATA = [/^[≥~]+[\d.,]+[kM]?$/, /^[\w-]+ \([\p{L}’ ]+\)$/u, /^(?:Filtrer une paire :|Copier le message [\p{L} ()]+,|Filter pair|Copy [\p{L} ()]+,) [\w-]+ -> [\w-]+$/u, /^https:\/\/[\w./-]+$/, /^\/[\w./-]+$/, /^\.{3}$/, /^#\d+(?: \(brouillon\)| \(draft\))? PR title \d+$/, /^#\d+ Orphan issue$/, /^(?:PR|Issue) #\d+ .*$/, /^(?:PR|issue) #\d+$/, /^[\w-]+ ↔ [\w-]+$/, /^[\w-]+ -> [\w-]+ - [\p{L}() ]+$/u]
+/**
+ * WCAG 2.5.3 Label in Name: a control whose accessible name is an aria-label must contain the text it shows
+ * (what a voice user says), in the language of the panel. Hidden (sr-only) text is not visible text.
+ */
+function labelInNameViolations(root: Element): string[] {
+  const norm = (x: string) => x.replace(/[≥~]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+  const out: string[] = []
+  for (const el of Array.from(root.querySelectorAll('button[aria-label], a[aria-label], [role="tab"][aria-label]'))) {
+    const clone = el.cloneNode(true) as Element
+    for (const h of Array.from(clone.querySelectorAll('.sr-only, svg'))) h.remove()
+    const name = norm(el.getAttribute('aria-label') ?? '')
+    // each piece of visible text (a text element of its own) must be in the name; symbols and bare numbers alone are not words
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const piece = norm(n.textContent ?? '')
+      if (/\p{L}/u.test(piece) && !name.includes(piece)) out.push(`visible "${piece}" is not in the name "${name}"`)
+    }
+  }
+  return out
+}
+
+const PANEL_ALLOW = new Set(['✓', '↔', '→', '●', '○', '$', '×', '–', '+', '-', '—', '.', '/', '…', ',', ':', '·', 'PR', 'issue', 'CLAUDE', 'Conversation', '#',
+  // the words around a path ("dans" / "in", "de" / "of"): the path is a piece of its own, lang="en"
+  'dans', 'in', 'de', 'of'])
 
 const msgOf = (id: string, type: ConversationMessage['type'], timestamp: number, content: string, extra: Record<string, unknown> = {}) =>
   ({ id, type, timestamp, content, ...extra }) as ConversationMessage
@@ -1151,6 +1174,7 @@ for (const locale of LOCALES) {
     fireEvent.change(selects[1], { target: { value: 's1:u' } })
     await flush()
     strings.push(...surfaceStrings(view.container))
+    assert.deepEqual(labelInNameViolations(view.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
     // a copy action and the tool toggle
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: async () => {} }, configurable: true })
     fireEvent.click(view.getAllByRole('button', { name: new RegExp(`^${escapeRe(MESSAGES[locale]['conv.row.copy'])}`) })[0])
@@ -1215,6 +1239,7 @@ for (const locale of LOCALES) {
       assert.equal(langOf(body), locale, 'the panel declares its language')
       strings.push(...surfaceStrings(view.container))
       if (files.size > 0) assert.ok(view.container.querySelector('button [lang="en"][data-i18n-exempt]'), 'a file name declares lang="en"')
+      assert.deepEqual(labelInNameViolations(view.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
       cleanup()
     }
     assert.ok(strings.length > 40, `${strings.length} strings`)
@@ -1279,6 +1304,9 @@ for (const locale of LOCALES) {
       assert.ok(loaded.container.querySelector('pre[lang="en"][data-i18n-exempt]'), 'the text of CLAUDE.md declares lang="en"')
       assert.ok(loaded.container.querySelector('code[lang="en"][data-i18n-exempt]'), 'the resume command declares lang="en"')
       assert.ok(loaded.container.querySelector('table a [lang="en"][data-i18n-exempt]'), 'the title of a pull request declares lang="en"')
+      assert.deepEqual(labelInNameViolations(loaded.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
+      assert.ok(loaded.container.querySelector('h3 [lang="en"][data-i18n-exempt]'), 'the heading of the issues declares lang="en"')
+      assert.ok(loaded.container.querySelector('th [lang="en"][data-i18n-exempt]'), 'the column Pull request declares lang="en"')
       fireEvent.click(loaded.getByRole('button', { name: MESSAGES[locale]['resume.copy.aria'] }))
       await flush()
       strings.push(...surfaceStrings(loaded.container))

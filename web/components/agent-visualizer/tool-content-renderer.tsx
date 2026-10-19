@@ -7,7 +7,7 @@ import { truncateWithMarker, truncateLines } from '@/lib/feed-utils'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { canonicalTool, patchStats, PATCH_CAPTURE_LIMIT, todoItems, editStats,shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind, type ResultPill } from '@/lib/action-summary'
 import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon, PythonIcon, TestIcon, DockerIcon, PackageIcon } from './feed-icons'
-import { DATA_EN, t as tr, pluralText, toolLinesText, editSentenceText } from '@/lib/panel-text'
+import { DATA_EN, t as tr, pluralText, toolLinesText, editSentenceText, splitAround } from '@/lib/panel-text'
 import type { Locale, MessageKey } from '@/lib/messages'
 
 /** Language of the words around a call's data. English unless the caller says otherwise: the tool detail popup is not translated yet. */
@@ -302,7 +302,7 @@ const TODO_STATUS_KEY: Record<string, MessageKey> = {
 }
 
 function TodoContent({ data }: { data: Record<string, unknown> }) {
-  const { t } = useTool()
+  const { locale, t } = useTool()
   const todos = todoItems(data)
   if (!todos) return null
   const progress = todoProgress(data)
@@ -311,7 +311,7 @@ function TodoContent({ data }: { data: Record<string, unknown> }) {
     <>
     {progress && (
       <div role="group" aria-label={t('tool.todo.progress')} className="mb-1 flex flex-wrap gap-x-2 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
-        <span>{t('tool.todo.done', { done: progress.done, total: progress.total })}</span>
+        <span>{pluralText(locale, 'tool.todo.done', progress.total, { done: progress.done, total: progress.total })}</span>
         {progress.active > 0 && <span>{t('tool.todo.active', { n: progress.active })}</span>}
       </div>
     )}
@@ -381,7 +381,7 @@ export function ResultPillView({ pill, locale = 'en' }: { pill: ResultPill | nul
             style={{ color: COLORS.textPrimary }}
           >
             <GhIcon size={11} />
-            {pill.link.kind === 'pr' ? 'PR' : 'issue'} #{pill.link.number}
+            <span {...DATA_EN}>{pill.link.kind === 'pr' ? 'PR' : 'issue'} #{pill.link.number}</span>
             <span className="sr-only">{tr(locale, 'tool.newTab')}</span>
           </a>
         ) : (
@@ -393,6 +393,11 @@ export function ResultPillView({ pill, locale = 'en' }: { pill: ResultPill | nul
       </li>
     </ul>
   )
+}
+
+function inPath(locale: Locale, path: string) {
+  const [before, after] = splitAround(locale, 'tool.in', 'path')
+  return <>{before}<span {...DATA_EN}>{path}</span>{after}</>
 }
 
 function toolingIcon(kind: ToolingKind) {
@@ -502,7 +507,7 @@ function ReadContent({ data }: { data: Record<string, unknown> }) {
 }
 
 function GrepContent({ data }: { data: Record<string, unknown> }) {
-  const { t } = useTool()
+  const { locale, t } = useTool()
   const pattern = String(data.pattern || '')
   const searchPath = String(data.path || '')
   const glob = typeof data.glob === 'string' ? data.glob : undefined
@@ -510,21 +515,21 @@ function GrepContent({ data }: { data: Record<string, unknown> }) {
   return (
     <div className="text-xs font-mono break-words">
       <span {...DATA_EN} style={{ color: COLORS.tool_calling }}>{pattern}</span>
-      {searchPath && <span className="ml-1" style={{ color: COLORS.contentDim }} title={searchPath}>{t('tool.in', { path: truncatePath(searchPath, 2) })}</span>}
+      {searchPath && <span className="ml-1" style={{ color: COLORS.contentDim }} title={searchPath}>{inPath(locale, truncatePath(searchPath, 2))}</span>}
       {glob && <span {...DATA_EN} className="ml-1" style={{ color: COLORS.contentDim }}>({glob})</span>}
     </div>
   )
 }
 
 function GlobContent({ data }: { data: Record<string, unknown> }) {
-  const { t } = useTool()
+  const { locale, t } = useTool()
   const pattern = String(data.pattern || '')
   const searchPath = String(data.path || '')
 
   return (
     <div className="text-xs font-mono break-words">
       <span {...DATA_EN} style={{ color: COLORS.tool_calling }}>{pattern}</span>
-      {searchPath && <span className="ml-1" style={{ color: COLORS.contentDim }} title={searchPath}>{t('tool.in', { path: truncatePath(searchPath, 2) })}</span>}
+      {searchPath && <span className="ml-1" style={{ color: COLORS.contentDim }} title={searchPath}>{inPath(locale, truncatePath(searchPath, 2))}</span>}
     </div>
   )
 }

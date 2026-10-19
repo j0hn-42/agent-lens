@@ -35,6 +35,12 @@ export function pluralText(locale: Locale, base: string, n: number, params: Para
   return translate(locale, `${base}.${rule}` as MessageKey, { n, ...params })
 }
 
+/** A message that embeds data (a path): the text before and after the slot, so the caller can mark the data lang="en". */
+export function splitAround(locale: Locale, key: MessageKey, param: string): [string, string] {
+  const [before = '', after = ''] = t(locale, key, { [param]: '\u0001' }).split('\u0001')
+  return [before, after]
+}
+
 // ---- Conversation
 
 export function messageCountText(locale: Locale, total: number, shown?: number): string {
@@ -130,7 +136,7 @@ export function pairEmptyTextT(locale: Locale, p: PairState, nameOf: (key: strin
 /** "at least 5k estimated tokens": the figure of qualify() + the word "tokens", in the language of the panel. Callers handle an unavailable figure. */
 export function tokensSpoken(locale: Locale, usage: UsageTotal): string {
   if (usage.value === null || usage.status === 'unavailable') return t(locale, 'tok.unavailable')
-  const v = formatTokens(usage.value)
+  const v = formatTokens(usage.value, locale)
   if (usage.status === 'partial') return t(locale, usage.estimated ? 'tok.partialEstimated' : 'tok.partial', { v })
   return t(locale, usage.estimated ? 'tok.estimated' : 'tok.plain', { v })
 }
@@ -177,6 +183,7 @@ export function fileTimelineText(locale: Locale) {
     noCommits: t(locale, 'files.tl.noCommits'),
     summary: (n: number, incomplete: boolean) => pluralText(locale, incomplete ? 'files.tl.summaryLost' : 'files.tl.summary', n),
     summaryOf: (path: string) => ` ${t(locale, 'files.tl.summaryOf', { path })}`,
+    summaryOfParts: () => splitAround(locale, 'files.tl.summaryOf', 'path'),
     omitted: (n: number) => pluralText(locale, 'files.tl.omitted', n, { max: FILE_TIMELINE_MAX_STEPS }),
     list: (path: string) => t(locale, 'files.tl.list', { path }),
     by: (agent: string) => t(locale, 'files.tl.by', { agent }),
@@ -212,13 +219,13 @@ export function resumeUnavailableText(locale: Locale, reason: ResumeUnavailableR
 
 export function checksText(locale: Locale, c: ChecksSummary): string {
   switch (c.state) {
-    case 'passing': return t(locale, 'sw.checks.passing', { total: c.total })
+    case 'passing': return pluralText(locale, 'sw.checks.passing', c.total, { total: c.total })
     case 'failing': return c.pending > 0
       ? t(locale, 'sw.checks.failingPending', { failing: c.failing, pending: c.pending, total: c.total })
       : t(locale, 'sw.checks.failing', { failing: c.failing, total: c.total })
     case 'pending': return t(locale, 'sw.checks.pending', { pending: c.pending, total: c.total })
     case 'none': return t(locale, 'sw.checks.none')
-    default: return c.total > 0 ? t(locale, 'sw.checks.unknownTotal', { total: c.total }) : t(locale, 'sw.checks.unknown')
+    default: return c.total > 0 ? pluralText(locale, 'sw.checks.unknownTotal', c.total, { total: c.total }) : t(locale, 'sw.checks.unknown')
   }
 }
 

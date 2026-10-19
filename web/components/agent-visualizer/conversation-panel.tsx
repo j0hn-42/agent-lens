@@ -714,7 +714,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
   isAll?: boolean
 }) {
   const { locale } = useLocale()
-  const accessibleName = [fullName, stateText ? `(${stateText})` : '', hasUnread ? tr(locale, 'conv.tab.unreadName') : '']
+  const accessibleName = [fullName, stateText ? `(${stateText})` : '', count !== undefined && count > 0 ? messageCountText(locale, count) : '', hasUnread ? tr(locale, 'conv.tab.unreadName') : '']
     .filter(Boolean).join(' ')
   return (
     <button

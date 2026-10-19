@@ -61,7 +61,7 @@ export function SessionWorkSection({ relayOrigin, sessionId, sessionBranch, acti
               <thead>
                 <tr style={{ color: COLORS.textMuted }}>
                   <th scope="col" className="text-left font-normal py-1 pr-2">{t('sw.col.branch')}</th>
-                  <th scope="col" className="text-left font-normal py-1 pr-2">{t('sw.col.pr')}</th>
+                  <th scope="col" className="text-left font-normal py-1 pr-2"><span {...DATA_EN}>{t('sw.col.pr')}</span></th>
                   <th scope="col" className="text-left font-normal py-1">{t('sw.col.checks')}</th>
                 </tr>
               </thead>

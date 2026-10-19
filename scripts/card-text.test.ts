@@ -55,8 +55,8 @@ test('English: counts that become a lower bound when events were lost', () => {
     assert.equal(T.boundedCountText('en', n, lost, 'toolError'), boundedCount(n, lost, 'tool error'))
   }
   assert.equal(T.replayLostText('en', 0), '')
-  assert.equal(T.replayLostText('en', 1), 'at least 1 earlier event was not replayed by the relay')
-  assert.equal(T.replayLostText('en', 40), 'at least 40 earlier events were not replayed by the relay')
+  assert.equal(T.replayLostText('en', 1), 'at least 1 earlier event was not replayed')
+  assert.equal(T.replayLostText('en', 40), 'at least 40 earlier events were not replayed')
 })
 
 test('French: a lower bound stays a lower bound, an incomplete count says so', () => {

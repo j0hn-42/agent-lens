@@ -62,7 +62,7 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: Wast
                     type="button"
                     onClick={() => onOpenFile?.(item.target)}
                     title={item.target}
-                    aria-label={t('waste.open', { path: item.target })}
+                    aria-label={t('waste.open', { label: `${item.toolName} ${target}` })}
                     className={`flex items-center gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {label}
@@ -79,7 +79,7 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0 }: Wast
           })}
         </ul>
       )}
-      {hidden > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{t('waste.more', { n: hidden })}</p>}
+      {hidden > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{pluralText(locale, 'waste.more', hidden)}</p>}
       {uncompared > 0 && (
         <p className="m-0 mt-1 text-[11px] font-mono" style={note}>
           {pluralText(locale, 'waste.uncompared', uncompared)}

@@ -53,7 +53,7 @@ function FileTimelineDetails({ path, timeline, label, incomplete, locale }: {
   return (
     <details className="mt-1 text-[11px] font-mono">
       <summary className={`cursor-pointer min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`} style={{ color: COLORS.textMuted }}>
-        {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{L.summaryOf(path)}</span>
+        {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{' '}{L.summaryOfParts()[0]}<span {...DATA_EN}>{path}</span>{L.summaryOfParts()[1]}</span>
       </summary>
       {timeline.omitted > 0 && (
         <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{L.omitted(timeline.omitted)}</p>
@@ -180,11 +180,11 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
                   {tokenSpoken === null ? '—' : hasTokens ? (
                     <>
-                      <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens)}`}</span>
+                      <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens, locale)}`}</span>
                       <span className="sr-only">{tokenLabel}</span>
                     </>
                   ) : (
-                    <><span className="sr-only">{t('tok.word')} </span><span>{tr(locale, 'usage.unavailable')}</span></>
+                    <><span className="sr-only">{t('tok.unavailable')}</span><span aria-hidden="true">{tr(locale, 'usage.unavailable')}</span></>
                   )}
                 </span>
               </>

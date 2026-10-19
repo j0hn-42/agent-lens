@@ -52,8 +52,8 @@ test('English: spoken tokens are qualify() + " tokens"; French keeps at least / 
     if (u.value === null || u.status === 'unavailable') continue
     assert.equal(P.tokensSpoken('en', u), `${formatTokenUsage(u)} tokens`)
   }
-  assert.equal(P.tokensSpoken('fr', USAGES[2]), '1.2k jetons')
-  assert.equal(P.tokensSpoken('fr', USAGES[3]), '1.2k jetons estimés')
+  assert.equal(P.tokensSpoken('fr', USAGES[2]), '1,2k jetons')
+  assert.equal(P.tokensSpoken('fr', USAGES[3]), '1,2k jetons estimés')
   assert.equal(P.tokensSpoken('fr', USAGES[4]), 'au moins 128k jetons')
   assert.equal(P.tokensSpoken('fr', USAGES[5]), 'au moins 3M jetons estimés')
   assert.equal(qualify(USAGES[4], '128k'), 'at least 128k')
@@ -79,13 +79,13 @@ test('French: a conflict count keeps its lower bound, and no conflict is only sa
 test('English: counts over an incomplete graph are the ones of boundedCount, the lost sentence spelled out', () => {
   for (const [n, lost] of [[0, 0], [0, 2], [1, 0], [3, 0], [1, 4], [5, 4]] as const) assert.equal(P.boundedFilesText('en', n, lost), boundedCount(n, lost, 'file'))
   assert.equal(P.lostSentence('en', 0), '')
-  assert.equal(P.lostSentence('en', 1), 'at least 1 earlier event was not replayed by the relay')
-  assert.equal(P.lostSentence('en', 7), 'at least 7 earlier events were not replayed by the relay')
+  assert.equal(P.lostSentence('en', 1), 'at least 1 earlier event was not replayed')
+  assert.equal(P.lostSentence('en', 7), 'at least 7 earlier events were not replayed')
   assert.equal(P.boundedFilesText('fr', 0, 2), 'aucun fichier observé (incomplet)')
   assert.equal(P.boundedFilesText('fr', 3, 2), 'au moins 3 fichiers')
   assert.equal(P.boundedFilesText('fr', 1, 0), '1 fichier')
-  assert.equal(P.lostSentence('fr', 1), 'au moins 1 événement antérieur n’a pas été rejoué par le relais')
-  assert.equal(P.lostSentence('fr', 7), 'au moins 7 événements antérieurs n’ont pas été rejoués par le relais')
+  assert.equal(P.lostSentence('fr', 1), 'au moins 1 événement antérieur n’a pas été rejoué')
+  assert.equal(P.lostSentence('fr', 7), 'au moins 7 événements antérieurs n’ont pas été rejoués')
 })
 
 test('English: the file timeline sentences are the original ones', () => {
@@ -118,7 +118,7 @@ test('English: dropped markers, new-message counts, copy and export messages are
   assert.equal(P.copiedText('en', 'DISPATCH', 0, 1), 'DISPATCH copied; 1 secret redacted (best effort)')
   assert.equal(P.copiedText('en', 'DISPATCH', 0, 3), 'DISPATCH copied; 3 secrets redacted (best effort)')
   assert.equal(P.copiedText('en', 'DISPATCH', 7, 2), 'DISPATCH copied; 2 secrets redacted (best effort) (truncated: 7 characters were cut)')
-  assert.equal(P.copiedText('fr', 'ENVOI', 7, 2), 'ENVOI copié ; 2 secrets masqués (au mieux) (tronqué : 7 caractères coupés)')
+  assert.equal(P.copiedText('fr', 'ENVOI', 7, 2), 'Message ENVOI copié ; 2 secrets masqués (au mieux) (tronqué : 7 caractères coupés)')
   assert.equal(P.exportSavedText('en', 0), 'Conversation exported as Markdown')
   assert.equal(P.exportSavedText('en', 1), 'Conversation exported as Markdown; 1 secret redacted (best effort)')
   assert.equal(P.exportSavedText('en', 2), 'Conversation exported as Markdown; 2 secrets redacted (best effort)')

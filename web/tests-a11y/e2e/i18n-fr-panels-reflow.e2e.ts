@@ -2,7 +2,8 @@
 // the demo app (`pnpm --dir web run test:e2e`). The French labels of the header actions, the search, the pair filter and the
 // file rows are longer than the English ones: at 320 px and at 1280 px / 200 % (a 640 x 512 window) nothing may scroll
 // sideways, leave the window, be cut or sit on top of another button. The Context panel needs a relay (it is not available
-// in demo mode), so its French states are covered by the jsdom test of the message catalog.
+// in demo mode: the panel is unavailable by construction, the bridge decides it, so no network mock can render it), so its French states
+// are covered by the jsdom test of the message catalog. Its 320 px reflow (table Branche / Pull request / Vérifications) is NOT measured in a browser.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -89,10 +90,15 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
       await expectFits(page, '[data-dock-panel="conversation"]', `${w}x${h} conversation`)
       await panel.getByRole('button', { name: 'Rechercher dans les messages' }).click()
       await panel.getByRole('searchbox', { name: 'Rechercher dans les messages' }).waitFor()
-      const pair = panel.getByRole('button', { name: 'Filtrer une paire' }).first()
-      if (await pair.count() > 0) await pair.click()
+      // The pair filter lives on the rows of a SEND / RETURN message. The demo shows only user, thinking and assistant messages when it
+      // opens (probed: no such row after 12 s), so the button is absent: said out loud, not skipped silently. When a row exists, its
+      // name must start with its visible text (WCAG 2.5.3) and the opened state is measured.
+      const pair = panel.getByRole('button', { name: /^Filtrer une paire/ }).first()
+      const hasPair = await pair.count() > 0
+      if (hasPair) await pair.click()
+      else console.log(`# [${w}x${h}] no SEND / RETURN row in the demo: the open pair filter is not measured here`)
       await waitForStableLayout(page)
-      await expectFits(page, '[data-dock-panel="conversation"]', `${w}x${h} conversation, search and pair filter open`)
+      await expectFits(page, '[data-dock-panel="conversation"]', hasPair ? `${w}x${h} conversation, search and pair filter open` : `${w}x${h} conversation, search open (no pair row in the demo)`)
     } finally {
       await page.context().close()
     }

@@ -164,7 +164,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
               {data.files.map(f => <FileBlock key={f.kind} file={f} locale={locale} />)}
               {data.issues.length > 0 && (
                 <section aria-label={t('ctx.issues.region')} className="mb-1">
-                  <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{t('ctx.issues.heading')}</h3>
+                  <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}><span {...DATA_EN}>{t('ctx.issues.heading')}</span></h3>
                   <Note>{t('ctx.issues.note')}</Note>
                   <ul className="flex flex-wrap gap-1 list-none p-0 m-0">
                     {data.issues.map(n => (
