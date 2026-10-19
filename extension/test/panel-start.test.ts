@@ -165,6 +165,39 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     } finally { h.dispose() }
   })
 
+  it('a team lead unwatched then rediscovered: its team_info is re-sent as replayed and the figure does not grow (#605 review)', () => {
+    const teamDir = path.join(fakeHome, '.claude', 'teams', 'demo-team')
+    fs.mkdirSync(path.join(teamDir, 'inboxes'), { recursive: true })
+    fs.writeFileSync(path.join(teamDir, 'config.json'), JSON.stringify({
+      name: 'demo-team', leadAgentId: 'team-lead@demo-team', leadSessionId: SESSION,
+      members: [
+        { agentId: 'team-lead@demo-team', name: 'team-lead', backendType: 'in-process' },
+        { agentId: 'alice@demo-team', name: 'alice', backendType: 'in-process' },
+      ],
+    }))
+    const h = harness()
+    try {
+      h.watcher.start()
+      const internals = h.watcher as unknown as Internals & { teamWatcher: { scan(): void } }
+      internals.teamWatcher.scan()
+      const infos = () => h.emitted.filter(e => e.type === 'team_info')
+      assert.equal(infos().length, 1, 'precondition: the team is announced once')
+      const counted = m.panelLoss.snapshotAfterReplay(() => {})?.evicted[SESSION]
+      assert.ok(counted && counted > 0)
+
+      internals.unwatchSession(SESSION)
+      internals.watchSession(SESSION, transcript)
+      internals.teamWatcher.scan()
+      assert.equal(infos().length, 2, 'precondition: the rediscovered lead gets its team_info again')
+      assert.equal(infos()[1].replayed, true, 'a team_info already sent is re-sent as known state')
+      assert.deepEqual(m.panelLoss.snapshotAfterReplay(() => {})?.evicted, { [SESSION]: counted },
+        'the history read again and the team_info re-sent repeat what was counted: same figure')
+    } finally {
+      h.dispose()
+      fs.rmSync(path.join(fakeHome, '.claude', 'teams'), { recursive: true, force: true })
+    }
+  })
+
   it('the JSONL log path: sent to the panel even before its page is ready, and counted either way', () => {
     const panel = new FakePanel()
     setPanel(panel)
@@ -180,7 +213,8 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     const src = (f: string) => fs.readFileSync(path.join(__dirname, '../src', f), 'utf8')
     const ext = src('extension.ts')
     assert.match(ext, /startPanelPage\(panel, \{/)
-    assert.match(ext, /forwardToPanel\(event, \{ requireReady: false \}\)/)
+    assert.match(ext, /eventSourceWiring = wireJsonlSourceToPanel\(source\)/)
+    assert.match(ext, /eventSourceWiring\?\.dispose\(\)/)
     assert.doesNotMatch(ext, /panelLoss\./)
     const claude = src('claude-runtime.ts')
     assert.match(claude, /wireHookEventsToPanel\(watcher\)/)
