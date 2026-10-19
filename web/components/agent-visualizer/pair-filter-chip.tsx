@@ -59,7 +59,7 @@ function announce(key: string, text: string, lang: Locale, initial: boolean, pai
 export function PairFilterChip({ pair, nameOf, count, onClear, locale = 'en' }: {
   pair: PairState
   nameOf: (key: string) => string
-  /** Language of the chip and of its announcement; the timeline, not translated yet, leaves it at English */
+  /** Language of the chip and of its announcement */
   locale?: Locale
   /** Messages currently shown for the pair */
   count: number

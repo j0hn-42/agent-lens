@@ -75,7 +75,7 @@ export function blockLabelParts(locale: Locale, label: string): LabelPart[] {
   const expired = label.endsWith(suffix)
   const base = expired ? label.slice(0, -suffix.length) : label
   const parts: LabelPart[] = []
-  const outcome = /^(.*): (FAILED|CANCELLED)$/s.exec(base)
+  const outcome = /^([\s\S]*): (FAILED|CANCELLED)$/.exec(base)
   if (FIXED_LABEL[base]) parts.push({ text: t(locale, FIXED_LABEL[base]), data: false })
   else if (outcome) {
     parts.push({ text: `${outcome[1]}: `, data: true })

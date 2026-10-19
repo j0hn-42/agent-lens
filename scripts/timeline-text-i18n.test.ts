@@ -8,7 +8,7 @@ import { MESSAGES, LOCALES, translate, type Locale } from '../web/lib/messages'
 import type { TimelineEntry } from '../web/lib/agent-types'
 
 const STATES = Object.keys(TIMELINE_STATE_LABELS) as TimelineStateKey[]
-const entry = (id: string): TimelineEntry => ({ agentId: id, agentName: id, startTime: 0, blocks: [] })
+const entry = (id: string): TimelineEntry => ({ id, agentId: id, agentName: id, startTime: 0, blocks: [] })
 
 test('English: states, arrow words and the accessible name are the original ones', () => {
   for (const s of STATES) assert.equal(T.stateLabelText('en', s), TIMELINE_STATE_LABELS[s])
