@@ -29,6 +29,8 @@ import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
 import type { FileAttention } from '../../../lib/agent-types'
 import { deriveFileConflicts, describeConflictEditors } from '../../../lib/file-conflicts'
+import { panelName } from '../../../lib/command-palette'
+import type { Locale } from '../../../lib/messages'
 import { repeatMarkText, type RepeatMark, type RepeatMarkKind } from '../../../lib/repeat-marks'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
@@ -193,8 +195,8 @@ export interface A11yAgentItem {
 }
 
 /** Mirror wording of a loop / repeat badge; nothing at all when the node has none (never a "no loop") */
-function repeatsItem(mark: RepeatMark | undefined): Pick<A11yAgentItem, 'repeats'> {
-  return mark ? { repeats: { kind: mark.kind, ...repeatMarkText(mark) } } : {}
+function repeatsItem(mark: RepeatMark | undefined, filesPanel: string): Pick<A11yAgentItem, 'repeats'> {
+  return mark ? { repeats: { kind: mark.kind, ...repeatMarkText(mark, filesPanel) } } : {}
 }
 
 /** Mirror wording of a branch: the same facts as its canvas badge. */
@@ -299,6 +301,8 @@ export interface A11yExtras {
   fileAttention?: ReadonlyMap<string, FileAttention>
   /** Loop / repeat marks of the drawn agents (lib/repeat-marks), the same map the canvas draws */
   repeatMarks?: ReadonlyMap<string, RepeatMark>
+  /** Language of the panel names the outline speaks (#518, WCAG 3.2.4); English when absent */
+  locale?: Locale
   /** Events the relay could not replay, per session id (#366): the tool count and cost of an agent of such a session are lower bounds, like on the canvas */
   replayLost?: ReadonlyMap<string, number>
 }
@@ -399,7 +403,7 @@ export function buildA11yModel(
       orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
       clusterKey: clusterOf.get(a.id),
       branch: branchItem(extras.collapse?.branches.get(a.id)),
-      ...repeatsItem(extras.repeatMarks?.get(a.id)),
+      ...repeatsItem(extras.repeatMarks?.get(a.id), panelName(extras.locale ?? 'en', 'files')),
     })
   }
 

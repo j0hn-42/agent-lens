@@ -87,7 +87,7 @@ test('text of a repeat mark: a fact, never "wasted", and no file path (presentat
   const mark = repeatMarks(new Map(), l, ['s1:a']).get('s1:a')!
   const t = repeatMarkText(mark)
   assert.equal(t.short, 'repeated reads observed')
-  assert.equal(t.detail, 'Repeated reads observed: read again 2 times, no edit seen in between; and 1 more in the Files panel.')
+  assert.equal(t.detail, 'Repeated reads observed: read again 2 times, no edit seen in between; and 1 more in the Files & repeats panel.')
   assert.ok(!/waste/i.test(t.detail + t.short))
   assert.ok(!t.detail.includes('/secret'))
 })

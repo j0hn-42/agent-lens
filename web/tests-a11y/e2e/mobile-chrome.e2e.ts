@@ -111,7 +111,7 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
       assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
       // Folded under 768 px (#476): the panel buttons are behind More, not rendered (no hidden Tab stop)
-      for (const name of ['Timeline', 'Stats', 'Files']) {
+      for (const name of ['Timeline', 'Stats', 'Files & repeats']) {
         assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0, `${name} is folded behind More`)
       }
       assert.ok(await page.locator('header').getByRole('button', { name: /^Sessions/ }).isVisible(), 'Sessions stays in the bar')
@@ -129,7 +129,7 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
       const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
       assert.match(String(next), /Notifications|Hide inactive/, `Tab after More reaches a folded control (got "${next}")`)
       assert.ok(await noHorizontalScroll(page), 'expanded: no horizontal page scroll')
-      for (const name of ['Timeline', 'Stats', 'Files']) {
+      for (const name of ['Timeline', 'Stats', 'Files & repeats']) {
         assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `expanded: ${name} is shown`)
       }
       for (const c of await visibleControls(page)) {

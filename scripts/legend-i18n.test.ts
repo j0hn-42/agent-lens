@@ -34,7 +34,7 @@ test('English legend and palette keep the wording of the glossary constants', ()
 test('French panel names are the ones the owner validated', () => {
   assert.deepEqual(
     ['files', 'context', 'system', 'cost', 'timeline', 'stats'].map(id => fr(`palette.panelName.${id}`)),
-    ['Fichiers', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques'],
+    ['Fichiers et répétitions', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques'],
   )
 })
 

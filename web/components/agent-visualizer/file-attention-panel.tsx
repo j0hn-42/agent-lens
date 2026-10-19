@@ -107,14 +107,14 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           </span>
         </PanelHeader>
 
-        {/* File list */}
+        {/* Repeats (folded while files are listed, #518), conflicts, then the files */}
         <div
           role="region"
           aria-label={t('files.region')}
           tabIndex={0}
           className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING_INSET}`}
         >
-          <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} replayLost={replayLost} />
+          <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} replayLost={replayLost} defaultOpen={files.length === 0} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
               {replayLost > 0 ? t('files.emptyIncomplete') : t('files.empty')}

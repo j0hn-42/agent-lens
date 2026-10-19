@@ -172,7 +172,6 @@
   "web/lib/issue-links.ts:parseIssueLinks",
   "web/lib/legend-presence.ts:PRESENCE_LABEL_MAX",
   "web/lib/live-tour.ts:LIVE_ENTRY_TEXT",
-  "web/lib/locale.ts:getLocale",
   "web/lib/locale.ts:getLocaleChoice",
   "web/lib/locale.ts:setLocaleChoice",
   "web/lib/locale.ts:subscribeLocale",
