@@ -1281,6 +1281,10 @@ const fr = {
   'tool.webSearch': 'Recherche web :',
   'tool.fetch': 'Récupération :',
   'tool.options': 'Choix proposés',
+  // #594: names hidden by the label placement, button of the canvas controls
+  'controls.hiddenNames.one': '{n} nom masqué',
+  'controls.hiddenNames.other': '{n} noms masqués',
+  'controls.hiddenNames.title': 'Noms d’agents masqués pour que les libellés ne se chevauchent pas. Survolez un nœud ou donnez-lui le focus pour lire son nom, ou ouvrez la liste {panel}.',
 
   // Totaux sous perte de rejeu (#591) : une lecture de contexte est absolue, jamais « au moins »
   'usage.incomplete': '{v} (incomplet)',
@@ -2549,6 +2553,10 @@ const en: Record<MessageKey, string> = {
   'tool.webSearch': 'Web search:',
   'tool.fetch': 'Fetch:',
   'tool.options': 'Options',
+  // #594: names hidden by the label placement, button of the canvas controls
+  'controls.hiddenNames.one': '{n} name hidden',
+  'controls.hiddenNames.other': '{n} names hidden',
+  'controls.hiddenNames.title': 'Agent names hidden so that labels do not overlap. Hover or focus a node to read its name, or open the {panel} list.',
 
   // Totals under replay loss (#591): a context reading is absolute, never "at least"
   'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
