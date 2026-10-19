@@ -34,12 +34,12 @@ test('events lost: the repeat count is "at least N", the absence is "(incomplete
   const { container } = render(<WasteSection waste={ledgerWithRepeats()} replayLost={7} />)
   const text = container.textContent ?? ''
   assert.match(text, /read again at least 2 times, no edit seen in between/)
-  assert.match(text, /at least 7 earlier events were not replayed by the relay/)
+  assert.match(text, /at least 7 earlier events were not replayed/)
   cleanup()
   const empty = render(<WasteSection waste={emptyWasteLedger()} replayLost={7} />)
   const t = empty.container.textContent ?? ''
   assert.match(t, /No repeat observed \(incomplete\)/)
-  assert.match(t, /at least 7 earlier events were not replayed by the relay/)
+  assert.match(t, /at least 7 earlier events were not replayed/)
 })
 
 test('describeWaste keeps the singular under loss', () => {

@@ -55,6 +55,7 @@ function pluralKey(locale: Locale, base: string, n: number, params: Params = {})
 export function usageText(locale: Locale, usage: UsageTotal): string {
   if (usage.value === null || usage.status === 'unavailable') return tr(locale, 'usage.unavailable')
   const v = formatTokens(usage.value)
+  if (usage.incomplete) return tr(locale, usage.estimated ? 'usage.incompleteEstimated' : 'usage.incomplete', { v })
   if (usage.status === 'partial') return tr(locale, usage.estimated ? 'usage.partialEstimated' : 'usage.partial', { v })
   return usage.estimated ? tr(locale, 'usage.estimated', { v }) : v
 }

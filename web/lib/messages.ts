@@ -323,8 +323,8 @@ const fr = {
   'card.active.running': 'actif depuis {span}',
   'card.active.runningTotal': 'actif depuis {span} · {total} au total',
   'card.active.closed': '{total} d’activité',
-  'card.replayLost.one': 'au moins 1 événement antérieur n’a pas été rejoué par le relais',
-  'card.replayLost.other': 'au moins {n} événements antérieurs n’ont pas été rejoués par le relais',
+  'card.replayLost.one': 'au moins 1 événement antérieur n’a pas été rejoué',
+  'card.replayLost.other': 'au moins {n} événements antérieurs n’ont pas été rejoués',
   'card.health': 'Santé',
   'card.health.evidence': 'Preuves de boucle',
   'card.health.session': 'Session : {text}',
@@ -334,7 +334,7 @@ const fr = {
   'card.health.incomplete': 'Aucune boucle dans la partie observée ({parts})',
   'card.health.comparable': '{comparable} sur {calls} comparables',
   'card.health.dropped': 'historique antérieur abandonné',
-  'card.health.lostEvents': '{events} de cette session non rejoués par le relais',
+  'card.health.lostEvents': '{events} de cette session non rejoués',
   'card.finding.repeat': '{tool} appelé {times} de suite avec la même entrée',
   'card.finding.editCycle': 'lecture → modification → échec {times} sur {file}',
   'card.finding.timesAtLeast': 'au moins {count}×',
@@ -740,6 +740,9 @@ const fr = {
   'cols.cost.valueEstimated': 'estimation du coût du contexte {money}, à partir de jetons estimés',
   'cols.cost.valueIncomplete': 'estimation du coût du contexte {money}, incomplète',
   'cols.cost.valueEstimatedIncomplete': 'estimation du coût du contexte {money}, à partir de jetons estimés, incomplète',
+  // Sous perte de rejeu (#591) : la cause est dite, pour distinguer « ? » de « ≥ » à l’oreille
+  'cols.cost.valueReplayLoss': 'estimation du coût du contexte {money}, événements perdus (incomplète)',
+  'cols.cost.valueEstimatedReplayLoss': 'estimation du coût du contexte {money}, à partir de jetons estimés, événements perdus (incomplète)',
   'cols.branch.none': 'branche non enregistrée',
   'cols.branch.value': 'branche {name}',
   'cols.runtime.none': 'runtime non communiqué',
@@ -766,8 +769,8 @@ const fr = {
   'truncation.missed.one': 'au moins {n} mise à jour non lue',
   'truncation.missed.other': 'au moins {n} mises à jour non lues',
   'truncation.incomplete': 'Graphe incomplet : {lost}',
-  'truncation.replay.one': 'au moins {n} événement antérieur n’a pas été rejoué par le relais',
-  'truncation.replay.other': 'au moins {n} événements antérieurs n’ont pas été rejoués par le relais',
+  'truncation.replay.one': 'au moins {n} événement antérieur n’a pas été rejoué',
+  'truncation.replay.other': 'au moins {n} événements antérieurs n’ont pas été rejoués',
   'truncation.details': 'Détails',
   'truncation.dismiss': 'Fermer l’avertissement de troncature',
   'truncation.reasons': 'Compteurs par cause',
@@ -783,7 +786,7 @@ const fr = {
   // Losses and adjustments in Details, and the indicator of the Sessions panel header that stays after a dismissal (#567)
   'truncation.losses': 'Pertes',
   'truncation.adjustments': 'Ajustements (pas des pertes)',
-  'truncation.reason.replayLost': 'Événements antérieurs non rejoués par le relais (borne basse)',
+  'truncation.reason.replayLost': 'Événements antérieurs non rejoués (borne basse)',
   'truncation.indicator.replay.one': 'au moins {n} événement non rejoué',
   'truncation.indicator.replay.other': 'au moins {n} événements non rejoués',
   'truncation.indicator.show': 'Afficher la notice',
@@ -921,7 +924,7 @@ const fr = {
   'rollup.branch': 'total de la branche',
   'rollup.session': 'total de la session',
   'rollup.family': 'total de la famille',
-  'rollup.incompleteHelp': 'Total incomplet : le nombre de jetons de certains agents est inconnu, un parent manque, une session de la famille n’a aucune donnée, des branches sont imbriquées trop profondément, ou le relais n’a pas pu rejouer les événements d’une session qu’il compte ; le chiffre réel peut donc différer.',
+  'rollup.incompleteHelp': 'Total incomplet : le nombre de jetons de certains agents est inconnu, un parent manque, une session de la famille n’a aucune donnée, des branches sont imbriquées trop profondément, ou le relais (ou l’extension VS Code) n’a pas pu rejouer les événements d’une session qu’il compte ; le chiffre réel peut donc différer.',
 
   // Menu contextuel du canvas et de l’agent (#586)
   'menu.name': 'Menu contextuel',
@@ -1274,6 +1277,10 @@ const fr = {
   'tool.webSearch': 'Recherche web :',
   'tool.fetch': 'Récupération :',
   'tool.options': 'Choix proposés',
+
+  // Totaux sous perte de rejeu (#591) : une lecture de contexte est absolue, jamais « au moins »
+  'usage.incomplete': '{v} (incomplet)',
+  'usage.incompleteEstimated': '{v} estimé (incomplet)',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1584,8 +1591,8 @@ const en: Record<MessageKey, string> = {
   'card.active.running': 'active for {span}',
   'card.active.runningTotal': 'active for {span} · {total} total',
   'card.active.closed': '{total} active',
-  'card.replayLost.one': 'at least 1 earlier event was not replayed by the relay',
-  'card.replayLost.other': 'at least {n} earlier events were not replayed by the relay',
+  'card.replayLost.one': 'at least 1 earlier event was not replayed',
+  'card.replayLost.other': 'at least {n} earlier events were not replayed',
   'card.health': 'Health',
   'card.health.evidence': 'Loop evidence',
   'card.health.session': 'Session: {text}',
@@ -1595,7 +1602,7 @@ const en: Record<MessageKey, string> = {
   'card.health.incomplete': 'No loop in the observed part ({parts})',
   'card.health.comparable': '{comparable} of {calls} comparable',
   'card.health.dropped': 'earlier history dropped',
-  'card.health.lostEvents': '{events} of this session not replayed by the relay',
+  'card.health.lostEvents': '{events} of this session not replayed',
   'card.finding.repeat': '{tool} called {times} in a row with the same input',
   'card.finding.editCycle': 'read → edit → failure {times} on {file}',
   'card.finding.timesAtLeast': 'at least {count}×',
@@ -2001,6 +2008,9 @@ const en: Record<MessageKey, string> = {
   'cols.cost.valueEstimated': `${COST_LABELS.name} {money}, from estimated tokens`,
   'cols.cost.valueIncomplete': `${COST_LABELS.name} {money}, ${INCOMPLETE}`,
   'cols.cost.valueEstimatedIncomplete': `${COST_LABELS.name} {money}, from estimated tokens, ${INCOMPLETE}`,
+  // Under replay loss (#591): the cause is named, so "?" and "≥" differ to the ear as they do to the eye
+  'cols.cost.valueReplayLoss': `${COST_LABELS.name} {money}, events lost (${INCOMPLETE})`,
+  'cols.cost.valueEstimatedReplayLoss': `${COST_LABELS.name} {money}, from estimated tokens, events lost (${INCOMPLETE})`,
   'cols.branch.none': 'branch not recorded',
   'cols.branch.value': 'branch {name}',
   'cols.runtime.none': 'runtime not reported',
@@ -2027,8 +2037,8 @@ const en: Record<MessageKey, string> = {
   'truncation.missed.one': 'at least {n} update not read',
   'truncation.missed.other': 'at least {n} updates not read',
   'truncation.incomplete': 'Graph incomplete: {lost}',
-  'truncation.replay.one': 'at least {n} earlier event was not replayed by the relay',
-  'truncation.replay.other': 'at least {n} earlier events were not replayed by the relay',
+  'truncation.replay.one': 'at least {n} earlier event was not replayed',
+  'truncation.replay.other': 'at least {n} earlier events were not replayed',
   'truncation.details': 'Details',
   'truncation.dismiss': 'Dismiss truncation warning',
   'truncation.reasons': 'Counters by reason',
@@ -2044,7 +2054,7 @@ const en: Record<MessageKey, string> = {
   // Losses and adjustments in Details, and the indicator of the Sessions panel header that stays after a dismissal (#567)
   'truncation.losses': 'Losses',
   'truncation.adjustments': 'Adjustments (not losses)',
-  'truncation.reason.replayLost': 'Earlier events not replayed by the relay (lower bound)',
+  'truncation.reason.replayLost': 'Earlier events not replayed (lower bound)',
   'truncation.indicator.replay.one': 'at least {n} event not replayed',
   'truncation.indicator.replay.other': 'at least {n} events not replayed',
   'truncation.indicator.show': 'Show notice',
@@ -2531,6 +2541,10 @@ const en: Record<MessageKey, string> = {
   'tool.webSearch': 'Web search:',
   'tool.fetch': 'Fetch:',
   'tool.options': 'Options',
+
+  // Totals under replay loss (#591): a context reading is absolute, never "at least"
+  'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
+  'usage.incompleteEstimated': `{v} ${USAGE_LABELS.estimated} ${USAGE_LABELS.incomplete}`,
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

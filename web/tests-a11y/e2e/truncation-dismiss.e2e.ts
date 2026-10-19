@@ -9,6 +9,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Frame, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { postWhenListening } from './bridge-ready'
 
 let browser: Browser
 let server: DemoServer
@@ -25,11 +26,8 @@ after(async () => {
 async function feed(page: Page, frame: Frame) {
   await frame.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
   const now = Date.now()
-  await page.evaluate((msgs) => {
-    const target = (document.getElementById('app') as HTMLIFrameElement).contentWindow!
-    for (const m of msgs) target.postMessage(m, '*')
-  }, [
-    { type: '__vscode-bridge-init' },
+  // The button above is server HTML: wait for the app to answer the init before posting (#575)
+  await postWhenListening(page, [
     { type: 'session-list', sessions: [{ id: 's1', label: 'e2e', status: 'active', startTime: now, lastActivityTime: now }] },
     { type: 'agent-event', event: { time: 0, type: 'agent_spawn', payload: { name: 'main', isMain: true }, sessionId: 's1' } },
     { type: 'agent-event', event: { time: 0.5, type: 'tool_call_start', payload: { agent: 'main', tool: 'Read', args: 'a.ts' }, sessionId: 's1' } },

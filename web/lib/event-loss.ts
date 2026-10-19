@@ -1,6 +1,8 @@
 /**
  * `event-loss` SSE message of the relay (#366): how many events per session the relay can no longer replay
  * (evicted from its buffer, or left out by the replay cap), sent once per connection before the replay.
+ * The VS Code extension sends the same message once per page (#592, read through the bridge): the events emitted
+ * before that page was ready that it will never receive.
  * Pure (no React, no path aliases: node:test imports it). The message is untrusted: parsed field by field.
  *
  * The relay's figure is a total since the relay started, not what a given client is missing. It is a lower
@@ -283,9 +285,12 @@ export function replayLostForAgents(lost: ReadonlyMap<string, number> | null | u
 }
 
 /**
- * A token or cost total over a graph that may be incomplete (#366): with lost events a complete figure becomes a lower
- * bound, which every surface already words "at least". Nothing lost, or nothing known (null stays "not reported"): unchanged.
+ * A ctx-token or cost total over a graph that may be incomplete (#366, #591). The figure adds context readings (or prices
+ * them), and a reading is ABSOLUTE: a lost event can raise it as well as lower it (a compaction shrinks the context, and the
+ * Cost panel says the cost "drops after a compaction"). So no lower bound is provable and none is claimed: with lost events
+ * the figure is flagged `incomplete` and reads "(incomplete)", never "at least". Nothing lost, or nothing known (null stays
+ * "not reported"): unchanged. (A per-tool BY TOOL sum is different: it adds per-call costs, a lost call can only add.)
  */
 export function usageUnderLoss(usage: UsageTotal, lost: number): UsageTotal {
-  return lost > 0 && usage.status === 'available' && usage.value !== null ? { ...usage, status: 'partial' } : usage
+  return lost > 0 && usage.status !== 'unavailable' && usage.value !== null ? { ...usage, incomplete: true } : usage
 }

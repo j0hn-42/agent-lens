@@ -12,6 +12,7 @@
 import * as vscode from 'vscode'
 import type { AgentEvent, SessionInfo } from './protocol'
 import { VisualizerPanel } from './webview-provider'
+import { panelLoss } from './panel-loss'
 import { SESSION_ID_DISPLAY, STATUS_MESSAGE_DURATION_MS } from './constants'
 import type { TypedDisposable, TypedEvent } from './typed-event-emitter'
 
@@ -110,10 +111,13 @@ export function wireWatcherToPanel(
   const subs: TypedDisposable[] = []
 
   subs.push(watcher.onEvent((event) => {
+    const transformed = options.transformEvent ? options.transformEvent(event) : event
+    if (!transformed) return
+    // Counted delivered or not: a page that opens later gets a reset, never this event (#592)
+    panelLoss.note(transformed)
     const panel = VisualizerPanel.getCurrent()
     if (!panel || !panel.isReady) return
-    const transformed = options.transformEvent ? options.transformEvent(event) : event
-    if (transformed) panel.sendEvent(transformed)
+    panel.sendEvent(transformed)
   }))
 
   subs.push(watcher.onSessionDetected((sessionId) => {

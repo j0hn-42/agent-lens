@@ -7,6 +7,7 @@
  */
 
 export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './bridge-types'
+import { parseEventLoss, acceptEventLoss, type EventLoss } from './event-loss'
 export { ALL_SESSIONS_ID } from './bridge-types'
 export type { PermissionRequestMessage, PermissionDecision } from './bridge-types'
 import type { AgentEvent, SessionInfo, ConnectionStatus, PermissionRequestMessage, PermissionDecision } from './bridge-types'
@@ -28,6 +29,8 @@ type StatusCallback = (status: ConnectionStatus, source: string) => void
 type ConfigCallback = (config: Partial<{ mode: string; autoPlay: boolean; showMockData: boolean; disable1MContext: boolean; hooksConfigured: boolean }>) => void
 /** The relay changed what it scans (#291): `allWorkspaces` is its new scope, to be confirmed with GET /status */
 type RelayScopeCallback = (allWorkspaces: boolean) => void
+/** What the extension says the page lacks (#592), validated; null after a reset */
+type EventLossCallback = (loss: EventLoss | null) => void
 type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | { sessionId: string; label: string }) => void
 
 class VSCodeBridge {
@@ -42,6 +45,9 @@ class VSCodeBridge {
   private sessionListeners: SessionCallback[] = []
   private relayScopeListeners: RelayScopeCallback[] = []
   private permissionListeners: PermissionCallback[] = []
+  private eventLossListeners: EventLossCallback[] = []
+  /** Last `event-loss` of the extension for the current page (#592): kept, so a view that mounts later still reads it */
+  private _eventLoss: EventLoss | null = null
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -107,7 +113,22 @@ class VSCodeBridge {
         }
         break
 
+      case 'event-loss': {
+        // Sent by the extension once per page, after the reset (#592): what that page will never receive. In
+        // relay mode the stream's own figure is read by the hook before it reaches the bridge.
+        const next = acceptEventLoss(1, this._eventLoss, parseEventLoss(data))
+        if (next === this._eventLoss) break
+        this._eventLoss = next
+        for (const cb of this.eventLossListeners) cb(next)
+        break
+      }
+
       case 'reset':
+        // A new graph: the figure of the old one no longer describes it
+        if (this._eventLoss !== null) {
+          this._eventLoss = null
+          for (const cb of this.eventLossListeners) cb(null)
+        }
         for (const cb of this.sessionListeners) {
           cb('reset', typeof data.reason === 'string' && data.reason ? data.reason : 'panel-reopened')
         }
@@ -222,6 +243,13 @@ class VSCodeBridge {
     return this.subscribe(this.permissionListeners, callback)
   }
 
+  /** The extension's figure of what the page lacks (#592); `eventLoss` holds the last one */
+  onEventLoss(callback: EventLossCallback): () => void {
+    return this.subscribe(this.eventLossListeners, callback)
+  }
+
+  get eventLoss(): EventLoss | null { return this._eventLoss }
+
   // ─── Send commands to extension ──────────────────────────────────────────
 
   openFile(filePath: string, line?: number): void {
@@ -299,6 +327,7 @@ class VSCodeBridge {
     this.sessionListeners = []
     this.relayScopeListeners = []
     this.permissionListeners = []
+    this.eventLossListeners = []
   }
 }
 

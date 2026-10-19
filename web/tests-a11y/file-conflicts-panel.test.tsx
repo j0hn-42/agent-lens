@@ -76,7 +76,7 @@ const conflicted2: FileAttention = { ...conflicted, path: '/repo/src/c.ts' }
 
 test('under replay loss with no conflict, the panel says the zero covers only the observed part', () => {
   const { getByTestId } = render(<FileAttentionPanel visible fileAttention={new Map([[pending.path, pending]])} onClose={noop} replayLost={6} />)
-  assert.equal(getByTestId('file-conflicts-incomplete').textContent, 'No conflict in the observed part: at least 6 earlier events were not replayed by the relay')
+  assert.equal(getByTestId('file-conflicts-incomplete').textContent, 'No conflict in the observed part: at least 6 earlier events were not replayed')
 })
 
 test('under replay loss, the conflicts heading reads "at least N conflicts"', () => {

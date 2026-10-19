@@ -10,6 +10,7 @@ import { chromium, type Browser, type Frame, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 import { topbarButton } from './topbar-fold'
+import { postWhenListening } from './bridge-ready'
 
 let browser: Browser
 let server: DemoServer
@@ -33,11 +34,8 @@ async function mountWithBanner(page: Page, w: number, h: number): Promise<Frame>
   const frame = (await (await page.$('#app'))!.contentFrame())!
   await frame.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
   const now = Date.now()
-  await page.evaluate((msgs) => {
-    const target = (document.getElementById('app') as HTMLIFrameElement).contentWindow!
-    for (const m of msgs) target.postMessage(m, '*')
-  }, [
-    { type: '__vscode-bridge-init' },
+  // The button above is server HTML: wait for the app to answer the init before posting (#575)
+  await postWhenListening(page, [
     { type: 'session-list', sessions: [{ id: 's1', label: 'e2e', status: 'active', startTime: now, lastActivityTime: now }] },
     { type: 'agent-event', event: { time: 0, type: 'agent_spawn', payload: { name: 'main', isMain: true }, sessionId: 's1' } },
     // A running tool keeps the agent drawn ("Hide inactive" is on by default)
