@@ -361,6 +361,12 @@ test('event-loss (#592): in VS Code (no relay) the figure comes from the extensi
   assert.equal(result.current.replayLost, 3, 'the same surfaces as with the relay: All counts the sessions it shows')
   await act(async () => realDispatch({ type: 'event-loss', evicted: 'junk' }))
   assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a message that does not parse never clears a figure')
+  // A session's history read again reached the page: the extension sends the page's figure again, lower; it replaces
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 1 }, otherEvents: 2 }))
+  assert.equal(result.current.replayLost, 1)
+  await act(async () => realDispatch({ type: 'event-loss', evicted: {} }))
+  assert.equal(result.current.replayLost, 0, 'sent empty: nothing is claimed any more')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 }, otherEvents: 2 }))
   // The extension resets the graph when a new page is ready, then sends that page's figure (or none)
   await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
   assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
