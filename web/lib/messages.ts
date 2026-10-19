@@ -955,6 +955,7 @@ const fr = {
   'bar.truncated': 'tronqué',
   'bar.truncated.one': 'Historique tronqué : {n} événement plus ancien supprimé',
   'bar.truncated.other': 'Historique tronqué : {n} événements plus anciens supprimés',
+  'bar.review.empty': 'Aucun événement à revoir pour l’instant',
 
   // Dialogue des raccourcis clavier (#588). Les touches restent des noms de touches ; seuls leurs mots sont traduits.
   'shortcut.title': 'Raccourcis clavier',
@@ -1928,6 +1929,7 @@ const en: Record<MessageKey, string> = {
   'bar.truncated': 'truncated',
   'bar.truncated.one': 'History truncated: {n} older event dropped',
   'bar.truncated.other': 'History truncated: {n} older events dropped',
+  'bar.review.empty': 'No events to review yet',
 
   // Keyboard shortcuts dialog (#588): the English texts are those of SHORTCUTS (scripts/chrome-i18n.test.ts compares them)
   'shortcut.title': 'Keyboard shortcuts',

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo, useId } from 'react'
 import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useThemeVersion } from '@/lib/theme'
@@ -179,6 +179,8 @@ function LiveControlBar({
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
   const badge = liveBadge(connectionStatus, isDemo, locale)
   const badgeColor = badge.live ? COLORS.liveText : badge.tone === 'demo' ? COLORS.holoBright : badge.tone === 'error' ? COLORS.error : COLORS.textMuted
+  const noEvents = eventCount === 0
+  const reviewReasonId = useId()
 
   return (
     <div
@@ -228,19 +230,22 @@ function LiveControlBar({
         <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
           {formatEventCount(eventCount, locale)}
         </span>
+        {noEvents && <span id={reviewReasonId} className="sr-only">{t('bar.review.empty')}</span>}
 
         {/* Review button */}
         <button
           type="button"
           onClick={onEnterReview}
           data-primary-control=""
+          aria-disabled={noEvents || undefined}
+          aria-describedby={noEvents ? reviewReasonId : undefined}
           aria-label={t('bar.review.name')}
           aria-keyshortcuts="Space"
-          className={`${BTN_BASE} px-2.5 py-1 transition-all motion-safe:hover:scale-105`}
+          className={`${BTN_BASE} px-2.5 py-1 transition-all ${noEvents ? 'opacity-60 cursor-not-allowed' : 'motion-safe:hover:scale-105'}`}
           style={{
             background: COLORS.holoBg10,
             border: `1px solid ${COLORS.controlBorder}`,
-            color: COLORS.textPrimary,
+            color: noEvents ? COLORS.textMuted : COLORS.textPrimary,
           }}
         >
           <span aria-hidden="true">⏸ </span>{t('bar.review')}

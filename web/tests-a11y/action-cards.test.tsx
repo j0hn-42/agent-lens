@@ -41,6 +41,58 @@ test('Edit: an insertion and a deletion are named as such (#383)', () => {
 
 const summaryText = (r: ReturnType<typeof show>) => r.getByRole('group', { name: 'Edit summary' }).textContent?.replace(/\s+/g, ' ').trim()
 
+test('Edit: a failed call does not claim lines replaced, a deleted or inserted line (#383)', () => {
+  const failed = (data: Record<string, unknown>) => render(
+    <ToolDetailPopup tool={{ id: 't1', toolName: 'Edit', args: '', state: 'error', inputData: data }} position={{ x: 10, y: 10 }} onClose={() => {}} />,
+  )
+  assert.equal(summaryText(failed({ file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' })), 'call failed, not applied: asked old 3 lines, new 2 lines')
+  cleanup()
+  assert.equal(summaryText(failed({ file_path: '/a.ts', old_string: '', new_string: 'a' })), 'call failed, not applied: asked old 0 lines, new 1 line')
+})
+
+const ended = (state: 'error' | 'cancelled' | 'expired', data: Record<string, unknown>) => render(
+  <ToolDetailPopup tool={{ id: 't1', toolName: 'Edit', args: '', state, inputData: data }} position={{ x: 10, y: 10 }} onClose={() => {}} />,
+)
+
+test('Edit: a cancelled or expired call does not claim a change either (#383 review)', () => {
+  const data = { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' }
+  assert.equal(summaryText(ended('cancelled', data)), 'call cancelled, not applied: asked old 3 lines, new 2 lines')
+  cleanup()
+  assert.equal(summaryText(ended('expired', data)), 'no result received, not known to be applied: asked old 3 lines, new 2 lines')
+})
+
+test('Edit: on an unapplied call the lines are read as asked, never as Removed / Added (#383 review)', () => {
+  for (const state of ['error', 'cancelled', 'expired'] as const) {
+    const r = ended(state, { file_path: '/a.ts', old_string: 'foo', new_string: 'bar' })
+    const text = r.container.textContent ?? ''
+    assert.match(text, /Asked old: .*foo/, state)
+    assert.match(text, /Asked new: .*bar/, state)
+    assert.doesNotMatch(text, /Removed:|Added:/, state)
+    cleanup()
+  }
+  const ok = show('Edit', { file_path: '/a.ts', old_string: 'foo', new_string: 'bar' })
+  assert.match(ok.container.textContent ?? '', /Removed: .*foo/)
+  assert.match(ok.container.textContent ?? '', /Added: .*bar/)
+})
+
+test('MultiEdit: the blocks of a failed call are read as asked too (#383 review)', () => {
+  const r = render(<ToolDetailPopup tool={{ id: 't1', toolName: 'MultiEdit', args: '', state: 'error', inputData: { file_path: '/a.ts', edits: [{ old_string: 'a', new_string: 'b' }] } }} position={{ x: 10, y: 10 }} onClose={() => {}} />)
+  assert.doesNotMatch(r.container.textContent ?? '', /Removed:|Added:/)
+  assert.match(r.container.textContent ?? '', /Asked old: /)
+})
+
+test('Transcript: a tool_call row that ended in error or was cancelled does not say "replaced" (#383 review)', () => {
+  const call = (callOutcome?: 'error' | 'cancelled'): ConversationMessage => ({
+    id: 'm1', type: 'tool_call', content: '> Edit', timestamp: 1, toolName: 'Edit', toolUseId: 'tu1',
+    inputData: { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' }, ...(callOutcome ? { callOutcome } : {}),
+  })
+  const text = (m: ConversationMessage) => { const r = render(<TranscriptMessage message={m} />); const t = r.container.textContent ?? ''; cleanup(); return t }
+  assert.match(text(call()), /3 lines replaced by 2/)
+  assert.match(text(call('error')), /call failed, not applied: asked old 3 lines, new 2 lines/)
+  assert.match(text(call('cancelled')), /call cancelled, not applied/)
+  assert.doesNotMatch(text(call('error')), /replaced|Removed:/)
+})
+
 test('Edit: a removed word is not called a deleted line (#383)', () => {
   // old_string may be part of a line: the call proves text was removed from 1 line, not that the line went
   assert.equal(summaryText(show('Edit', { file_path: '/a.ts', old_string: 'foo', new_string: '' })), 'text removed from 1 line')
