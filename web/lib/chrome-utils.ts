@@ -27,9 +27,10 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal, locale: 
   return {
     tokens: missing(tokens)
       ? translate(locale, 'topbar.context.tokensMissing')
-      // The qualifier of a loss closes the sentence ("120k tokens in context (incomplete)"), like the Cost panel header (#591)
+      // The qualifier of a loss closes the sentence ("120k tokens in context (incomplete)"), like the Cost panel header (#591);
+      // the inner copy is no longer partial either, or it would read "at least" (a loss claims no lower bound)
       : tokens.incomplete
-        ? translate(locale, 'usage.incomplete', { v: translate(locale, 'topbar.context.tokens', { v: qualified({ ...tokens, incomplete: false }, formatTokens(tokens.value as number)) }) })
+        ? translate(locale, 'usage.incomplete', { v: translate(locale, 'topbar.context.tokens', { v: qualified({ ...tokens, status: 'available', incomplete: false },formatTokens(tokens.value as number)) }) })
         : translate(locale, 'topbar.context.tokens', { v: qualified(tokens, formatTokens(tokens.value as number)) }),
     // The cost in words (no "~"); a missing one reads "cost not reported"
     spoken: missing(cost)

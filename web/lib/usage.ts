@@ -83,7 +83,9 @@ export function formatTokenUsage(usage: UsageTotal): string {
 export function formatCtxTokenUsage(usage: UsageTotal): string {
   // The unit stays next to the figure: "120k ctx tokens (incomplete)", not "120k (incomplete) ctx tokens" (#591)
   const unitless = usage.incomplete && usage.value !== null && usage.status !== 'unavailable'
-  return unitless ? `${formatTokenUsage({ ...usage, incomplete: false })} ${CTX_TOKENS_LABELS.unit} ${USAGE_LABELS.incomplete}` : `${formatTokenUsage(usage)} ${CTX_TOKENS_LABELS.unit}`
+  // The copy drops the loss qualifier only to move it after the unit: it must not fall back to the "at least" of a partial
+  // total, since a loss claims no lower bound (#591 review)
+  return unitless ? `${formatTokenUsage({ ...usage, status: 'available', incomplete: false })} ${CTX_TOKENS_LABELS.unit} ${USAGE_LABELS.incomplete}` : `${formatTokenUsage(usage)} ${CTX_TOKENS_LABELS.unit}`
 }
 
 /** "~$2.10": a cost is always the context priced at a blended rate, an estimate even on reported tokens (#364). */
