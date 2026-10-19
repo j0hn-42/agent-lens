@@ -560,7 +560,8 @@ export function SessionListPanel({
             states as set, so a session listed on the canvas and not here (or the reverse) is explained. Plain text, no
             control; the separator is drawn, not read */}
         <p data-testid="sessions-filter-scope" className="m-0 px-2 pb-1.5 text-[11px]" style={{ color: COLORS.textMuted }}>
-          <span>{t(activeOnly ? 'sessions.scope.list.activeOnly' : 'sessions.scope.list.all')}</span>
+          {/* "all sessions" only when nothing narrows the list: search, project, runtime and branch count as much as Active only */}
+          <span>{t(activeOnly ? (filtering ? 'sessions.scope.list.activeOnlyFiltered' : 'sessions.scope.list.activeOnly') : (filtering ? 'sessions.scope.list.filtered' : 'sessions.scope.list.all'))}</span>
           {canvasHideInactive !== undefined && (
             <>
               <span aria-hidden="true">{' \u00b7 '}</span>

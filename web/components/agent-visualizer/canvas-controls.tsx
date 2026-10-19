@@ -191,20 +191,26 @@ export function CanvasControls({
   const panelRef = useRef<HTMLDivElement>(null)
   const takenRequest = useRef(openViewRequest)
   const focusPanelNext = useRef(false)
+  // The request is also state: with the popover already open, setOpen(true) changes nothing, and the focus effect
+  // below must still run for it
+  const [focusRequest, setFocusRequest] = useState(0)
   useEffect(() => {
     if (openViewRequest === takenRequest.current) return
     takenRequest.current = openViewRequest
     focusPanelNext.current = true
     setOpen(true)
     if (folded) setMenuOpen(true)
+    setFocusRequest(n => n + 1)
   }, [openViewRequest, folded])
+  // A pending focus does not survive the popover closing: a later opening by hand must not move the focus
+  useEffect(() => { if (!open) focusPanelNext.current = false }, [open])
   useEffect(() => {
     if (!focusPanelNext.current || !open) return
     const first = panelRef.current?.querySelector<HTMLElement>('button:not([disabled]), select:not([disabled])')
     if (!first) return
     focusPanelNext.current = false
     first.focus()
-  }, [open, menuShown])
+  }, [open, menuShown, focusRequest])
 
   // Folding or unfolding with the focus on a control removes that control: the focus goes to the one that replaces it,
   // not to <body> (2.4.3). Same when the "names hidden" button goes with the focus on it (#594)
