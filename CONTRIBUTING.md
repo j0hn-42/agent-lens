@@ -54,6 +54,12 @@ pnpm --dir web run test:e2e                        # starts the demo app itself 
 # or, against a server you already started: E2E_BASE_URL=http://localhost:3000 pnpm --dir web run test:e2e
 ```
 
+`web/tests-a11y/e2e/label-boxes.e2e.ts` (#593) checks the agent labels of a team of 10 (`?scenario=team10`) at the fit zoom in real Chromium: it records every text the canvas paints with its real `measureText` and the transform in force, then compares the boxes of the visible labels two by two. What it proves, and what it does not:
+
+- It proves, for the platform's `monospace` (the font the canvas asks for; the machine that runs it decides which one, DejaVu Sans Mono on the Linux CI), that no two visible text boxes share a pixel at 1280 x 800 and 1920 x 1080, and that the real glyph width stays within the 0.6 to 1 em the plan models.
+- It does not prove the same on macOS (Menlo) or Windows (Consolas), nor for glyphs the monospace lacks (CJK, emoji: the browser falls back to another, wider font). It measures the advance width and the font ascent and descent, not the ink of each glyph, and one team, two window sizes, one frame.
+- The plan hides the labels that would collide: at fit, 3 of the 10 labels are visible at 1280 x 800 and 5 at 1920 x 1080. The test requires the orchestrator and at least 3 names to stay visible so that an empty canvas cannot pass, but it does not require the other labels to be shown.
+
 Write the test first, then the code. Keep commits to one logical step.
 
 ### Tip: isolated network namespace
