@@ -740,6 +740,9 @@ const fr = {
   'cols.cost.valueEstimated': 'estimation du coût du contexte {money}, à partir de jetons estimés',
   'cols.cost.valueIncomplete': 'estimation du coût du contexte {money}, incomplète',
   'cols.cost.valueEstimatedIncomplete': 'estimation du coût du contexte {money}, à partir de jetons estimés, incomplète',
+  // Sous perte de rejeu (#591) : la cause est dite, pour distinguer « ? » de « ≥ » à l’oreille
+  'cols.cost.valueReplayLoss': 'estimation du coût du contexte {money}, événements perdus (incomplète)',
+  'cols.cost.valueEstimatedReplayLoss': 'estimation du coût du contexte {money}, à partir de jetons estimés, événements perdus (incomplète)',
   'cols.branch.none': 'branche non enregistrée',
   'cols.branch.value': 'branche {name}',
   'cols.runtime.none': 'runtime non communiqué',
@@ -1652,6 +1655,9 @@ const en: Record<MessageKey, string> = {
   'cols.cost.valueEstimated': `${COST_LABELS.name} {money}, from estimated tokens`,
   'cols.cost.valueIncomplete': `${COST_LABELS.name} {money}, ${INCOMPLETE}`,
   'cols.cost.valueEstimatedIncomplete': `${COST_LABELS.name} {money}, from estimated tokens, ${INCOMPLETE}`,
+  // Under replay loss (#591): the cause is named, so "?" and "≥" differ to the ear as they do to the eye
+  'cols.cost.valueReplayLoss': `${COST_LABELS.name} {money}, events lost (${INCOMPLETE})`,
+  'cols.cost.valueEstimatedReplayLoss': `${COST_LABELS.name} {money}, from estimated tokens, events lost (${INCOMPLETE})`,
   'cols.branch.none': 'branch not recorded',
   'cols.branch.value': 'branch {name}',
   'cols.runtime.none': 'runtime not reported',
