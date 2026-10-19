@@ -1,7 +1,7 @@
 // Finishes of #383, measured in a real browser against the demo app (`pnpm --dir web run test:e2e`):
 //  - the "N messages" counter of the Conversation header stays on one line at every width;
 //  - entering review mode no longer drops a toast over the bottom of the canvas: the state is announced once, by the
-//    chrome live region, and the visible bar swaps to the review bar with its "Resume live" button.
+//    chrome live region, and the visible bar swaps to the review bar, whose button reads "▶ LIVE" and is named "Resume live" (aria-label).
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'

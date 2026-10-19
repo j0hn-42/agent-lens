@@ -1289,6 +1289,9 @@ const fr = {
   // Totaux sous perte de rejeu (#591) : une lecture de contexte est absolue, jamais « au moins »
   'usage.incomplete': '{v} (incomplet)',
   'usage.incompleteEstimated': '{v} estimé (incomplet)',
+
+  // #383 : annonce du mode revue, avec le nom du bouton tel qu’affiché dans la barre
+  'announce.reviewMode': 'Mode revue, utilisez « {button} » pour revenir',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -2561,6 +2564,9 @@ const en: Record<MessageKey, string> = {
   // Totals under replay loss (#591): a context reading is absolute, never "at least"
   'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
   'usage.incompleteEstimated': `{v} ${USAGE_LABELS.estimated} ${USAGE_LABELS.incomplete}`,
+
+  // #383: announcement of review mode, naming the button as the bar shows it
+  'announce.reviewMode': 'Review mode, use {button} to return',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

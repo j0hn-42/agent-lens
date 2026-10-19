@@ -1,9 +1,10 @@
 import { test } from 'node:test'
+import { translate } from '../web/lib/messages'
 import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
-  connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
+  connectionDisplay, liveBadge, buildAnnouncement, buildAnnouncementParts, formatMissedEvents,
   agentActivityCounts, topBarContextText, viewCountsText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
@@ -233,4 +234,18 @@ test('view counts (#523): the text the top bar drew, moved to the Sessions panel
   // All: sessions and agents, no state split (as the bar drew it)
   assert.deepEqual(viewCountsText(one, 3), { drawn: '3 sessions · 30 agents', spoken: '3 sessions, 30 agents' })
   assert.deepEqual(viewCountsText({ active: 1, done: 0, stale: 0, idle: 0, error: 0 }, 1), { drawn: '1 session · 1 agent', spoken: '1 session, 1 agent' })
+})
+
+test('announcement of review mode names the button with the catalog text of the locale (#383)', () => {
+  const connection = connectionDisplay('watching', false)
+  const base = { connection, sessionLabel: null, isReviewing: true, isEmpty: false }
+  assert.match(buildAnnouncement({ ...base, locale: 'en' }), new RegExp(`use ${translate('en', 'bar.resumeLive')} to return`))
+  const fr = buildAnnouncement({ ...base, locale: 'fr' })
+  assert.ok(fr.includes(translate('fr', 'bar.resumeLive')), fr)
+  assert.ok(!fr.includes('Resume live'), 'the English button name is not given as an instruction in French')
+  const parts = buildAnnouncementParts({ ...base, locale: 'fr' })
+  assert.equal(parts.find(p => p.text.includes('Reprendre en direct'))?.lang, 'fr')
+  assert.ok(parts.filter(p => !p.text.includes('Reprendre en direct')).every(p => p.lang === 'en'), 'the rest of the sentence is still English')
+  assert.ok(buildAnnouncementParts({ ...base, locale: 'en' }).every(p => p.lang === 'en'))
+  assert.equal(buildAnnouncement({ ...base, isReviewing: false, locale: 'fr' }), 'Connection: live. Live mode')
 })

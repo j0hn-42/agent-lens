@@ -37,7 +37,7 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
   }, [play, autoPlay])
 
   // No toast on entering review (#383): it covered the bottom of the canvas and repeated what the chrome live region
-  // already announces (buildAnnouncement). The review bar swaps in, with its visible "Resume live" button.
+  // already announces (buildAnnouncement). The review bar swaps in; its button reads "▶ LIVE" and is named "Resume live" (aria-label, catalog key bar.resumeLive).
 
   const nothingToReview = eventCount === 0
   const refuseEmptyReview = useCallback(() => {
