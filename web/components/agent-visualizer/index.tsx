@@ -158,7 +158,7 @@ export function AgentVisualizer() {
     handlePlayPause, handleEnterReview, setSpeedInReview, handleResumeLive, handleClearHistory, handleReloadSessionEvents, handleSeek,
   } = useReviewControls({
     sim: { isPlaying, maxTimeReached, play, pause, restart, setSpeed, seekToTime, saveSnapshot, restoreSnapshot },
-    bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit, autoPlay: !isGuidedDemo,
+    bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit, autoPlay: !isGuidedDemo, eventCount: timelineEvents.length,
   })
 
   // Focus sits in the agent card right after a selection, and the card handles Escape itself: route it through

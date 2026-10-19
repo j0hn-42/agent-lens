@@ -1,7 +1,7 @@
 import type { SimulationEvent } from './agent-types'
 import type { SessionInfo } from './bridge-types'
 import { STRESS_SCENARIOS, type StressLevel } from './stress-test-scenario'
-import { TOUR_SCENARIO, TOUR_SESSIONS } from './tour-scenario'
+import { TOUR_SCENARIO, tourSessions } from './tour-scenario'
 import { GUIDED_SCENARIO } from './guided-scenario'
 
 // ─── Stress Test Support ─────────────────────────────────────────────────────
@@ -268,7 +268,9 @@ export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
 export const IS_GUIDED_DEMO = !stressLevel && SCENARIO_NAME === 'guided'
 
 /** Sessions the demo declares (the tour spans three: the relay would normally list them). Empty for the others. */
-export const MOCK_SESSIONS: SessionInfo[] = !stressLevel && SCENARIO_NAME === 'tour' ? TOUR_SESSIONS : []
+export const HAS_MOCK_SESSIONS = !stressLevel && SCENARIO_NAME === 'tour'
+/** Dated at the call (the browser, after mount), see tourSessions */
+export const mockSessions = (now: number = Date.now()): SessionInfo[] => HAS_MOCK_SESSIONS ? tourSessions(now) : []
 
 export const MOCK_DURATION = MOCK_SCENARIO.length > 0
   ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time + 10

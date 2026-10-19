@@ -96,6 +96,8 @@ export interface ConversationMessage {
   /** tool_use_id correlating a dispatch with its return and with the tool call */
   toolUseId?: string
   isError?: boolean
+  /** 'tool_call' rows: how the call ended when it proved no change, set when its end is observed (an expiry without an end is not propagated here) */
+  callOutcome?: 'error' | 'cancelled'
   /** 'tool_result' rows of a successful call: the gh link or Grep / Glob count its own output proves (#317) */
   resultPill?: ResultPill
   /** Characters dropped from `content` by the ingestion cap (MAX_TEXT_LEN); absent when nothing was cut */

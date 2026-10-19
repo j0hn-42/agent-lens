@@ -362,6 +362,18 @@ export function handleToolCallEnd(
       }
     }
 
+    // The tool_call row carries how its call ended, so the transcript never says "replaced" for a call that did not apply
+    const callUseId = matchedCall?.toolUseId ?? toolUseId
+    if (callUseId && (isError || isCancelled)) {
+      const rows = state.conversations.get(agentName)
+      const at = rows ? rows.findIndex(m => m.type === 'tool_call' && m.toolUseId === callUseId) : -1
+      if (rows && at >= 0) {
+        const next = rows.slice()
+        next[at] = { ...rows[at], callOutcome: isError ? 'error' : 'cancelled' }
+        state.conversations.set(agentName, next)
+      }
+    }
+
     appendConversation(state.conversations, agentName, {
       type: 'tool_result',
       content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? `, ${USAGE_LABELS.estimated}` : ''})` : ''}`,
