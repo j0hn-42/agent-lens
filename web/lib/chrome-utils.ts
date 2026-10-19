@@ -4,6 +4,7 @@
  */
 import { formatCost, formatDuration, formatTokens, pluralize } from './utils'
 import { translate, type Locale, type MessageKey } from './messages'
+import { connectionText } from './top-bar-text'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
 import { formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
@@ -190,8 +191,8 @@ export function scrubberTimeFromX(clientX: number, left: number, width: number, 
   return ratio * total
 }
 
-export function scrubberValueText(current: number, total: number): string {
-  return `${formatDuration(current)} of ${formatDuration(total)}`
+export function scrubberValueText(current: number, total: number, locale: Locale = 'en'): string {
+  return translate(locale, 'bar.position.value', { current: formatDuration(current), total: formatDuration(total) })
 }
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
@@ -264,9 +265,22 @@ export function agentActivityCounts(
 }
 
 
+/** "3 events" / "3 événements": the count with its plural agreement (French counts 0 and 1 as singular). */
+export function formatEventCount(n: number, locale: Locale = 'en'): string {
+  const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.event.${rule}` as MessageKey, { n })
+}
+
+/** A playback speed with the decimal mark of the language: "0.5" in English, "0,5" in French. */
+export function formatSpeed(speed: number, locale: Locale = 'en'): string {
+  return new Intl.NumberFormat(locale).format(speed)
+}
+
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
-export function formatTruncatedHistory(droppedEvents: number): string | null {
-  return droppedEvents > 0 ? `History truncated: ${pluralize(droppedEvents, 'older event')} dropped` : null
+export function formatTruncatedHistory(droppedEvents: number, locale: Locale = 'en'): string | null {
+  if (!(droppedEvents > 0)) return null
+  const rule = new Intl.PluralRules(locale).select(droppedEvents) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.truncated.${rule}` as MessageKey, { n: droppedEvents })
 }
 
 /** "... 12 older messages dropped" line at the top of a conversation, or null when nothing was dropped. */
@@ -375,9 +389,9 @@ export function connectionDisplay(status: ConnectionStatus, isDemo: boolean, det
  * Badge of the playback bar. Follows the real connection with the top bar's wording: LIVE (pulsing) only while the relay is
  * watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
  */
-export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
-  if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
-  const d = connectionDisplay(status, false)
+export function liveBadge(status: ConnectionStatus, isDemo: boolean, locale: Locale = 'en'): { label: string; live: boolean; tone: ConnectionTone } {
+  if (isDemo) return { label: connectionText(locale, status, true).label, live: false, tone: 'demo' }
+  const d = connectionText(locale, status, false)
   // Same word as the top bar; it pulses only while activity is actually watched (a bare connection proves less)
   return { label: d.label, live: status === 'watching', tone: d.tone }
 }

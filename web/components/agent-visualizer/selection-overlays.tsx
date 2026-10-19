@@ -14,6 +14,7 @@ import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
 import { LinkPanel } from "./link-panel"
 import { stopPropagationHandlers } from "./shared-ui"
+import { useLocale } from "@/lib/locale"
 
 type Simulation = ReturnType<typeof useAgentSimulation>
 type Selection = ReturnType<typeof useSelectionState>
@@ -58,6 +59,7 @@ export function SelectionOverlays({
   selection, inspector, agents, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, menuActions,
 }: SelectionOverlaysProps) {
   const { selectedAgent, selectedGone, goneName, delegation, toolWhy } = inspector
+  const { locale } = useLocale()
   return (
     <>
       {/* Agent detail card (floating, tethered to node) */}
@@ -127,7 +129,7 @@ export function SelectionOverlays({
       {selection.contextMenu && (
         <GlassContextMenu
           position={selection.contextMenu}
-          items={contextMenuItems(Boolean(selection.contextMenu.agentId), agentMenuActions(selection, menuActions))}
+          items={contextMenuItems(Boolean(selection.contextMenu.agentId), agentMenuActions(selection, menuActions), locale)}
           onClose={() => selection.setContextMenu(null)}
         />
       )}

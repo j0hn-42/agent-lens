@@ -9,6 +9,8 @@ import { stopPropagationHandlers } from './shared-ui'
 import { clampMenuPosition, nextMenuIndex } from '@/lib/menu-nav'
 import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 
 interface ContextMenuProps {
   position: { x: number; y: number }
@@ -28,6 +30,7 @@ interface ContextMenuProps {
 }
 
 export function GlassContextMenu({ position, items, onClose }: ContextMenuProps) {
+  const { locale } = useLocale()
   const ref = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const onCloseRef = useRef(onClose)
@@ -47,12 +50,20 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    // Measured from the top-left corner of the window: a fixed box placed next to the right edge is squeezed to the room
+    // left on its right (shrink-to-fit), so measured where it stands it looks narrow and the clamp would let it overflow.
+    const { left, top } = el.style
+    el.style.left = '0px'
+    el.style.top = '0px'
     // offsetWidth/Height ignore the open animation's scale(0.95) transform
-    setPos(clampMenuPosition(position, { width: el.offsetWidth, height: el.offsetHeight }, {
+    const size = { width: el.offsetWidth, height: el.offsetHeight }
+    el.style.left = left
+    el.style.top = top
+    setPos(clampMenuPosition(position, size, {
       width: window.innerWidth,
       height: window.innerHeight,
     }))
-  }, [position, items.length])
+  }, [position, items.length, armed])
 
   // Focus the first item on open, restore focus on close
   useEffect(() => {
@@ -106,6 +117,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   return (
     <div
       ref={ref}
+      lang={locale}
       {...stopPropagationHandlers}
       style={{
         position: 'fixed',
@@ -119,7 +131,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
         style={{ minWidth: 160 }}
       >
         {/* Roving tabindex: items carry the tab stop; -1 makes the menu focusable without adding one */}
-        <div role="menu" aria-label="Context menu" tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
+        <div role="menu" aria-label={translate(locale, 'menu.name')} tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
           {items.map((item, i) => {
             if (item.separator) {
               return <div key={i} role="separator" className="my-1 h-px" style={{ background: COLORS.holoBg10 }} />
