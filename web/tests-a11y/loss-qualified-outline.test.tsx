@@ -68,6 +68,7 @@ test('the heading of a session halo reads its cost as incomplete (no lower bound
   const text = outline([agent('s1:a', 's1'), agent('s2:b', 's2')], new Map([['s1', 6]]))
   // The agent of s1 and the halo of s1: two incomplete costs; the agent and the halo of s2 stay plain
   assert.equal((text.match(/context cost estimate \S+ \(incomplete\)/g) ?? []).length, 2, text)
-  assert.equal((text.match(/context cost estimate (?!at least)\S+(?! \(incomplete\))/g) ?? []).length >= 2, true, text)
+  // Exactly the two plain costs of s2: the figure is matched whole, so it cannot give back a character to dodge the lookahead
+  assert.equal((text.match(/context cost estimate \$[\d.]+(?! \(incomplete\)|[\d.])/g) ?? []).length, 2, text)
   assert.doesNotMatch(text, /context cost estimate at least/)
 })
