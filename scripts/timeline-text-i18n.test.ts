@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as T from '../web/lib/timeline-text'
-import { TIMELINE_STATE_LABELS, timelineAriaLabel, swimlaneArrowLabel, arrowKindLabel, type TimelineStateKey } from '../web/lib/timeline-rows'
+import { TIMELINE_STATE_LABELS, swimlaneArrowLabel, arrowKindLabel, type TimelineStateKey } from '../web/lib/timeline-rows'
 import { EXPIRED_LABEL_SUFFIX } from '../web/lib/ui-glossary'
 import { MESSAGES, LOCALES, translate, type Locale } from '../web/lib/messages'
 import type { TimelineEntry } from '../web/lib/agent-types'
@@ -16,9 +16,10 @@ test('English: states, arrow words and the accessible name are the original ones
     assert.equal(T.arrowKindText('en', kind, err), arrowKindLabel(kind, err))
     assert.equal(T.arrowLabelText('en', kind, err, 'a', 'b'), swimlaneArrowLabel(kind, err, 'a', 'b'))
   }
-  assert.equal(T.timelineLabelText('en', [], 5), timelineAriaLabel([], 5))
-  assert.equal(T.timelineLabelText('en', [entry('a')], 65), timelineAriaLabel([entry('a')], 65))
-  assert.equal(T.timelineLabelText('en', [entry('a'), entry('b')], 65), timelineAriaLabel([entry('a'), entry('b')], 65))
+  // the former English accessible name of the canvas (timelineAriaLabel)
+  assert.equal(T.timelineLabelText('en', [], 5), 'Timeline: no data')
+  assert.equal(T.timelineLabelText('en', [entry('a')], 65), 'Timeline of 1 agent, from 0:00 to 1:05')
+  assert.equal(T.timelineLabelText('en', [entry('a'), entry('b')], 65), 'Timeline of 2 agents, from 0:00 to 1:05')
 })
 
 test('French: states, arrows and the accessible name, with 0 and 1 singular', () => {

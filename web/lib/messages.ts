@@ -3,6 +3,7 @@
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
 import { CONTEXT_WINDOW_NAME, COST_LABELS, EXPIRED_LABEL_SUFFIX, PANEL_NAMES, PANEL_SUMMARIES, PLAYBACK_LABELS, SESSION_LIST_LABELS, TOP_BAR_LABELS, USAGE_LABELS } from './ui-glossary'
+import { TIMELINE_STATE_LABELS } from './timeline-rows'
 import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from './cost-rollup'
 
 /** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
@@ -2657,12 +2658,12 @@ const en: Record<MessageKey, string> = {
   'tl.col.start': 'Start',
   'tl.col.end': 'End',
   'tl.ongoing': 'ongoing',
-  'tl.state.idle': 'Idle',
-  'tl.state.thinking': 'Thinking',
-  'tl.state.tool_call': 'Tool Call',
-  'tl.state.waiting_permission': 'Waiting for permission',
-  'tl.state.error': 'Error',
-  'tl.state.complete': 'Complete',
+  'tl.state.idle': TIMELINE_STATE_LABELS.idle,
+  'tl.state.thinking': TIMELINE_STATE_LABELS.thinking,
+  'tl.state.tool_call': TIMELINE_STATE_LABELS.tool_call,
+  'tl.state.waiting_permission': TIMELINE_STATE_LABELS.waiting_permission,
+  'tl.state.error': TIMELINE_STATE_LABELS.error,
+  'tl.state.complete': TIMELINE_STATE_LABELS.complete,
   'tl.glyph.idle': 'I',
   'tl.glyph.thinking': 'T',
   'tl.glyph.tool_call': 'C',

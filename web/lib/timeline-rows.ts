@@ -115,14 +115,6 @@ export function buildTimelineRows(entries: readonly TimelineEntry[]): TimelineRo
   return rows
 }
 
-/** Accessible name for the timeline canvas. */
-export function timelineAriaLabel(entries: readonly TimelineEntry[], currentTime: number): string {
-  if (entries.length === 0) return 'Timeline: no data'
-  const { minTime, maxTime } = computeTimelineRange(entries, currentTime)
-  const n = entries.length
-  return `Timeline of ${n} ${n === 1 ? 'agent' : 'agents'}, from ${formatDuration(minTime)} to ${formatDuration(maxTime)}`
-}
-
 // ─── Swimlane arrows (dispatch / return / peer messages between rows) ────────
 
 /** Minimal link shape the swimlane needs (structurally compatible with AgentLink). */
@@ -262,11 +254,17 @@ export interface MessageTableRow {
   content: string
 }
 
+/** The words of the message list: English by default, the panel passes the ones of the active language. */
+export interface MessageRowWords {
+  kindLabel: (kind: SwimlaneArrowKind, isError: boolean) => string
+  label: (arrow: SwimlaneArrow) => string
+}
+
 /** Rows of the table view's message list. */
-export function buildMessageRows(arrows: readonly SwimlaneArrow[]): MessageTableRow[] {
+export function buildMessageRows(arrows: readonly SwimlaneArrow[], words: MessageRowWords = { kindLabel: arrowKindLabel, label: a => a.label }): MessageTableRow[] {
   return arrows.map(a => ({
-    id: a.id, kind: a.kind, kindLabel: arrowKindLabel(a.kind, a.isError), from: a.fromName, to: a.toName,
-    label: a.label, time: a.time, start: formatDuration(a.time), content: a.content,
+    id: a.id, kind: a.kind, kindLabel: words.kindLabel(a.kind, a.isError), from: a.fromName, to: a.toName,
+    label: words.label(a), time: a.time, start: formatDuration(a.time), content: a.content,
   }))
 }
 

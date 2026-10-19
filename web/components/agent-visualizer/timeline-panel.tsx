@@ -16,6 +16,7 @@ import {
   timelineMarkers,
   timelineBlockState,
   buildSwimlaneArrows,
+  buildMessageRows,
   hitTestArrow,
   arrowGeometry,
   filterArrowsByPair,
@@ -308,10 +309,10 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   }, [visible, links, sortedEntries, nameById, pair])
   // The words of the arrows come from the catalog; the names and the content are data
   const arrowText = (a: SwimlaneArrow) => arrowLabelText(locale, a.kind, a.isError, a.fromName, a.toName)
-  const messageRows = useMemo(() => arrows.map(a => ({
-    id: a.id, kindLabel: arrowKindText(locale, a.kind, a.isError), from: a.fromName, to: a.toName,
-    label: arrowLabelText(locale, a.kind, a.isError, a.fromName, a.toName), start: formatDuration(a.time), content: a.content,
-  })), [arrows, locale])
+  const messageRows = useMemo(() => buildMessageRows(arrows, {
+    kindLabel: (kind, isError) => arrowKindText(locale, kind, isError),
+    label: a => arrowLabelText(locale, a.kind, a.isError, a.fromName, a.toName),
+  }), [arrows, locale])
   const cappedButtons = useMemo(() => capMessageRows(messageRows), [messageRows])
   const activeArrow = arrows.find(a => a.id === activeArrowId)
   const ariaLabel = timelineLabelText(locale, sortedEntries, currentTime)
