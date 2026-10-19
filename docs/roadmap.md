@@ -56,10 +56,10 @@ Nothing is built. The only known storage, `~/.gemini/antigravity/conversations/*
 
 ### Blocked: the native tray binary (app-tray)
 
-The driver exists; the native menu binary is not in the repository ([Tray icon](tray.md#what-exists-today)). The remaining work is separate issues, all open:
+The driver exists, and so does the Go module of the binary's protocol side (`app-tray/native/`, no GUI); the native menu binary that draws the icon is not in the repository ([Tray icon](tray.md#what-exists-today)). The remaining work is separate issues, all open:
 
 - [#335](https://github.com/j0hn-42/agent-lens/issues/335): the tray icon of the standalone app (umbrella).
-- [#510](https://github.com/j0hn-42/agent-lens/issues/510): the native binary, in Go, following the JSON protocol of `docs/tray.md`.
+- [#510](https://github.com/j0hn-42/agent-lens/issues/510): the native binary, in Go, following the JSON protocol of `docs/tray.md` (the protocol module is done; the GUI binding is not).
 - [#511](https://github.com/j0hn-42/agent-lens/issues/511): cross-compilation in CI for macOS, Windows and Linux.
 - [#512](https://github.com/j0hn-42/agent-lens/issues/512): signing (Gatekeeper, SmartScreen) and distribution.
 - [#556](https://github.com/j0hn-42/agent-lens/issues/556): checking the stop of the relay over the IPC channel on Windows (a named pipe, not tested there).
