@@ -129,7 +129,8 @@ for (const locale of ['fr', 'en'] as const) {
           assert.deepEqual(wide.fixed, m.fixed, `[${locale} ${w}x${h}] "${label}": the zoom buttons and View did not move`)
           assert.ok(wide.scrollW <= wide.vw, `[${locale} ${w}x${h}] "${label}": no horizontal scroll`)
           assert.ok(wide.button!.l >= 0, `[${locale} ${w}x${h}] "${label}": inside the window (${show(wide.button)})`)
-          if (w >= 420) assert.ok(Math.abs(wide.button!.t - wide.fixed[0].t) < 1, `[${locale} ${w}x${h}] "${label}" on the zoom row: ${show(wide.button)} vs ${show(wide.fixed[0])}`)
+          // Same line: the vertical centres agree (above 768 px the text button is 2 px taller than the icon buttons)
+          if (w >= 420) assert.ok(Math.abs((wide.button!.t + wide.button!.b) - (wide.fixed[0].t + wide.fixed[0].b)) < 2,`[${locale} ${w}x${h}] "${label}" on the zoom row: ${show(wide.button)} vs ${show(wide.fixed[0])}`)
         }
         // Without the button (the row as on develop): the zoom buttons and View are exactly where they were
         await page.evaluate(`document.querySelector('[data-hidden-names]').remove()`)
