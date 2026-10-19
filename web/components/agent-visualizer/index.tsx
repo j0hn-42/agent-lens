@@ -53,7 +53,7 @@ import { CostTotalsText } from "./cost-totals-text"
 import { TruncationBanner, TruncationAnnouncer, TruncationIndicator } from "./truncation-banner"
 import {
   truncationBannerState, replayLostForAgents, usageUnderLoss, truncationDismissKey, readTruncationDismissals, writeTruncationDismissals,
-  tabStorage, dismissTruncation, allViewSessionTotals, viewNormalizationStats,
+  tabStorage, dismissTruncation, allViewSessionTotals, viewNormalizationStats, followDismissalDown,
 } from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
@@ -246,7 +246,16 @@ export function AgentVisualizer() {
     [normalizationStats, bridge.selectedSessionId, bridge.viewSessionIds],
   )
   // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
-  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey), { source: bridge.eventLossSource })
+  // VS Code extension: its figure goes down while the page is open (#605 review, round 3). The dismissal follows it
+  // down, so the notice stays closed for that part of the loss and comes back only when more is lost after it.
+  useEffect(() => {
+    if (bridge.eventLossSource !== 'extension') return
+    const next = followDismissalDown(truncationDismissed, truncationKey, truncation.total)
+    if (next === truncationDismissed) return
+    writeTruncationDismissals(tabStorage(), next)
+    setTruncationDismissed(new Map(next))
+  }, [bridge.eventLossSource, truncationDismissed, truncationKey, truncation.total])
   const truncationShown = truncation.show && !immersive
   // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
   const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey

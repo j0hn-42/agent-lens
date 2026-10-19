@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount,
   truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, dismissTruncation, allViewSessionTotals,
-  viewNormalizationStats,
+  viewNormalizationStats, followDismissalDown,
 } from '../web/lib/event-loss'
 
 /** The sessionStorage key the dismissals live under (#567) */
@@ -118,6 +118,32 @@ test('truncationBannerState: shown while something was lost, back when more is l
   assert.equal(truncationBannerState(cut, 0, 7).show, true, 'the replay loss went down to 0: the 2 events ignored are shown again')
   assert.equal(truncationBannerState(none, 0, 7).show, false, 'nothing to show at all')
   assert.equal(truncationBannerState({ ...none, clampedFields: 9, duplicateEvents: 9 }, 0, undefined).show, false, 'benign counters never trigger it')
+})
+
+test('truncationBannerState: a lower total brings a dismissed notice back from the relay, not from the VS Code extension (#605 review round 3, M2)', () => {
+  const none = createStats()
+  // Relay (#569): a total below the one dismissed at means the relay restarted or the graph was reloaded: a new loss
+  assert.equal(truncationBannerState(none, 7, 10).show, true, 'relay, default')
+  assert.equal(truncationBannerState(none, 7, 10, { source: 'relay' }).show, true, 'relay restarted: a new loss')
+  // Extension: the figure goes down while the page is open (a history read again reaches it): part of the loss dismissed
+  assert.equal(truncationBannerState(none, 7, 10, { source: 'extension' }).show, false, 'extension lowered its figure: still dismissed')
+  assert.equal(truncationBannerState(none, 7, 10, { source: 'extension' }).total, 7)
+  assert.equal(truncationBannerState(none, 10, 10, { source: 'extension' }).show, false, 'same total: still dismissed')
+  assert.equal(truncationBannerState(none, 11, 10, { source: 'extension' }).show, true, 'more lost: it comes back')
+  assert.equal(truncationBannerState(none, 7, undefined, { source: 'extension' }).show, true, 'never dismissed: shown')
+  assert.equal(truncationBannerState(none, 0, 10, { source: 'extension' }).show, false, 'nothing to show')
+})
+
+test('followDismissalDown: in the VS Code extension a dismissal follows a lower total, so a later rise is a new loss (#605 review round 3, M2)', () => {
+  const key = truncationDismissKey(null)
+  const at10 = new Map([[key, 10]])
+  assert.equal(followDismissalDown(at10, key, 10), at10, 'same total: unchanged')
+  assert.equal(followDismissalDown(at10, key, 12), at10, 'higher total: unchanged (the notice shows)')
+  assert.equal(followDismissalDown(new Map(), key, 3).size, 0, 'nothing dismissed: unchanged')
+  const at7 = followDismissalDown(at10, key, 7)
+  assert.equal(at7.get(key), 7, 'the figure went down to 7: the dismissal now holds at 7')
+  assert.equal(truncationBannerState(createStats(), 9, at7.get(key), { source: 'extension' }).show, true, '7 then 9: 2 events lost after the dismissal')
+  assert.equal(followDismissalDown(at10, key, 0).has(key), false, 'down to 0: the dismissal is let go')
 })
 
 test('boundedCount: a total over an incomplete graph reads "at least", a zero is never a clean zero (#366)', () => {

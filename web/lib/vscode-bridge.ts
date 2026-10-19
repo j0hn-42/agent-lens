@@ -114,7 +114,7 @@ class VSCodeBridge {
         break
 
       case 'event-loss': {
-        // Sent by the extension once per page, after the reset (#592): what that page will never receive; sent
+        // Sent by the extension after the reset (#592): what that page will never receive; sent
         // again, lower, when a session's history read again reaches the page (panel-loss.ts). It replaces the last
         // one. In relay mode the stream's own figure is read by the hook before it reaches the bridge, and a figure
         // kept here is not read (see onEventLoss).
