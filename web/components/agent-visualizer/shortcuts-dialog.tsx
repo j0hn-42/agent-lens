@@ -4,6 +4,9 @@ import { useEffect, useId, useRef } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { SHORTCUTS, SHORTCUT_GROUPS } from '@/lib/shortcuts'
+import { shortcutDescription, shortcutGroupName, shortcutKeyCap } from '@/lib/shortcuts-text'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import { GlassCard } from './glass-card'
 import { CloseButton, stopPropagationHandlers } from './shared-ui'
 
@@ -24,6 +27,8 @@ const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select
  * Escape closes it and focus returns to the previously focused element.
  */
 export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEnabledChange }: ShortcutsDialogProps) {
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof translate>[1]) => translate(locale, key)
   const ref = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const switchId = useId()
@@ -82,31 +87,32 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        lang={locale}
         tabIndex={-1}
         className="max-h-[calc(100vh-24px)] w-[420px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
       >
         <GlassCard visible={true}>
           <div className="mb-3 flex items-center justify-between">
             <h2 id={titleId} className="m-0 text-xs font-mono font-semibold" style={{ color: COLORS.textPrimary }}>
-              Keyboard shortcuts
+              {t('shortcut.title')}
             </h2>
-            <CloseButton onClick={onClose} />
+            <CloseButton onClick={onClose} label={t('common.close')} />
           </div>
 
           {SHORTCUT_GROUPS.map(group => (
-            <section key={group} aria-label={group} className="mb-3">
+            <section key={group} aria-label={shortcutGroupName(group, locale)} className="mb-3">
               <h3 className="m-0 mb-1 text-[11px] font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
-                {group}
+                {shortcutGroupName(group, locale)}
               </h3>
               <ul className="m-0 list-none p-0">
                 {SHORTCUTS.filter(s => s.group === group).map(s => (
                   <li key={s.key} className="flex items-center justify-between gap-3 py-0.5 text-xs font-mono">
-                    <span style={{ color: COLORS.textPrimary }}>{s.description}</span>
+                    <span style={{ color: COLORS.textPrimary }}>{shortcutDescription(s, locale)}</span>
                     <kbd
                       className="min-w-6 rounded px-1.5 py-0.5 text-center text-[11px]"
                       style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
                     >
-                      {s.display}
+                      {shortcutKeyCap(s, locale)}
                     </kbd>
                   </li>
                 ))}
@@ -124,9 +130,9 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
               className="mt-0.5 h-4 w-4 min-h-6 min-w-6 cursor-pointer"
             />
             <label htmlFor={switchId} className="cursor-pointer text-xs font-mono" style={{ color: COLORS.textPrimary }}>
-              Enable single-key shortcuts
+              {t('settings.singleKey')}
               <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>
-                Turn off if letter keys conflict with assistive technology. Esc always works.
+                {t('settings.singleKey.help')}
               </span>
             </label>
           </div>
