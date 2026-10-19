@@ -65,6 +65,8 @@ export class SessionWatcher implements AgentSessionWatcher {
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new vscode.EventEmitter<string>()
   private readonly _onSessionLifecycle = new vscode.EventEmitter<SessionLifecycleEvent>()
+  /** An unwatched session: rediscovered, its history is emitted again (#592) */
+  private readonly _onSessionReleased = new vscode.EventEmitter<string>()
 
   /** Tracking of one transcript, shared with the relay (claude-session-pipeline.ts) */
   private readonly pipeline = new ClaudeSessionPipeline({
@@ -95,6 +97,7 @@ export class SessionWatcher implements AgentSessionWatcher {
   readonly onHookEvent = this._onHookEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
+  readonly onSessionReleased = this._onSessionReleased.event
 
   /** Whether any session is actively being tailed */
   isActive(): boolean {
@@ -129,6 +132,8 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.reconciler.forgetSession(sessionId)
     this.sessions.delete(sessionId)
     this.teamWatcher?.forgetSession(sessionId)
+    // A transcript that grows again is attached anew and its history re-emitted (claude-session-pipeline.ts, attach)
+    this._onSessionReleased.fire(sessionId)
   }
 
   /**
@@ -572,5 +577,6 @@ export class SessionWatcher implements AgentSessionWatcher {
     this._onHookEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
+    this._onSessionReleased.dispose()
   }
 }

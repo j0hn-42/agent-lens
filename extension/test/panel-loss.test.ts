@@ -79,6 +79,78 @@ describe('PanelLossLedger (#592)', () => {
   })
 })
 
+describe('PanelLossLedger: a history read again is counted once, not twice (#592, #601 review)', () => {
+  const history = (l: PanelLossLedger, sid: string, n: number) => { for (let i = 0; i < n; i++) l.note(ev(sid, 'message', true)) }
+
+  it('a released session whose history comes again counts max(before, read again) plus what is new, never the sum', () => {
+    const l = new PanelLossLedger()
+    history(l, 'a', 5)
+    l.note(ev('a'))
+    l.release('a')
+    history(l, 'a', 4)
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { a: 6 } }, '6 counted before, 4 read again: still 6')
+    history(l, 'a', 3)
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { a: 7 } }, '7 read again (it grew): 7, not 13')
+    l.note(ev('a'))
+    l.note(ev('a'))
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { a: 9 } }, 'live events after the history are new')
+    l.release('a')
+    history(l, 'a', 2)
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { a: 9 } }, 'a second release keeps the floor')
+  })
+
+  it('without a release, history events are new events (first attach) and add up', () => {
+    const l = new PanelLossLedger()
+    history(l, 'a', 3)
+    history(l, 'a', 3)
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { a: 6 } })
+  })
+
+  it('a history read again while a page is open lowers that page\'s figure, once per burst, and empty clears it', () => {
+    const queued: (() => void)[] = []
+    const l = new PanelLossLedger(200, fn => queued.push(fn))
+    history(l, 'a', 3)
+    l.note(ev('b'))
+    const sent: unknown[] = []
+    assert.deepEqual(l.snapshotAfterReplay(() => {}, loss => sent.push(loss)), { evicted: { a: 3, b: 1 } })
+    l.release('a')
+    l.note(ev('a')) // live after the release: the page receives it live, it lacked nothing more and nothing less
+    history(l, 'a', 2)
+    assert.equal(queued.length, 1, 'one update for the burst')
+    queued.shift()!()
+    assert.deepEqual(sent, [{ evicted: { a: 1, b: 1 } }])
+    history(l, 'a', 5)
+    queued.shift()!()
+    assert.deepEqual(sent[1], { evicted: { b: 1 } }, 'never below zero')
+    l.release('b')
+    history(l, 'b', 1)
+    queued.shift()!()
+    assert.deepEqual(sent[2], { evicted: {} }, 'sent empty: the page drops its figure')
+  })
+
+  it('an update for a page that was replaced is not sent', () => {
+    const queued: (() => void)[] = []
+    const l = new PanelLossLedger(200, fn => queued.push(fn))
+    history(l, 'a', 3)
+    const first: unknown[] = []
+    l.snapshotAfterReplay(() => {}, loss => first.push(loss))
+    l.release('a')
+    history(l, 'a', 1)
+    l.snapshotAfterReplay(() => {}, () => {})
+    for (const fn of queued) fn()
+    assert.deepEqual(first, [])
+  })
+
+  it('releasing a session folded into otherEvents drops otherEvents (its share is unknown): a lower bound kept', () => {
+    const l = new PanelLossLedger(1)
+    history(l, 'old', 4)
+    history(l, 'new', 1) // old (4) is folded into otherEvents
+    l.release('old') // otherEvents dropped; old named again, which folds new (1)
+    history(l, 'old', 4)
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { old: 4 }, otherEvents: 1 }, 'old: 4, never 4 + 4')
+  })
+})
+
 describe('wireWatcherToPanel notes what no ready panel receives (#592)', () => {
   beforeEach(() => panelLoss.clear())
 

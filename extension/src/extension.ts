@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import { VisualizerPanel } from './webview-provider'
-import { panelLoss } from './panel-loss'
+import { startPanelPage } from './panel-start'
 import { JsonlEventSource } from './event-source'
 import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
@@ -14,7 +14,7 @@ import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
 import { getOperatorControl } from './operator-control'
 import { parseOpenTerminalMessage, openSessionTerminal, OPEN_TERMINAL_FAILURE_TEXT } from './open-terminal'
-import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
+import { forwardToPanel, type AgentRuntime, type AgentRuntimeMode } from './session-runtime'
 
 const log = createLogger('Extension')
 
@@ -232,34 +232,14 @@ function wirePanel(panel: VisualizerPanel): void {
         if (readyHandled) { return }
         readyHandled = true
         log.info('Webview ready')
-        // Allow events to flow before replay — replay emits through the
-        // same onEvent listener, and it's synchronous so no live events
-        // can interleave. Events before this point were gated (dropped),
-        // and replayExistingContent covers them from the JSONL file.
-        panel.markReady()
-        // Clear stale webview state from any previous panel instance
-        panel.postMessage({ type: 'reset', reason: 'panel-reopened' })
-        // Send environment-derived config (e.g. CLAUDE_CODE_DISABLE_1M_CONTEXT)
-        if (isDisable1MContext()) {
-          panel.postMessage({ type: 'config', config: { disable1MContext: true } })
-        }
-        // Hooks-configured flag for the empty-state checklist (read defensively, never throws)
-        panel.postMessage({ type: 'config', config: { hooksConfigured: areHooksConfigured() } })
-        // Report current connection status and replay active sessions
-        // Send session list FIRST so the webview selects a session
-        // before replay events arrive (otherwise they have no selected
-        // session to match and are only buffered, not delivered).
-        const sessions = collectActiveSessions()
-        // The replay only re-sends the agents: every other event emitted before this page is missing from it (#592).
-        // Synchronous, so no live event interleaves; what it re-sends is subtracted from the count
-        const loss = panelLoss.snapshotAfterReplay(() => {
-          if (sessions.length > 0) {
-            panel.postMessage({ type: 'session-list', sessions })
-            replaySessions(sessions.map(s => s.id))
-          }
+        // Order, replay and the loss figure of this page: panel-start.ts (#592). Nothing is read again: the events
+        // emitted before this page was ready are counted there, minus what the replay re-sends
+        startPanelPage(panel, {
+          collectActiveSessions, replaySessions,
+          disable1MContext: isDisable1MContext, hooksConfigured: areHooksConfigured,
+          connectionStatus: combinedConnectionStatus,
+          isCurrent: () => VisualizerPanel.getCurrent() === panel,
         })
-        if (loss) panel.postMessage({ type: 'event-loss', ...loss })
-        panel.setConnectionStatus('watching', combinedConnectionStatus())
         break
 
       case 'request-connect':
@@ -368,8 +348,7 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
   // Resolve the panel at event time: the log may be configured before any panel is open
   source.onEvent((event) => {
     // The file is not read again when a page opens: a later page never gets this event (#592)
-    panelLoss.note(event)
-    VisualizerPanel.getCurrent()?.sendEvent(event)
+    forwardToPanel(event, { requireReady: false })
   })
 
   source.onStatus((status) => {

@@ -103,10 +103,13 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
   private readonly _onSessionLifecycle = new TypedEventEmitter<SessionLifecycleEvent>()
+  /** A retired session forgotten for good: reattached, its history is read again from the start (#592) */
+  private readonly _onSessionReleased = new TypedEventEmitter<string>()
 
   readonly onEvent = this._onEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
+  readonly onSessionReleased = this._onSessionReleased.event
 
   /** Workspace path used as a filter — a session is attached only if its cwd or git_root is this
    *  path or inside it. Pass null/undefined to attach to any Copilot session. */
@@ -232,7 +235,7 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
       })
       if (this.retired.size > COPILOT_MAX_WATCHED_SESSIONS * 4) {
         const oldest = this.retired.keys().next().value
-        if (oldest !== undefined) this.retired.delete(oldest)
+        if (oldest !== undefined) { this.retired.delete(oldest); this._onSessionReleased.fire(oldest) }
       }
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
@@ -346,5 +349,6 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
     this._onEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
+    this._onSessionReleased.dispose()
   }
 }

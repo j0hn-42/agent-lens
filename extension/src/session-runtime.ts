@@ -74,6 +74,9 @@ export interface AgentSessionWatcher extends TypedDisposable {
   isSessionActive(sessionId: string): boolean
   getActiveSessions(): SessionInfo[]
   replaySessionStart(sessionIds?: string[]): void
+  /** A session whose read position the watcher forgot (#592): if it comes back, its history is emitted again
+   *  (`replayed`) and may repeat events emitted before. Absent for a watcher that never reads a history twice. */
+  readonly onSessionReleased?: TypedEvent<string>
 }
 
 /** A running runtime: its watcher, a status line describing its connection,
@@ -96,6 +99,25 @@ export interface WatchPanelWiringOptions {
 }
 
 /**
+ * Hand an event to the current panel (only once its page is ready, unless `requireReady` is false) and count it,
+ * delivered or not: a page that opens later gets a reset, never this event (#592, panel-loss.ts).
+ */
+export function forwardToPanel(event: AgentEvent, opts: { requireReady?: boolean } = {}): void {
+  panelLoss.note(event)
+  const panel = VisualizerPanel.getCurrent()
+  if (!panel || (opts.requireReady !== false && !panel.isReady)) return
+  panel.sendEvent(event)
+}
+
+/**
+ * The Claude hook events that survived reconciliation against the transcript, to the panel (#53, #592). Those the
+ * reconciler dropped never get here and are not counted: they may duplicate transcript events.
+ */
+export function wireHookEventsToPanel(watcher: { readonly onHookEvent: TypedEvent<AgentEvent> }): TypedDisposable {
+  return watcher.onHookEvent((event) => forwardToPanel(event))
+}
+
+/**
  * Wire a watcher's event/lifecycle streams to the current visualizer panel.
  * This is the boilerplate every runtime needs: forward events, broadcast
  * session list changes, and reflect session detection in the status bar.
@@ -112,13 +134,10 @@ export function wireWatcherToPanel(
 
   subs.push(watcher.onEvent((event) => {
     const transformed = options.transformEvent ? options.transformEvent(event) : event
-    if (!transformed) return
-    // Counted delivered or not: a page that opens later gets a reset, never this event (#592)
-    panelLoss.note(transformed)
-    const panel = VisualizerPanel.getCurrent()
-    if (!panel || !panel.isReady) return
-    panel.sendEvent(transformed)
+    if (transformed) forwardToPanel(transformed)
   }))
+  // Its history may come again: counted once, not twice (#592, panel-loss.ts)
+  if (watcher.onSessionReleased) subs.push(watcher.onSessionReleased((sessionId) => panelLoss.release(sessionId)))
 
   subs.push(watcher.onSessionDetected((sessionId) => {
     const panel = VisualizerPanel.getCurrent()
