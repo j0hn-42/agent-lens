@@ -740,6 +740,9 @@ const fr = {
   'cols.cost.valueEstimated': 'estimation du coût du contexte {money}, à partir de jetons estimés',
   'cols.cost.valueIncomplete': 'estimation du coût du contexte {money}, incomplète',
   'cols.cost.valueEstimatedIncomplete': 'estimation du coût du contexte {money}, à partir de jetons estimés, incomplète',
+  // Sous perte de rejeu (#591) : la cause est dite, pour distinguer « ? » de « ≥ » à l’oreille
+  'cols.cost.valueReplayLoss': 'estimation du coût du contexte {money}, événements perdus (incomplète)',
+  'cols.cost.valueEstimatedReplayLoss': 'estimation du coût du contexte {money}, à partir de jetons estimés, événements perdus (incomplète)',
   'cols.branch.none': 'branche non enregistrée',
   'cols.branch.value': 'branche {name}',
   'cols.runtime.none': 'runtime non communiqué',
@@ -991,6 +994,10 @@ const fr = {
   'shortcut.graph.fit': 'Ajuster le zoom au graphe',
   'shortcut.graph.open': 'Ouvrir les détails du nœud ayant le focus',
   'shortcut.graph.menu': 'Ouvrir le menu contextuel du nœud ayant le focus',
+
+  // Totaux sous perte de rejeu (#591) : une lecture de contexte est absolue, jamais « au moins »
+  'usage.incomplete': '{v} (incomplet)',
+  'usage.incompleteEstimated': '{v} estimé (incomplet)',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -1718,6 +1725,9 @@ const en: Record<MessageKey, string> = {
   'cols.cost.valueEstimated': `${COST_LABELS.name} {money}, from estimated tokens`,
   'cols.cost.valueIncomplete': `${COST_LABELS.name} {money}, ${INCOMPLETE}`,
   'cols.cost.valueEstimatedIncomplete': `${COST_LABELS.name} {money}, from estimated tokens, ${INCOMPLETE}`,
+  // Under replay loss (#591): the cause is named, so "?" and "≥" differ to the ear as they do to the eye
+  'cols.cost.valueReplayLoss': `${COST_LABELS.name} {money}, events lost (${INCOMPLETE})`,
+  'cols.cost.valueEstimatedReplayLoss': `${COST_LABELS.name} {money}, from estimated tokens, events lost (${INCOMPLETE})`,
   'cols.branch.none': 'branch not recorded',
   'cols.branch.value': 'branch {name}',
   'cols.runtime.none': 'runtime not reported',
@@ -1965,6 +1975,10 @@ const en: Record<MessageKey, string> = {
   'shortcut.graph.fit': 'Zoom to fit the graph',
   'shortcut.graph.open': 'Open details of the focused node',
   'shortcut.graph.menu': 'Open the context menu of the focused node',
+
+  // Totals under replay loss (#591): a context reading is absolute, never "at least"
+  'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
+  'usage.incompleteEstimated': `{v} ${USAGE_LABELS.estimated} ${USAGE_LABELS.incomplete}`,
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

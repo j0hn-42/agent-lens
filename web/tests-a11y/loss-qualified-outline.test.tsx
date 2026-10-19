@@ -35,10 +35,11 @@ test('nothing lost: the outline reads as before (no noise)', () => {
   assert.doesNotMatch(text, /at least|incomplete/)
 })
 
-test('events lost for the agent\'s session: "at least N tool calls" and a lower-bound cost', () => {
+test('events lost for the agent\'s session: "at least N tool calls" and an incomplete cost (#591)', () => {
   const text = outline([agent('s1:a', 's1')], new Map([['s1', 6]]))
   assert.match(text, /at least 13 tool calls\./)
-  assert.match(text, /context cost estimate at least /)
+  assert.match(text, /context cost estimate \S+ \(incomplete\)/)
+  assert.doesNotMatch(text, /context cost estimate at least/)
 })
 
 test('a zero count is "no tool call observed (incomplete)", never a clean zero', () => {
@@ -62,10 +63,12 @@ test('the token line of an agent is the last reading, incomplete, when its sessi
   assert.doesNotMatch(plain, /at least 150k/)
 })
 
-test('the heading of a session halo reads its cost as a lower bound when that session lost events', () => {
+test('the heading of a session halo reads its cost as incomplete (no lower bound) when that session lost events (#591)', () => {
   // Two sessions: each gets a halo heading, and the agent rows follow it
   const text = outline([agent('s1:a', 's1'), agent('s2:b', 's2')], new Map([['s1', 6]]))
-  // The agent of s1 and the halo of s1: two lower bounds; the agent and the halo of s2 stay plain
-  assert.equal((text.match(/context cost estimate at least /g) ?? []).length, 2, text)
-  assert.equal((text.match(/context cost estimate (?!at least)/g) ?? []).length, 2, text)
+  // The agent of s1 and the halo of s1: two incomplete costs; the agent and the halo of s2 stay plain
+  assert.equal((text.match(/context cost estimate \S+ \(incomplete\)/g) ?? []).length, 2, text)
+  // Exactly the two plain costs of s2: the figure is matched whole, so it cannot give back a character to dodge the lookahead
+  assert.equal((text.match(/context cost estimate \$[\d.]+(?! \(incomplete\)|[\d.])/g) ?? []).length, 2, text)
+  assert.doesNotMatch(text, /context cost estimate at least/)
 })

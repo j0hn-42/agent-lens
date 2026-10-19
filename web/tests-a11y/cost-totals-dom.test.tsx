@@ -129,10 +129,11 @@ test('Cost panel open, no loss: a named region holds the totals as text, in Engl
   assert.doesNotMatch(p.textContent ?? '', /at least/)
 })
 
-test('Cost panel open, events lost: the DOM totals say "at least", like the drawing', async () => {
+test('Cost panel open, events lost: the DOM totals say "(incomplete)", like the drawing (#591)', async () => {
   const r = await mount({ s1: 7 })
-  assert.ok(drawn.some(t => /^at least .* ctx tokens$/.test(t)), `canvas header: ${JSON.stringify(drawn)}`)
-  assert.match(panel(r)?.textContent ?? '', /at least/)
+  assert.ok(drawn.some(t => /^[\d.]+[kM]? ctx tokens \(incomplete\)$/.test(t)), `canvas header: ${JSON.stringify(drawn)}`)
+  assert.match(panel(r)?.textContent ?? '', /\(incomplete\)/)
+  assert.doesNotMatch(panel(r)?.textContent ?? '', /at least/)
 })
 
 test('French: the region, its name and the qualifiers are French, lang declared', async () => {
@@ -142,9 +143,9 @@ test('French: the region, its name and the qualifiers are French, lang declared'
   assert.ok(p)
   assert.equal(p.getAttribute('lang'), 'fr')
   assert.equal(p.getAttribute('aria-label'), 'Totaux du coût')
-  assert.match(p.textContent ?? '', /au moins/)
+  assert.match(p.textContent ?? '', /\(incomplet\)/)
   assert.match(p.textContent ?? '', /jetons dans le contexte/)
-  assert.doesNotMatch(p.textContent ?? '', /at least|tokens in context/)
+  assert.doesNotMatch(p.textContent ?? '', /at least|au moins|incomplete|tokens in context/)
 })
 
 test('Cost panel closed: no region, and the top bar still reads the totals (the only place without a panel)', async () => {
@@ -205,11 +206,11 @@ test('full screen: the canvas still draws the Cost panel, and the region keeps i
   drawn = []
   await wait(400)
   assert.ok(r.getByRole('button', { name: 'Exit full screen' }), 'precondition: full screen is on')
-  assert.ok(drawn.some(t => /ctx tokens$/.test(t)), `precondition: the canvas draws the Cost panel in full screen: ${JSON.stringify(drawn)}`)
+  assert.ok(drawn.some(t => /ctx tokens( \(incomplete\))?$/.test(t)), `precondition: the canvas draws the Cost panel in full screen: ${JSON.stringify(drawn)}`)
   const p = panel(r)
   assert.ok(p, 'the totals keep a DOM equivalent in full screen')
-  assert.match(p.textContent ?? '', /at least/)
-  assert.match(p.textContent ?? '', /120k tokens in context/)
+  assert.match(p.textContent ?? '', /\(incomplete\)/)
+  assert.match(p.textContent ?? '', /120k tokens in context \(incomplete\)/)
 })
 
 test('French: the unattributed part reads "estimé", with a word for the "~" of the drawing ("environ")', async () => {

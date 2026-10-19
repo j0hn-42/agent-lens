@@ -42,7 +42,7 @@ export interface RollupTotal {
   estimated: boolean
   /**
    * True when the relay could not replay events of a session the total counts (#366). The token sum adds context
-   * readings, which are absolute (a lost compaction can lower one): it is then incomplete but no lower bound.
+   * readings, which are absolute (a lost compaction can lower one), and the cost prices them (#591): both are then incomplete, neither a lower bound.
    */
   replayLoss?: boolean
 }
@@ -125,7 +125,7 @@ export function rollupFamily(roots: ReadonlyArray<AgentNode<CostAgent>>): Rollup
 
 /**
  * A total over a graph that may be incomplete (#366): with events the relay could not replay (`lost` > 0) the total is
- * flagged incomplete ("(incomplete)") and `replayLoss` (the token cell then claims no direction). The sums are unchanged.
+ * flagged incomplete ("(incomplete)") and `replayLoss` (the token and cost cells then claim no direction). The sums are unchanged.
  */
 export function rollupUnderLoss(total: RollupTotal, lost: number): RollupTotal {
   return lost > 0 ? { ...total, complete: false, replayLoss: true } : total

@@ -201,6 +201,7 @@ export function drawCostSummaryPanel(
   // Per-tool-type breakdown, costed at the owning agent's model rate
   // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
   const toolBreakdown = new Map<string, { tokens: number; cost: number; estimated: boolean; missing: boolean }>()
+  // (BY TOOL rows add per-call costs: a lost call can only add, so "at least" is proven there, unlike the context-priced figures above, #591)
   for (const [, tc] of toolCalls) {
     const entry = toolBreakdown.get(tc.toolName) || { tokens: 0, cost: 0, estimated: false, missing: false }
     // A call of a session whose events were lost makes the figure of its tool a lower bound (#366)

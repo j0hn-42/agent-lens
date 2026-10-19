@@ -1,4 +1,4 @@
-// #366: the cost on a session or team halo is a lower bound ("at least") when the relay could not replay events of
+// #366, #591: the cost on a session or team halo is "(incomplete)", never "at least" when the relay could not replay events of
 // one of the sessions the halo counts; the halo of a session that lost nothing keeps its plain figure.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -34,12 +34,13 @@ test('without a loss the halo cost is the plain estimate', () => {
   assert.deepEqual(none.map(c => c.costText), clusters.map(c => c.costText))
 })
 
-test('the halo of a session that lost events reads "at least", the other one does not', () => {
+test('the halo of a session that lost events reads "(incomplete)", never "at least", the other one does not', () => {
   const clusters = computeClusters(fleet(), undefined, { replayLost: new Map([['s1', 7]]) })
   const s1 = clusters.find(c => c.key === 'session:s1')!
   const s2 = clusters.find(c => c.key === 'session:s2')!
-  assert.match(s1.costText, /^at least ~\$/)
-  assert.match(s1.costSpoken, /at least/)
+  assert.match(s1.costText, /^~\$[\d.]+ \(incomplete\)$/)
+  assert.match(s1.costSpoken, /\(incomplete\)$/)
+  assert.doesNotMatch(s1.costText + s1.costSpoken, /at least/, 'a lost compaction can lower the cost: no lower bound')
   assert.match(s2.costText, /^~\$/, 'the loss of s1 is not s2\'s')
   assert.doesNotMatch(s2.costSpoken, /at least/)
   assert.equal(s1.cost, computeClusters(fleet()).find(c => c.key === 'session:s1')!.cost, 'the figure itself is unchanged, only qualified')
@@ -60,9 +61,9 @@ test('a team halo is a lower bound when any of its member sessions lost events, 
   ]
   const lossOfMember = computeClusters(drawn, teams, { replayLost: new Map([['M1', 2]]) })
   assert.equal(lossOfMember.length, 1)
-  assert.match(lossOfMember[0].costText, /^at least ~\$/)
+  assert.match(lossOfMember[0].costText, /^~\$[\d.]+ \(incomplete\)$/)
   // The halo sums its cost over every agent of the simulation (a collapsed branch included): a hidden agent's session counts too
   const hidden = agent({ id: 'L1:sub', sessionId: 'L1', parentId: 'L1:lead', x: 10 })
   const viaCostAgents = computeClusters(drawn, teams, { costAgents: [...drawn, hidden], replayLost: new Map([['L1', 1]]) })
-  assert.match(viaCostAgents[0].costText, /^at least ~\$/)
+  assert.match(viaCostAgents[0].costText, /^~\$[\d.]+ \(incomplete\)$/)
 })

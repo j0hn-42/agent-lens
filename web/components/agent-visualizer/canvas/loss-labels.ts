@@ -19,7 +19,7 @@ export function agentReplayLost(lost: ReadonlyMap<string, number> | undefined, a
   return replayLostForAgents(lost, [agent])
 }
 
-/** Cost of an agent as its pill and the Cost panel row read it: a lower bound when its session lost events. */
+/** Cost of an agent as its pill and the Cost panel row read it: incomplete (no direction claimed, #591) when its session lost events. */
 export function agentCostUsageUnderLoss(agent: Lossy & Parameters<typeof agentCostUsage>[0], lost: ReadonlyMap<string, number> | undefined): UsageTotal {
   return usageUnderLoss(agentCostUsage(agent), agentReplayLost(lost, agent))
 }

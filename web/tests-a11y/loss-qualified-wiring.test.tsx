@@ -108,13 +108,15 @@ test('no event lost: the totals, the outline and the canvas read as before (no n
   assert.ok(!drawn.some(t => /at least/.test(t)), `no qualifier on the canvas: ${JSON.stringify(drawn)}`)
 })
 
-test('events lost for the session: the spoken totals, the outline and the canvas all say "at least"', async () => {
+test('events lost for the session: tool counts say "at least", the cost and ctx tokens (absolute readings) say "(incomplete)"', async () => {
   const r = await mount({ s1: 7 })
-  assert.match(spoken(r), /at least/, `top bar, read aloud: ${spoken(r)}`)
+  assert.match(spoken(r), /\(incomplete\)/, `top bar, read aloud: ${spoken(r)}`)
+  assert.doesNotMatch(spoken(r), /at least/, `no lower bound on an absolute reading: ${spoken(r)}`)
   assert.match(outline(r), /at least 1 tool call\./, `outline: ${outline(r)}`)
   assert.ok(drawn.some(t => /^at least 1 tool/.test(t)), `canvas stats: ${JSON.stringify(drawn)}`)
-  assert.ok(drawn.some(t => /^at least ~\$/.test(t)), `cost pill or Cost panel: ${JSON.stringify(drawn)}`)
-  assert.ok(drawn.some(t => /^at least .* ctx tokens$/.test(t)), `header of the Cost panel: ${JSON.stringify(drawn)}`)
+  assert.ok(drawn.some(t => /^~\$[\d.]+ \(incomplete\)$/.test(t)), `cost pill or Cost panel: ${JSON.stringify(drawn)}`)
+  assert.ok(drawn.some(t => /^[\d.]+[kM]? ctx tokens \(incomplete\)$/.test(t)), `header of the Cost panel: ${JSON.stringify(drawn)}`)
+  assert.ok(!drawn.some(t => /^at least .*(~\$|ctx tokens)/.test(t)), `no "at least" on a cost or ctx tokens: ${JSON.stringify(drawn)}`)
 })
 
 test('a loss that names another session qualifies nothing of this view', async () => {
@@ -141,5 +143,5 @@ test('usage that belongs to no agent of the view, in a session that lost events,
   await act(async () => { FakeES.last.send(ev('s1', 'context_update', { agent: 'ghost', tokens: 900_000, tokenSource: 'reported' }, 1)) })
   await wait(700)
   assert.match(spoken(r), /900k/, `precondition: the orphan usage is in the totals (${spoken(r)})`)
-  assert.match(spoken(r), /at least/, `qualified: ${spoken(r)}`)
+  assert.match(spoken(r), /\(incomplete\)/, `qualified: ${spoken(r)}`)
 })

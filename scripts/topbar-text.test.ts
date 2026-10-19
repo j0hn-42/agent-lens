@@ -199,3 +199,15 @@ test('scope: English is unchanged, French says the same limits with the same fig
   assert.deepEqual(scopeOptions(sessions, 'fr').map(o => o.label), ['Cet espace de travail', 'Tous les espaces de travail', 'Projet : Alpha'])
   assert.deepEqual(scopeOptions(sessions, 'fr').map(o => o.value), scopeOptions(sessions).map(o => o.value))
 })
+
+test('topBarContextText: tokens both partial and under loss read "(incomplete)", never "at least", en and fr (#591 review)', () => {
+  const tokens: UsageTotal = { value: 120_000, status: 'partial', estimated: false, incomplete: true }
+  const cost: UsageTotal = { value: 1, status: 'available', estimated: true }
+  const en = topBarContextText(tokens, cost, 'en').tokens
+  const fr = topBarContextText(tokens, cost, 'fr').tokens
+  assert.match(en, /^120k tokens in context \(incomplete\)$/)
+  assert.doesNotMatch(fr, /au moins/i)
+  assert.match(fr, /120k.*\(incomplet\)$/)
+  // Without loss, the partial total keeps its lower bound
+  assert.match(topBarContextText({ ...tokens, incomplete: false }, cost, 'en').tokens, /at least 120k/)
+})

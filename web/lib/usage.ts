@@ -12,6 +12,11 @@ export interface UsageTotal {
   value: number | null
   status: UsageStatus
   estimated: boolean
+  /**
+   * The relay could not replay events of a session this figure counts (#366, #591). A figure priced from context readings
+   * is absolute (a lost compaction can lower it), so it is no lower bound: it reads "(incomplete)", never "at least".
+   */
+  incomplete?: boolean
 }
 
 export { USAGE_LABELS }
@@ -31,15 +36,17 @@ export function combineUsage(parts: Iterable<UsageTotal>): UsageTotal {
   let known = 0
   let degraded = false
   let estimated = false
+  let incomplete = false
   for (const p of parts) {
     if (p.value === null || p.status === 'unavailable') { degraded = true; continue }
     sum += p.value
     known++
     if (p.status === 'partial') degraded = true
     if (p.estimated) estimated = true
+    if (p.incomplete) incomplete = true
   }
   if (known === 0) return unavailable()
-  return { value: sum, status: degraded ? 'partial' : 'available', estimated }
+  return { value: sum, status: degraded ? 'partial' : 'available', estimated, ...(incomplete ? { incomplete } : {}) }
 }
 
 /** An agent's token status; without an explicit one (legacy) it is inferred from the counter. */
@@ -62,8 +69,9 @@ export function withValue(usage: UsageTotal, value: number | null): UsageTotal {
 /** Qualifies any figure derived from a usage total (a percentage, a ratio) the way the total itself is. */
 export function qualify(usage: UsageTotal, text: string): string {
   if (usage.value === null || usage.status === 'unavailable') return USAGE_LABELS.unavailable
-  const lead = usage.status === 'partial' ? `${USAGE_LABELS.atLeast} ` : ''
-  const tail = usage.estimated ? ` ${USAGE_LABELS.estimated}` : ''
+  // Incomplete (replay loss) claims no direction: never "at least" (#591)
+  const lead = usage.status === 'partial' && !usage.incomplete ? `${USAGE_LABELS.atLeast} ` : ''
+  const tail = `${usage.estimated ? ` ${USAGE_LABELS.estimated}` : ''}${usage.incomplete ? ` ${USAGE_LABELS.incomplete}` : ''}`
   return `${lead}${text}${tail}`
 }
 
@@ -73,7 +81,11 @@ export function formatTokenUsage(usage: UsageTotal): string {
 
 /** "at least 5.3M estimated ctx tokens": the token total of the Cost panel, the size of the contexts now (#545 review). */
 export function formatCtxTokenUsage(usage: UsageTotal): string {
-  return `${formatTokenUsage(usage)} ${CTX_TOKENS_LABELS.unit}`
+  // The unit stays next to the figure: "120k ctx tokens (incomplete)", not "120k (incomplete) ctx tokens" (#591)
+  const unitless = usage.incomplete && usage.value !== null && usage.status !== 'unavailable'
+  // The copy drops the loss qualifier only to move it after the unit: it must not fall back to the "at least" of a partial
+  // total, since a loss claims no lower bound (#591 review)
+  return unitless ? `${formatTokenUsage({ ...usage, status: 'available', incomplete: false })} ${CTX_TOKENS_LABELS.unit} ${USAGE_LABELS.incomplete}` : `${formatTokenUsage(usage)} ${CTX_TOKENS_LABELS.unit}`
 }
 
 /** "~$2.10": a cost is always the context priced at a blended rate, an estimate even on reported tokens (#364). */

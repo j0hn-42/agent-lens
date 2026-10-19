@@ -145,17 +145,21 @@ export function sessionTimeCell(s: SessionSpan, now: number, relayOffline = fals
   return { text, label: tr(locale, key, { d: text }), empty: false }
 }
 
-/** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
+/** Cost of an agent, session or branch total; a lower bound (≥), an estimate (~) or a replay loss (?) says so in words too. */
 export function costCell(total: RollupTotal | null | undefined, locale: Locale = 'en'): ColumnCell {
   if (!total || total.known === 0) return emptyCell(tr(locale, 'cols.cost.none'))
   const money = formatCost(total.cost)
   // Always "~": the cost is the context priced at a blended rate, an estimate even on reported tokens (#364)
-  const mark = `${total.complete ? '' : '≥'}${COST_LABELS.mark}`
+  // A cost is the context priced, as absolute as the tokens: under a replay loss "?" and "incomplete", never "≥" (#591)
+  const mark = `${total.complete || total.replayLoss ? '' : '≥'}${COST_LABELS.mark}`
   // Same order as every other spoken cost: "context cost estimate $X", then what qualifies it
-  const key = total.estimated
-    ? (total.complete ? 'cols.cost.valueEstimated' : 'cols.cost.valueEstimatedIncomplete')
-    : (total.complete ? 'cols.cost.value' : 'cols.cost.valueIncomplete')
-  return { text: `${mark}${money}`, label: tr(locale, key, { money }), empty: false }
+  // A replay loss names its cause, so a screen reader tells "?" from "≥" as the eye does (#591 review)
+  const key = total.replayLoss
+    ? (total.estimated ? 'cols.cost.valueEstimatedReplayLoss' : 'cols.cost.valueReplayLoss')
+    : total.estimated
+      ? (total.complete ? 'cols.cost.valueEstimated' : 'cols.cost.valueEstimatedIncomplete')
+      : (total.complete ? 'cols.cost.value' : 'cols.cost.valueIncomplete')
+  return { text: `${mark}${money}${total.replayLoss ? '?' : ''}`, label: tr(locale, key, { money }), empty: false }
 }
 
 /** Branch recorded at the start of the session; a dash when it was not recorded. */
