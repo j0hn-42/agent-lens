@@ -24,7 +24,7 @@ import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
-import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss } from '@/lib/event-loss'
+import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss, type LossSource } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
 import { parseQuotaMessage, acceptQuota } from '@/lib/quota'
@@ -141,6 +141,10 @@ interface BridgeHookResult {
   eventLoss: EventLoss | null
   /** Events of the selection the relay could not replay (0 when none is proven), see lib/event-loss */
   replayLost: number
+  /** Where the figure of eventLoss comes from: 'extension' without a relay stream (VS Code, #592; the demo has no figure),
+   *  else 'relay'. The VS Code extension lowers its figure while the page is open; the relay's only goes down when it
+   *  restarts or the graph is reloaded (see truncationBannerState, whose rule depends on it). */
+  eventLossSource: LossSource
   /**
    * Sessions a union view counts (#366): a team's sessions, or the ones All shows (null = every session). The scope of
    * replayLost, and of the normalizer counters the truncation notice adds up. Unused for a single session.
@@ -452,7 +456,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   useEffect(() => {
     if (!relayEnabled || source.status !== 'connected') setSystemStats(prev => (prev.length > 0 ? [] : prev))
   }, [relayEnabled, source.status])
-  // Without a relay stream the figure is the extension's (VS Code, #592: once per page, emptied by its reset), none in
+  // Without a relay stream the figure is the extension's (VS Code, #592: after its reset, then lower when a history read again reaches the page; emptied by the reset), none in
   // the demo; with one, a cut link keeps the relay's figure, since the graph keeps its hole
   useEffect(() => {
     if (relayEnabled) return
@@ -835,6 +839,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     quota,
     eventLoss,
     replayLost,
+    // The same switch as the effect that reads the figure: without a relay stream it is the extension's (none in the demo)
+    eventLossSource: (relayEnabled ? 'relay' : 'extension') as LossSource,
     viewSessionIds,
   }
 }

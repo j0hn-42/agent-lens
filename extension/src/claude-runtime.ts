@@ -20,7 +20,6 @@ import { OperatorControl, setOperatorControl } from './operator-control'
 import { discoveryDir } from './claude-config-dir'
 import { SessionWatcher } from './session-watcher'
 import { VisualizerPanel } from './webview-provider'
-import { panelLoss } from './panel-loss'
 import { AgentEvent } from './protocol'
 import {
   ORCHESTRATOR_NAME, HOOK_SERVER_NOT_STARTED,
@@ -32,7 +31,7 @@ import {
 import { purgeStaleDiscoveryFiles } from './discovery-purge'
 import { createLogger } from './logger'
 import { filterOrchestratorCompletion } from './orchestrator-completion'
-import { wireWatcherToPanel } from './session-runtime'
+import { wireWatcherToPanel, wireHookEventsToPanel } from './session-runtime'
 import type { AgentRuntime } from './session-runtime'
 
 const log = createLogger('ClaudeRuntime')
@@ -101,13 +100,7 @@ export async function startClaudeRuntime(
   // already reported (or reports later) is dropped, and events arriving while a session history is
   // loaded are held and replayed deduplicated. Survivors come back on watcher.onHookEvent.
   if (hookPort !== HOOK_SERVER_NOT_STARTED) {
-    context.subscriptions.push(watcher.onHookEvent((event) => {
-      // A page that opens later gets a reset, never this event (#592). Hook events dropped below (no ready panel)
-      // never get here and are not counted: they may duplicate transcript events, so the count stays a lower bound
-      panelLoss.note(event)
-      const panel = VisualizerPanel.getCurrent()
-      if (panel && panel.isReady) panel.sendEvent(event)
-    }))
+    context.subscriptions.push(wireHookEventsToPanel(watcher))
     hookServer.onEvent((event) => {
       const panel = VisualizerPanel.getCurrent()
       if (!panel || !panel.isReady) return

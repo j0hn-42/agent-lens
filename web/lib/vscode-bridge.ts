@@ -114,8 +114,10 @@ class VSCodeBridge {
         break
 
       case 'event-loss': {
-        // Sent by the extension once per page, after the reset (#592): what that page will never receive. In
-        // relay mode the stream's own figure is read by the hook before it reaches the bridge.
+        // Sent by the extension after the reset (#592): what that page will never receive; sent
+        // again, lower, when a session's history read again reaches the page (panel-loss.ts). It replaces the last
+        // one. In relay mode the stream's own figure is read by the hook before it reaches the bridge, and a figure
+        // kept here is not read (see onEventLoss).
         const next = acceptEventLoss(1, this._eventLoss, parseEventLoss(data))
         if (next === this._eventLoss) break
         this._eventLoss = next
@@ -243,11 +245,17 @@ class VSCodeBridge {
     return this.subscribe(this.permissionListeners, callback)
   }
 
-  /** The extension's figure of what the page lacks (#592); `eventLoss` holds the last one */
+  /**
+   * The extension's figure of what the page lacks (#592); `eventLoss` holds the last one. Contract: it describes the
+   * page only WITHOUT a relay stream. The bridge keeps whatever `event-loss` reaches it (a frame can send one in relay
+   * mode too), so a reader must check that no relay stream is in use first, as useVSCodeBridge does; with a relay, the
+   * relay's figure is the only one (read from the stream by the hook, never from here).
+   */
   onEventLoss(callback: EventLossCallback): () => void {
     return this.subscribe(this.eventLossListeners, callback)
   }
 
+  /** See onEventLoss: meaningful only without a relay stream */
   get eventLoss(): EventLoss | null { return this._eventLoss }
 
   // ─── Send commands to extension ──────────────────────────────────────────

@@ -221,9 +221,10 @@ export type ExtensionToWebviewMessage =
    *  `gap`: only for a client back with `?since=` from this relay process, per session, the events numbered after
    *  `since` that it will never receive (evicted, or left out by this replay's cap): a lower bound, to ADD to what the
    *  client already knows it lacks.
-   *  The VS Code extension (no relay, #592) sends it once per page, after `reset` and the agents it re-sends: per
-   *  session, the events emitted before that page was ready that it will never receive (see panel-loss.ts). No `gap`
-   *  there: a page lives as long as its panel, there is no cut link to resume. */
+   *  The VS Code extension (no relay, #592) sends it after `reset` and the agents it re-sends: per session, the events
+   *  emitted before that page was ready that it will never receive (see panel-loss.ts); then again, lower (REPLACE),
+   *  while that page is open, each time a session's history read again reaches it. Never `otherEvents` (sessions past
+   *  its cap are dropped from the figure) and no `gap`: a page lives as long as its panel, there is no cut link to resume. */
   | { type: 'event-loss'; evicted: Record<string, number>; otherEvents?: number; gap?: Record<string, number> }
   /** Relay only, once per /events connection after `event-loss` and before the replay (#366): the relay process and
    *  the number of the last event it delivered. A client sends it back as `?since=<instance>.<seq>` when it reconnects,

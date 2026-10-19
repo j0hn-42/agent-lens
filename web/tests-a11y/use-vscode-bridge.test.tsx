@@ -350,17 +350,24 @@ test('event-loss (#366): outside relay mode there is none', () => {
   assert.equal(result.current.replayLost, 0)
 })
 
-test('event-loss (#592): in VS Code (no relay) the figure comes from the extension, once per page; a reset empties it', async () => {
+test('event-loss (#592): in VS Code (no relay) the figure comes from the extension, after each reset and again when it goes down; a reset empties it', async () => {
   const { result } = renderHook(() => useVSCodeBridge())
   assert.equal(FakeES.all.length, 0, 'no relay stream')
   assert.equal(result.current.eventLoss, null)
-  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 }, otherEvents: 2 }))
-  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 })
+  assert.equal(result.current.eventLossSource, 'extension', 'the figure goes down while the page is open: a lower total is no new loss (#605 review round 3)')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 })
   const now = Date.now()
   await act(async () => realDispatch({ type: 'session-list', sessions: [{ id: 'a', label: 'a', status: 'active', startTime: now, lastActivityTime: now }] }))
   assert.equal(result.current.replayLost, 3, 'the same surfaces as with the relay: All counts the sessions it shows')
   await act(async () => realDispatch({ type: 'event-loss', evicted: 'junk' }))
-  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a message that does not parse never clears a figure')
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 }, 'a message that does not parse never clears a figure')
+  // A session's history read again reached the page: the extension sends the page's figure again, lower; it replaces
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 1 } }))
+  assert.equal(result.current.replayLost, 1)
+  await act(async () => realDispatch({ type: 'event-loss', evicted: {} }))
+  assert.equal(result.current.replayLost, 0, 'sent empty: nothing is claimed any more')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
   // The extension resets the graph when a new page is ready, then sends that page's figure (or none)
   await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
   assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
@@ -383,6 +390,7 @@ test('event-loss (#592): with a relay stream, a figure from the frame is ignored
   await act(async () => FakeES.last.open())
   await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
   assert.equal(result.current.eventLoss, null)
+  assert.equal(result.current.eventLossSource, 'relay', 'a lower relay total is a restarted relay: a new loss (#569)')
   await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
 })
 
