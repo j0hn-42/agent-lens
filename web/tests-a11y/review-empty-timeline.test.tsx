@@ -5,6 +5,7 @@ import React from 'react'
 import { render, cleanup, fireEvent, renderHook, act } from '@testing-library/react'
 import { useReviewControls } from '@/hooks/use-review-controls'
 import axe from 'axe-core'
+import { setLocaleChoice } from '@/lib/locale'
 
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 
@@ -88,8 +89,15 @@ test('in review, Pause still works when a reload emptied the timeline (#383 revi
   assert.ok(!toasts.some(m => /no events/i.test(m)))
 })
 
-test('the reason carries lang="en" (not translated yet) so a French screen reader does not use a French voice', () => {
-  const { getByRole, container } = bar(0, noop)
-  const reason = container.ownerDocument.getElementById(getByRole('button', { name: 'Pause and review history' }).getAttribute('aria-describedby')!)
-  assert.equal(reason?.getAttribute('lang'), 'en')
+test('the reason is written in the language of the bar (catalog text, no foreign lang), so a screen reader uses the right voice', () => {
+  for (const [locale, name, text] of [['en', 'Pause and review history', 'No events to review yet'], ['fr', 'Revue : mettre en pause et revoir l’historique', 'Aucun événement à revoir pour l’instant']] as const) {
+    setLocaleChoice(locale)
+    const { getByRole, container } = bar(0, noop)
+    const reason = container.ownerDocument.getElementById(getByRole('button', { name }).getAttribute('aria-describedby')!)
+    assert.equal(reason?.textContent, text, locale)
+    assert.equal(reason?.getAttribute('lang'), null, `${locale}: it inherits the lang of the bar`)
+    assert.equal(reason?.closest('[lang]')?.getAttribute('lang'), locale, `${locale}: the bar declares its language`)
+    cleanup()
+  }
+  setLocaleChoice('auto')
 })

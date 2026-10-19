@@ -256,13 +256,30 @@ export const WORKFLOW_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 1.8, type: 'agent_activity', payload: { name: 'build-b', activity: 'working' } },
 ]
 
+// ?scenario=team10: an orchestrator and nine teammates of one team, all alive, with a context reading each.
+// Fixture of the label e2e on a real font (#593); it adds no product behavior.
+const TEAM10_NAMES = [
+  'explore-agent', 'research-agent', 'security-reviewer', 'test-runner', 'migration-planner',
+  'api-contract-checker', 'docs-writer', 'lint-fixer', 'performance-profiler',
+]
+const TEAM10_MOCK_SCENARIO: SimulationEvent[] = [
+  { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Coordinate the release team' } },
+  { time: 0.1, type: 'context_update', payload: { agent: 'orchestrator', tokens: 4300, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 1000, reasoning: 1100, subagentResults: 0 } } },
+  ...TEAM10_NAMES.flatMap((name, i): SimulationEvent[] => [
+    { time: 0.2 + i * 0.1, type: 'agent_spawn', payload: { name, kind: 'teammate', teamName: 'release', teamKind: 'team', parent: 'orchestrator', task: `Task of ${name}` } },
+    { time: 0.25 + i * 0.1, type: 'context_update', payload: { agent: name, tokens: 1800 + i * 1300, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: i * 1300, reasoning: 0, subagentResults: 0 } } },
+    { time: 0.3 + i * 0.1, type: 'agent_activity', payload: { name, activity: 'working' } },
+  ]),
+]
+
 const SCENARIO_NAME = getScenarioName()
 
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
   : SCENARIO_NAME === 'tour' ? TOUR_SCENARIO
   : SCENARIO_NAME === 'guided' ? GUIDED_SCENARIO
-  : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
+  : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO
+  : SCENARIO_NAME === 'team10' ? TEAM10_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
 
 /** True when the step-by-step guided demo (?scenario=guided) is the active scenario. */
 export const IS_GUIDED_DEMO = !stressLevel && SCENARIO_NAME === 'guided'
