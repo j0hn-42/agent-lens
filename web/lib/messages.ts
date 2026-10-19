@@ -1290,6 +1290,8 @@ const fr = {
   'usage.incomplete': '{v} (incomplet)',
   'usage.incompleteEstimated': '{v} estimé (incomplet)',
 
+  // #383 : annonce du mode revue, avec le nom du bouton tel qu’affiché dans la barre
+  'announce.reviewMode': 'Mode revue, utilisez « {button} » pour revenir',
   // #372, décisions du propriétaire : les deux filtres restent, la tête du panneau Sessions dit l’état des deux ; Réglages > Général
   // renvoie au bouton Affichage. {n} = la fenêtre de la vue « Toutes les sessions », en minutes (show-mode.ts).
   'sessions.scope.list.activeOnly': 'Liste : Actives seulement',
@@ -2573,6 +2575,8 @@ const en: Record<MessageKey, string> = {
   'usage.incomplete': `{v} ${USAGE_LABELS.incomplete}`,
   'usage.incompleteEstimated': `{v} ${USAGE_LABELS.estimated} ${USAGE_LABELS.incomplete}`,
 
+  // #383: announcement of review mode, naming the button as the bar shows it
+  'announce.reviewMode': 'Review mode, use {button} to return',
   // #372, the owner's decisions: the two filters stay, the head of the Sessions panel says both states; Settings > General
   // points to the View button. {n} = the window of the All sessions view, in minutes (show-mode.ts).
   'sessions.scope.list.activeOnly': `List: ${SESSION_LIST_LABELS.activeOnly}`,

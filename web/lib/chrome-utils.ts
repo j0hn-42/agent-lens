@@ -413,17 +413,30 @@ export function buildAnnouncement(opts: {
   fullscreenNote?: string | null
   /** 'Presentation mode on' / 'Presentation mode off' after a change (#245) */
   presentationNote?: string | null
+  /** Language of the instruction that names the Resume live button (the rest of the sentence is still English) */
+  locale?: Locale
 }): string {
-  const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
-  if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
-  parts.push(opts.isReviewing ? 'Review mode' : 'Live mode')
-  if (opts.isEmpty) parts.push('Waiting for an agent session')
+  return buildAnnouncementParts(opts).map(p => p.text).join('. ')
+}
+
+/**
+ * The announcement cut into pieces, each with its language: the sentence of review mode names the button with the
+ * catalog text of the locale (the one the bar shows, WCAG 3.3.2) and carries that locale; the rest is English.
+ */
+export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): { text: string; lang: Locale }[] {
+  const locale = opts.locale ?? 'en'
+  const parts: { text: string; lang: Locale }[] = [{ text: `Connection: ${opts.connection.label.toLowerCase()}`, lang: 'en' }]
+  if (opts.sessionLabel) parts.push({ text: `Session: ${opts.sessionLabel}`, lang: 'en' })
+  parts.push(opts.isReviewing
+    ? { text: translate(locale, 'announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }), lang: locale }
+    : { text: 'Live mode', lang: 'en' })
+  if (opts.isEmpty) parts.push({ text: 'Waiting for an agent session', lang: 'en' })
   if (opts.unobservedSessions && opts.unobservedSessions > 0) {
-    parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)
+    parts.push({ text: `${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`, lang: 'en' })
   }
-  if (opts.fullscreenNote) parts.push(opts.fullscreenNote)
-  if (opts.presentationNote) parts.push(opts.presentationNote)
-  return parts.join('. ')
+  if (opts.fullscreenNote) parts.push({ text: opts.fullscreenNote, lang: 'en' })
+  if (opts.presentationNote) parts.push({ text: opts.presentationNote, lang: 'en' })
+  return parts
 }
 
 export function formatMissedEvents(n: number): string | null {
