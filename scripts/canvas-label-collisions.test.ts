@@ -369,7 +369,7 @@ for (const [w, h, top, bottom] of [[1024, 768, 60, 110], [1440, 900, 60, 110], [
     const { t, safe } = autoFit(agents, clusters, { width: w, height: h }, { top, bottom })
     const lod = lodForZoom(t.scale)
     assert.ok(lod.labels, `precondition: labels are drawn at the fit zoom ${t.scale.toFixed(3)}`)
-    const { plan } = planOverlays({
+    const { plan, hiddenAgentNames } = planOverlays({
       agents, clusters, edgeBubbles: [], transform: t, viewport: { w, h }, safeArea: safe, lod,
       showStats: false, showCost: false, showSessionLabels: false, selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null,
       simTime: 1, teams, toolCards: [], workspaceZones: computeWorkspaceZones(clusters), isBubbleHeld: () => false,
@@ -403,6 +403,15 @@ for (const [w, h, top, bottom] of [[1024, 768, 60, 110], [1440, 900, 60, 110], [
     // The lead and at least one teammate keep a name (the plan thins the others out, see canvas-lod.test.ts)
     assert.ok(names.length >= 2, `precondition: names are drawn at the fit zoom ${t.scale.toFixed(3)} (${names.map(n => n.text).join(', ')})`)
     for (const x of texts) assert.ok(x.px >= LOD.minTextPx - 1e-6, `"${x.text}" drawn at ${x.px.toFixed(1)} px`)
+    // #594: the "N names hidden" count is the agents drawn in the safe area whose name this drawing lacks
+    const inSafe = [...agents.values()].filter(a => {
+      const sx = a.x * t.scale + t.x, sy = a.y * t.scale + t.y
+      return sx >= safe.x && sx <= safe.x + safe.w && sy >= safe.y && sy <= safe.y + safe.h
+    })
+    assert.equal(inSafe.length, agents.size, 'precondition: the fit frames every agent in the safe area')
+    const unnamed = inSafe.filter(a => !texts.some(x => x.text.includes(a.name))).map(a => a.name)
+    assert.ok(unnamed.length > 0, 'precondition: the plan hides names at the fit zoom')
+    assert.equal(hiddenAgentNames, unnamed.length, `names not drawn: ${unnamed.join(', ')}`)
     assert.deepEqual(overlaps(texts), [], `zoom ${t.scale.toFixed(3)}: drawn texts overlap`)
     // The plan reserves the texts at its estimate (0.6 em per glyph, a Latin monospace). With the glyphs measured and
     // drawn wider than that (0.7 em, then 1 em as full-width CJK), the texts of this layout still cover nothing. This
