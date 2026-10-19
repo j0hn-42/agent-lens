@@ -127,9 +127,3 @@ export async function loadIssueLinks(
     signal?.removeEventListener('abort', onAbort)
   }
 }
-
-export function issueLinkLabel(link: IssueLink): string {
-  const prefix = link.kind === 'pr' ? 'PR' : 'Issue'
-  const draft = link.draft ? ' (draft)' : ''
-  return `${prefix} #${link.number}${draft}${link.title ? ` ${link.title}` : ''}`
-}

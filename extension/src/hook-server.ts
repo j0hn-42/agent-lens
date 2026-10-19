@@ -17,7 +17,7 @@ import {
 import { summarizeInput, summarizeResult, extractFilePath, extractInputData, buildDiscovery } from './tool-summarizer'
 import { buildSubagentReportAsync, fallbackReport, isAllowedTranscriptPath } from './transcript-parser'
 import {
-  isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter, validateHookPayload,
+  isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter, validateHookPayload, isCursorHookPayload,
   AsyncLimiter, withTimeout, setConnectionsCheckingInterval,
 } from './hook-guards'
 import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
@@ -108,6 +108,8 @@ export class HookServer implements vscode.Disposable {
   private readonly normalizers = new Map<string, SessionNormalizer>()
   /** Counters for requests that cannot be attributed to a session (invalid JSON, invalid session_id) */
   private readonly unattributed = new SessionNormalizer()
+  /** Cursor hook payloads ignored since start (#472) */
+  private cursorIgnored = 0
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
 
@@ -238,6 +240,15 @@ export class HookServer implements vscode.Disposable {
         this.unattributed.noteMalformed()
         return this.reject(req, res, 400, 'Invalid JSON')
       }
+      // Cursor (#472): a payload with Cursor's documented markers is never a Claude Code session. It is counted
+      // (getForeignHookStats) and answered like an accepted hook, before validation, the session limiter and the
+      // malformed counters: no session, no agent, no tool call, no state. See docs/relay-sources.md.
+      if (isCursorHookPayload(parsed)) {
+        this.noteCursorPayload()
+        res.writeHead(200)
+        res.end()
+        return
+      }
       const checked = validateHookPayload(parsed)
       if (!checked.ok) {
         this.noteMalformedPayload(parsed)
@@ -313,6 +324,20 @@ export class HookServer implements vscode.Disposable {
     try { hash = sha256Json(toolInput) } catch { return null }
     const matches = [...open].filter(([, c]) => c.tool === toolName && c.inputSha256 === hash)
     return matches.length === 1 ? matches[0][0] : null
+  }
+
+  /**
+   * Hook payloads from another runtime that were ignored (#472). Only Cursor today. A trace for the logs and
+   * the tests, never shown as agent activity; it counts what reached this server, not what Cursor ran.
+   */
+  getForeignHookStats(): { cursor: number } {
+    return { cursor: this.cursorIgnored }
+  }
+
+  private noteCursorPayload(): void {
+    this.cursorIgnored++
+    // One line, the first time only: no field of the payload is logged (it may hold a user_email)
+    if (this.cursorIgnored === 1) { log.info('Ignored a Cursor hook payload (cursor_version or Cursor event name): Cursor sessions are not shown') }
   }
 
   /** Normalization counters of a session (or of the requests no session could be found for). */

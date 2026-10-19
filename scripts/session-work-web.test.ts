@@ -2,9 +2,10 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  sessionWorkUrl, parseSessionWork, loadSessionWork, checksLabel, sortPrsByBranch, isSessionBranch,
+  sessionWorkUrl, parseSessionWork, loadSessionWork, sortPrsByBranch, isSessionBranch,
 } from '../web/lib/session-work'
 import type { ChecksState } from '../web/lib/session-work'
+import { checksText } from '../web/lib/panel-text'
 import type { FetchLike } from '../web/lib/issue-links'
 
 const U = 'https://github.com/o/r'
@@ -71,13 +72,13 @@ test('loadSessionWork gives up after the timeout', async () => {
 })
 
 test('checksLabel says in words what is proven, and what is not', () => {
-  assert.equal(checksLabel(checks('passing', 5)), '5 of 5 passing')
-  assert.equal(checksLabel(checks('failing', 5, 2, 1)), '2 failing, 1 pending of 5')
-  assert.equal(checksLabel(checks('failing', 3, 1, 0)), '1 failing of 3')
-  assert.equal(checksLabel(checks('pending', 4, 0, 3)), '3 pending of 4')
-  assert.equal(checksLabel(checks('none', 0)), 'no checks reported')
-  assert.equal(checksLabel(checks('unknown', 0)), 'checks unknown')
-  assert.equal(checksLabel(checks('unknown', 3)), 'checks unknown (3 reported)')
+  assert.equal(checksText('en', checks('passing', 5)), '5 of 5 passing')
+  assert.equal(checksText('en', checks('failing', 5, 2, 1)), '2 failing, 1 pending of 5')
+  assert.equal(checksText('en', checks('failing', 3, 1, 0)), '1 failing of 3')
+  assert.equal(checksText('en', checks('pending', 4, 0, 3)), '3 pending of 4')
+  assert.equal(checksText('en', checks('none', 0)), 'no checks reported')
+  assert.equal(checksText('en', checks('unknown', 0)), 'checks unknown')
+  assert.equal(checksText('en', checks('unknown', 3)), 'checks unknown (3 reported)')
 })
 
 test('sortPrsByBranch orders by branch then number, without mutating', () => {

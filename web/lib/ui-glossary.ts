@@ -39,18 +39,6 @@ export function emptyMatch(things: string): string {
 }
 
 
-/** Labels of the Conversation panel (title, pill, controls). */
-export const CONVERSATION_LABELS = {
-  title: PANEL_NAMES.conversation,
-  /** Collapsed pill: opens the panel */
-  open: `Open ${PANEL_NAMES.conversation}`,
-  close: `Close ${PANEL_NAMES.conversation}`,
-  tablist: 'Filter messages by agent',
-  search: 'Search messages',
-  empty: emptyState('messages'),
-  emptySearch: emptyMatch('messages'),
-} as const
-
 /**
  * UI vocabulary for grouped agents. Hierarchy: Session > Workflow > Agent. "Team" stays reserved for
  * Agent Teams (Claude Code's TeamCreate), whose members are called teammates.
@@ -127,19 +115,6 @@ export function listedFileText(l: { tool: string; position: number; reported: nu
   const base = `File listed by ${l.tool}${l.pattern ? ` "${l.pattern}"` : ''}, ${l.position} of ${l.reported} files the call reported`
   return l.reported > l.shown ? `${base}; ${l.shown} shown, ${l.reported - l.shown} not drawn` : base
 }
-
-/** File timeline in the Files panel (#385): only calls observed to succeed are steps; commits are never inferred. */
-export const FILE_TIMELINE_LABELS = {
-  kinds: { read: 'read', edited: 'edited', written: 'written' },
-  noCallId: 'call id not reported',
-  noCommits: 'Commits are not shown: no observed event ties a file to a commit.',
-  /** "3 steps observed", "(incomplete)" when the relay could not replay some events */
-  summary: (n: number, incomplete: boolean) => `${n} step${n === 1 ? '' : 's'} observed${incomplete ? ' (incomplete)' : ''}`,
-  /** Screen-reader-only end of the summary, so each closed disclosure names its file */
-  summaryOf: (path: string) => ` of ${path}`,
-  omitted: (n: number) => `${n} earlier step${n === 1 ? '' : 's'} not kept (the ${FILE_TIMELINE_MAX_STEPS} most recent are listed)`,
-  list: (path: string) => `Steps of ${path}`,
-} as const
 
 /** Git strip of the agent card (#386): each value read from an observed git / gh output, never a default. */
 export const GIT_STRIP_LABELS = {

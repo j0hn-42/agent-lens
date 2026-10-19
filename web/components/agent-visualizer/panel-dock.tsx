@@ -117,8 +117,7 @@ export function PanelDock({
         <ProjectContextPanel
           visible={panels.showContext}
           sessionId={bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId) ? bridge.selectedSessionId : null}
-          unavailableReason={bridge.isVSCode ? 'Project context is read through the standalone relay; it is not available inside VS Code.'
-            : bridge.useMockData ? 'Project context is not available in demo mode.' : undefined}
+          unavailableReason={bridge.isVSCode ? 'vscode' : bridge.useMockData ? 'demo' : undefined}
           fetchContext={fetchContext}
           relayOrigin={contextOrigin}
           sessionBranch={selectedSession?.branch}

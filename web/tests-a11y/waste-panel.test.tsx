@@ -72,7 +72,7 @@ test('an agent unknown to the view is shown by its key, not invented', () => {
 test('an absolute path opens through a real button with an accessible name, reachable by keyboard', () => {
   const opened: string[] = []
   const { getByRole } = panel(reads(emptyWasteLedger(), '/src/deep/a.ts', 2), { onOpenFile: p => opened.push(p) })
-  const btn = getByRole('button', { name: 'Open /src/deep/a.ts' }) as HTMLButtonElement
+  const btn = getByRole('button', { name: /^Open Read .*src\/deep\/a\.ts$/ }) as HTMLButtonElement
   assert.ok(btn.tabIndex >= 0, 'in the tab order')
   btn.focus()
   assert.equal(document.activeElement, btn)
