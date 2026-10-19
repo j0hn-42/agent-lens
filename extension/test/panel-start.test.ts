@@ -213,6 +213,7 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     const src = (f: string) => fs.readFileSync(path.join(__dirname, '../src', f), 'utf8')
     const ext = src('extension.ts')
     assert.match(ext, /startPanelPage\(panel, \{/)
+    assert.match(ext, /panel\.onDisposed\(\(\) => page\.end\(\)\)/, 'a closed panel lets its page figure go')
     assert.match(ext, /eventSourceWiring = wireJsonlSourceToPanel\(source\)/)
     assert.match(ext, /eventSourceWiring\?\.dispose\(\)/)
     assert.doesNotMatch(ext, /panelLoss\./)

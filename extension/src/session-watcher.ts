@@ -278,9 +278,12 @@ export class SessionWatcher implements AgentSessionWatcher {
         listSessions: () => [...this.sessions.values()]
           .filter(s => s.sessionDetected)
           .map(s => ({ sessionId: s.sessionId, filePath: s.filePath, startTime: s.sessionStartTime })),
-        emitTeamInfo: (sessionId, payload) => this.emit({
-          time: this.elapsed(sessionId), type: 'team_info', payload: { ...payload },
-        }, sessionId),
+        emitTeamInfo: (sessionId, payload, opts) => {
+          const send = () => this.emit({ time: this.elapsed(sessionId), type: 'team_info', payload: { ...payload } }, sessionId)
+          // Re-sent after the lead was rediscovered: known state, marked replayed like the history read again (#592)
+          if (opts?.replayed) this.reconciler.asReplayed(send)
+          else send()
+        },
         emitInbox: (sessionId, from, to, content) => this.parser.emitInboxMessage(sessionId, from, to, content),
         setLeadAlias: (sessionId, leadName) => this.parser.setLeadAlias(sessionId, leadName),
         onSessionTags: (sessionId) => {

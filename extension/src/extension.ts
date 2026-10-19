@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import { VisualizerPanel } from './webview-provider'
 import { startPanelPage } from './panel-start'
 import { JsonlEventSource } from './event-source'
+import { wireJsonlSourceToPanel } from './jsonl-panel'
 import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
@@ -14,13 +15,14 @@ import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
 import { getOperatorControl } from './operator-control'
 import { parseOpenTerminalMessage, openSessionTerminal, OPEN_TERMINAL_FAILURE_TEXT } from './open-terminal'
-import { forwardToPanel, type AgentRuntime, type AgentRuntimeMode } from './session-runtime'
+import { type AgentRuntime, type AgentRuntimeMode } from './session-runtime'
 
 const log = createLogger('Extension')
 
 type ConfiguredRuntimeMode = AgentRuntimeMode | 'auto'
 
 let eventSource: JsonlEventSource | undefined
+let eventSourceWiring: { dispose(): void } | undefined
 let runtimes: AgentRuntime[] = []
 
 function readConfiguredMode(): ConfiguredRuntimeMode {
@@ -234,12 +236,16 @@ function wirePanel(panel: VisualizerPanel): void {
         log.info('Webview ready')
         // Order, replay and the loss figure of this page: panel-start.ts (#592). Nothing is read again: the events
         // emitted before this page was ready are counted there, minus what the replay re-sends
-        startPanelPage(panel, {
-          collectActiveSessions, replaySessions,
-          disable1MContext: isDisable1MContext, hooksConfigured: areHooksConfigured,
-          connectionStatus: combinedConnectionStatus,
-          isCurrent: () => VisualizerPanel.getCurrent() === panel,
-        })
+        {
+          const page = startPanelPage(panel, {
+            collectActiveSessions, replaySessions,
+            disable1MContext: isDisable1MContext, hooksConfigured: areHooksConfigured,
+            connectionStatus: combinedConnectionStatus,
+            isCurrent: () => VisualizerPanel.getCurrent() === panel,
+          })
+          // A closed panel's figure is no longer updated nor kept in memory
+          panel.onDisposed(() => page.end())
+        }
         break
 
       case 'request-connect':
@@ -345,11 +351,9 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
   eventSource = source
   context.subscriptions.push(source)
 
-  // Resolve the panel at event time: the log may be configured before any panel is open
-  source.onEvent((event) => {
-    // The file is not read again when a page opens: a later page never gets this event (#592)
-    forwardToPanel(event, { requireReady: false })
-  })
+  // Resolve the panel at event time: the log may be configured before any panel is open. The file is not read again
+  // when a page opens (a later page never gets these events), but it is when connected again: counted once (#592)
+  eventSourceWiring = wireJsonlSourceToPanel(source)
 
   source.onStatus((status) => {
     VisualizerPanel.getCurrent()?.setConnectionStatus(
@@ -367,6 +371,8 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
 }
 
 function disconnectEventSource(): void {
+  eventSourceWiring?.dispose()
+  eventSourceWiring = undefined
   if (eventSource) {
     eventSource.dispose()
     eventSource = undefined

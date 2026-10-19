@@ -7,15 +7,17 @@
  * dispatches, models, teams; the other runtimes only announce their sessions again): every other event emitted before
  * then is missing from its graph, also the ones an earlier page received live.
  *
- * The ledger counts, per session, the DISTINCT events emitted for the panel since the extension started, as a lower
- * bound. Each emission is one event, except when a watcher reads a session's history again (`release`, then the
+ * The ledger counts, per session, the events emitted for the panel since the extension started, as a lower bound.
+ * Each emission is one event, except when a watcher reads a session's history again (`release`, then the
  * history re-emitted with `replayed: true`): those copies may repeat events already counted, so the session then
  * counts `max(before, history read again) + events after` (#601 review). When a page is ready, the panel's own replay
  * runs under {@link PanelLossLedger.snapshotAfterReplay}: what it re-sends reaches that page, so it is subtracted (one
  * re-sent event stands for at most one earlier event), and the rest is what the page lacks, sent as `event-loss`. A
  * history read again while that page is open reaches it too: the page's figure is lowered by as much and sent again.
- * Not counted: an event without session, and the hook events dropped before they reach the session watcher; it never
- * names a session it saw nothing of.
+ * The JSONL event log is read from its start each time it is connected: its sessions are released when it is
+ * disconnected and that first read counts as a history read again (jsonl-panel.ts). Not counted: an event without
+ * session, the hook events dropped before they reach the session watcher, and OpenCode (its re-reads carry no marker,
+ * opencode-runtime.ts); it never names a session it saw nothing of.
  */
 import type { AgentEvent } from './protocol'
 
@@ -65,13 +67,16 @@ export class PanelLossLedger {
     private readonly schedule: (fn: () => void) => void = queueMicrotask,
   ) {}
 
-  /** An event emitted for the panel (delivered or not). Without a session id it is not counted. */
-  note(event: AgentEvent | null | undefined): void {
+  /**
+   * An event emitted for the panel (delivered or not). Without a session id it is not counted. `reread`: the source
+   * read it again from a history it had already read (the JSONL log connected again), as an event marked `replayed`.
+   */
+  note(event: AgentEvent | null | undefined, opts: { reread?: boolean } = {}): void {
     const sid = event?.sessionId
     if (typeof sid !== 'string' || sid.length === 0) return
     if (this.replayed) { this.replayed.set(sid, (this.replayed.get(sid) ?? 0) + 1); return }
     const s = this.touch(sid)
-    if (s.released && event?.replayed === true) {
+    if (s.released && (event?.replayed === true || opts.reread === true)) {
       s.reread = cap(s.reread + 1)
       this.lowerPage(sid)
     } else {
@@ -120,6 +125,13 @@ export class PanelLossLedger {
     this.page = { evicted, other, send: send ?? null }
     this.pageUpdateQueued = false
     return this.pageSnapshot()
+  }
+
+  /** The page whose figure `send` updates was closed: let it go (no more updates, no reference kept) */
+  endPage(send: (loss: PanelLossSnapshot) => void): void {
+    if (this.page?.send !== send) return
+    this.page = null
+    this.pageUpdateQueued = false
   }
 
   /** Forget everything (tests) */

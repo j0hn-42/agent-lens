@@ -75,7 +75,8 @@ export interface AgentSessionWatcher extends TypedDisposable {
   getActiveSessions(): SessionInfo[]
   replaySessionStart(sessionIds?: string[]): void
   /** A session whose read position the watcher forgot (#592): if it comes back, its history is emitted again
-   *  (`replayed`) and may repeat events emitted before. Absent for a watcher that never reads a history twice. */
+   *  (`replayed`) and may repeat events emitted before. Absent for a watcher that never reads a history twice, and
+   *  for one that reads it again unmarked (OpenCode), which is wired with `countPanelLoss: false` instead. */
   readonly onSessionReleased?: TypedEvent<string>
 }
 
@@ -96,14 +97,21 @@ export interface WatchPanelWiringOptions {
   sessionLabelPrefix: string
   /** Optional event transform — return null to suppress an event. */
   transformEvent?: (event: AgentEvent) => AgentEvent | null
+  /** false: this watcher's events are not counted in the panel's loss figure (#592), for a watcher that reads a
+   *  history again without marking it `replayed` (OpenCode). The figure then leaves them out: a lower bound. */
+  countPanelLoss?: boolean
 }
 
 /**
  * Hand an event to the current panel (only once its page is ready, unless `requireReady` is false) and count it,
  * delivered or not: a page that opens later gets a reset, never this event (#592, panel-loss.ts).
  */
-export function forwardToPanel(event: AgentEvent, opts: { requireReady?: boolean } = {}): void {
-  panelLoss.note(event)
+export function forwardToPanel(
+  event: AgentEvent,
+  opts: { requireReady?: boolean; countLoss?: boolean; reread?: boolean } = {},
+): void {
+  // countLoss false: a source whose re-reads cannot be told apart is left out (the figure stays a lower bound)
+  if (opts.countLoss !== false) panelLoss.note(event, { reread: opts.reread })
   const panel = VisualizerPanel.getCurrent()
   if (!panel || (opts.requireReady !== false && !panel.isReady)) return
   panel.sendEvent(event)
@@ -134,10 +142,10 @@ export function wireWatcherToPanel(
 
   subs.push(watcher.onEvent((event) => {
     const transformed = options.transformEvent ? options.transformEvent(event) : event
-    if (transformed) forwardToPanel(transformed)
+    if (transformed) forwardToPanel(transformed, { countLoss: options.countPanelLoss })
   }))
   // Its history may come again: counted once, not twice (#592, panel-loss.ts)
-  if (watcher.onSessionReleased) subs.push(watcher.onSessionReleased((sessionId) => panelLoss.release(sessionId)))
+  if (watcher.onSessionReleased && options.countPanelLoss !== false) subs.push(watcher.onSessionReleased((sessionId) => panelLoss.release(sessionId)))
 
   subs.push(watcher.onSessionDetected((sessionId) => {
     const panel = VisualizerPanel.getCurrent()

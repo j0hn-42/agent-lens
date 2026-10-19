@@ -141,6 +141,24 @@ describe('PanelLossLedger: a history read again is counted once, not twice (#592
     assert.deepEqual(first, [])
   })
 
+  it('a closed page is let go: nothing queued or sent for it, and ending another page changes nothing (#605 review)', () => {
+    const queued: (() => void)[] = []
+    const l = new PanelLossLedger(200, fn => queued.push(fn))
+    history(l, 'a', 3)
+    const sent: unknown[] = []
+    const send = (loss: unknown) => sent.push(loss)
+    l.snapshotAfterReplay(() => {}, send)
+    l.endPage(() => {})
+    l.release('a')
+    history(l, 'a', 1)
+    assert.equal(queued.length, 1, 'ending another page left this one open')
+    queued.shift()!()
+    l.endPage(send)
+    history(l, 'a', 1)
+    assert.equal(queued.length, 0, 'nothing is lowered for a closed page')
+    assert.equal(sent.length, 1)
+  })
+
   it('releasing a session folded into otherEvents drops otherEvents (its share is unknown): a lower bound kept', () => {
     const l = new PanelLossLedger(1)
     history(l, 'old', 4)

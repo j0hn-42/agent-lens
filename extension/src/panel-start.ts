@@ -9,7 +9,7 @@
  * figure (see panel-loss.ts). Nothing is read again from the transcripts or the JSONL event log.
  */
 import type { ExtensionToWebviewMessage, SessionInfo, ConnectionStatus } from './protocol'
-import { panelLoss as defaultLedger, type PanelLossLedger } from './panel-loss'
+import { panelLoss as defaultLedger, type PanelLossLedger, type PanelLossSnapshot } from './panel-loss'
 
 export interface PageStartPanel {
   markReady(): void
@@ -29,7 +29,8 @@ export interface PageStartDeps {
   ledger?: PanelLossLedger
 }
 
-export function startPanelPage(panel: PageStartPanel, deps: PageStartDeps): void {
+/** Returns `end`, to call when the panel is closed: its figure is no longer updated nor kept (panel-loss.ts) */
+export function startPanelPage(panel: PageStartPanel, deps: PageStartDeps): { end(): void } {
   const ledger = deps.ledger ?? defaultLedger
   panel.markReady()
   // Clear stale webview state from any previous panel instance
@@ -39,16 +40,18 @@ export function startPanelPage(panel: PageStartPanel, deps: PageStartDeps): void
   // Hooks-configured flag for the empty-state checklist (read defensively, never throws)
   panel.postMessage({ type: 'config', config: { hooksConfigured: deps.hooksConfigured() } })
   const sessions = deps.collectActiveSessions()
+  const onUpdate = (update: PanelLossSnapshot): void => {
+    // A history read again while this page is open lowered its figure (panel-loss.ts, release)
+    if (deps.isCurrent && !deps.isCurrent()) return
+    panel.postMessage({ type: 'event-loss', ...update })
+  }
   const loss = ledger.snapshotAfterReplay(() => {
     if (sessions.length > 0) {
       panel.postMessage({ type: 'session-list', sessions })
       deps.replaySessions(sessions.map(s => s.id))
     }
-  }, (update) => {
-    // A history read again while this page is open lowered its figure (panel-loss.ts, release)
-    if (deps.isCurrent && !deps.isCurrent()) return
-    panel.postMessage({ type: 'event-loss', ...update })
-  })
+  }, onUpdate)
   if (loss) panel.postMessage({ type: 'event-loss', ...loss })
   panel.setConnectionStatus('watching', deps.connectionStatus())
+  return { end: () => ledger.endPage(onUpdate) }
 }

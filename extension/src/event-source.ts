@@ -17,10 +17,14 @@ export class JsonlEventSource implements vscode.Disposable {
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onStatus = new vscode.EventEmitter<'connected' | 'disconnected'>()
 
+  private _readingExisting = false
   readonly onEvent = this._onEvent.event
   readonly onStatus = this._onStatus.event
 
   constructor(private filePath: string) {}
+
+  /** True while the lines already in the file at start() are emitted (synchronously, from its first byte) */
+  get readingExisting(): boolean { return this._readingExisting }
 
   start(): void {
     if (!fs.existsSync(this.filePath)) {
@@ -49,12 +53,17 @@ export class JsonlEventSource implements vscode.Disposable {
    *  last line is kept in the tracked tail and emitted once it is complete. */
   private processExistingContent(): void {
     const size = fs.statSync(this.filePath).size
-    for (const line of readLinesChunked(this.filePath, size, undefined, this.tracked)) {
-      if (!line) continue
-      const event = this.parseLine(line)
-      if (event) {
-        this._onEvent.fire(event)
+    this._readingExisting = true
+    try {
+      for (const line of readLinesChunked(this.filePath, size, undefined, this.tracked)) {
+        if (!line) continue
+        const event = this.parseLine(line)
+        if (event) {
+          this._onEvent.fire(event)
+        }
       }
+    } finally {
+      this._readingExisting = false
     }
   }
 
