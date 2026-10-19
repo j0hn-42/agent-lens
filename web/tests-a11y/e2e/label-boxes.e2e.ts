@@ -134,18 +134,23 @@ for (const [width, height] of [[1024, 768], [1280, 800], [1920, 1080]] as const)
     const { page, close } = await openTeam(width, height)
     try {
       const all = await fittedTexts(page)
-      // the button reads the plan every 200 ms: give it one more read after the texts settled
-      await page.waitForTimeout(400)
+      // the button reads the plan every 200 ms and shows a count once it held 500 ms with the camera at rest
+      await page.waitForTimeout(1000)
       const visible = all.filter(t => t.alpha > 0.05 && t.w > 0 && t.x + t.w > 0 && t.y + t.h > 0 && t.x < width && t.y < height)
       const shown = TEAM_NAMES.filter(n => visible.some(t => t.text === n || t.text.startsWith(`${n} ·`)))
       const hidden = TEAM_NAMES.length - shown.length
       assert.ok(hidden > 0, `precondition: names are hidden at ${width}x${height}`)
       const button = page.locator('[data-hidden-names]')
-      assert.equal((await button.textContent())?.trim(), `${hidden} names hidden`, `painted: ${shown.join(', ')}`)
+      const label = `${hidden} ${hidden === 1 ? 'name' : 'names'} hidden`
+      assert.equal((await button.textContent())?.trim(), label, `painted: ${shown.join(', ')}`)
       console.log(`${width}x${height}: ${hidden} of ${TEAM_NAMES.length} names hidden, the button says "${(await button.textContent())?.trim()}"`)
       // Its name is its text, and it opens the Sessions and agents list
-      await page.getByRole('button', { name: `${hidden} names hidden`, exact: true }).click()
+      await page.getByRole('button', { name: label, exact: true }).click()
       await page.locator('#sessions-panel').waitFor({ state: 'visible', timeout: 10_000 })
+      // The list already open: a second press moves the focus to the list's Tab stop (a row), not the resize handle
+      await page.locator('[data-hidden-names]').click()
+      const focused = await page.evaluate(`(() => { const a = document.activeElement; return { row: !!a && a.hasAttribute('data-row-main'), inPanel: !!a && !!a.closest('#sessions-panel'), text: a ? (a.getAttribute('aria-label') || a.textContent || '').trim().slice(0, 60) : '' } })()`) as { row: boolean; inPanel: boolean; text: string }
+      assert.ok(focused.inPanel && focused.row, `focus on a row of the list (focused: "${focused.text}")`)
     } finally {
       await close()
     }

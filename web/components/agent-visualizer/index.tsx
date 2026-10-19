@@ -129,10 +129,12 @@ export function AgentVisualizer() {
     showContext, setShowContext, showSystem, setShowSystem,
     toggleExclusivePanel, openConversation, closeConversation, closeTopPanel, registerPanel,
   } = panels
-  // "N names hidden" (#594): opens the Sessions and agents list, or moves the focus into it when it is already open
+  // "N names hidden" (#594): opens the Sessions and agents list, or, when it is already open, moves the focus to the
+  // list's Tab stop (the row that takes Tab), not to the resize handle drawn before the header
   const sessionsPanelRef = panels.panelRefs.sessions
   const showAgentList = useCallback(() => {
-    if (showSessions) sessionsPanelRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus()
+    const panel = sessionsPanelRef.current
+    if (showSessions) (panel?.querySelector<HTMLElement>('[data-row-main][tabindex="0"]') ?? panel?.querySelector<HTMLElement>(FOCUSABLE))?.focus()
     else setShowSessions(true)
   }, [showSessions, setShowSessions, sessionsPanelRef])
 
@@ -424,6 +426,7 @@ export function AgentVisualizer() {
         replayLost={replayLostBySession}
         presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
         onShowAgentList={showAgentList}
+        agentListKey={singleKeyShortcuts ? "L" : null}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}

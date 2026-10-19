@@ -9,6 +9,12 @@ const CONTROL_ROW_PX = { touch: TOUCH_TARGET_PX, pointer: 28 } as const
 const TOUCH_BELOW_PX = 768
 /** Under the `sm:` breakpoint of the canvas controls the Legend row and the zoom row stack */
 const STACK_BELOW_PX = 640
+/**
+ * Under this width the "names hidden" button (#594) may not fit on the zoom row and wraps above it. The zoom row is
+ * 226 px in French with 44 px targets, the button up to about 140 px ("Sessions et agents", its neutral label), plus
+ * the 8 px gap: 374 px, inside the 396 px row of a 420 px window (inset 12 px each side)
+ */
+const HIDDEN_NAMES_WRAP_BELOW_PX = 420
 
 /**
  * Whether the canvas controls fit in the room the top bar (--topbar-h) and the playback bar leave (#515). At 320 x 256
@@ -18,8 +24,10 @@ const STACK_BELOW_PX = 640
 export function canvasControlsFit(env: { viewport: { w: number; h: number }; topbarH: number; controlBarH: number }, extraRow = false): boolean {
   const { viewport: { w, h }, topbarH, controlBarH } = env
   const row = w < TOUCH_BELOW_PX ? CONTROL_ROW_PX.touch : CONTROL_ROW_PX.pointer
-  // `extraRow`: the "N names hidden" button is shown (#594); under the stacking width it may wrap above the zoom row
-  const rows = w < STACK_BELOW_PX ? (extraRow ? 3 : 2) : 1
+  // `extraRow`: the "names hidden" button can be shown (#594). It is reserved whatever the count, so folding never
+  // follows the zoom; it costs a row only where the button may wrap above the zoom row
+  const stacked = w < STACK_BELOW_PX
+  const rows = stacked ? (extraRow && w < HIDDEN_NAMES_WRAP_BELOW_PX ? 3 : 2) : 1
   const need = rows * row + (rows - 1) * DOCK_GAP
   return h - CONTROL_BAR_BOTTOM - controlBarH - DOCK_GAP - topbarH >= need
 }

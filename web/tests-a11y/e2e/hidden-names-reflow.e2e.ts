@@ -2,7 +2,9 @@
 // demo (?scenario=team10: names are hidden at the fit zoom). At 320, 390 and 1280 px wide, in French and in English, the
 // row must stay inside the window with the button: no control past an edge, no horizontal scroll, none under a bar,
 // 44 px targets under 768 px. The row is also measured without the button (removed from the DOM, the layout of develop)
-// and both are logged in px, so the change the button makes is on record.
+// and with its widest label: Zoom in, Zoom out, Fit to view and View must not move by a pixel in either case (the
+// button sits before them, on the side the row is not anchored to), so its coming, going or new width never moves a
+// control under the pointer.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -21,14 +23,16 @@ after(async () => {
 })
 
 interface Box { l: number; t: number; r: number; b: number }
-interface Row { vw: number; scrollW: number; header: Box; playback: Box; row: Box | null; button: Box | null; controls: Array<Box & { name: string; onTop: boolean }> }
+interface Row { vw: number; scrollW: number; header: Box; playback: Box; row: Box | null; button: Box | null; fixed: Array<Box & { name: string }>; controls: Array<Box & { name: string; onTop: boolean }> }
 
 /** A string so the TS transpiler injects no helper into the page */
 const MEASURE = `(() => {
   const box = el => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom } }
   const button = document.querySelector('[data-hidden-names]')
   const zoom = document.querySelector('[data-canvas-inset] [role="group"]')
-  const row = zoom ? zoom.parentElement : null
+  const zoomRow = zoom ? zoom.closest('[data-canvas-inset]') : null
+  const row = zoomRow ? zoomRow.parentElement : null
+  const fixed = zoomRow ? [...zoomRow.querySelectorAll('button')].map(b => ({ name: (b.getAttribute('aria-label') || b.textContent || '').trim(), ...box(b) })) : []
   const controls = row ? [...row.closest('[lang]').querySelectorAll('button')]
     .filter(b => { const r = b.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
     .map(b => {
@@ -39,8 +43,29 @@ const MEASURE = `(() => {
   return {
     vw: innerWidth, scrollW: document.documentElement.scrollWidth,
     header: box(document.querySelector('header')), playback: box(document.querySelector('[data-control-bar]')),
-    row: row ? box(row) : null, button: button ? box(button) : null, controls,
+    row: row ? box(row) : null, button: button ? box(button) : null, fixed, controls,
   }
+})()`
+
+/**
+ * Recorded on every frame from the page's start: the "names hidden" button (absent, or its text) and the box of Zoom in.
+ * Whenever the button appears, goes or changes text, Zoom in must be where it was on the frame before.
+ */
+const TRACK = `(() => {
+  const frames = []
+  window.__hiddenNamesFrames = frames
+  const step = () => {
+    const zoomIn = document.querySelector('[data-canvas-inset] [role="group"] button')
+    if (zoomIn) {
+      const b = document.querySelector('[data-hidden-names]')
+      const r = zoomIn.getBoundingClientRect()
+      const prev = frames[frames.length - 1]
+      const cur = { button: b ? (b.textContent || '').trim() : null, zoom: [r.left, r.top, r.right, r.bottom].map(Math.round).join(',') }
+      if (!prev || prev.button !== cur.button || prev.zoom !== cur.zoom) frames.push(cur)
+    }
+    requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
 })()`
 
 const overlaps = (a: Box, b: Box) => a.l < b.r - 1 && b.l < a.r - 1 && a.t < b.b - 1 && b.t < a.b - 1
@@ -49,6 +74,7 @@ const show = (o: Box | null) => o ? `${Math.round(o.l)},${Math.round(o.t)}-${Mat
 async function open(locale: 'fr' | 'en', w: number, h: number): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h }, reducedMotion: 'reduce' })
   await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
+  await context.addInitScript(TRACK)
   const page = await context.newPage()
   await page.goto(`${server.url}/?scenario=team10`, { waitUntil: 'networkidle' })
   await page.locator('header').waitFor()
@@ -68,7 +94,7 @@ async function open(locale: 'fr' | 'en', w: number, h: number): Promise<Page> {
 const LABEL = { fr: /^\d+ noms? masqués?$/, en: /^\d+ names? hidden$/ }
 
 for (const locale of ['fr', 'en'] as const) {
-  for (const [w, h] of [[320, 568], [390, 844], [1280, 800]] as Array<[number, number]>) {
+  for (const [w, h] of [[320, 568], [390, 844], [420, 844], [1280, 800]] as Array<[number, number]>) {
     test(`"names hidden" ${locale} ${w}x${h}: the row of the canvas controls stays inside the window (#594)`, { timeout: 120_000 }, async () => {
       const page = await open(locale, w, h)
       try {
@@ -77,6 +103,11 @@ for (const locale of ['fr', 'en'] as const) {
         const text = (await button.textContent())?.trim() ?? ''
         assert.match(text, LABEL[locale])
         assert.equal(await page.getByRole('button', { name: text, exact: true }).count(), 1, 'its accessible name is its text')
+        // Each real appearance or change of the button since the page opened left Zoom in in place
+        const frames = await page.evaluate('window.__hiddenNamesFrames') as Array<{ button: string | null; zoom: string }>
+        const changes = frames.slice(1).map((f, i) => ({ from: frames[i], to: f })).filter(c => c.from.button !== c.to.button)
+        assert.ok(changes.some(c => c.from.button === null && c.to.button !== null), `[${locale} ${w}x${h}] the button appeared while recorded: ${JSON.stringify(frames)}`)
+        for (const c of changes) assert.equal(c.to.zoom, c.from.zoom, `[${locale} ${w}x${h}] "${c.from.button}" -> "${c.to.button}" moved Zoom in`)
         const m = await page.evaluate(MEASURE) as Row
         const bad: string[] = []
         if (m.scrollW > m.vw) bad.push(`horizontal scroll: ${m.scrollW} > ${m.vw}`)
@@ -88,13 +119,26 @@ for (const locale of ['fr', 'en'] as const) {
           if (m.vw < 768 && (c.r - c.l < 44 - 0.5 || c.b - c.t < 44 - 0.5)) bad.push(`"${c.name}" is ${Math.round(c.r - c.l)}x${Math.round(c.b - c.t)} px`)
         }
         assert.deepEqual(bad, [], `[${locale} ${w}x${h}] with the button`)
-        // Without the button (the row as on develop)
+        assert.equal(m.fixed.length, 4, 'Zoom in, Zoom out, Fit to view, View')
+        // Its widest label (the neutral one, shown while the count changes, or a 3-digit count): nothing moves, and from
+        // 420 px it stays on the zoom row (the fit test reserves a row under 420 px only)
+        const widest = locale === 'fr' ? ['Sessions et agents', '100 noms masqués'] : ['Sessions and agents', '100 names hidden']
+        for (const label of widest) {
+          await page.evaluate(`document.querySelector('[data-hidden-names]').textContent = ${JSON.stringify(label)}`)
+          const wide = await page.evaluate(MEASURE) as Row
+          assert.deepEqual(wide.fixed, m.fixed, `[${locale} ${w}x${h}] "${label}": the zoom buttons and View did not move`)
+          assert.ok(wide.scrollW <= wide.vw, `[${locale} ${w}x${h}] "${label}": no horizontal scroll`)
+          assert.ok(wide.button!.l >= 0, `[${locale} ${w}x${h}] "${label}": inside the window (${show(wide.button)})`)
+          if (w >= 420) assert.ok(Math.abs(wide.button!.t - wide.fixed[0].t) < 1, `[${locale} ${w}x${h}] "${label}" on the zoom row: ${show(wide.button)} vs ${show(wide.fixed[0])}`)
+        }
+        // Without the button (the row as on develop): the zoom buttons and View are exactly where they were
         await page.evaluate(`document.querySelector('[data-hidden-names]').remove()`)
         const before = await page.evaluate(MEASURE) as Row
+        assert.deepEqual(before.fixed, m.fixed, `[${locale} ${w}x${h}] with and without the button, Zoom in is at ${show(m.fixed[0])} / ${show(before.fixed[0])}`)
         console.log(`${locale} ${w}x${h}: "${text}" ${show(m.button)} (${Math.round(m.button!.r - m.button!.l)} px wide); `
           + `row with the button ${show(m.row)} (${Math.round(m.row!.r - m.row!.l)} x ${Math.round(m.row!.b - m.row!.t)} px), `
           + `without ${show(before.row)} (${Math.round(before.row!.r - before.row!.l)} x ${Math.round(before.row!.b - before.row!.t)} px); `
-          + `window ${m.vw} px, page scroll width ${m.scrollW} px`)
+          + `Zoom in ${show(m.fixed[0])} with and without; window ${m.vw} px, page scroll width ${m.scrollW} px`)
       } finally {
         await page.context().close()
       }

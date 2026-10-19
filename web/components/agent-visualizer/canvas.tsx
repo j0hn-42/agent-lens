@@ -19,18 +19,17 @@ import { useCanvasA11yMirror } from '@/hooks/use-canvas-a11y-mirror'
 import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
 import type { AnnounceLevel } from '@/lib/ui-preferences'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
+import { useHiddenNamesDisplay } from '@/hooks/use-hidden-names-display'
 import { useTourBridge } from './guided-tour-context'
 
 type PresentationFlags = { follow: boolean; mask: boolean }
-/** How often the "N names hidden" button reads the count of the last planned frame (#594): React state only on a change */
-const HIDDEN_NAMES_POLL_MS = 200
 const NO_PRESENTATION: PresentationFlags = { follow: false, mask: false }
 
 export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList, agentListKey,
   } = props
   const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
   presentationRef.current = presentation ?? NO_PRESENTATION
@@ -83,11 +82,6 @@ export function AgentCanvas(props: CanvasProps) {
   const clustersRef = useRef<Cluster[]>([])
   /** Agent names the last planned frame does not draw (written by the draw loop, #594) */
   const hiddenAgentNamesRef = useRef(0)
-  const [hiddenNames, setHiddenNames] = useState(0)
-  useEffect(() => {
-    const timer = window.setInterval(() => setHiddenNames(hiddenAgentNamesRef.current), HIDDEN_NAMES_POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [])
   const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null)
   const selectedClusterKeyRef = useRef<string | null>(null)
   selectedClusterKeyRef.current = selectedClusterKey
@@ -108,6 +102,8 @@ export function AgentCanvas(props: CanvasProps) {
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
     clustersRef, getInsets, scopeKey, presentationRef, reducedMotionRef: prefs.reducedMotionRef,
   })
+  // "N names hidden" (#594): shown, changed or removed only on a stable count with the camera at rest
+  const hiddenNames = useHiddenNamesDisplay(hiddenAgentNamesRef, isCameraBusy)
   const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
 
@@ -308,6 +304,7 @@ export function AgentCanvas(props: CanvasProps) {
         onChangeToolExpiry={prefs.changeToolExpiry}
         hiddenNames={hiddenNames}
         onShowAgentList={onShowAgentList}
+        agentListKey={agentListKey}
       />
     </div>
   )
