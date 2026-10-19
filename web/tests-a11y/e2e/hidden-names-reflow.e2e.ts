@@ -101,3 +101,34 @@ for (const locale of ['fr', 'en'] as const) {
     })
   }
 }
+
+// Folded (320 x 256, #515): the button is in the "Canvas controls" block, after View, under the zoom buttons so they stay
+// in view when the block opens; the block scrolls, and Tab brings the button into view, on top and not clipped.
+for (const locale of ['fr', 'en'] as const) {
+  test(`"names hidden" ${locale} 320x256, folded: reached by Tab after View, in view and on top (#594)`, { timeout: 120_000 }, async () => {
+    const page = await open(locale, 320, 256)
+    try {
+      await page.locator('[data-canvas-controls-slot] button').first().click()
+      const view = page.getByRole('button', { name: locale === 'fr' ? 'Affichage' : 'View', exact: true })
+      await view.focus()
+      await page.keyboard.press('Tab')
+      const f = await page.evaluate(`(() => {
+        const a = document.activeElement
+        const r = a.getBoundingClientRect()
+        const c = a.closest('[role="group"][aria-label]:not([aria-label="Zoom"])').getBoundingClientRect()
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+        return { hidden: a.hasAttribute('data-hidden-names'), text: (a.textContent || '').trim(), onTop: !!hit && a.contains(hit),
+          inBlock: r.top >= c.top - 0.5 && r.bottom <= c.bottom + 0.5 && r.left >= c.left - 0.5 && r.right <= c.right + 0.5,
+          w: r.width, h: r.height }
+      })()`) as { hidden: boolean; text: string; onTop: boolean; inBlock: boolean; w: number; h: number }
+      assert.ok(f.hidden, `Tab after View reaches the "names hidden" button (focused: "${f.text}")`)
+      assert.match(f.text, LABEL[locale])
+      assert.ok(f.onTop, 'it is drawn on top')
+      assert.ok(f.inBlock, 'the block scrolled it into view')
+      assert.ok(f.w >= 44 - 0.5 && f.h >= 44 - 0.5, `${Math.round(f.w)}x${Math.round(f.h)} px`)
+      console.log(`${locale} 320x256 folded: "${f.text}" ${Math.round(f.w)}x${Math.round(f.h)} px, in view after Tab`)
+    } finally {
+      await page.context().close()
+    }
+  })
+}

@@ -203,8 +203,9 @@ export function CanvasControls({
   const zoomAndView = (
     <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
       {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378). Folded, the bar holds it */}
-      {/* Wraps from the end (issue 594): under 640 px the "names hidden" button goes above the zoom buttons, not past the window */}
-      <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex flex-wrap-reverse items-center justify-end gap-2">
+      {/* Wraps from the end (issue 594): under 640 px the "names hidden" button goes above the zoom buttons, not past the
+          window. Folded, the block scrolls from its top: the button goes last, under the zoom buttons, so they stay in view */}
+      <div data-canvas-inset={folded ? undefined : 'bottom'} className={`flex ${folded ? 'flex-wrap' : 'flex-wrap-reverse'} items-center justify-end gap-2`}>
         <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
           <button
             type="button"
