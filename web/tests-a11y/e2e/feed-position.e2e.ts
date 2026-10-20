@@ -50,7 +50,7 @@ for (const [width, height, items] of VIEWPORTS) {
       await page.evaluate((px) => document.documentElement.style.setProperty('--topbar-h', `${px}px`), published)
       const { bar, pill, cssVar } = await page.evaluate(() => ({
         bar: document.getElementById('bar')!.getBoundingClientRect().toJSON(),
-        pill: document.querySelector('button[aria-label^="Open Conversation"]')!.getBoundingClientRect().toJSON(),
+        pill: document.querySelector('[data-companion-panel] button[aria-labelledby][aria-expanded="false"]')!.getBoundingClientRect().toJSON(),
         cssVar: document.documentElement.style.getPropertyValue('--topbar-h'),
       }))
       assert.ok(bar.height > 48, `top bar should have wrapped (height ${bar.height})`)
