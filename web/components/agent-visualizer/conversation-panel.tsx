@@ -94,6 +94,8 @@ export function ConversationPanel({
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
   const baseId = useId()
   const regionId = `${baseId}-region`
+  const pillLeadId = `${baseId}-pill-lead`
+  const pillPreviewId = `${baseId}-pill-preview`
   const listId = `${baseId}-list`
   const tabPanelId = `${baseId}-panel`
   const searchId = `${baseId}-search`
@@ -288,12 +290,17 @@ export function ConversationPanel({
           type="button"
           aria-expanded={false}
           aria-controls={regionId}
-          aria-label={t('conv.pill.aria', { open: t('conv.open', { name: panelName(locale, 'conversation') }), role: role.label.toLowerCase(), agent: agentName, preview })}
+          // Named by two hidden elements, not by an aria-label: the sentence is in the interface language, the preview is a
+          // message of the conversation (data, "en") and an aria-label cannot declare a language (WCAG 3.1.2). The visible
+          // role, agent and preview are all in this name (WCAG 2.5.3); the button content is not read a second time.
+          aria-labelledby={`${pillLeadId} ${pillPreviewId}`}
           title={agentName}
           onClick={onOpen}
           className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING_INSET}`}
           style={{ maxWidth: PILL_MAX_WIDTH }}
         >
+          <span id={pillLeadId} hidden>{t('conv.pill.lead', { open: t('conv.open', { name: panelName(locale, 'conversation') }), role: role.label.toLowerCase(), agent: agentName })}</span>
+          <span id={pillPreviewId} hidden {...DATA_EN}>{preview}</span>
           <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: role.text }} />
           {/* Role as text too: colour alone must not carry it (WCAG 1.4.1) */}
           <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
