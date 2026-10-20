@@ -10,6 +10,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { postWhenListening } from './bridge-ready'
 
 let browser: Browser
 let server: DemoServer
@@ -71,9 +72,8 @@ test('fr 320px: a stale agent row shows its quote and its whole French gloss, no
     await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
     const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
     const now = Date.now()
-    await post({ type: '__vscode-bridge-init' })
-    await post({ type: 'config', showMockData: false })
-    await post({ type: 'session-list', sessions: [{ id: 's1', label: 'reflow', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/reflow', runtime: 'claude' }] })
+    // Once the page answers the init (bridge-ready.ts, #603, #613)
+    await postWhenListening(host, [{ type: 'config', showMockData: false }, { type: 'session-list', sessions: [{ id: 's1', label: 'reflow', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/reflow', runtime: 'claude' }] }])
     await page.getByRole('button', { name: /^Sessions\s?: reflow/ }).waitFor()
     await post({ type: 'agent-event', event: { time: 0, type: 'agent_spawn', payload: { name: 'main-agent-with-a-long-name', isMain: true }, sessionId: 's1' } })
     await post({ type: 'agent-event', event: { time: 0.5, type: 'tool_call_start', payload: { agent: 'main-agent-with-a-long-name', tool: 'Read', args: 'a.ts' }, sessionId: 's1' } })
@@ -131,11 +131,9 @@ for (const width of [520, 640]) {
       await host.goto(`${server.url}/__host`)
       const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
       await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
-      const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
       const now = Date.now()
-      await post({ type: '__vscode-bridge-init' })
-      await post({ type: 'config', showMockData: false })
-      await post({ type: 'session-list', sessions: [{ id: 's1', label: 'reflow', status: 'active', startTime: now - 3_600_000, lastActivityTime: now - 23 * 60_000, workspace: '/w/reflow', runtime: 'claude' }] })
+      // Once the page answers the init (bridge-ready.ts, #603, #613)
+      await postWhenListening(host, [{ type: 'config', showMockData: false }, { type: 'session-list', sessions: [{ id: 's1', label: 'reflow', status: 'active', startTime: now - 3_600_000, lastActivityTime: now - 23 * 60_000, workspace: '/w/reflow', runtime: 'claude' }] }])
       await page.getByRole('button', { name: /^Sessions\s?: reflow/ }).waitFor()
       await page.getByRole('button', { name: /^Sessions\s?:/ }).click()
       await page.locator('[data-column="activity"]').first().waitFor({ state: 'attached', timeout: 60_000 })
