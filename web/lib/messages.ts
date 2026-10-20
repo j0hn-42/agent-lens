@@ -1387,6 +1387,8 @@ const fr = {
   'shortcut.spoken.zoom': 'Plus et moins',
   'shortcut.spoken.fit': 'Zéro',
   'shortcut.spoken.menu': 'La touche Menu contextuel ou Maj F10',
+  // Ligne des filtres pendant la visite guidée, qui montre un moment les inactifs (#613)
+  'sessions.scope.canvas.tour': 'Canevas : Masquer les inactifs suspendu pendant la visite',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -2753,6 +2755,8 @@ const en: Record<MessageKey, string> = {
   'shortcut.spoken.zoom': 'Plus and minus',
   'shortcut.spoken.fit': 'Zero',
   'shortcut.spoken.menu': 'The context menu key or Shift F10',
+  // The filters line during the guided tour, which shows the inactive agents for a moment (#613)
+  'sessions.scope.canvas.tour': `Canvas: ${TOP_BAR_LABELS.filterHideInactive} paused during the tour`,
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

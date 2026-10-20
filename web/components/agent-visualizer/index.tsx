@@ -482,6 +482,7 @@ export function AgentVisualizer() {
         lossIndicator={<TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} onShow={reopenTruncationBanner} />}
         replayLostBySession={replayLostBySession}
         listAgents={listAgents} agentLabel={agentLabel} openFile={openFile} fetchContext={fetchContext} contextOrigin={contextOrigin}
+        tourShowsInactive={tourShowsInactive}
       />
 
       {tour.active && tour.step && (

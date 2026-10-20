@@ -120,7 +120,16 @@ function usePopupDismiss(open: boolean, wrapRef: RefObject<HTMLElement | null>, 
     const wrap = wrapRef.current
     if (!open || !wrap) return
     const onDown = (e: MouseEvent) => {
-      if (!wrap.contains(e.target as Node)) close()
+      if (wrap.contains(e.target as Node)) return
+      const hadFocus = wrap.contains(document.activeElement)
+      close()
+      // A press on a spot that takes no focus (the canvas, the page): the focused control of the popup goes away and the
+      // focus would fall to <body>; it goes back to the popup's button, as with Escape (WCAG 2.4.3, #613). A press on a
+      // control that takes the focus keeps it there: checked once the browser has moved it.
+      if (hadFocus) setTimeout(() => {
+        const active = document.activeElement
+        if ((!active || active === document.body) && buttonRef.current?.isConnected) buttonRef.current.focus({ preventScroll: true })
+      }, 0)
     }
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== 'Escape') return
