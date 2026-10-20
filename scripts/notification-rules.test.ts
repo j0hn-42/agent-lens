@@ -53,10 +53,10 @@ test('permission and error: only newly blocked agents, per enabled rule, body co
   const both = evaluateTriggers(prev, cur, all)
   assert.equal(both.length, 1)
   assert.equal(both[0].trigger, 'attention')
-  assert.equal(both[0].body, '2 waiting / 1 error')
+  assert.equal(both[0].body, '2 agents waiting / 1 agent in error')
 
   const onlyError = evaluateTriggers(prev, cur, { ...all, permission: false })
-  assert.equal(onlyError[0].body, '1 error')
+  assert.equal(onlyError[0].body, '1 agent in error')
 
   const onlyPermission = evaluateTriggers(prev, snap({ waitingIds: new Set(['a']), errorIds: new Set(['c']) }), { ...all, error: false })
   assert.deepEqual(onlyPermission, [], 'a new error is silent when the error rule is off')

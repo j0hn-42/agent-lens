@@ -109,7 +109,7 @@ test('notification: permission is asked only when the user turns it on, then a h
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
   hook.rerender({ agents: [blocked('s1:a', 'waiting_permission'), blocked('s2:a', 'error')] })
   assert.equal(FakeNotification.shown.length, 1)
-  assert.match(FakeNotification.shown[0].body ?? '', /1 waiting \/ 1 error/)
+  assert.match(FakeNotification.shown[0].body ?? '', /1 agent waiting \/ 1 agent in error/)
   hook.rerender({ agents: [blocked('s1:a', 'waiting_permission'), blocked('s2:a', 'error')] })
   assert.equal(FakeNotification.shown.length, 1, 'no repeat for agents already reported')
 

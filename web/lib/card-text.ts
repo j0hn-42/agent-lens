@@ -18,7 +18,7 @@ import { sessionHealthText } from './loop-detection'
 import { SESSION_STATUS_TEXT, formatTeamSummary } from './chrome-utils'
 import { SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP, SESSION_OFFLINE_HELP } from './session-model'
 import { tokensText } from './delegation-report'
-import { sessionAttentionText, type SessionAttention } from './attention'
+import type { SessionAttention } from './attention'
 import type { Freshness, Silence } from '../hooks/simulation/freshness'
 import type { HealthVerdict, LoopFinding } from './loop-detection'
 import type { DelegationDuration, DelegationResult, DelegationRow } from './delegation-report'
@@ -282,17 +282,16 @@ export function teamSummaryText(locale: Locale, teamName: string, members: numbe
   return tr(locale, 'sessions.team.summary', { heading: groupHeadingText(locale, kind, teamName), members: noun, working })
 }
 
-/** The attention count of a session ("2 waiting / 1 error"); null when nothing is waiting and nothing failed. */
+/** The attention count of a session ("2 agents waiting / 1 agent in error", the words of the top bar); null when nothing is waiting and nothing failed. */
 export function sessionAttentionLabel(locale: Locale, a: SessionAttention | undefined): string | null {
   if (!a) return null
-  if (locale === 'en') return sessionAttentionText(a)
   return attentionText(locale, a.waiting, a.errors) || null
 }
 
 function attentionText(locale: Locale, waiting: number, errors: number): string {
   const parts: string[] = []
-  if (waiting > 0) parts.push(tr(locale, 'sessions.attention.waiting', { n: waiting }))
-  if (errors > 0) parts.push(pluralKey(locale, 'sessions.attention.error', errors))
+  if (waiting > 0) parts.push(pluralKey(locale, 'topbar.attention.waiting', waiting))
+  if (errors > 0) parts.push(pluralKey(locale, 'topbar.attention.error', errors))
   return parts.join(' / ')
 }
 

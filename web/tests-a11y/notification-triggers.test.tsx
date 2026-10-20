@@ -86,7 +86,7 @@ test('triggers: turning a rule off hides its alert, the others still fire', () =
   assert.equal(FakeNotification.shown.length, 0)
   hook.rerender({ agents: [blocked('s1:a', 'error'), blocked('s2:a', 'waiting_permission')] })
   assert.equal(FakeNotification.shown.length, 1)
-  assert.equal(FakeNotification.shown[0].body, '1 waiting')
+  assert.equal(FakeNotification.shown[0].body, '1 agent waiting')
 })
 
 test('native channel (VS Code): sends the item to the extension, no browser permission, not gated on document.hidden', async () => {
@@ -99,7 +99,7 @@ test('native channel (VS Code): sends the item to the extension, no browser perm
   assert.equal(FakeNotification.asked, 0, 'the browser permission is irrelevant in VS Code')
   assert.equal(hook.result.current.notifyState, 'on')
   hook.rerender({ agents: [blocked('s1:a', 'error')] })
-  assert.deepEqual(sent, [{ trigger: 'attention', title: 'Agent Lens', body: '1 error' }])
+  assert.deepEqual(sent, [{ trigger: 'attention', title: 'Agent Lens', body: '1 agent in error' }])
   assert.equal(FakeNotification.shown.length, 0)
 })
 

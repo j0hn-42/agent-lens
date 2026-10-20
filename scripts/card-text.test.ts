@@ -12,7 +12,6 @@ import { lastKnownStateText, silenceText } from '../web/hooks/simulation/freshne
 import { activeSummaryText } from '../web/lib/active-time'
 import { GIT_STRIP_LABELS, groupHeading } from '../web/lib/ui-glossary'
 import { formatTeamSummary, SESSION_STATUS_TEXT } from '../web/lib/chrome-utils'
-import { formatAttention } from '../web/lib/attention'
 import { formatRelativeTime } from '../web/lib/session-tree'
 import { SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP, SESSION_OFFLINE_HELP } from '../web/lib/session-model'
 import { SESSION_LIST_LABELS, SESSIONS_LIST_NAME, CONTEXT_WINDOW_NAME, emptyMatch } from '../web/lib/ui-glossary'
@@ -189,7 +188,7 @@ test('English: the Sessions panel words are the ones it showed before', () => {
   for (const [members, working, kind] of [[1, 0, 'team'], [3, 2, 'workflow'], [1, 1, undefined], [0, 0, 'workflow']] as const) {
     assert.equal(T.teamSummaryText('en', 'alpha', members, working, kind), formatTeamSummary('alpha', members, working, kind))
   }
-  for (const [w, e] of [[0, 0], [2, 0], [0, 1], [1, 3]]) assert.equal(T.sessionAttentionLabel('en', { waiting: w, errors: e }), formatAttention(w, e) || null)
+  for (const [w, e, text] of [[0, 0, null], [2, 0, '2 agents waiting'], [0, 1, '1 agent in error'], [1, 3, '1 agent waiting / 3 agents in error']] as const) assert.equal(T.sessionAttentionLabel('en', { waiting: w, errors: e }), text)
   assert.equal(T.sessionAttentionLabel('en', undefined), null)
   assert.equal(T.sessionAttentionLabel('fr', { waiting: 0, errors: 0 }), null)
   for (const sec of [0, 4, 5, 59, 60, 3599, 3600, 86_399, 86_400, 400_000]) assert.equal(T.relativeTimeText('en', 0, sec * 1000), formatRelativeTime(0, sec * 1000))
@@ -212,8 +211,9 @@ test('English: the Sessions panel words are the ones it showed before', () => {
 test('French: team summary, attention and ages keep their figures', () => {
   assert.equal(T.teamSummaryText('fr', 'alpha', 3, 2, 'team'), 'Équipe alpha : 3 membres, 2 au travail')
   assert.equal(T.teamSummaryText('fr', 'w', 1, 0, 'workflow'), 'Workflow w : 1 agent, 0 au travail')
-  assert.equal(T.sessionAttentionLabel('fr', { waiting: 2, errors: 1 }), '2 en attente / 1 erreur')
-  assert.equal(T.sessionAttentionLabel('fr', { waiting: 0, errors: 3 }), '3 erreurs')
+  assert.equal(T.sessionAttentionLabel('fr', { waiting: 2, errors: 1 }), '2 agents en attente / 1 agent en erreur')
+  assert.equal(T.sessionAttentionLabel('fr', { waiting: 1, errors: 0 }), '1 agent en attente')
+  assert.equal(T.sessionAttentionLabel('fr', { waiting: 0, errors: 3 }), '3 agents en erreur')
   assert.equal(T.relativeTimeText('fr', 0, 90_000), 'il y a 1 min')
   assert.equal(T.relativeTimeText('fr', 0, 2000), 'à l’instant')
 })
