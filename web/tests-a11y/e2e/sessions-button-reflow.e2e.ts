@@ -8,6 +8,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { postWhenListening } from './bridge-ready'
 
 let browser: Browser
 let server: DemoServer
@@ -62,15 +63,13 @@ for (const c0 of CASES) for (const long of [false, true]) {
         await host.goto(`${server.url}/__host`)
         const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
         await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
-        const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
         const now = Date.now()
-        await post({ type: '__vscode-bridge-init' })
-        await post({ type: 'config', showMockData: false })
+        // Once the page answers the init (bridge-ready.ts: the Sessions button of the server HTML proves nothing, #603, #613).
         // Two listed sessions, no event heard from either: both are « not observed », the selection is « all sessions »
-        await post({ type: 'session-list', sessions: [
+        await postWhenListening(host, [{ type: 'config', showMockData: false }, { type: 'session-list', sessions: [
           { id: 's1', label: long ? LONG : 'one', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/one', runtime: 'claude' },
           { id: 's2', label: 'two', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/two', runtime: 'claude' },
-        ] })
+        ] }])
         // Select « all sessions » in the panel, then close it: the button now carries the longest selection label
         await page.locator('header').getByRole('button', { name: /^Sessions\s?:/ }).click()
         await page.locator('[data-row-key^="session:"]').filter({ hasText: c.label }).first().click()

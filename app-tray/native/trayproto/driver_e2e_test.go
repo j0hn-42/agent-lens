@@ -28,7 +28,12 @@ const helperEnv = "TRAYPROTO_E2E_HELPER"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(helperEnv) == "1" {
-		os.Exit(runHelper())
+		code := runHelper()
+		// The test reads the binary's own exit code here: the driver's says nothing of it (#613)
+		if f := os.Getenv("TRAYPROTO_E2E_EXIT"); f != "" {
+			_ = os.WriteFile(f, []byte(fmt.Sprint(code)), 0o600)
+		}
+		os.Exit(code)
 	}
 	os.Exit(m.Run())
 }
@@ -113,6 +118,7 @@ func TestRealDriverWithAGoBinary(t *testing.T) {
 	dir := t.TempDir()
 	menus := filepath.Join(dir, "menus.jsonl")
 	mark := filepath.Join(dir, "relay.mark")
+	exitFile := filepath.Join(dir, "binary.exit")
 
 	// The driver passes no argument to the binary: a wrapper script points it at this test executable.
 	wrapper := filepath.Join(dir, "tray-bin")
@@ -133,7 +139,7 @@ func TestRealDriverWithAGoBinary(t *testing.T) {
 		}
 		env = append(env, kv)
 	}
-	cmd.Env = append(env, "LANG=C", helperEnv+"=1", "TRAYPROTO_E2E_MENUS="+menus, "FAKE_RELAY_MARK="+mark)
+	cmd.Env = append(env, "LANG=C", helperEnv+"=1", "TRAYPROTO_E2E_MENUS="+menus, "TRAYPROTO_E2E_EXIT="+exitFile, "FAKE_RELAY_MARK="+mark)
 	// On a timeout, kill the whole process group (driver, relay, binary) and stop waiting for their
 	// pipes: a failure must end the test, never hang it.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -167,6 +173,11 @@ func TestRealDriverWithAGoBinary(t *testing.T) {
 	}
 	if got := strings.Join(ids, ","); got != "open,copyUrl,state,skipped,quit" {
 		t.Errorf("last menu items %s", got)
+	}
+
+	// The driver's exit code says nothing of the binary's (#613): the helper writes its own before exiting
+	if code, err := os.ReadFile(exitFile); err != nil || string(code) != "0" {
+		t.Errorf("the Go binary did not exit 0 (code %q, %v)", code, err)
 	}
 
 	stopped, err := os.ReadFile(mark)

@@ -28,6 +28,7 @@ import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 import * as C from '@/lib/card-text'
 import { viewCountsText } from '@/lib/chrome-utils'
+import { PANEL_NAMES } from '@/lib/ui-glossary'
 import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
 import { FreshnessAnnouncer } from '@/components/agent-visualizer/freshness-announcer'
@@ -125,9 +126,11 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** One regex per catalog value: a {placeholder} stands for a number or a short word. A shortcut hint " (+)" may follow. */
 function catalogPatterns(locale: Locale): RegExp[] {
   return (Object.values(MESSAGES[locale]) as string[]).map(v => {
-    // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values (a panel name such as "Files & repeats", #518)
+    // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values.
+    // "&" is accepted only inside the panel name "Files & repeats" (#518), not in any parameter (#613)
     // A value written with a leading or trailing space (a part joined to another) is matched as the text node renders, trimmed
-    const body = v.trim().split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()<$\'’ _—~*&-]+')
+    const placeholder = `(?:[\\p{L}\\p{N}.,:;#/+≥×%·()<$'’ _—~*-]|${escapeRe(PANEL_NAMES.files)})+`
+    const body = v.trim().split(/\{\w+\}/).map(escapeRe).join(placeholder)
     return new RegExp(`^${body}(?: \\([+\\-0]\\))?$`, 'u')
   })
 }
@@ -142,6 +145,11 @@ function strangers(locale: Locale, strings: string[], extra: { allow?: ReadonlyS
   const parts = (s: string) => s.replace(/^· /, '').split(' · ')
   return strings.filter(s => !known(s) && !((s.startsWith('· ') || s.includes(' · ')) && parts(s).every(known)))
 }
+
+test('control: a placeholder accepts "&" only inside the Files & repeats name, not in any parameter (#613)', () => {
+  assert.deepEqual(strangers('en', [`Open ${PANEL_NAMES.files}`]), [])
+  assert.deepEqual(strangers('en', ['Open a & b']), ['Open a & b'])
+})
 
 /** The nearest declared language of an element. */
 const langOf = (el: Element) => el.closest('[lang]')?.getAttribute('lang')

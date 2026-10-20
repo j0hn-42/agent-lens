@@ -6,6 +6,7 @@ import type { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import type { ToastInput } from '@/hooks/use-toasts'
 import { TIMING } from '@/lib/agent-types'
 import { formatMissedEvents } from '@/lib/chrome-utils'
+import { useT } from '@/lib/locale'
 
 type Simulation = ReturnType<typeof useAgentSimulation>
 type Bridge = ReturnType<typeof useVSCodeBridge>
@@ -40,9 +41,11 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
   // already announces (buildAnnouncement). The review bar swaps in; its button reads "▶ LIVE" and is named "Resume live" (aria-label, catalog key bar.resumeLive).
 
   const nothingToReview = eventCount === 0
+  // The sentence linked to the Review button (bar.review.empty), in the language of the bar (#613)
+  const t = useT()
   const refuseEmptyReview = useCallback(() => {
-    pushToast({ message: 'No events to review yet', durationMs: 4000 })
-  }, [pushToast])
+    pushToast({ message: t('bar.review.empty'), durationMs: 4000 })
+  }, [pushToast, t])
 
   const handlePlayPause = useCallback(() => {
     if (isPlaying) {

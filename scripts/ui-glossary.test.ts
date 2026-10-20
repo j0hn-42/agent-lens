@@ -32,10 +32,10 @@ test('one empty-state wording: "No <things> yet", shared by the glossary and the
 test('the Conversation button is named with its shortcut and the pill/close controls use the same name', () => {
   // The top bar names come from messages.ts since #523 (an icon under 1280 px); in English they are the glossary names
   assert.equal(MESSAGES.en['topbar.panel.conversation.name'], `${PANEL_NAMES.conversation} (C)`)
-  for (const p of ['files', 'timeline', 'stats'] as const) assert.equal(MESSAGES.en[`topbar.panel.${p}.name`], PANEL_NAMES[p])
+  // Cost too since #613 (it was "$Cost", read "dollar Cost"; its shortcut $ is in the tooltip)
+  for (const p of ['files', 'timeline', 'stats', 'cost'] as const) assert.equal(MESSAGES.en[`topbar.panel.${p}.name`], PANEL_NAMES[p])
   assert.equal(MESSAGES.en['topbar.panel.context.name'], `${PANEL_NAMES.context} (P)`)
   assert.equal(MESSAGES.en['topbar.panel.system.name'], `${PANEL_NAMES.system} (Y)`)
-  assert.equal(MESSAGES.en['topbar.panel.cost.name'], `$${PANEL_NAMES.cost}`)
   // One source for the English tooltips (#545 review): built from the glossary, never a copy that can drift
   assert.equal(MESSAGES.en['topbar.panel.cost.tooltip'], `Cost overlay ($). ${COST_LABELS.method}`)
   assert.equal(MESSAGES.en['topbar.panel.context.tooltip'], `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`)

@@ -45,13 +45,15 @@ interface PanelDockProps {
   openFile: (filePath: string, line?: number) => void
   fetchContext: ComponentPropsOf<typeof ProjectContextPanel>['fetchContext']
   contextOrigin: string
+  /** The guided tour shows the inactive agents for a moment (#613): the filters line says the canvas filter is paused */
+  tourShowsInactive?: boolean
 }
 
 type ComponentPropsOf<T> = T extends (props: infer P) => unknown ? P : never
 
 /** The slide-in panels around the canvas: files, sessions, project context, system, timeline */
 export function PanelDock({
-  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, replayLostBySession, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
+  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, replayLostBySession, listAgents, agentLabel, openFile, fetchContext, contextOrigin, tourShowsInactive = false,
 }: PanelDockProps) {
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
@@ -106,6 +108,7 @@ export function PanelDock({
           activeOnly={prefs.sessionListActiveOnly}
           onActiveOnlyChange={v => setPref('sessionListActiveOnly', v)}
           canvasHideInactive={hidesInactiveAgents(prefs.show)}
+          canvasHidePausedByTour={tourShowsInactive}
           onFilterChange={change => {
             if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
             if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)

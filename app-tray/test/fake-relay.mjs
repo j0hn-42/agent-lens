@@ -1,6 +1,7 @@
 // Test double of the relay (#335): prints the same URL line as app/src/server.ts and serves /status.
 // Env: FAKE_RELAY_MODE = ok | no-url | foreign-url | status-500 | status-bad-json | status-foreign | status-huge | status-hang | ignore-term | ignore-ipc | disconnect-ipc
-//      (disconnect-ipc: closes its end of the IPC channel once listening, and keeps running)
+//      (disconnect-ipc: closes its end of the IPC channel once listening, and keeps running; in the other modes but
+//      ignore-ipc, started with --ipc-stop, it exits when the parent closes the channel, like app/src/parent-stop.ts)
 //      FAKE_RELAY_COUNT = sessionCount (default 2), FAKE_RELAY_MARK = file written when SIGTERM ("SIGTERM") or, started
 //      with an IPC channel and --ipc-stop, the exact stop message of the driver ("IPC") is received (#513),
 //      FAKE_RELAY_EXIT_AFTER_MS = exit with code 4 after this delay.
@@ -46,6 +47,13 @@ if (process.argv.includes('--ipc-stop') && typeof process.send === 'function') {
     if (mode === 'ignore-ipc') return
     if (!m || typeof m !== 'object' || Object.keys(m).length !== 2 || m.v !== 1 || m.type !== 'stop') return
     if (process.env.FAKE_RELAY_MARK) fs.writeFileSync(process.env.FAKE_RELAY_MARK, 'IPC')
+    server.close()
+    process.exit(0)
+  })
+  // Like the real relay: a channel closed by the parent (the driver exited or was killed) ends it (#613). Not in the
+  // modes that play a relay closing its own end or ignoring the channel.
+  process.on('disconnect', () => {
+    if (mode === 'disconnect-ipc' || mode === 'ignore-ipc') return
     server.close()
     process.exit(0)
   })

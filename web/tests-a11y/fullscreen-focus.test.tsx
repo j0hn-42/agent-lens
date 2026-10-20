@@ -49,6 +49,20 @@ test('Enter full screen by keyboard puts the focus on Exit full screen, and Exit
   assert.equal(document.activeElement, r.getByRole('button', { name: 'Enter full screen' }), 'focus returns to the Enter button')
 })
 
+test('in full screen, Settings > Open View controls still opens the View popover (#613)', async () => {
+  const r = await mount()
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await settle()
+  assert.ok(r.getByRole('button', { name: 'Exit full screen' }), 'precondition: in full screen')
+  // Settings by its shortcut (the top bar is hidden in full screen)
+  await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key: ',' }) })
+  await settle()
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Open View controls' })) })
+  await settle()
+  const popover = r.getByRole('dialog', { name: 'View settings' })
+  assert.ok(popover.contains(document.activeElement), `the focus is in the popover, not ${document.activeElement?.tagName}`)
+})
+
 test('entering and leaving full screen is announced in the status region', async () => {
   const r = await mount()
   const status = () => Array.from(r.container.querySelectorAll('[role="status"]')).map(n => n.textContent ?? '').join(' | ')

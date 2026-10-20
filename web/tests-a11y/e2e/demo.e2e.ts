@@ -72,7 +72,7 @@ function expectClean(scenario: string, r: { unexpected: string[]; stale: string[
 }
 
 describe('demo mode: axe-core, serious and critical only', () => {
-  const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['conversation', 'Conversation'], ['timeline', 'Timeline'], ['cost', '$Cost']]
+  const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['conversation', 'Conversation'], ['timeline', 'Timeline'], ['cost', 'Cost']]
   for (const [name, button] of panels) {
     test(`e2e: ${name}`, async () => {
       const { page, close } = await open()

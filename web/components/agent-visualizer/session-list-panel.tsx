@@ -111,6 +111,8 @@ interface SessionListPanelProps {
    * Active only, so the two rules are seen side by side. Absent = not known here: the line says nothing of the canvas.
    */
   canvasHideInactive?: boolean
+  /** The guided tour shows the inactive agents for a moment (#613): the setting is on, the canvas does not apply it now */
+  canvasHidePausedByTour?: boolean
   /** Events the relay could not replay, per session id (#366): the tokens and costs of such a session are lower bounds */
   replayLost?: ReadonlyMap<string, number>
 }
@@ -310,7 +312,7 @@ export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, lossIndicator, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange, canvasHideInactive, replayLost,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange, canvasHideInactive, canvasHidePausedByTour, replayLost,
 }: SessionListPanelProps) {
   const { locale } = useLocale()
   const t = useT()
@@ -566,6 +568,7 @@ export function SessionListPanel({
             <>
               <span aria-hidden="true">{' \u00b7 '}</span>
               <span>{!canvasHideInactive ? t('sessions.scope.canvas.off')
+                : canvasHidePausedByTour ? t('sessions.scope.canvas.tour')
                 : selectedSessionId === ALL_SESSIONS_ID ? t('sessions.scope.canvas.hideAll', { n: ACTIVE_WINDOW_MINUTES })
                 : t('sessions.scope.canvas.hideOne')}</span>
             </>

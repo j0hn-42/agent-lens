@@ -56,6 +56,29 @@ test('the Space shortcut and the button share the rule: no event, no review, a t
   assert.match(toasts[0].message, /no events to review/i)
 })
 
+test('the toast says the same catalog sentence as the reason, in the language of the bar (#613)', () => {
+  try {
+    for (const [locale, text] of [['en', 'No events to review yet'], ['fr', 'Aucun événement à revoir pour l’instant']] as const) {
+      setLocaleChoice(locale)
+      const toasts: string[] = []
+      const hook = renderHook(() => useReviewControls({
+        sim: {
+          isPlaying: true, maxTimeReached: 0, play: noop, pause: noop, restart: noop, seekToTime: noop,
+          saveSnapshot: (() => ({})) as never, restoreSnapshot: noop, setSpeed: noop,
+        },
+        bridge: { pendingEvents: [], selectedSessionIdRef: { current: null }, flushSessionEvents: noop } as never,
+        isReviewing: false, setIsReviewing: noop, pushToast: t => { toasts.push(t.message) },
+        seekingRef: { current: false }, zoomToFit: noop, autoPlay: false, eventCount: 0,
+      }))
+      act(() => { hook.result.current.handleEnterReview() })
+      assert.deepEqual(toasts, [text], locale)
+      hook.unmount()
+    }
+  } finally {
+    setLocaleChoice('auto')
+  }
+})
+
 test('1 event: Review enters review', () => {
   let entered = 0
   const { getByRole } = bar(1, () => { entered++ })

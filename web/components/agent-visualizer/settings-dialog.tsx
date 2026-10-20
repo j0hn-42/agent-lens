@@ -568,7 +568,7 @@ export function SettingsDialog({
             <button
               type="button"
               onClick={() => { onClose(); onOpenShortcuts() }}
-              className="mt-1 min-h-6 rounded px-2 py-1 text-[11px] font-mono underline"
+              className={`mt-1 min-h-6 rounded px-2 py-1 text-[11px] font-mono underline ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
               {t('settings.shortcuts')}

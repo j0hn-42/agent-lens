@@ -4,9 +4,30 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { formatEventCount, formatSpeed, formatTruncatedHistory, liveBadge, scrubberValueText } from '../web/lib/chrome-utils'
 import { connectionText } from '../web/lib/top-bar-text'
-import { SHORTCUTS, SHORTCUT_GROUPS } from '../web/lib/shortcuts'
-import { shortcutDescription, shortcutGroupName, shortcutKeyCap } from '../web/lib/shortcuts-text'
+import { SHORTCUTS, SHORTCUT_GROUPS, graphKeyboardHelp } from '../web/lib/shortcuts'
+import { shortcutDescription, shortcutGroupName, shortcutKeyCap, graphKeyboardHelpText } from '../web/lib/shortcuts-text'
 import { LOCALES, MESSAGES, translate } from '../web/lib/messages'
+
+test('the play/pause button and its shortcut use the same words in each language (#613)', () => {
+  for (const locale of LOCALES) {
+    for (const key of ['shortcut.play', 'palette.action.play'] as const) {
+      const words = translate(locale, key).toLocaleLowerCase(locale).split(' / ')
+      assert.deepEqual(words, [translate(locale, 'bar.play'), translate(locale, 'bar.pause')].map(w => w.toLocaleLowerCase(locale)), `${locale} ${key}`)
+    }
+  }
+})
+
+test('graph keyboard help read by screen readers: the English text of the table, and French in French (#613)', () => {
+  assert.equal(graphKeyboardHelpText('en'), graphKeyboardHelp())
+  const fr = graphKeyboardHelpText('fr')
+  for (const g of SHORTCUTS.filter(s => s.group === 'Graph')) {
+    assert.ok(fr.includes(shortcutDescription(g, 'fr')), g.key)
+    assert.ok(!fr.includes(g.description), `English description left in French: ${g.description}`)
+    if (g.spoken) assert.ok(!fr.includes(g.spoken), `English spoken keys left in French: ${g.spoken}`)
+  }
+  assert.ok(fr.startsWith('Flèches : Se déplacer entre les nœuds'), fr)
+  assert.ok(fr.includes('Maj avec les flèches : Déplacer la vue.'), fr)
+})
 
 test('playback bar: the truncated-history text agrees with the count in both languages, English by default', () => {
   assert.equal(formatTruncatedHistory(0, 'fr'), null)

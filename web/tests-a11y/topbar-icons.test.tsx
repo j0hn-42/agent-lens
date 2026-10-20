@@ -42,7 +42,7 @@ const base: TopBarProps = {
 const PANELS = ['files', 'conversation', 'context', 'system', 'cost', 'timeline', 'stats'] as const
 /** The accessible names the buttons had before #523, unchanged */
 const EN_NAMES: Record<(typeof PANELS)[number], string> = {
-  files: 'Files & repeats', conversation: 'Conversation (C)', context: 'Context (P)', system: 'System (Y)', cost: '$Cost', timeline: 'Timeline', stats: 'Stats',
+  files: 'Files & repeats', conversation: 'Conversation (C)', context: 'Context (P)', system: 'System (Y)', cost: 'Cost', timeline: 'Timeline', stats: 'Stats',
 }
 const FR_NAMES: Record<(typeof PANELS)[number], string> = {
   files: 'Fichiers et répétitions', conversation: 'Conversation (C)', context: 'Contexte (P)', system: 'Système (Y)', cost: 'Coût', timeline: 'Chronologie', stats: 'Statistiques',
@@ -243,7 +243,7 @@ test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2
   const header = view.container.querySelector('header')!
   const stops = tabStops(header)
   const at = (re: RegExp) => { const i = stops.findIndex(s => re.test(s)); assert.ok(i >= 0, `${re} in ${stops.join(' | ')}`); return i }
-  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^\$Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
+  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
   const idx = order.map(at)
   assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${stops.join(' | ')}`)
   // The groups: identity and filters (row 1), status (quota, spoken totals), panels and tools (row 2)

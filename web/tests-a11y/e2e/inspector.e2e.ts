@@ -18,6 +18,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Frame } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { postWhenListening } from './bridge-ready'
 
 let browser: Browser
 let server: DemoServer
@@ -52,9 +53,12 @@ async function openWithFakeRelay(width: number, height: number) {
   const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
-  await post({ type: '__vscode-bridge-init' })
-  await post({ type: 'config', showMockData: false })
-  await post({ type: 'session-list', sessions: [info('sa', 'payments-api'), info('sb', 'web-app', { lastActivityTime: Date.now() - 5000 })] })
+  // The Sessions button is in the server HTML, so seeing it proves nothing about the bridge: init is repeated until the
+  // page answers, then the config and the list are posted (bridge-ready.ts, the race fixed in #603, #613)
+  await postWhenListening(host, [
+    { type: 'config', showMockData: false },
+    { type: 'session-list', sessions: [info('sa', 'payments-api'), info('sb', 'web-app', { lastActivityTime: Date.now() - 5000 })] },
+  ])
   // The session list is applied (the Sessions button names the shown session) before agents are posted into it
   await page.getByRole('button', { name: /^Sessions: payments-api/ }).waitFor()
   for (const e of [spawn('sa', { name: 'main-a', isMain: true }), spawn('sa', { name: 'worker-a', parent: 'main-a' }), spawn('sb', { name: 'main-b', isMain: true })]) {

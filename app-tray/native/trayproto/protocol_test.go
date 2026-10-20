@@ -100,3 +100,58 @@ func TestEncodedLinesAreOneLineEach(t *testing.T) {
 		}
 	}
 }
+
+// #613: the texts are checked, not only typed. The driver only writes safe texts (deriveMenu), so these
+// lines can only come from something else: they are refused rather than drawn.
+func TestParseRefusesUnsafeTexts(t *testing.T) {
+	menu := func(tooltip, label string) string {
+		return `{"v":1,"type":"menu","tooltip":"` + tooltip + `","items":[{"id":"open","label":"` + label + `","enabled":true}]}`
+	}
+	for name, line := range map[string]string{
+		"tooltip with RLO (bidi override)":        menu(`Agent \u202eLens`, "Open"),
+		"tooltip with a raw RLO":                  menu("Agent \u202eLens", "Open"),
+		"label with an isolate (LRI)":             menu("t", `a\u2066b`),
+		"label with ALM":                          menu("t", `a\u061cb`),
+		"label with RLM":                          menu("t", `a\u200fb`),
+		"label with NUL":                          menu("t", `a\u0000b`),
+		"label with ESC":                          menu("t", `a\u001bb`),
+		"label with CR":                           menu("t", `a\rb`),
+		"label with DEL":                          menu("t", `a\u007fb`),
+		"label with a C1 control":                 menu("t", `a\u0085b`),
+		"label with an invalid UTF-8 byte":        menu("t", "a\xffb"),
+		"tooltip with a truncated UTF-8 sequence": menu("Agent \xe2\x80", "Open"),
+		"label with a lone surrogate escape":      menu("t", `a\ud800b`),
+		"label with U+FFFD":                       menu("t", "a\uFFFDb"),
+	} {
+		if got, err := ParseDriverMessage([]byte(line)); err == nil {
+			t.Errorf("%s: accepted as %+v", name, got)
+		}
+	}
+}
+
+func TestParseKeepsOrdinaryTexts(t *testing.T) {
+	line := `{"v":1,"type":"menu","tooltip":"Agent Lens : 2 sessions\nsuivies\tok","items":[{"id":"open","label":"Ouvrir l’interface — 日本語 ✓","enabled":true}]}`
+	got, err := ParseDriverMessage([]byte(line))
+	if err != nil {
+		t.Fatalf("refused: %v", err)
+	}
+	if got.Menu.Tooltip != "Agent Lens : 2 sessions\nsuivies\tok" || got.Menu.Items[0].Label != "Ouvrir l’interface — 日本語 ✓" {
+		t.Fatalf("got %+v", got.Menu)
+	}
+}
+
+// #613: a key written twice is refused (encoding/json would keep the last one silently). The driver
+// writes its lines with JSON.stringify of an object, so it never repeats a key.
+func TestParseRefusesARepeatedKey(t *testing.T) {
+	for _, line := range []string{
+		`{"v":1,"v":1,"type":"quit"}`,
+		`{"v":1,"type":"menu","type":"quit"}`,
+		`{"v":1,"type":"menu","tooltip":"a","tooltip":"b","items":[]}`,
+		`{"v":1,"type":"menu","tooltip":"t","items":[{"id":"open","label":"x","label":"y","enabled":true}]}`,
+		`{"v":1,"type":"menu","tooltip":"t","items":[{"id":"open","id":"quit","label":"x","enabled":true}]}`,
+	} {
+		if got, err := ParseDriverMessage([]byte(line)); err == nil {
+			t.Errorf("%s accepted as %+v", line, got)
+		}
+	}
+}

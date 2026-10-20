@@ -203,6 +203,30 @@ describe('TeamWatcher scan', () => {
     assert.deepEqual(flags, [undefined, true, undefined])
   })
 
+  it('the replayed mark is used once: roster K, forget, K replayed, K\', then K again is news (#613)', () => {
+    root = tmpDir()
+    const teams = path.join(root, 'teams')
+    const withBob = () => teamConfig({ members: [
+      ...(teamConfig().members as unknown[]),
+      { agentId: 'bob@demo-team', name: 'bob', backendType: 'in-process', joinedAt: 1_700_000_002_000 },
+    ] })
+    writeTeam(teams, 'demo-team', teamConfig())
+    const rec = recorder()
+    const flags: Array<boolean | undefined> = []
+    const emit = rec.host.emitTeamInfo
+    rec.host.emitTeamInfo = (sid, payload, opts) => { flags.push(opts?.replayed); emit(sid, payload) }
+    const w = make(rec)
+    w.scan()
+    w.forgetSession(LEAD_SESSION)
+    w.scan()
+    assert.deepEqual(flags, [undefined, true], 'precondition: K re-sent after the forget is replayed')
+    writeTeam(teams, 'demo-team', withBob())
+    w.scan()
+    writeTeam(teams, 'demo-team', teamConfig())
+    w.scan()
+    assert.deepEqual(flags, [undefined, true, undefined, undefined], 'K after K\' (no forget in between) is a roster change, not a repeat')
+  })
+
   it('debounces rapid roster changes', async () => {
     root = tmpDir()
     const teams = path.join(root, 'teams')

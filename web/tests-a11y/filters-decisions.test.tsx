@@ -12,7 +12,9 @@ import axe from 'axe-core'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
+import { PanelDock } from '@/components/agent-visualizer/panel-dock'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { setLocaleChoice } from '@/lib/locale'
 import { ACTIVE_WINDOW_MINUTES } from '@/lib/show-mode'
 import type { SessionInfo } from '@/lib/bridge-types'
@@ -67,6 +69,48 @@ test('(1) the line says both filters as set: Active only on, Hide inactive on in
   // The separator is drawn, not read
   const dot = [...line.querySelectorAll('[aria-hidden="true"]')].map(n => n.textContent)
   assert.deepEqual(dot, [' · '])
+})
+
+test('(1) during the guided tour, which shows the inactive agents for a moment, the line says the filter is paused, not on (#613)', () => {
+  const view = render(panel({ activeOnly: true, canvasHideInactive: true, canvasHidePausedByTour: true }))
+  assert.equal(scopeLine(view.container)!.textContent, 'List: Active only · Canvas: Hide inactive paused during the tour')
+  view.rerender(panel({ activeOnly: true, canvasHideInactive: true, canvasHidePausedByTour: false }))
+  assert.equal(scopeLine(view.container)!.textContent, `List: Active only · Canvas: Hide inactive (${ACTIVE_WINDOW_MINUTES} min)`, 'the tour over: the setting again')
+  // The setting off: nothing is paused, the line says off
+  view.rerender(panel({ activeOnly: true, canvasHideInactive: false, canvasHidePausedByTour: true }))
+  assert.equal(scopeLine(view.container)!.textContent, 'List: Active only · Canvas: Hide inactive off')
+  cleanup()
+  setLocaleChoice('fr')
+  const fr = render(panel({ activeOnly: true, canvasHideInactive: true, canvasHidePausedByTour: true }))
+  assert.match(scopeLine(fr.container)!.textContent ?? '', /Canevas : Masquer les inactifs suspendu pendant la visite$/)
+})
+
+test('(1) wiring: PanelDock tells the Sessions panel that the tour pauses the canvas filter (#613)', () => {
+  const ref = () => ({ current: null })
+  const dock = (tourShowsInactive: boolean) => ({
+    panels: {
+      panelRefs: { files: ref(), sessions: ref(), context: ref(), system: ref(), timeline: ref() },
+      showFileAttention: false, showSessions: true, showContext: false, showSystem: false, showTimeline: false,
+      setShowFileAttention: noop, setShowSessions: noop, setShowContext: noop, setShowSystem: noop, setShowTimeline: noop,
+    },
+    sim: { fileAttention: new Map(), waste: undefined, agents: new Map(), timelineEntries: new Map(), currentTime: 0 },
+    bridge: {
+      sessions, selectedSessionId: '__all__', sessionsWithActivity: new Set(), sessionModels: new Map(),
+      selectSession: noop, renameSession: noop, useMockData: true, isVSCode: false, connectionStatus: 'connected',
+      teams: new Map(), teamWorking: new Map(), teamSummaries: new Map(), teamMemberCounts: new Map(), relayScope: null,
+      systemStats: [], quota: null, eventLoss: null, replayLost: 0,
+    },
+    selection: { selectedAgentId: null, handleAgentClick: noop },
+    attention: undefined, health: { bySession: undefined },
+    sessionActions: { handleCloseSession: noop, handleExportSession: noop, canExportSession: () => false },
+    uiPrefs: { prefs: { sessionListActiveOnly: false, show: 'active' }, setPref: noop },
+    allSessionCount: 2, agentCounts: { active: 0, done: 0, stale: 0, idle: 0, error: 0 }, listAgents: new Map(), agentLabel: (k: string) => k, openFile: noop,
+    fetchContext: async () => null, contextOrigin: '', tourShowsInactive,
+  }) as unknown as React.ComponentProps<typeof PanelDock>
+  const view = render(<PanelDock {...dock(true)} />)
+  assert.match(scopeLine(view.container)?.textContent ?? '', /Canvas: Hide inactive paused during the tour$/)
+  view.rerender(<PanelDock {...dock(false)} />)
+  assert.match(scopeLine(view.container)?.textContent ?? '', /Canvas: Hide inactive \(\d+ min\)$/)
 })
 
 test('(1) the line follows the Active only button at once and the canvas setting as given', () => {
@@ -189,6 +233,16 @@ test('(2) the button closes Settings first, then asks for the View controls', ()
   assert.deepEqual(calls, ['close', 'view'])
 })
 
+/**
+ * The sequential focus order of the document as a browser builds it for Tab (jsdom has no Tab): focusable elements in
+ * tree order, without a negative tabindex, a disabled control, or a hidden / inert ancestor. No positive tabindex is used
+ * in the dialog, so tree order is the order.
+ */
+function tabOrder(root: ParentNode = document): HTMLElement[] {
+  const all = Array.from(root.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, summary, [tabindex]'))
+  return all.filter(el => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled && !el.closest('[hidden], [inert]'))
+}
+
 test('(2) keyboard: Tab from the tab list reaches the button, Enter on a native button activates it', () => {
   const calls: string[] = []
   const view = render(<SettingsDialog {...dialogProps({ onOpenViewControls: () => calls.push('view') })} />)
@@ -197,6 +251,23 @@ test('(2) keyboard: Tab from the tab list reaches the button, Enter on a native 
   assert.equal(button.getAttribute('type'), 'button')
   assert.ok(button.tabIndex >= 0, 'in the Tab order')
   assert.match(button.className, /focus-visible/, 'it shows its focus')
+  // #613: the Tab sequence from the selected tab (the one tab of the roving tab list in the order) reaches the button,
+  // and only through controls of the General panel (nothing of a hidden tab panel in between)
+  const order = tabOrder()
+  const selectedTab = view.getByRole('tab', { selected: true })
+  const from = order.indexOf(selectedTab)
+  const to = order.indexOf(button)
+  assert.ok(from >= 0 && to > from, `the button comes after the tab list in the Tab order (${from} -> ${to})`)
+  const general = view.getByRole('tabpanel', { name: 'General' })
+  for (const el of order.slice(from + 1, to)) assert.ok(general.contains(el), `only General controls in between, not ${el.outerHTML.slice(0, 80)}`)
+  assert.equal(order.filter(el => el.getAttribute('role') === 'tab').length, 1, 'one tab of the list in the order (roving tabindex)')
+})
+
+test('(2) the "View keyboard shortcuts" link row shows its focus like the View one (#613)', () => {
+  const view = render(<SettingsDialog {...dialogProps({ onOpenViewControls: noop })} />)
+  fireEvent.click(view.getByRole('tab', { name: 'Keyboard and preferences' }))
+  const shortcuts = view.getByRole('button', { name: 'View keyboard shortcuts' })
+  for (const token of FOCUS_RING.split(/\s+/).filter(Boolean)) assert.ok(shortcuts.classList.contains(token), `focus ring class ${token}`)
 })
 
 test('(2) no row when the visualizer gives no View controls (the props stay optional)', () => {
@@ -240,6 +311,34 @@ test('(2) a request opens the View popover and puts the focus on Freeze motion; 
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   assert.equal(view.queryByRole('dialog', { name: 'View settings' }), null)
   assert.equal(document.activeElement, view.getByRole('button', { name: 'View' }), 'back on View (2.4.3)')
+})
+
+test('(2) a press outside on a spot that takes no focus closes the popover and gives the focus back to View, not <body> (#613)', async () => {
+  const view = render(controls({ openViewRequest: 0 }))
+  act(() => { view.rerender(controls({ openViewRequest: 1 })) })
+  assert.ok(view.getByRole('dialog', { name: 'View settings' }).contains(document.activeElement), 'precondition: the focus is in the popover')
+  await act(async () => {
+    fireEvent.mouseDown(document.body)
+    await new Promise(r => setTimeout(r, 0))
+  })
+  assert.equal(view.queryByRole('dialog', { name: 'View settings' }), null, 'closed')
+  assert.equal(document.activeElement, view.getByRole('button', { name: 'View' }), 'back on View (2.4.3)')
+})
+
+test('(2) a press outside on a control that takes the focus leaves the focus there (#613)', async () => {
+  const outside = document.createElement('button')
+  outside.textContent = 'elsewhere'
+  document.body.appendChild(outside)
+  const view = render(controls({ openViewRequest: 0 }))
+  act(() => { view.rerender(controls({ openViewRequest: 1 })) })
+  assert.ok(view.getByRole('dialog', { name: 'View settings' }).contains(document.activeElement), 'precondition: the focus is in the popover')
+  await act(async () => {
+    fireEvent.mouseDown(outside)
+    outside.focus()
+    await new Promise(r => setTimeout(r, 0))
+  })
+  assert.equal(view.queryByRole('dialog', { name: 'View settings' }), null, 'closed')
+  assert.equal(document.activeElement, outside, 'the focus stays on what the user pressed')
 })
 
 test('(2) a second request opens it again; a re-render with the same request does not', () => {

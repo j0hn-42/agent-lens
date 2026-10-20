@@ -42,6 +42,8 @@ describe('JSONL event log connected again (#605 review)', () => {
     return { disconnect: () => { wiring.dispose(); source.dispose() } }
   }
   const figure = () => m.panelLoss.snapshotAfterReplay(() => {})?.evicted ?? {}
+  /** The source's follow-up read, as its watcher or poll timer would run it */
+  const follow = (source: unknown) => (source as { readNewLines(): void }).readNewLines()
 
   it('the same file connected twice: still N, not 2N', () => {
     const a = path.join(dir, 'a.jsonl')
@@ -65,13 +67,31 @@ describe('JSONL event log connected again (#605 review)', () => {
     try { assert.deepEqual(figure(), { 'log-a': 3, 'log-b': 1 }) } finally { again.disconnect() }
   })
 
-  it('lines appended while connected are new events, counted on top', () => {
+  it('lines appended while disconnected are part of the first read of the next connection: the max takes them in', () => {
     const a = path.join(dir, 'a.jsonl')
     fs.writeFileSync(a, ev('log-1', 1))
     connect(a).disconnect()
     fs.appendFileSync(a, ev('log-1', 2))
     const again = connect(a)
     try { assert.deepEqual(figure(), { 'log-1': 2 }) } finally { again.disconnect() }
+  })
+
+  it('lines appended after the reconnection (a follow-up read) are new events, counted on top of the floor (#613)', () => {
+    const a = path.join(dir, 'a.jsonl')
+    fs.writeFileSync(a, ev('log-1', 1) + ev('log-1', 2) + ev('log-1', 3))
+    connect(a).disconnect()
+    // Rewritten shorter while disconnected: the floor (3) is above what the next connection reads again (1)
+    fs.writeFileSync(a, ev('log-1', 1))
+    const source = new m.JsonlEventSource(a)
+    const wiring = m.wireJsonlSourceToPanel(source)
+    source.start()
+    try {
+      assert.deepEqual(figure(), { 'log-1': 3 }, 'precondition: max(3, 1)')
+      fs.appendFileSync(a, ev('log-1', 4))
+      follow(source)
+      // live, so on top of the floor: max(3, 1) + 1. Counted as a line read again, it would stay max(3, 2) = 3
+      assert.deepEqual(figure(), { 'log-1': 4 })
+    } finally { wiring.dispose(); source.dispose() }
   })
 
   /** Everything the page would be told, a running total of other sessions included if there were one */
@@ -109,9 +129,6 @@ describe('JSONL event log connected again (#605 review)', () => {
     assert.ok(shown > 10, `the log's named sessions keep their count too (shown ${shown})`)
     assert.ok(shown <= 211)
   })
-
-  /** The source's follow-up read, as its watcher or poll timer would run it */
-  const follow = (source: unknown) => (source as { readNewLines(): void }).readNewLines()
 
   it('the log truncated while connected, then the same lines written again: never more than the events proven (#605 review round 3, M1)', () => {
     const a = path.join(dir, 'a.jsonl')

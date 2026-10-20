@@ -35,7 +35,7 @@ async function open(w: number, h = 900, locale?: 'fr' | 'en'): Promise<Page> {
   return page
 }
 
-const PANELS = ['Files & repeats', 'Conversation (C)', 'Context (P)', 'System (Y)', '$Cost', 'Timeline', 'Stats']
+const PANELS = ['Files & repeats', 'Conversation (C)', 'Context (P)', 'System (Y)', 'Cost', 'Timeline', 'Stats']
 
 interface Box { top: number; bottom: number; left: number; right: number; width: number; height: number }
 interface Layout {

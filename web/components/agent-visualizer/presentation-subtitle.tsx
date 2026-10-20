@@ -3,6 +3,7 @@
 import { Z } from '@/lib/agent-types'
 import { SCENE } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { useT } from '@/lib/locale'
 
 /**
  * Caption of the latest transition (presentation mode). It is for the audience: a status role without a live
@@ -26,16 +27,17 @@ export function PresentationSubtitle({ text }: { text: string | null }) {
 
 /** Visible marker of the mode and its exit; the mode also stops with V or Escape. */
 export function PresentationBadge({ onStop }: { onStop: () => void }) {
+  const t = useT()
   return (
     <button
       type="button"
       onClick={onStop}
-      aria-label="Stop presentation mode"
-      title="Stop presentation mode (V)"
+      aria-label={t('presentation.badge.name')}
+      title={t('presentation.badge.title')}
       className={`fixed left-1/2 -translate-x-1/2 rounded-md px-3 py-1 font-mono text-xs ${FOCUS_RING}`}
       style={{ top: 'calc(var(--topbar-h, 48px) + 8px)', zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
     >
-      Presentation mode · V to stop
+      {t('presentation.badge')}
     </button>
   )
 }

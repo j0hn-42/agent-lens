@@ -13,7 +13,7 @@ The package `app-tray/` holds the part written in Node:
 
 The Go module `app-tray/native/` (package `trayproto`, Go standard library only, #510) holds the protocol side of the native binary:
 
-- strict validation of the driver's lines (the rules of [Protocol](#protocol-driver-and-native-binary): version, exact keys, known and unrepeated item ids, `null` refused, 16 KiB per line at most), a bounded line reader, and the three fixed lines the binary writes (`ready`, `click`, `closed`);
+- strict validation of the driver's lines (the rules of [Protocol](#protocol-driver-and-native-binary): version, exact keys written once each, known and unrepeated item ids, `null` refused, 16 KiB per line at most; the tooltip and the labels are refused when they hold invalid UTF-8, a control character other than tab and line feed, or a bidirectional formatting character such as an override), a bounded line reader, and the three fixed lines the binary writes (`ready`, `click`, `closed`);
 - a `Session` that only lets the menu click an **enabled item of the menu on screen**, stops accepting clicks once the driver is gone (`Click` then returns an error and writes nothing; `Ready` and `Closed` still write, and a write to a closed pipe returns its error to the caller), logs a refused line with a fixed reason (never its content) and stops after 20 of them, like the driver;
 - a `UI` interface where a native menu plugs in. There is no implementation of it: **no icon is drawn**, nothing is shown on screen.
 

@@ -309,6 +309,20 @@ test('R3: shown after a rise, then the total falls back under the dismissed one:
   assert.equal(announcer, undefined, 'nothing announced once the notice is gone')
 })
 
+test('entering full screen with the focus inside the notice: the focus lands on Exit full screen, not on <body> (#613)', async () => {
+  const r = await mount()
+  assert.ok(banner(r))
+  const details = r.getByRole('button', { name: 'Details' })
+  details.focus()
+  assert.equal(document.activeElement === details, true)
+  // The Z shortcut, from inside the notice: the notice unmounts (it is not drawn in full screen) while the top bar hides
+  await act(async () => { fireEvent.keyDown(details, { key: 'z' }) })
+  await wait(100)
+  assert.equal(banner(r) === null, true, 'no banner in full screen')
+  const exit = r.getByRole('button', { name: 'Exit full screen' })
+  assert.equal(document.activeElement === exit, true, `the focus is on Exit full screen, not ${document.activeElement?.tagName} ${document.activeElement?.textContent}`)
+})
+
 test('a total falling back while the focus is elsewhere does not move it', async () => {
   const r = await mount()
   await figure({ s1: 4 })

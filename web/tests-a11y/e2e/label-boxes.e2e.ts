@@ -4,6 +4,10 @@
 // the canvas paints is recorded with its REAL measureText (the platform's `monospace`, the font the canvas
 // asks for) and the transform in force, then the boxes of the visible agent labels are compared two by two.
 // Only the last complete frame counts. No dev server needed: the demo is started on a free port.
+// Only fillText is recorded (#613): the one strokeText of the canvas is the halo of a label, drawn with the same text at the
+// same place just before its fillText (draw-agents.ts, fillLabelText), so its box is the label's. No text is drawn on another
+// canvas: the sprites of render-cache.ts and bloom-renderer.ts hold gradients and copies of the frame, and no
+// OffscreenCanvas is used (the recorder patches CanvasRenderingContext2D, which would see any 2D canvas anyway).
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -53,6 +57,9 @@ const RECORDER = `(() => {
 
 async function openTeam(width: number, height: number): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext({ viewport: { width, height } })
+  // The first-run tour offer (#377) is marked as already made, as on any launch after the first: at 1280x800 its card
+  // covers the labels of research-agent and test-runner, which were counted as visible behind it (#613)
+  await context.addInitScript(`try { localStorage.setItem('agent-lens:tour-offered', '1') } catch {}`)
   const page = await context.newPage()
   await page.addInitScript(RECORDER)
   await page.goto(`${server.url}/?scenario=team10`)
@@ -98,6 +105,11 @@ const TEAM_NAMES = [
   'api-contract-checker', 'docs-writer', 'lint-fixer', 'performance-profiler',
 ]
 
+/** For each box, whether the page shows the canvas at its centre (no panel, bar or button of the page drawn over it). */
+async function uncovered(page: Page, boxes: readonly TextBox[]): Promise<boolean[]> {
+  return page.evaluate(bs => bs.map(b => document.elementFromPoint(b.x + b.w / 2, b.y + b.h / 2)?.tagName === 'CANVAS'), boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })))
+}
+
 /** Strict overlap of two rectangles: boxes that only touch do not overlap. */
 const overlap = (a: TextBox, b: TextBox) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
 
@@ -115,8 +127,11 @@ for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
       const all = await fittedTexts(page)
       if (process.env.LABEL_DUMP) console.log(JSON.stringify(all, null, 1))
       const visible = all.filter(t => t.alpha > 0.05 && t.w > 0 && t.x + t.w > 0 && t.y + t.h > 0 && t.x < width && t.y < height)
-      // The label plan hides the labels that would collide: the test is not vacuous only if several remain visible.
-      const shown = TEAM_NAMES.filter(n => visible.some(t => t.text === n))
+      // The label plan hides the labels that would collide: the test is not vacuous only if several remain visible. A label
+      // painted under a panel or a button of the page is not seen (#613): only labels whose centre shows the canvas count
+      // here. The overlap check below still compares every painted box, covered or not (stricter).
+      const seen = await uncovered(page, visible)
+      const shown = TEAM_NAMES.filter(n => visible.some((t, k) => t.text === n && seen[k]))
       console.log(`${width}x${height}: ${shown.length} of ${TEAM_NAMES.length} agent labels visible (${shown.join(', ')}), ${visible.length} text boxes compared`)
       assert.ok(shown.includes('orchestrator'), 'the label of the orchestrator is visible')
       assert.ok(shown.length >= 3, `at least 3 agent labels are visible (texts: ${visible.map(t => t.text).join(' | ')})`)
