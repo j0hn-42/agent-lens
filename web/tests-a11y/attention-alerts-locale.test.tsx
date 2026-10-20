@@ -14,7 +14,7 @@ const realNotification = g.Notification
 const NOW = 1_000_000
 const ALL_RULES = { permission: true, error: true, complete: true, cost: true, costThresholdUsd: 5 }
 const agent = (id: string, state: string): AttentionAgent => ({ id, sessionId: id.split(':')[0], state, lastEventAt: NOW - 100 })
-const cost = (value: number): UsageTotal => ({ value, status: 'complete', estimated: false })
+const cost = (value: number): UsageTotal => ({ value, status: 'available', estimated: false })
 type Session = { id: string; label: string; status: 'active' | 'completed' }
 
 class FakeNotification {
