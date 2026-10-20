@@ -8,7 +8,7 @@
  * Pure: no React, no DOM; relative imports only so node:test can load it.
  */
 import { translate, type Locale, type MessageKey } from './messages'
-import { formatDuration, formatTokens } from './utils'
+import { formatCost, formatDuration, formatTokens } from './utils'
 import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
 import { CHRONO_CAP_MS, formatActiveSince, type ActiveTimeFields } from './active-time'
 import type { UsageTotal } from './usage'
@@ -24,7 +24,7 @@ import type { HealthVerdict, LoopFinding } from './loop-detection'
 import type { DelegationDuration, DelegationResult, DelegationRow } from './delegation-report'
 import type { IssueLink } from './issue-links'
 import type { ModelBadgeKind } from './model-provenance'
-import { GIT_STRIP_LABELS, type GroupKind } from './ui-glossary'
+import { COST_LABELS, GIT_STRIP_LABELS, type GroupKind } from './ui-glossary'
 
 type Params = Readonly<Record<string, string | number>>
 const tr = (locale: Locale, key: MessageKey, params?: Params) => translate(locale, key, params)
@@ -54,7 +54,16 @@ function pluralKey(locale: Locale, base: string, n: number, params: Params = {})
 /** A usage figure with its qualifier, as usage.qualify does: "at least 5k estimated", "not reported". */
 export function usageText(locale: Locale, usage: UsageTotal): string {
   if (usage.value === null || usage.status === 'unavailable') return tr(locale, 'usage.unavailable')
-  const v = formatTokens(usage.value)
+  return qualifiedText(locale, usage, formatTokens(usage.value))
+}
+
+/** A cost figure with its qualifier, as formatCostUsage does ("at least ~$6.00 estimated"), in the language. */
+export function costUsageText(locale: Locale, usage: UsageTotal): string {
+  if (usage.value === null || usage.status === 'unavailable') return tr(locale, 'usage.unavailable')
+  return qualifiedText(locale, usage, `${COST_LABELS.mark}${formatCost(usage.value)}`)
+}
+
+function qualifiedText(locale: Locale, usage: UsageTotal, v: string): string {
   if (usage.incomplete) return tr(locale, usage.estimated ? 'usage.incompleteEstimated' : 'usage.incomplete', { v })
   if (usage.status === 'partial') return tr(locale, usage.estimated ? 'usage.partialEstimated' : 'usage.partial', { v })
   return usage.estimated ? tr(locale, 'usage.estimated', { v }) : v

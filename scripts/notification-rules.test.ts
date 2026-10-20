@@ -112,3 +112,28 @@ test('cost: an unknown cost never triggers, and the rule off or a changed thresh
   assert.equal(evaluateTriggers(snap({ cost: cost(1) }), snap({ cost: cost(9) }), { ...all, costThresholdUsd: 10 }).length, 0)
   assert.equal(evaluateTriggers(snap({ cost: cost(null, 'unavailable') }), snap({ cost: cost(9) }), all).length, 1, 'first known figure above the threshold')
 })
+
+test('French: the bodies keep the same facts and qualifiers, in the language of the interface (#373)', () => {
+  const prev = snap({ waitingIds: new Set(['a']) })
+  const cur = snap({ waitingIds: new Set(['a', 'b']), errorIds: new Set(['c']) })
+  assert.equal(evaluateTriggers(prev, cur, all, 'fr')[0].body, '2 agents en attente / 1 agent en erreur')
+  assert.equal(evaluateTriggers(prev, cur, { ...all, permission: false }, 'fr')[0].body, '1 agent en erreur')
+
+  const act = (l: string) => ({ label: l, status: 'active' as const })
+  const done = (l: string) => ({ label: l, status: 'completed' as const })
+  assert.equal(evaluateTriggers(snap({ sessions: new Map([['s', act('api')]]) }), snap({ sessions: new Map([['s', done('api')]]) }), all, 'fr')[0].body, 'Session terminée : api')
+  assert.equal(evaluateTriggers(snap({ sessions: new Map([['a', act('A')], ['b', act('B')]]) }), snap({ sessions: new Map([['a', done('A')], ['b', done('B')]]) }), all, 'fr')[0].body, '2 sessions terminées')
+
+  const before = snap({ cost: cost(1) })
+  assert.equal(evaluateTriggers(before, snap({ cost: cost(5.2) }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : ~$5.20 (seuil $5.00)')
+  assert.equal(evaluateTriggers(before, snap({ cost: cost(6, 'partial') }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : au moins ~$6.00 (seuil $5.00)')
+  assert.equal(evaluateTriggers(before, snap({ cost: cost(6, 'available', true) }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : ~$6.00 estimé (seuil $5.00)')
+  assert.equal(evaluateTriggers(before, snap({ cost: { value: 6, status: 'partial', estimated: false, incomplete: true } }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : ~$6.00 (incomplet) (seuil $5.00)')
+})
+
+test('English stays the default and equals the explicit "en"; the title is the product name in both', () => {
+  const prev = snap({ cost: cost(1) })
+  const cur = snap({ cost: cost(6, 'partial') })
+  assert.deepEqual(evaluateTriggers(prev, cur, all), evaluateTriggers(prev, cur, all, 'en'))
+  assert.equal(evaluateTriggers(prev, cur, all, 'fr')[0].title, 'Agent Lens')
+})

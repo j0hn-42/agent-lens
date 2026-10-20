@@ -21,6 +21,7 @@ import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { TourBridgeContext } from '@/components/agent-visualizer/guided-tour-context'
 import { buildPaletteItems, type PaletteSource } from '@/lib/command-palette'
 import { sessionAttentionLabel } from '@/lib/card-text'
+import { emptySnapshot, evaluateTriggers } from '@/lib/notification-rules'
 import { STATE_LABEL_SHORT } from '@/lib/canvas-constants'
 import { drawnStatusText } from '@/components/agent-visualizer/canvas/team-style'
 import { LEGEND_ENTRY_IDS } from '@/lib/legend-entries'
@@ -1501,4 +1502,20 @@ test('the Timeline panel draws its canvas texts through the catalog: the empty s
   assert.ok(calls.includes(MESSAGES.fr['tl.glyph.tool_call']), 'a French state letter is drawn in a block too narrow for its label (O for outil, C in English)')
   assert.ok(!calls.includes('C'), 'the English letter C is not drawn in French')
   assert.ok(!calls.includes('Thinking...') && !calls.includes('Starting'), 'no English fixed label is drawn')
+})
+
+test('the native notification bodies (browser and VS Code) are in the interface language, with no exemption (#373)', () => {
+  const rules = { permission: true, error: true, complete: true, cost: true, costThresholdUsd: 5 }
+  const base = emptySnapshot()
+  const sessionsOf = (status: 'active' | 'completed') => new Map([['s', { label: 'api', status }]])
+  const bodiesOf = (locale: 'fr' | 'en') => [
+    evaluateTriggers(base, { ...base, waitingIds: new Set(['a', 'b']), errorIds: new Set(['c']) }, rules, locale),
+    evaluateTriggers({ ...base, sessions: sessionsOf('active') }, { ...base, sessions: sessionsOf('completed') }, rules, locale),
+    evaluateTriggers({ ...base, cost: { value: 1, status: 'available', estimated: false } }, { ...base, cost: { value: 6, status: 'partial', estimated: true } }, rules, locale),
+  ].flat().map(i => i.body)
+  const fr = bodiesOf('fr')
+  assert.equal(fr.length, 3, 'one body per trigger')
+  const english = /\b(waiting|error|finished|reached|threshold|estimate|estimated|at least|incomplete)\b/i
+  for (const body of fr) assert.doesNotMatch(body, english, body)
+  assert.deepEqual(bodiesOf('en').length, 3)
 })

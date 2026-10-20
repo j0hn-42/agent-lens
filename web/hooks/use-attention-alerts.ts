@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { attentionTitle, baseTitle, type AttentionSummary } from '@/lib/attention'
 import { DEFAULT_RULES, emptySnapshot, evaluateTriggers, type NotificationRules, type NotifyItem, type NotifySnapshot } from '@/lib/notification-rules'
+import { useLocale } from '@/lib/locale'
 import type { SessionInfo } from '@/lib/bridge-types'
 import type { UsageTotal } from '@/lib/usage'
 
@@ -41,6 +42,7 @@ export interface AttentionAlertOptions {
  */
 export function useAttentionAlerts(summary: AttentionSummary, options: AttentionAlertOptions = {}) {
   const { rules = DEFAULT_RULES, sessions, cost, replaying = false, native } = options
+  const { locale } = useLocale()
   const total = summary.total
   const nativeRef = useRef(native)
   nativeRef.current = native
@@ -85,7 +87,8 @@ export function useAttentionAlerts(summary: AttentionSummary, options: Attention
       sessions: new Map((sessions ?? []).map(s => [s.id, { label: s.label, status: s.status }])),
       cost: cost ?? emptySnapshot().cost,
     }
-    const items = evaluateTriggers(previousRef.current, snapshot, rules)
+    // The text is composed here, in the language of the interface: the extension shows it as received
+    const items = evaluateTriggers(previousRef.current, snapshot, rules, locale)
     previousRef.current = snapshot
     if (state !== 'on' || replaying || items.length === 0) return
     const send = nativeRef.current
@@ -98,7 +101,7 @@ export function useAttentionAlerts(summary: AttentionSummary, options: Attention
     for (const item of items) {
       try { new api(item.title, { body: item.body, tag: `agent-lens-${item.trigger}` }) } catch { /* notifications blocked by the platform */ }
     }
-  }, [summary, sessions, cost, rules, state, replaying])
+  }, [summary, sessions, cost, rules, state, replaying, locale])
 
   return { notifyState: state, toggleNotify: toggle }
 }
