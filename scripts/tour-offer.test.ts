@@ -12,7 +12,7 @@ function memory(initial: Record<string, string> = {}) {
     data,
   }
 }
-const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered' // the key docs/reading-the-ui.md names
+const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered' // the key docs/reading-the-ui/legend-and-tour.md names
 const throwing = {
   getItem: () => { throw new Error('blocked') },
   setItem: () => { throw new Error('blocked') },

@@ -17,7 +17,7 @@ The proposed designs of #238 and #241 are converted into this page: the individu
 | Cursor | Partial | issue [#472](https://github.com/j0hn-42/agent-lens/issues/472) (open) |
 | Antigravity | Blocked | issue [#473](https://github.com/j0hn-42/agent-lens/issues/473) |
 
-What the delivered runtimes read, and their known limits (sub-agents, tokens and cost not read yet for Pi and Gemini CLI, OpenCode read from a SQLite file on Linux only), are in the [README](../README.md#features) and in [Reading the UI](reading-the-ui.md). The common shape of an adapter (a pure parser, a session watcher, a runtime module in `extension/src/`) is the one the first design of #238 proposed; no new abstraction was added.
+What the delivered runtimes read, and their known limits (sub-agents, tokens and cost not read yet for Pi and Gemini CLI, OpenCode read from a SQLite file on Linux only), are in the [README](../README.md#features) and in [Reading the UI](reading-the-ui/runtimes.md). The common shape of an adapter (a pure parser, a session watcher, a runtime module in `extension/src/`) is the one the first design of #238 proposed; no new abstraction was added.
 
 ### Delivered: the sources each runtime reads
 

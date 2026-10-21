@@ -8,9 +8,14 @@ import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED
 import { remoteStartupError } from './remote-access'
 import { REMOTE_PAIR_MAX_SESSIONS, REMOTE_PAIR_SESSION_TTL_MS, PAIR_COOKIE } from './remote-pairing'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
+import { READING_GUIDE_DIR, READING_GUIDE_INDEX, readReadingGuide, readingGuideFiles } from './reading-guide'
 
 const root = path.resolve(__dirname, '..')
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
+/** The reading guide is an index and one file per domain (#612): the tests read all of it, in the order of the index */
+const guideText = () => readReadingGuide()
+/** A doc as the tests read it: the whole reading guide for its index, the file itself otherwise */
+const docText = (f: string) => (f === READING_GUIDE_INDEX ? guideText() : read(f))
 
 /** Relative markdown links ([text](target)) of a file, without anchors and external URLs. */
 function relativeLinks(file: string): string[] {
@@ -19,7 +24,8 @@ function relativeLinks(file: string): string[] {
     .filter(t => t && !/^[a-z]+:/i.test(t))
 }
 
-for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
+// The reading guide is checked file by file (its index and each domain file), each link from its own folder (#612)
+for (const file of ['README.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles(), 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -27,6 +33,112 @@ for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'd
     }
   })
 }
+
+/** GitHub's anchor of a heading: lowercase, punctuation dropped, spaces as hyphens */
+const slug = (heading: string) => heading.trim().toLowerCase().replace(/[^\p{L}\p{N} _-]/gu, '').replace(/ /g, '-')
+
+test('the reading guide is an index and one file per domain, each linked once, in a fixed order (#612)', () => {
+  const index = read(READING_GUIDE_INDEX)
+  const onDisk = fs.readdirSync(path.join(root, READING_GUIDE_DIR)).filter(f => f.endsWith('.md')).map(f => `${READING_GUIDE_DIR}/${f}`).sort()
+  const listed = readingGuideFiles()
+  assert.ok(listed.length > 5, 'the guide is split in several domain files')
+  assert.deepEqual([...listed].sort(), onDisk, 'every domain file is linked from the index, and every link has its file')
+  assert.equal(new Set(listed).size, listed.length, 'no domain file is linked twice')
+  for (const f of listed) assert.match(read(f), /^## \S/, `${f} opens with a "## " heading, so read alone it has a title and no level is skipped`)
+  assert.doesNotMatch(index, /^## /m, 'the index has no section of its own: a section lives in the file of its domain')
+  assert.ok(index.split('\n').length < 80, 'the index stays short')
+  // The tests that look for a term read the index too: the index must not be what satisfies them
+  for (const term of ['not observed', 'at least', 'estimated', 'unattributed', 'observations', 'compaction', 'settings']) {
+    assert.ok(!index.toLowerCase().includes(term), `the index says "${term}": write it in the file of its domain`)
+  }
+  // Read as one text, the guide starts with the index and follows its order
+  const whole = readReadingGuide()
+  assert.ok(whole.startsWith(index))
+  let at = index.length
+  for (const f of listed) {
+    const pos = whole.indexOf(read(f), at)
+    assert.ok(pos >= at, `${f} follows the previous file in the whole text`)
+    at = pos + read(f).length
+  }
+})
+
+test('a translated surface is listed in the file of its domain, and language.md only links them (#612)', () => {
+  const language = read(`${READING_GUIDE_DIR}/language.md`)
+  const bullets = [...language.matchAll(/^- (.*)$/gm)].map(m => m[1])
+  const linked = bullets.map(b => b.match(/^\[[^\]]+\]\(([a-z0-9-]+\.md)#in-your-language\)$/)?.[1])
+  assert.deepEqual(bullets.filter((b, i) => !linked[i]), [], 'every bullet of language.md is a link to the In your language section of a domain file')
+  const withSection = readingGuideFiles().filter(f => /^### In your language$/m.test(read(f))).map(f => path.posix.basename(f)).sort()
+  assert.deepEqual([...linked].sort(), withSection, 'each domain file with translated surfaces is linked once from language.md')
+  for (const f of withSection) {
+    const section = read(`${READING_GUIDE_DIR}/${f}`).split(/^### In your language$/m)[1].split(/^#{1,3} /m)[0]
+    assert.match(section, /^- the /m, `${f}: its In your language section lists surfaces`)
+  }
+})
+
+test('every link to a section of the reading guide lands on a heading of the file it names (#612)', () => {
+  const docs = ['README.md', ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`), READING_GUIDE_INDEX, ...readingGuideFiles()]
+  const anchorsOf = new Map<string, Set<string>>()
+  const anchors = (file: string) => {
+    if (!anchorsOf.has(file)) anchorsOf.set(file, new Set([...read(file).matchAll(/^#{1,6} (.+)$/gm)].map(m => slug(m[1]))))
+    return anchorsOf.get(file)!
+  }
+  let checked = 0
+  for (const doc of docs) {
+    for (const m of read(doc).matchAll(/\]\(([^)\s]*)#([^)\s]+)\)/g)) {
+      const target = m[1] ? path.posix.normalize(path.posix.join(path.posix.dirname(doc), m[1])) : doc
+      if (target !== READING_GUIDE_INDEX && !target.startsWith(`${READING_GUIDE_DIR}/`)) continue
+      assert.ok(anchors(target).has(m[2]), `${doc} links to ${m[1] || '(itself)'}#${m[2]}, which is not a heading of ${target}`)
+      checked++
+    }
+  }
+  assert.ok(checked > 10, 'the links to sections of the guide are checked')
+})
+
+/** The named sections of the guide (its headings and the bold labels that open a bullet), each with the domain files that hold it */
+function guideSectionFiles(): Map<string, Set<string>> {
+  const sections = new Map<string, Set<string>>()
+  for (const file of readingGuideFiles()) {
+    const text = read(file)
+    const names = [...text.matchAll(/^#{1,6} (.+)$/gm), ...text.matchAll(/^\s*- \*\*([^*]+)\*\*/gm)].map(m => m[1].trim())
+    for (const name of names) {
+      if (!sections.has(name)) sections.set(name, new Set())
+      sections.get(name)!.add(file)
+    }
+  }
+  return sections
+}
+
+test('a link to the reading guide that names a section in bold or in quotes points to the file of that section (#612)', () => {
+  const sections = guideSectionFiles()
+  const docs = execFileSync('git', ['ls-files', '*.md', '.github/*.md', '.claude/*.md'], { cwd: root, encoding: 'utf8' })
+    .split('\n').filter(f => f && !f.includes('node_modules/'))
+  const isGuide = (t: string) => t === READING_GUIDE_INDEX || t.startsWith(`${READING_GUIDE_DIR}/`)
+  let checked = 0
+  const wrong: string[] = []
+  for (const doc of [...new Set(docs)]) {
+    for (const line of read(doc).split('\n')) {
+      const links = [...line.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)]
+      links.forEach((m, i) => {
+        if (m[1].includes('#') || /^[a-z]+:/i.test(m[1])) return // a link with an anchor is checked by the anchor test
+        const target = path.posix.normalize(path.posix.join(path.posix.dirname(doc), m[1]))
+        if (!isGuide(target)) return
+        // The words around this link: from the end of the previous link to the start of the next one
+        const from = i > 0 ? links[i - 1].index! + links[i - 1][0].length : 0
+        const to = i + 1 < links.length ? links[i + 1].index! : line.length
+        const around = line.slice(from, m.index!) + line.slice(m.index! + m[0].length, to)
+        for (const n of around.matchAll(/\*\*([^*]+)\*\*|"([^"]+)"|«\s*([^»]+?)\s*»/g)) {
+          const name = (n[1] ?? n[2] ?? n[3]).trim()
+          const files = sections.get(name)
+          if (!files) continue
+          if (!files.has(target)) wrong.push(`${doc} names the section "${name}" next to a link to ${target}, but that section is in ${[...files].join(', ')}`)
+          checked++
+        }
+      })
+    }
+  }
+  assert.deepEqual(wrong, [])
+  assert.ok(checked >= 1, 'links that name a section of the guide are checked')
+})
 
 test('README documents the fork views and links the docs (#129)', () => {
   const readme = read('README.md')
@@ -49,7 +161,7 @@ test('the MCP server doc says how to register it and what it does not prove (#23
 })
 
 test('the reading guide explains the honesty vocabulary (#129)', () => {
-  const guide = read('docs/reading-the-ui.md').toLowerCase()
+  const guide = guideText().toLowerCase()
   for (const term of ['not observed', 'at least', 'estimated', 'unattributed', 'observations']) {
     assert.ok(guide.includes(term), `guide should explain "${term}"`)
   }
@@ -144,14 +256,14 @@ test('legacy markers and credits are untouched (#136)', () => {
 })
 
 test('the reading guide explains the folder prefix of session tabs and its limits (#246)', () => {
-  const guide = read('docs/reading-the-ui.md')
+  const guide = guideText()
   for (const term of ['folder prefix', 'git common dir', 'Imported transcripts', 'project heading', 'F2']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
   }
 })
 
 test('the reading guide explains repeated reads and calls, with their limits (#234)', () => {
-  const guide = read('docs/reading-the-ui.md')
+  const guide = guideText()
   assert.match(guide, /## Repeated reads and calls/)
   for (const term of ['no edit seen', 'not compared', 'Grep', 'lower bound', 'Bash', 'not reported']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
@@ -160,7 +272,7 @@ test('the reading guide explains repeated reads and calls, with their limits (#2
 })
 
 test('the reading guide explains the capabilities of a session and their proof (#242)', () => {
-  const guide = read('docs/reading-the-ui.md')
+  const guide = guideText()
   assert.match(guide, /## Skills, plugins and memory/)
   for (const term of ['skill_listing', 'mcp_instructions_delta', 'Skill', 'sub-agents', 'Partial', 'Not provided by this relay', 'could not be read', 'not what is installed']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
@@ -239,7 +351,7 @@ function uiSources(): string {
 }
 
 test('Honest values: every quoted label exists in the UI (#179)', () => {
-  const doc = read('docs/reading-the-ui.md')
+  const doc = guideText()
   const section = doc.slice(doc.indexOf('## Honest values'), doc.indexOf('## The `observations` action'))
   // Only the "You see" cell (first column) quotes UI labels; labels with a placeholder (X, N) are templates.
   const seen = section.split('\n').filter(l => l.startsWith('|')).map(l => l.split('|')[1] ?? '').join('\n')
@@ -255,15 +367,15 @@ test('Honest values: every quoted label exists in the UI (#179)', () => {
 
 test('docs cite the English UI labels, not French ones the UI never shows (#179)', () => {
   assert.ok(read('docs/demo.md').includes('end not observed'))
-  for (const f of ['docs/demo.md', 'docs/reading-the-ui.md']) {
-    assert.ok(!/fin non observée|non renseigné/.test(read(f)), `${f} cites a French label the UI never shows`)
+  for (const f of ['docs/demo.md', READING_GUIDE_INDEX]) {
+    assert.ok(!/fin non observée|non renseigné/.test(docText(f)), `${f} cites a French label the UI never shows`)
   }
 })
 
 test('the theme is documented in Settings, not in the top bar (#179)', () => {
-  for (const f of ['README.md', 'docs/reading-the-ui.md']) {
-    assert.ok(!/\*\*Theme\*\* selector in the top bar/.test(read(f)), `${f} places the Theme selector in the top bar`)
-    assert.ok(/\bSettings\b/.test(read(f)), `${f} should mention Settings`)
+  for (const f of ['README.md', READING_GUIDE_INDEX]) {
+    assert.ok(!/\*\*Theme\*\* selector in the top bar/.test(docText(f)), `${f} places the Theme selector in the top bar`)
+    assert.ok(/\bSettings\b/.test(docText(f)), `${f} should mention Settings`)
   }
 })
 
@@ -324,14 +436,14 @@ test('the launch docs describe the button, the pasted token and the same-origin 
 })
 
 test('the reading guide says when the truncation notice is announced: again after full screen, never during it (#453)', () => {
-  const section = read('docs/reading-the-ui.md').split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
+  const section = guideText().split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
   assert.ok(section, 'the Graph truncated section exists')
   assert.doesNotMatch(section, /announced once/, 'it is announced again each time full screen gives it back')
   assert.match(section, /again when leaving full screen/)
 })
 
 test('the reading guide says how long a dismissal of the truncation notice lasts, and where the loss stays visible (#567)', () => {
-  const section = read('docs/reading-the-ui.md').split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
+  const section = guideText().split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
   assert.match(section, /kept for the browser tab/, 'the dismissal lasts for the tab')
   assert.match(section, /comes back when more is lost/)
   assert.match(section, /header of the Sessions panel/, 'the permanent indicator is named with its place')
@@ -341,7 +453,7 @@ test('the reading guide says how long a dismissal of the truncation notice lasts
 })
 
 test('the reading guide names the mark on the Sessions button and the lower total that brings the notice back (#569 review)', () => {
-  const doc = read('docs/reading-the-ui.md')
+  const doc = guideText()
   const section = doc.split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
   assert.match(section, /Sessions button of the top bar carries ⚠/, 'the loss stays visible with the panel closed')
   assert.match(section, /graph incomplete, losses listed in the Sessions panel/)
@@ -351,7 +463,7 @@ test('the reading guide names the mark on the Sessions button and the lower tota
 })
 
 test('the reading guide does not promise the sheet always starts under the truncation notice (#453 review)', () => {
-  const item = read('docs/reading-the-ui.md').split('\n').find(l => l.startsWith('- **Hidden panels**')) ?? ''
+  const item = guideText().split('\n').find(l => l.startsWith('- **Hidden panels**')) ?? ''
   assert.ok(item, 'the Hidden panels item exists')
   assert.doesNotMatch(item, /the sheet starts under both, even when/, 'not when the window is too short for both')
   assert.match(item, /starts under both when there is room/)
@@ -359,7 +471,7 @@ test('the reading guide does not promise the sheet always starts under the trunc
 })
 
 test('the reading guide says a silence never ends a session, only an observed end does (#360)', () => {
-  const guide = read('docs/reading-the-ui.md')
+  const guide = guideText()
   assert.match(guide, /A silence never ends a session/)
   assert.match(guide, /SessionEnd/)
   const finished = guide.split('\n').find(l => l.startsWith('| **Session finished**'))
@@ -383,7 +495,7 @@ test('the tray doc says what is shipped, what is not, and what the menu never sh
 })
 
 test('the reading guide says a Glob has file cards, a flow, and a count from numFiles (#451)', () => {
-  const lines = read('docs/reading-the-ui.md').split('\n')
+  const lines = guideText().split('\n')
   const flow = lines.find(l => l.startsWith('- **Flow to the file cards**'))
   assert.ok(flow?.includes('from a Grep or Glob tool card'), 'the flow starts from a Grep or Glob card')
   const cards = lines.find(l => l.startsWith('- **File cards from a search**'))
@@ -447,11 +559,11 @@ test('the remote access page says what ships, and nothing that does not exist ye
   assert.doesNotMatch(args, /until token authentication/, 'the CLI help no longer says the token is missing')
   // The phone view is the one the reading guide describes: the 768 px breakpoint
   assert.ok(doc.includes('768 px'), 'the page gives the phone-width breakpoint')
-  assert.ok(read('docs/reading-the-ui.md').includes('Phone width (below 768 px)'), 'the reading guide has the phone-width section')
+  assert.ok(guideText().includes('Phone width (below 768 px)'), 'the reading guide has the phone-width section')
 })
 
 test('the reading guide says a detail popup never covers a permission request, and what is measured (#536)', () => {
-  const guide = read('docs/reading-the-ui.md')
+  const guide = guideText()
   const start = guide.indexOf('### Permission requests (VS Code only)')
   assert.ok(start >= 0, 'the Permission requests heading is found')
   const section = guide.slice(start, guide.indexOf('\n## ', start))

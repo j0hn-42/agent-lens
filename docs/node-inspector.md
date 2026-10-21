@@ -146,4 +146,4 @@ refused, never lowered silently), and the last 256 KB of output kept.
 
 ## Health: loop verdict (#230)
 
-The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui.md#loops-and-health-verdict).
+The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui/loops-and-health.md#loops-and-health-verdict).

@@ -13,6 +13,9 @@ import {
 } from '../web/lib/feed-utils'
 import type { ConversationMessage } from '../web/hooks/simulation/types'
 
+/** The source files of the message catalog: the assembly point and its domain files (#612), in a fixed order */
+const CATALOG_FILES = [join('web/lib', 'messages.ts'), ...readdirSync(join('web/lib', 'messages')).filter(f => f.endsWith('.ts')).sort().map(f => join('web/lib', 'messages', f))]
+
 const msg = (id: string, type: ConversationMessage['type'], timestamp: number, content: string, extra: Partial<ConversationMessage> = {}): ConversationMessage =>
   ({ id, type, timestamp, content, ...extra })
 
@@ -39,9 +42,11 @@ test('the Conversation button is named with its shortcut and the pill/close cont
   // One source for the English tooltips (#545 review): built from the glossary, never a copy that can drift
   assert.equal(MESSAGES.en['topbar.panel.cost.tooltip'], `Cost overlay ($). ${COST_LABELS.method}`)
   assert.equal(MESSAGES.en['topbar.panel.context.tooltip'], `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`)
-  const catalog = readFileSync(join('web/lib', 'messages.ts'), 'utf8')
-  assert.equal(catalog.includes(COST_LABELS.method), false, 'messages.ts does not copy COST_LABELS.method by hand')
-  assert.equal(catalog.includes(PANEL_SUMMARIES.context), false, 'messages.ts does not copy PANEL_SUMMARIES.context by hand')
+  // The catalog is messages.ts and its domain files (#612): none of them copies a glossary text by hand
+  const catalog = CATALOG_FILES.map(f => readFileSync(f, 'utf8')).join('\n')
+  assert.ok(CATALOG_FILES.length > 2, 'the domain files of the catalog are read')
+  assert.equal(catalog.includes(COST_LABELS.method), false, 'the catalog does not copy COST_LABELS.method by hand')
+  assert.equal(catalog.includes(PANEL_SUMMARIES.context), false, 'the catalog does not copy PANEL_SUMMARIES.context by hand')
 })
 
 test('the shortcuts table names the panels with the glossary words; key C toggles the Conversation panel', () => {
@@ -106,8 +111,9 @@ test('Tempo labels are centralised in the glossary, in English (#123)', async ()
 })
 
 test('no accented character in UI code outside comments (the UI is English only, #123)', () => {
-  // The message catalog (#247) is the one place that carries translated text; the rest of the UI code stays accent free
-  const allowed = new Set<string>([join('web/lib', 'messages.ts')])
+  // The message catalog (#247) is the one place that carries translated text; the rest of the UI code stays accent free.
+  // Since #612 it is messages.ts plus its domain files in web/lib/messages/.
+  const allowed = new Set<string>(CATALOG_FILES)
   const hits: string[] = []
   const walk = (dir: string) => {
     if (!existsSync(dir)) return

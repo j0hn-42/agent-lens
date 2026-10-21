@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { readReadingGuide } from './reading-guide'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -123,7 +124,7 @@ test('listedFileText names the Grep pattern when the call is known, nothing othe
 })
 
 test('the reading guide documents the file cards, their cap and what they never show (#438)', () => {
-  const guide = readFileSync(path.join(__dirname, '..', 'docs', 'reading-the-ui.md'), 'utf8')
+  const guide = readReadingGuide()
   const start = guide.indexOf('- **File cards from a search**')
   assert.ok(start > 0, 'the Result pills list has a File cards entry')
   const entry = guide.slice(start, guide.indexOf('\n', start))
