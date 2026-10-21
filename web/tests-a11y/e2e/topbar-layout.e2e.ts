@@ -448,8 +448,11 @@ for (const [w, locale] of [[1440, 'en'], [1280, 'en'], [1280, 'fr'], [1024, 'en'
         console.log(`#active-stroke ${w}px ${locale} ${what}: strokes ${JSON.stringify(m.runs)} px, shadow ${m.boxShadow}`)
         assert.equal(m.pressed, 'true', `${what}: aria-pressed`)
         assert.ok(Number(m.fontWeight) >= 700, `${what}: still bold`)
-        assert.ok(m.textDecoration.every(d => d === 'none'), `${what}: no text underline (${m.textDecoration.join(',')})`)
+        // The strokes are counted before the underline is checked (#613, review of #628), so a failing count is seen on its
+        // own. Measured: a text underline put back on the active Files icon adds no stroke there ([2]); only the
+        // textDecoration check below sees it, so both stay
         assert.equal(m.runs.length, 1, `${what}: ${m.runs.length} strokes (${m.runs.join(', ')} px), expected the bar alone`)
+        assert.ok(m.textDecoration.every(d => d === 'none'), `${what}: no text underline (${m.textDecoration.join(',')})`)
         assert.equal(m.runs[0], 2, `${what}: the stroke is 2 px thick`)
       }
     } finally {
