@@ -272,6 +272,28 @@ const TEAM10_MOCK_SCENARIO: SimulationEvent[] = [
   ]),
 ]
 
+// ?scenario=workflow83: an orchestrator and 82 workflow members that all speak in the Conversation panel, 30 of them finished.
+// Fixture of the agent picker e2e (many agents with messages); it adds no product behavior.
+const WORKFLOW83_MEMBERS: Array<{ name: string; phase: string }> = [
+  ...Array.from({ length: 10 }, (_, i) => ({ name: `planner-${String(i + 1).padStart(2, '0')}`, phase: 'Plan' })),
+  ...Array.from({ length: 50 }, (_, i) => ({ name: `builder-${String(i + 1).padStart(2, '0')}`, phase: 'Build' })),
+  ...Array.from({ length: 22 }, (_, i) => ({ name: `reviewer-${String(i + 1).padStart(2, '0')}`, phase: 'Review' })),
+]
+const WORKFLOW83_EVENTS: SimulationEvent[] = [
+  { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Run the large workflow' } },
+  { time: 0.05, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: 'Run the large workflow across every package' } },
+  ...WORKFLOW83_MEMBERS.flatMap((m, i): SimulationEvent[] => [
+    { time: 0.1 + i * 0.01, type: 'agent_spawn', payload: { name: m.name, kind: 'teammate', teamName: 'mega', teamKind: 'workflow', parent: 'orchestrator', task: `${m.phase} step ${i + 1}` } },
+    { time: 1.0 + i * 0.01, type: 'message', payload: { agent: m.name, role: 'thinking', content: `Reading the ${m.phase.toLowerCase()} inputs of step ${i + 1}` } },
+    { time: 1.9 + i * 0.01, type: 'message', payload: { agent: m.name, content: `Step ${i + 1} (${m.phase}) progress report` } },
+  ]),
+  { time: 0.95, type: 'team_info', payload: { teamName: 'mega', teamKind: 'workflow', leadSessionId: 'default', members: WORKFLOW83_MEMBERS } },
+  // The ten planners and the first twenty builders are finished; the others keep working
+  ...WORKFLOW83_MEMBERS.slice(0, 30).map((m, i): SimulationEvent => ({ time: 3.0 + i * 0.01, type: 'agent_activity', payload: { name: m.name, activity: 'done' } })),
+  ...WORKFLOW83_MEMBERS.slice(30).map((m, i): SimulationEvent => ({ time: 3.4 + i * 0.01, type: 'agent_activity', payload: { name: m.name, activity: 'working' } })),
+]
+const WORKFLOW83_MOCK_SCENARIO: SimulationEvent[] = [...WORKFLOW83_EVENTS].sort((a, b) => a.time - b.time)
+
 const SCENARIO_NAME = getScenarioName()
 
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
@@ -279,6 +301,7 @@ export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   : SCENARIO_NAME === 'tour' ? TOUR_SCENARIO
   : SCENARIO_NAME === 'guided' ? GUIDED_SCENARIO
   : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO
+  : SCENARIO_NAME === 'workflow83' ? WORKFLOW83_MOCK_SCENARIO
   : SCENARIO_NAME === 'team10' ? TEAM10_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
 
 /** True when the step-by-step guided demo (?scenario=guided) is the active scenario. */
