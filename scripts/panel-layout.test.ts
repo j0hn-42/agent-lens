@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -119,6 +119,34 @@ test('System alone takes the top of the left column and its width is reserved fo
   assert.equal(l.rects.system!.x, 12)
   assert.equal(l.rects.system!.y, l.area.y)
   assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - 240 - 8)
+})
+
+test('the agent card and System are given their full size when the column has the room: readable, not a 240 x 240 letterbox', () => {
+  const l = layoutFor(1600, 900, ['detail', 'system'], [])
+  assert.equal(l.mode, 'dock')
+  const { detail, system } = l.rects as Record<string, Rect>
+  assert.equal(detail.w, DETAIL_SIZE.w, 'the card takes the full card width')
+  assert.equal(detail.h, DETAIL_SIZE.h, 'the card takes the full card height')
+  assert.ok(detail.w >= 320 && detail.h >= 420, `a card of ${detail.w} x ${detail.h} shows its rows without a scroll for each one`)
+  assert.equal(system.w, detail.w, 'System is as wide as the card above it')
+  assert.ok(system.h >= 280, `System keeps at least the 280 px it had (got ${system.h})`)
+})
+
+test('a column too tight for the full card narrows it instead of dropping to a sheet, and height wins over width', () => {
+  // 1024 x 640 with the expanded message feed on the left and the Files panel on the right: 320 px no longer fit
+  const feed = obstacleSets(1024, 640)[2].rects[0]
+  const l = layoutFor(1024, 640, ['detail', 'files'], [feed])
+  assert.equal(l.mode, 'dock', 'still docked, not a sheet')
+  const detail = l.rects.detail!
+  assert.equal(detail.w, DETAIL_SIZE.minW, 'the card falls back to its narrow width')
+  assert.equal(detail.h, DETAIL_SIZE.h, 'and keeps its full height: a tall narrow card beats a short wide one')
+  assert.ok(!intersects(detail, feed) && !intersects(detail, l.rects.files!))
+})
+
+test('System asks for 420 px of its own, on the full card width', () => {
+  const l = layoutFor(1600, 900, ['system'], [])
+  assert.equal(l.rects.system!.w, DETAIL_SIZE.w)
+  assert.equal(l.rects.system!.h, 420, 'its metric rows, per-core detail and load / uptime list fit without a scroll')
 })
 
 test('System is a full-width sheet on a narrow viewport', () => {
