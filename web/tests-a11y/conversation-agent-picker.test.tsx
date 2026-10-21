@@ -254,16 +254,21 @@ test('French: the pill says « agents avec des messages non lus », the option k
   assert.doesNotMatch(option.textContent ?? '', /\d+ messages non lus/, 'never « n messages non lus »: n is the total')
 })
 
+// The focused element, described in words: an assert.equal on two jsdom elements prints the whole DOM tree on failure,
+// which exhausts the memory of the test process instead of saying what has the focus
+const describe = (el: Element | null) => el ? `<${el.tagName.toLowerCase()}${el.getAttribute('role') ? ` role=${el.getAttribute('role')}` : ''}> ${JSON.stringify(el.textContent?.slice(0, 60) ?? '')}` : 'null'
+const assertFocused = (el: Element, message: string) => assert.ok(document.activeElement === el, `${message}: focus is on ${describe(document.activeElement)}, expected ${describe(el)}`)
+
 // The 5th agent that speaks swaps the tablist for the picker: focus on a tab must not fall to <body> (WCAG 2.4.3)
 const FOUR = new Map([...base].slice(0, 4))
 test('focus on a tab moves to the picker button when the 5th agent speaks and the tabs give way to the picker', () => {
   const r = panel({ conversations: FOUR })
   const tab = r.getAllByRole('tab').find(t => t.getAttribute('tabindex') === '0')!
   act(() => { tab.focus() })
-  assert.equal(document.activeElement, tab)
+  assertFocused(tab, 'the tab has the focus')
   act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
   assert.equal(r.queryByRole('tablist'), null)
-  assert.equal(document.activeElement, pickerButton(r), 'focus is on the picker button, not on <body>')
+  assertFocused(pickerButton(r), 'focus is on the picker button, not on <body>')
 })
 
 test('focus on the picker button moves to the active tab when the agents fall under the threshold', () => {
@@ -272,7 +277,7 @@ test('focus on the picker button moves to the active tab when the agents fall un
   act(() => { button.focus() })
   act(() => { r.retree({ conversations: FOUR }) })
   const active = r.getAllByRole('tab').find(t => t.getAttribute('aria-selected') === 'true')!
-  assert.equal(document.activeElement, active, 'focus is on the active tab, not on <body>')
+  assertFocused(active, 'focus is on the active tab, not on <body>')
 })
 
 test('the switch never takes focus from elsewhere: focus outside the agent row stays where it is', () => {
@@ -281,5 +286,5 @@ test('the switch never takes focus from elsewhere: focus outside the agent row s
   const r = panel({ conversations: FOUR })
   act(() => { outside.focus() })
   act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
-  assert.equal(document.activeElement, outside)
+  assertFocused(outside, 'focus outside the agent row stays there')
 })
