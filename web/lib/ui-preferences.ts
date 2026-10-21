@@ -34,6 +34,19 @@ export const UI_PREFS_VERSION = 1
 export const DOCK_RIGHT_WIDTH_MIN = 280
 export const DOCK_RIGHT_WIDTH_MAX = 720
 export const DOCK_RIGHT_WIDTH_DEFAULT = 380
+/**
+ * Left column (agent card + System panel). Kept in step with LEFT_DOCK / DETAIL_SIZE / SYSTEM_SIZE
+ * of lib/panel-layout.ts, which this module must not import (it stays free of layout code);
+ * scripts/panel-layout.test.ts fails when the two drift apart.
+ */
+const DOCK_LEFT_WIDTH_MIN = 240
+const DOCK_LEFT_WIDTH_MAX = 640
+const DOCK_LEFT_WIDTH_DEFAULT = 320
+/** Bounds of a stored left-column panel height; the layout lowers it further on a short viewport. */
+const LEFT_PANEL_HEIGHT_MIN = 120
+const LEFT_PANEL_HEIGHT_MAX = 2000
+const DETAIL_PANEL_HEIGHT_DEFAULT = 300
+const SYSTEM_PANEL_HEIGHT_DEFAULT = 360
 /** Upper bound on the length of a stored session id */
 export const SESSION_ID_MAX_LENGTH = 256
 
@@ -62,6 +75,12 @@ export interface UiPrefs {
   lastSelectedSessionId: string | null
   /** Width in px of the right dock column */
   dockRightWidth: number
+  /** Width in px of the left column, shared by the agent card and the System panel */
+  dockLeftWidth: number
+  /** Height in px the agent card asks for */
+  detailPanelHeight: number
+  /** Height in px the System panel asks for */
+  systemPanelHeight: number
   /** Session list filter (#125): projectId to keep (null = all projects) */
   sessionFilterProject: string | null
   /** Session list filter (#125): runtime to keep (null = both) */
@@ -103,6 +122,9 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   singleKeyShortcuts: true,
   lastSelectedSessionId: null,
   dockRightWidth: DOCK_RIGHT_WIDTH_DEFAULT,
+  dockLeftWidth: DOCK_LEFT_WIDTH_DEFAULT,
+  detailPanelHeight: DETAIL_PANEL_HEIGHT_DEFAULT,
+  systemPanelHeight: SYSTEM_PANEL_HEIGHT_DEFAULT,
   sessionFilterProject: null,
   sessionFilterRuntime: null,
   sessionFilterBranch: null,
@@ -121,6 +143,12 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
 export const UI_PREF_KEYS = Object.freeze(Object.keys(DEFAULT_UI_PREFS) as UiPrefKey[])
+
+/** A stored pixel size: a finite number, rounded and clamped; anything else falls back to the default. */
+function clampStored(value: unknown, fallback: unknown, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback as number
+  return Math.min(max, Math.max(min, Math.round(value)))
+}
 
 /** Validate one value for one key; returns the sanitized value or the default when malformed */
 export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPrefs[K] {
@@ -142,11 +170,13 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
       const ok = typeof value === 'string' && value.length > 0 && value.length <= SESSION_ID_MAX_LENGTH
       return (ok ? value : null) as UiPrefs[K]
     }
-    case 'dockRightWidth': {
-      if (typeof value !== 'number' || !Number.isFinite(value)) return fallback as UiPrefs[K]
-      const clamped = Math.min(DOCK_RIGHT_WIDTH_MAX, Math.max(DOCK_RIGHT_WIDTH_MIN, Math.round(value)))
-      return clamped as UiPrefs[K]
-    }
+    case 'dockRightWidth':
+      return clampStored(value, fallback, DOCK_RIGHT_WIDTH_MIN, DOCK_RIGHT_WIDTH_MAX) as UiPrefs[K]
+    case 'dockLeftWidth':
+      return clampStored(value, fallback, DOCK_LEFT_WIDTH_MIN, DOCK_LEFT_WIDTH_MAX) as UiPrefs[K]
+    case 'detailPanelHeight':
+    case 'systemPanelHeight':
+      return clampStored(value, fallback, LEFT_PANEL_HEIGHT_MIN, LEFT_PANEL_HEIGHT_MAX) as UiPrefs[K]
     default:
       return (typeof value === 'boolean' ? value : fallback) as UiPrefs[K]
   }

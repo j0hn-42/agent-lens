@@ -38,8 +38,20 @@ export const CONTROL_BAR_FALLBACK_H = 56
 export const TOPBAR_FALLBACK_H = 60
 
 export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720, step: 16, bigStep: 64 } as const
-export const DETAIL_SIZE = { w: 240, h: 240, minH: 120 } as const
-const SYSTEM_H = 280
+/**
+ * Left column, shared by the agent card and the System panel. Both take the column's width and
+ * each asks for its own height; the user resizes them (leftDockWidthBounds / leftHeightBounds) and these
+ * are only the defaults. They open on a column large enough to read a full card and the System gauges
+ * without scrolling, and the ladders below keep them placeable on a short viewport.
+ */
+const LEFT_DOCK = { default: 320, min: 240, maxFraction: 0.45, maxPx: 640 } as const
+export const DETAIL_SIZE = { w: LEFT_DOCK.default, h: 300, minH: 120 } as const
+export const SYSTEM_SIZE = { h: 360, minH: 160 } as const
+
+/** The panels of the left column: they share its width and each keeps its own height. */
+export type LeftPanelId = Extract<PanelId, 'detail' | 'system'>
+const LEFT_PANEL_MIN_H: Readonly<Record<LeftPanelId, number>> = { detail: DETAIL_SIZE.minH, system: SYSTEM_SIZE.minH }
+const LEFT_PANEL_DEFAULT_H: Readonly<Record<LeftPanelId, number>> = { detail: DETAIL_SIZE.h, system: SYSTEM_SIZE.h }
 export const LINK_H = 300
 export const MIN_MAIN_H = 160
 export const TIMELINE_SIZE = { maxW: 700, minW: 280, heights: [360, 280, 200] as readonly number[] }
@@ -91,6 +103,35 @@ export function dockWidthForDrag(startWidth: number, startX: number, x: number, 
   return clampDockWidth(startWidth + (startX - x), viewportW)
 }
 
+// ─── Left column (agent card + System): width and heights ───────────────────
+
+/** Range of the left column's width for this viewport (the card and System share one width). */
+export function leftDockWidthBounds(viewportW: number): { min: number; max: number } {
+  const max = Math.max(LEFT_DOCK.min, Math.min(LEFT_DOCK.maxPx, Math.floor(finite(viewportW, 0) * LEFT_DOCK.maxFraction)))
+  return { min: LEFT_DOCK.min, max }
+}
+
+/** Clamp a left column width to [min, max] for this viewport (NaN falls back to the default). */
+function clampLeftDockWidth(width: number, viewportW: number): number {
+  const { min, max } = leftDockWidthBounds(viewportW)
+  return Math.round(clamp(finite(width, LEFT_DOCK.default), min, max))
+}
+
+/**
+ * Heights a left-column panel is tried at, tallest first: the one the user asked for, then shorter rungs
+ * down to its minimum. A column too short for the wanted height keeps the panel on a lower rung instead of
+ * dropping it (only a column too short even for the minimum falls back to a sheet).
+ */
+function leftHeightLadder(wanted: number, min: number): readonly number[] {
+  const top = Math.max(min, Math.round(finite(wanted, min)))
+  return Array.from(new Set([top, ...[300, 240, 180, min].filter(h => h < top && h >= min)]))
+}
+
+/** Range of a left-column panel's height: its minimum, up to the height of the dock area. */
+export function leftHeightBounds(areaH: number, min: number): { min: number; max: number } {
+  return { min, max: Math.max(min, Math.floor(finite(areaH, min))) }
+}
+
 // ─── Left panel (Sessions) width ────────────────────────────────────────────
 
 const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
@@ -105,10 +146,11 @@ export function leftPanelWidthBounds(
   viewportW: number,
   open: readonly PanelId[],
   rightWidth: number,
+  leftWidth: number = LEFT_DOCK.default,
 ): { min: number; max: number } {
   if (viewportW < SHEET_BREAKPOINT) return dockWidthBounds(viewportW)
   const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
-  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? DETAIL_SIZE.w + DOCK_GAP : 0)
+  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? leftWidth + DOCK_GAP : 0)
   const max = Math.max(0, Math.floor(viewportW - 2 * DOCK_EDGE - reserved))
   // Never wider than the room, even when the room is smaller than the usual minimum
   return { min: Math.min(RIGHT_DOCK.min, max), max }
@@ -169,6 +211,12 @@ export interface DockInput {
   /** Open docked panels, oldest first (the newest wins when the layout falls back to a sheet). */
   open: readonly PanelId[]
   rightWidth?: number
+  /** Width of the left column, shared by the agent card and System; default LEFT_DOCK.default. */
+  leftWidth?: number
+  /** Height the agent card asks for; default DETAIL_SIZE.h, lowered when the column is short. */
+  detailHeight?: number
+  /** Height the System panel asks for; default SYSTEM_SIZE.h, lowered when the column is short. */
+  systemHeight?: number
   /** Rectangles of panels owned elsewhere (message feed, per-agent chat, ...): never covered. */
   obstacles?: readonly Rect[]
   /** Measured height of the "N panels hidden" notice (0 / unknown until it is drawn). */
@@ -191,6 +239,8 @@ export interface DockLayout {
   topbar: Rect
   controlBar: Rect
   rightWidth: number
+  /** Width the left column was placed at: the Sessions list reserves exactly this much. */
+  leftWidth: number
   /** Band a sheet keeps free right under the top bar for the permission cards, 0 in dock mode (#410). */
   permissionsBand: number
 }
@@ -275,7 +325,7 @@ function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permi
 
 function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>): Partial<Record<PanelId, Rect>> | null {
   const { viewport: vp, open } = input
-  const { area, rightWidth: rw } = base
+  const { area, rightWidth: rw, leftWidth: lw } = base
   const rects: Partial<Record<PanelId, Rect>> = {}
   // The top bar and the control bar are excluded by `area` itself
   const blockers: Rect[] = [...(input.obstacles ?? [])]
@@ -299,12 +349,17 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     blockers.push(r)
   }
 
-  // Left dock: the agent card.
+  // Left dock: the agent card. With System under it, the card never takes so much of the column that
+  // System no longer fits: a height asked for the card alone would otherwise drop the whole dock to a sheet.
+  const detailCap = isOpen('system')
+    ? Math.max(DETAIL_SIZE.minH, area.h - LEFT_PANEL_MIN_H.system - DOCK_GAP)
+    : Number.POSITIVE_INFINITY
   if (isOpen('detail')) {
-    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
+    const w = Math.min(lw, vp.w - 2 * DOCK_EDGE)
     const leftArea: Rect = { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
     let placed: Rect | null = null
-    for (const h of [DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
+    const wanted = Math.min(finite(input.detailHeight ?? DETAIL_SIZE.h, DETAIL_SIZE.h), detailCap)
+    for (const h of leftHeightLadder(wanted, DETAIL_SIZE.minH)) {
       placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
       if (placed) break
     }
@@ -316,13 +371,13 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
   // Left dock, second slot: System, in the card's column (below it), or at the top of the column when the
   // card is closed.
   if (isOpen('system')) {
-    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
+    const w = Math.min(lw, vp.w - 2 * DOCK_EDGE)
     const card = rects.detail
     const leftArea: Rect = card
       ? { x: card.x, y: area.y, w, h: area.h }
       : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
     let placed: Rect | null = null
-    for (const h of [SYSTEM_H, DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
+    for (const h of leftHeightLadder(finite(input.systemHeight ?? SYSTEM_SIZE.h, SYSTEM_SIZE.h), SYSTEM_SIZE.minH)) {
       placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
       if (placed) break
     }
@@ -370,6 +425,7 @@ export function computeDockLayout(input: DockInput): DockLayout {
     topbar: { x: 0, y: 0, w: vp.w, h: topbarH },
     controlBar,
     rightWidth: clampDockWidth(input.rightWidth ?? RIGHT_DOCK.default, vp.w),
+    leftWidth: clampLeftDockWidth(input.leftWidth ?? LEFT_DOCK.default, vp.w),
   }
   const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [], permissionsBand: 0 }
@@ -557,6 +613,12 @@ export interface DockStore {
   setOpen(id: PanelId, open: boolean): void
   getRightWidth(): number
   setRightWidth(w: number): void
+  /** Width of the left column, shared by the agent card and System. */
+  getLeftWidth(): number
+  setLeftWidth(w: number): void
+  /** Height one left-column panel asks for; the layout lowers it when the column is short. */
+  getLeftHeight(id: LeftPanelId): number
+  setLeftHeight(id: LeftPanelId, h: number): void
   /** Re-read the DOM now (tests / after layout changes). */
   measure(): void
   /** Replace the environment (tests). */
@@ -569,15 +631,21 @@ export function createDockStore(measure: () => DockEnv = measureDockEnv): DockSt
   let env = measure()
   let open: PanelId[] = []
   let rightWidth: number = RIGHT_DOCK.default
+  let leftWidth: number = LEFT_DOCK.default
+  const leftHeights: Record<LeftPanelId, number> = { detail: DETAIL_SIZE.h, system: SYSTEM_SIZE.h }
   let snapshot: DockSnapshot
   let stop: (() => void) | null = null
   let key = ''
 
   const compute = () => {
-    const k = JSON.stringify([env, open, rightWidth])
+    const k = JSON.stringify([env, open, rightWidth, leftWidth, leftHeights])
     if (k === key && snapshot) return false
     key = k
-    snapshot = { layout: computeDockLayout({ ...env, open, rightWidth }), env, open: [...open] }
+    snapshot = {
+      layout: computeDockLayout({ ...env, open, rightWidth, leftWidth, detailHeight: leftHeights.detail, systemHeight: leftHeights.system }),
+      env,
+      open: [...open],
+    }
     return true
   }
   compute()
@@ -631,6 +699,21 @@ export function createDockStore(measure: () => DockEnv = measureDockEnv): DockSt
       const next = clampDockWidth(w, env.viewport.w)
       if (next === rightWidth) return
       rightWidth = next
+      emit()
+    },
+    getLeftWidth: () => leftWidth,
+    setLeftWidth(w) {
+      const next = clampLeftDockWidth(w, env.viewport.w)
+      if (next === leftWidth) return
+      leftWidth = next
+      emit()
+    },
+    getLeftHeight: id => leftHeights[id],
+    setLeftHeight(id, h) {
+      // Only the floor is enforced here: the ceiling is the dock area, which the layout already applies
+      const next = Math.max(LEFT_PANEL_MIN_H[id], Math.round(finite(h, LEFT_PANEL_DEFAULT_H[id])))
+      if (next === leftHeights[id]) return
+      leftHeights[id] = next
       emit()
     },
     measure() { env = measure(); emit() },

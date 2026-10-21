@@ -262,12 +262,20 @@ export function dockAttrs(id: PanelId, edge: 'left' | 'right' | 'bottom', placem
   }
 }
 
-// Listeners told when the USER resized the right dock (drag or keyboard), so the width can be persisted
-// without persisting widths that were only clamped by a narrow viewport.
-const userResizeListeners = new Set<(width: number) => void>()
-export function subscribeDockUserResize(listener: (width: number) => void): () => void {
+/** What a user resize changed: a dock column's width, or the height of one panel of the left column. */
+export type DockResizeTarget = 'rightWidth' | 'leftWidth' | 'detailHeight' | 'systemHeight'
+
+// Listeners told when the USER resized a dock (drag or keyboard), so the size can be persisted
+// without persisting sizes that were only clamped by a narrow viewport.
+const userResizeListeners = new Set<(target: DockResizeTarget, value: number) => void>()
+export function subscribeDockUserResize(listener: (target: DockResizeTarget, value: number) => void): () => void {
   userResizeListeners.add(listener)
   return () => { userResizeListeners.delete(listener) }
+}
+
+/** Announce a resize the USER asked for; a size only clamped by the viewport never goes through here. */
+export function notifyDockUserResize(target: DockResizeTarget, value: number): void {
+  userResizeListeners.forEach(l => l(target, value))
 }
 
 /** Keyboard step of the range input (px); 380, the default width, and 720, the largest, sit on its grid. */
@@ -319,7 +327,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
     const next = bounds ? Math.round(Math.min(Math.max(w, min), max)) : clampDockWidth(w, vw)
     if (onWidthChange) { onWidthChange(next); return }
     dockStore.setRightWidth(next)
-    userResizeListeners.forEach(l => l(next))
+    notifyDockUserResize('rightWidth', next)
   }
   if (vw < SHEET_BREAKPOINT) return null
   // The step divides the range exactly, so End lands on the real maximum (a fixed step from `min` can
@@ -327,7 +335,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
   const step = dockResizerStep(min, max)
 
   return (
-    <div data-dock-resizer className={`absolute inset-y-0 z-10 w-0 ${onRight ? 'right-0' : 'left-0'}`}>
+    <div data-dock-resizer="width" className={`absolute inset-y-0 z-10 w-0 ${onRight ? 'right-0' : 'left-0'}`}>
       <input
         type="range"
         aria-label={label}
@@ -365,6 +373,81 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
         <span
           className="my-auto h-12 w-1 rounded-full bg-[color:var(--lens-grip)] transition-colors group-hover:bg-[color:var(--lens-grip-hover)]"
         />
+      </div>
+    </div>
+  )
+}
+
+interface DockVResizerProps {
+  /** Current height of the panel (px). */
+  height: number
+  /** Called with the new (already clamped) height. */
+  onHeightChange: (height: number) => void
+  /** Accessible name of the control. */
+  label: string
+  /** id of the panel it resizes (aria-controls). */
+  controls?: string
+  /** Range of the height: the panel's minimum, up to the room its column has (leftHeightBounds). */
+  bounds: { min: number; max: number }
+  /** Spoken value of the height, in the language of the panel. */
+  valueText?: (px: number) => string
+}
+
+/**
+ * Resizer of a panel's HEIGHT, for the panels of the left column (agent card, System). Mount it as a child of
+ * the panel's positioned root: it hugs the bottom edge of the panel as drawn, so the grip follows the card.
+ * Same two layers as DockResizer: a native <input type="range"> (height in px) carries the keyboard and the
+ * assistive-technology semantics — ArrowUp/ArrowRight make it taller, ArrowDown/ArrowLeft shorter, Home/End
+ * jump to the bounds — and the visible grip is pointer-only (drag down to grow).
+ * Renders nothing in sheet mode (a narrow viewport has no resizable dock).
+ */
+export function DockVResizer({ height, onHeightChange, label, controls, bounds, valueText }: DockVResizerProps) {
+  const { env } = useDockSnapshot()
+  const { min, max } = bounds
+  const current = Math.round(Math.min(max, Math.max(min, height)))
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null)
+  const apply = (h: number) => onHeightChange(Math.round(Math.min(Math.max(h, min), max)))
+  if (env.viewport.w < SHEET_BREAKPOINT) return null
+  // As in DockResizer: a step that divides the range exactly, so End lands on the real maximum
+  const step = dockResizerStep(min, max)
+
+  return (
+    <div data-dock-resizer="height" className="absolute inset-x-0 bottom-0 z-10 h-0">
+      <input
+        type="range"
+        aria-label={label}
+        aria-controls={controls}
+        aria-orientation="vertical"
+        aria-valuetext={valueText ? valueText(current) : `${current} pixels tall`}
+        min={min}
+        max={max}
+        step={step}
+        value={current}
+        onChange={(e) => apply(Number(e.currentTarget.value))}
+        onKeyDown={(e) => { if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation() }}
+        className="peer absolute bottom-0 left-1/2 m-0 h-6 w-12 -translate-x-1/2 translate-y-1/2 opacity-0 pointer-events-none"
+      />
+      <div
+        aria-hidden="true"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          dragRef.current = { startY: e.clientY, startH: current }
+          try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* not capturable */ }
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current
+          if (d) apply(d.startH + (e.clientY - d.startY))
+        }}
+        onPointerUp={(e) => {
+          dragRef.current = null
+          try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+        }}
+        onPointerCancel={() => { dragRef.current = null }}
+        className="group absolute inset-x-0 bottom-0 flex h-6 translate-y-1/2 cursor-row-resize touch-none items-center justify-center peer-focus-visible:[&>span]:bg-[color:var(--lens-focus)] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[color:var(--lens-focus)]"
+      >
+        <span className="mx-auto h-1 w-12 rounded-full bg-[color:var(--lens-grip)] transition-colors group-hover:bg-[color:var(--lens-grip-hover)]" />
       </div>
     </div>
   )

@@ -8,7 +8,8 @@ import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
-import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
+import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs, dockPanelDomId, DockResizer, DockVResizer, notifyDockUserResize, useDockSnapshot } from './shared-ui'
+import { dockStore, leftDockWidthBounds, leftHeightBounds, DETAIL_SIZE } from '@/lib/panel-layout'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
 import { agentRoleOf, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
@@ -118,6 +119,13 @@ export function AgentDetailCard({
   // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
   const dock = useDockPanel('detail', true)
   const { rect } = dock
+  // Resizable: the width is the left column's, shared with the System panel; the height is the card's own.
+  // usePanelsState stores both; the layout keeps them inside the room the column has, so the grips always sit on
+  // the size really granted. The card's name, not the agent's, labels them: an agent name is masked in presentation.
+  const { layout, env } = useDockSnapshot()
+  const widthBounds = leftDockWidthBounds(env.viewport.w)
+  const heightBounds = leftHeightBounds(layout.area.h, DETAIL_SIZE.minH)
+  const cardLabel = t('panel.name.detail')
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
@@ -162,11 +170,28 @@ export function AgentDetailCard({
         position: 'absolute',
         left: rect?.x ?? 12,
         top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
-        width: rect?.w ?? 240,
+        width: rect?.w ?? layout.leftWidth,
         zIndex: Z.detailCard,
         display: dock.hidden ? 'none' : undefined,
       }}
     >
+      <DockResizer
+        edge="right"
+        bounds={widthBounds}
+        width={layout.leftWidth}
+        onWidthChange={w => { dockStore.setLeftWidth(w); notifyDockUserResize('leftWidth', w) }}
+        label={t('common.resize.width', { name: cardLabel })}
+        valueText={px => t('common.resize.width.value', { px })}
+        controls={dockPanelDomId('detail')}
+      />
+      <DockVResizer
+        bounds={heightBounds}
+        height={rect?.h ?? DETAIL_SIZE.h}
+        onHeightChange={h => { dockStore.setLeftHeight('detail', h); notifyDockUserResize('detailHeight', h) }}
+        label={t('common.resize.height', { name: cardLabel })}
+        valueText={px => t('common.resize.height.value', { px })}
+        controls={dockPanelDomId('detail')}
+      />
       <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
         <PanelHeader onClose={onClose} className="mb-3" titleId={titleId} closeLabel={t('common.close')}>
           <span
@@ -573,6 +598,7 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
   // Same left dock slot as the detail card it replaces
   const dock = useDockPanel('detail', true)
   const { rect } = dock
+  const { layout } = useDockSnapshot()
   return (
     <div
       ref={ref}
@@ -586,7 +612,7 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
         position: 'absolute',
         left: rect?.x ?? 12,
         top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
-        width: rect?.w ?? 240,
+        width: rect?.w ?? layout.leftWidth,
         zIndex: Z.detailCard,
         display: dock.hidden ? 'none' : undefined,
       }}

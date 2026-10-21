@@ -2,10 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
+  leftDockWidthBounds, leftHeightBounds, DETAIL_SIZE, SYSTEM_SIZE,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
   topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
+import { DEFAULT_UI_PREFS, sanitizePref } from '../web/lib/ui-preferences'
 
 const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640], [320, 568], [640, 360], [640, 300]]
 const PANELS: PanelId[] = ['detail', 'system', 'link', 'files', 'conversation', 'timeline']
@@ -118,7 +120,7 @@ test('System alone takes the top of the left column and its width is reserved fo
   assert.equal(l.mode, 'dock')
   assert.equal(l.rects.system!.x, 12)
   assert.equal(l.rects.system!.y, l.area.y)
-  assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - 240 - 8)
+  assert.equal(leftPanelWidthBounds(1600, ['system'], 380, l.leftWidth).max, 1600 - 24 - l.leftWidth - 8)
 })
 
 test('System is a full-width sheet on a narrow viewport', () => {
@@ -377,7 +379,7 @@ test('left panel (Sessions): grows to the free room, never into the right dock n
 test('left panel (Sessions): the whole width when nothing is open, minus the right dock and the card otherwise', () => {
   assert.equal(leftPanelWidthBounds(1600, [], 380).max, 1600 - 24)
   assert.equal(leftPanelWidthBounds(1600, ['conversation'], 380).max, 1600 - 24 - 380 - 8)
-  assert.equal(leftPanelWidthBounds(1600, ['conversation', 'detail'], 380).max, 1600 - 24 - 380 - 8 - 240 - 8)
+  assert.equal(leftPanelWidthBounds(1600, ['conversation', 'detail'], 380, 320).max, 1600 - 24 - 380 - 8 - 320 - 8)
   assert.deepEqual(leftPanelWidthBounds(700, ['files'], 380), dockWidthBounds(700))
   assert.equal(leftPanelWidthBounds(900, ['files'], 540).min, 280 > 900 - 24 - 548 ? 900 - 24 - 548 : 280)
   assert.equal(clampLeftPanelWidth(NaN, 480, { min: 280, max: 900 }), 480)
@@ -525,4 +527,96 @@ test('dock mode: no permission slot, the cards stay an obstacle (#410)', () => {
 test('store: a measured permissions height is accepted and does not change a closed layout (#410)', () => {
   const env = createDockStore(() => ({ viewport: { w: 390, h: 800 }, topbarH: TOPBAR_H, controlBarH: BAR_H, obstacles: [], permissionsH: 90 })).getSnapshot()
   assert.equal(env.layout.permissionsBand, 0, 'nothing open: no band')
+})
+
+// ─── Left column: user-resizable width and heights ─────────────────────────
+
+/** The column's default width and the narrowest it goes, as computeDockLayout applies them. */
+const LEFT_DEFAULT_W = DETAIL_SIZE.w
+const LEFT_MIN_W = leftDockWidthBounds(1600).min
+
+test('the left column is larger than its minimum by default: a full agent card and the System gauges fit without scrolling', () => {
+  assert.ok(LEFT_DEFAULT_W > LEFT_MIN_W, 'the default width leaves room to narrow the column')
+  assert.ok(DETAIL_SIZE.h >= 300 && SYSTEM_SIZE.h >= 360, 'both panels open taller than the old 240 / 280 px slots')
+  const l = layoutFor(1600, 900, ['detail', 'system'], [])
+  assert.equal(l.leftWidth, LEFT_DEFAULT_W)
+  assert.equal(l.rects.detail!.w, LEFT_DEFAULT_W)
+  assert.equal(l.rects.system!.w, LEFT_DEFAULT_W)
+  assert.equal(l.rects.detail!.h, DETAIL_SIZE.h)
+  assert.equal(l.rects.system!.h, SYSTEM_SIZE.h)
+})
+
+test('the left column follows the requested width, clamped to the bounds of the viewport', () => {
+  const at = (leftWidth: number, w = 1600) =>
+    computeDockLayout({ viewport: { w, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'system'], leftWidth })
+  const wide = at(460)
+  assert.equal(wide.leftWidth, 460)
+  assert.equal(wide.rects.detail!.w, 460)
+  assert.equal(wide.rects.system!.w, 460, 'System follows the card: one column, one width')
+  assert.equal(at(5000).leftWidth, leftDockWidthBounds(1600).max)
+  assert.equal(at(10).leftWidth, LEFT_MIN_W)
+  assert.equal(at(Number.NaN).leftWidth, LEFT_DEFAULT_W, 'a broken stored width falls back to the default')
+  // Narrow viewports cap the column, and the minimum always stays reachable
+  for (const w of [900, 1024, 1280, 1600, 2560]) {
+    const { min, max } = leftDockWidthBounds(w)
+    assert.equal(min, LEFT_MIN_W)
+    assert.ok(max >= min, `bounds at ${w}`)
+    assert.equal(at(max + 100, w).leftWidth, max)
+  }
+})
+
+test('the agent card and System take the heights the user asked for, shorter rungs when the column is short', () => {
+  const at = (h: number, detailHeight: number, systemHeight: number) =>
+    computeDockLayout({ viewport: { w: 1600, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'system'], detailHeight, systemHeight })
+  const tall = at(1400, 500, 620)
+  assert.equal(tall.rects.detail!.h, 500)
+  assert.equal(tall.rects.system!.h, 620)
+  // A column that cannot hold both at full height keeps both, each on a shorter rung, still not overlapping
+  const short = at(700, 500, 620)
+  assert.equal(short.mode, 'dock')
+  assert.ok(short.rects.detail!.h <= 500 && short.rects.detail!.h >= DETAIL_SIZE.minH)
+  assert.ok(short.rects.system!.h >= SYSTEM_SIZE.minH)
+  assert.ok(!intersects(short.rects.detail!, short.rects.system!))
+  // A height under the panel's minimum, or a broken stored one, is lifted to a readable slot
+  const floor = at(1400, 10, 10)
+  assert.equal(floor.rects.detail!.h, DETAIL_SIZE.minH)
+  assert.equal(floor.rects.system!.h, SYSTEM_SIZE.minH)
+  const broken = at(1400, Number.NaN, Number.NaN)
+  assert.equal(broken.rects.detail!.h, DETAIL_SIZE.h)
+  assert.equal(broken.rects.system!.h, SYSTEM_SIZE.h)
+})
+
+test('leftHeightBounds: from the panel minimum up to the height of the dock area', () => {
+  assert.deepEqual(leftHeightBounds(640, 160), { min: 160, max: 640 })
+  assert.deepEqual(leftHeightBounds(80, 160), { min: 160, max: 160 }, 'an area shorter than the minimum keeps a reachable range')
+  assert.deepEqual(leftHeightBounds(Number.NaN, 120), { min: 120, max: 120 })
+})
+
+test('store: the left column width and the two heights round-trip and re-flow the layout', () => {
+  const env: DockEnv = { viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, obstacles: [] }
+  const store = createDockStore(() => env)
+  store.setOpen('detail', true)
+  store.setOpen('system', true)
+  assert.equal(store.getLeftWidth(), LEFT_DEFAULT_W)
+  store.setLeftWidth(420)
+  assert.equal(store.getLeftWidth(), 420)
+  assert.equal(store.getSnapshot().layout.rects.detail!.w, 420)
+  store.setLeftWidth(99)
+  assert.equal(store.getLeftWidth(), LEFT_MIN_W, 'clamped to the bounds of the viewport')
+  store.setLeftHeight('detail', 420)
+  store.setLeftHeight('system', 240)
+  assert.equal(store.getLeftHeight('detail'), 420)
+  assert.equal(store.getSnapshot().layout.rects.detail!.h, 420)
+  assert.equal(store.getSnapshot().layout.rects.system!.h, 240)
+})
+
+test('the stored sizes of the left column agree with the layout (two modules, one range)', () => {
+  assert.equal(DEFAULT_UI_PREFS.dockLeftWidth, LEFT_DEFAULT_W)
+  assert.equal(DEFAULT_UI_PREFS.detailPanelHeight, DETAIL_SIZE.h)
+  assert.equal(DEFAULT_UI_PREFS.systemPanelHeight, SYSTEM_SIZE.h)
+  // A stored size out of range is clamped to the bounds the resizers offer
+  assert.equal(sanitizePref('dockLeftWidth', 1e9), leftDockWidthBounds(4000).max)
+  assert.equal(sanitizePref('dockLeftWidth', -10), LEFT_MIN_W)
+  assert.equal(sanitizePref('detailPanelHeight', -10), Math.min(DETAIL_SIZE.minH, SYSTEM_SIZE.minH))
+  assert.equal(sanitizePref('systemPanelHeight', 'tall' as unknown as number), DEFAULT_UI_PREFS.systemPanelHeight)
 })

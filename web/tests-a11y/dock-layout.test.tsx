@@ -6,6 +6,7 @@ import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
 import { AgentDetailCard } from '@/components/agent-visualizer/agent-detail-card'
+import { SystemPanel } from '@/components/agent-visualizer/system-panel'
 import { FileAttentionPanel } from '@/components/agent-visualizer/file-attention-panel'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -27,6 +28,9 @@ beforeEach(() => {
   document.documentElement.style.setProperty('--topbar-h', '68px')
   setViewport(1600, 900)
   dockStore.setRightWidth(380)
+  dockStore.setLeftWidth(320)
+  dockStore.setLeftHeight('detail', 300)
+  dockStore.setLeftHeight('system', 360)
 })
 afterEach(() => {
   cleanup()
@@ -230,4 +234,86 @@ test('the resizer step divides the range exactly so the maximum is a reachable n
     assert.ok(step <= RESIZER_STEP + 1e-9 && step > RESIZER_STEP / 2, `${vw}px: step ${step} strays from ${RESIZER_STEP}`)
   }
   assert.equal(dockResizerStep(280, 280), RESIZER_STEP, 'degenerate range keeps the default step')
+})
+
+// ─── Left column: resizable width and heights ──────────────────────────────
+
+test('the agent card carries both grips: one width shared with System, one height of its own', () => {
+  const { getByRole, container } = render(<AgentDetailCard agent={agent} onClose={() => {}} />)
+  const dialog = getByRole('dialog')
+  const width = getByRole('slider', { name: 'Resize the width of the Agent detail panel' }) as HTMLInputElement
+  const height = getByRole('slider', { name: 'Resize the height of the Agent detail panel' }) as HTMLInputElement
+  assert.equal(width.type, 'range', 'a native range input, not a div with a tabindex')
+  assert.equal(height.type, 'range')
+  assert.equal(width.getAttribute('aria-controls'), dialog.id, 'each grip controls the card')
+  assert.equal(height.getAttribute('aria-controls'), dialog.id)
+  assert.equal(height.getAttribute('aria-orientation'), 'vertical')
+  // The card opens wider and taller than the old 240 px slot
+  assert.equal(dialog.style.width, '320px')
+  assert.equal(width.value, '320')
+  assert.equal(width.getAttribute('aria-valuetext'), '320 pixels wide')
+  assert.equal(height.value, '300')
+  assert.equal(height.getAttribute('aria-valuetext'), '300 pixels tall')
+  // Widening through the range control (arrows, Page keys, Home/End and thumb drags all end here)
+  fireEvent.change(width, { target: { value: '440' } })
+  assert.equal(dialog.style.width, '440px')
+  assert.equal(width.getAttribute('aria-valuetext'), '440 pixels wide')
+  fireEvent.change(width, { target: { value: '9999' } })
+  assert.equal(dialog.style.width, `${width.max}px`, 'never wider than the maximum')
+  fireEvent.change(width, { target: { value: '0' } })
+  assert.equal(dialog.style.width, '240px', 'never narrower than the minimum')
+  // The height grip changes the slot the card scrolls in
+  const card = container.querySelector<HTMLElement>('.glass-card')!
+  fireEvent.change(height, { target: { value: '520' } })
+  assert.equal(card.style.maxHeight, '520px')
+  assert.equal(height.getAttribute('aria-valuetext'), '520 pixels tall')
+  fireEvent.change(height, { target: { value: '0' } })
+  assert.equal(card.style.maxHeight, '120px', 'never shorter than the minimum')
+})
+
+test('the height grip grows the panel when dragged down and keeps its arrow keys to itself', () => {
+  let closed = 0
+  const { getByRole, container } = render(<AgentDetailCard agent={agent} onClose={() => { closed++ }} />)
+  const card = container.querySelector<HTMLElement>('.glass-card')!
+  const handle = container.querySelector<HTMLElement>('[data-dock-resizer="height"] [aria-hidden="true"]')!
+  assert.equal(handle.getAttribute('tabindex'), null, 'the pointer handle is not a tab stop')
+  fireEvent.pointerDown(handle, { button: 0, clientY: 400, pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientY: 500, pointerId: 1 })
+  assert.equal(card.style.maxHeight, '400px', 'dragging down grows the panel')
+  fireEvent.pointerUp(handle, { pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientY: 900, pointerId: 1 })
+  assert.equal(card.style.maxHeight, '400px', 'nothing moves after pointerup')
+  let seen = 0
+  const spy = () => { seen++ }
+  window.addEventListener('keydown', spy)
+  try {
+    const height = getByRole('slider', { name: 'Resize the height of the Agent detail panel' })
+    fireEvent.keyDown(height, { key: 'ArrowUp' })
+    fireEvent.keyDown(height, { key: 'ArrowDown' })
+    assert.equal(seen, 0, 'the grip stops its own arrow keys')
+    fireEvent.keyDown(height, { key: 'Escape' })
+    assert.equal(closed, 1, 'Escape on the grip still closes the card')
+  } finally {
+    window.removeEventListener('keydown', spy)
+  }
+})
+
+test('System follows the column: one width for both panels, its own height, and no grip on a sheet', () => {
+  const { getByRole, container, rerender } = render(<SystemPanel visible samples={[]} onClose={() => {}} />)
+  const root = container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
+  assert.equal(root.style.width, '320px')
+  const width = getByRole('slider', { name: 'Resize the width of the System panel' })
+  const height = getByRole('slider', { name: 'Resize the height of the System panel' }) as HTMLInputElement
+  assert.equal(width.getAttribute('aria-controls'), root.id)
+  assert.equal(height.value, '360', 'System opens taller than the old 280 px slot')
+  fireEvent.change(width, { target: { value: '420' } })
+  assert.equal(root.style.width, '420px')
+  // With the card open too, both take the one width the column was resized to
+  const both = render(<AgentDetailCard agent={agent} onClose={() => {}} />)
+  assert.equal(both.getByRole('dialog').style.width, '420px')
+  assert.equal(root.style.width, '420px')
+  // Below the sheet breakpoint a panel is a full-width sheet: no grip to drag
+  setViewport(600, 800)
+  rerender(<SystemPanel visible samples={[]} onClose={() => {}} />)
+  assert.equal(container.querySelectorAll('[data-dock-resizer]').length, 0)
 })

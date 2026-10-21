@@ -9,8 +9,9 @@ import { translate } from '@/lib/messages'
 import { panelName } from '@/lib/command-palette'
 import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
+import { dockStore, leftDockWidthBounds, leftHeightBounds, SYSTEM_SIZE } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
-import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
+import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs, dockPanelDomId, DockResizer, DockVResizer, notifyDockUserResize, useDockSnapshot } from './shared-ui'
 
 interface SystemPanelProps {
   visible: boolean
@@ -269,6 +270,13 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
   const { rect } = dock
   const titleId = useId()
   const { locale } = useLocale()
+  // Resizable column: the width is shared with the agent card, the height is this panel's own. Both are
+  // stored by usePanelsState; the layout keeps them inside the room the column has, and lowers the height on a
+  // short viewport, so what is drawn is always the size really granted.
+  const { layout, env } = useDockSnapshot()
+  const widthBounds = leftDockWidthBounds(env.viewport.w)
+  const heightBounds = leftHeightBounds(layout.area.h, SYSTEM_SIZE.minH)
+  const panelLabel = panelName(locale, 'system')
   const announcement = useSeverityAnnouncement(samples, visible)
   // The body is a scroll container: a tab stop only while it actually scrolls (WCAG 2.1.1), as in the Context panel
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -290,14 +298,31 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
       visible={visible}
       position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', left: 12 }}
       zIndex={Z.sidePanel}
-      width={rect?.w ?? 240}
+      width={rect?.w ?? layout.leftWidth}
       labelledBy={titleId}
       attrs={dockAttrs('system', 'left', dock, visible)}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
+      <DockResizer
+        edge="right"
+        bounds={widthBounds}
+        width={layout.leftWidth}
+        onWidthChange={w => { dockStore.setLeftWidth(w); notifyDockUserResize('leftWidth', w) }}
+        label={translate(locale, 'common.resize.width', { name: panelLabel })}
+        valueText={px => translate(locale, 'common.resize.width.value', { px })}
+        controls={dockPanelDomId('system')}
+      />
+      <DockVResizer
+        bounds={heightBounds}
+        height={rect?.h ?? SYSTEM_SIZE.h}
+        onHeightChange={h => { dockStore.setLeftHeight('system', h); notifyDockUserResize('systemHeight', h) }}
+        label={translate(locale, 'common.resize.height', { name: panelLabel })}
+        valueText={px => translate(locale, 'common.resize.height.value', { px })}
+        controls={dockPanelDomId('system')}
+      />
       <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h, background: COLORS.void }}>
         <PanelHeader onClose={onClose} titleId={titleId}>
-          <span lang={locale} className="text-[11px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{panelName(locale, 'system')}</span>
+          <span lang={locale} className="text-[11px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{panelLabel}</span>
         </PanelHeader>
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-system-announcer>{announcement}</div>
 

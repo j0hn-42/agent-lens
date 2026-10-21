@@ -20,12 +20,20 @@ const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k =
 
 const win = window as unknown as { innerWidth: number; innerHeight: number }
 
+/** The dock sizes a fresh page starts from (before the stored preferences are applied). */
+const resetDockSizes = () => {
+  dockStore.setRightWidth(DEFAULT_UI_PREFS.dockRightWidth)
+  dockStore.setLeftWidth(DEFAULT_UI_PREFS.dockLeftWidth)
+  dockStore.setLeftHeight('detail', DEFAULT_UI_PREFS.detailPanelHeight)
+  dockStore.setLeftHeight('system', DEFAULT_UI_PREFS.systemPanelHeight)
+}
+
 beforeEach(() => {
   clearPair()
   win.innerWidth = 1600
   win.innerHeight = 900
   resetDefaultUiPreferencesStore()
-  dockStore.setRightWidth(380)
+  resetDockSizes()
   act(() => dockStore.measure())
 })
 afterEach(() => {
@@ -33,7 +41,7 @@ afterEach(() => {
   document.body.replaceChildren()
   clearPair()
   resetDefaultUiPreferencesStore()
-  dockStore.setRightWidth(380)
+  resetDockSizes()
 })
 
 const post = (data: unknown) => vscodeBridge!.dispatch(data)
@@ -54,7 +62,11 @@ async function reload(r: ReturnType<typeof render>) {
   await wait(60) // let the batched write land
   r.unmount()
   resetDefaultUiPreferencesStore({ keepStorage: true })
-  dockStore.setRightWidth(380) // a new page starts from the default dock width
+  // A new page starts from the default dock sizes, so a restored one is really read back from storage
+  dockStore.setRightWidth(DEFAULT_UI_PREFS.dockRightWidth)
+  dockStore.setLeftWidth(DEFAULT_UI_PREFS.dockLeftWidth)
+  dockStore.setLeftHeight('detail', DEFAULT_UI_PREFS.detailPanelHeight)
+  dockStore.setLeftHeight('system', DEFAULT_UI_PREFS.systemPanelHeight)
   return mount()
 }
 
@@ -149,4 +161,25 @@ test('a stored session that is no longer listed falls back to the bridge choice,
   await wait(300)
   assert.match(status(r), /Session: alpha-api/)
   assert.equal(stored().lastSelectedSessionId, 'sa')
+})
+
+test('the left column width and the System height are stored on resize and applied after a reload', async () => {
+  const r = await mount()
+  await key('y') // opens the System panel
+  await wait(50)
+  const root = () => r.container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
+  assert.equal(root().style.width, '320px', 'the column opens wider than its 240 px minimum')
+  await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize the width of the System panel' }), { target: { value: '460' } }) })
+  await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize the height of the System panel' }), { target: { value: '480' } }) })
+  assert.equal(root().style.width, '460px')
+  await wait(60)
+  assert.equal(stored().dockLeftWidth, 460)
+  assert.equal(stored().systemPanelHeight, 480)
+
+  const again = await reload(r)
+  await key('y')
+  await wait(50)
+  const back = again.container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
+  assert.equal(back.style.width, '460px', 'width restored')
+  assert.equal((again.getByRole('slider', { name: 'Resize the height of the System panel' }) as HTMLInputElement).value, '480', 'height restored')
 })

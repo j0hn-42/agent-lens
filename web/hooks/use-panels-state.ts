@@ -5,12 +5,20 @@ import type { UseUiPreferences } from '@/hooks/use-ui-preferences'
 import { createPanelRegistry } from '@/hooks/use-panel-registry'
 import { useFocusReturn } from '@/hooks/use-focus-return'
 import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from '@/components/agent-visualizer/top-bar'
-import { subscribeDockUserResize } from '@/components/agent-visualizer/shared-ui'
+import { subscribeDockUserResize, type DockResizeTarget } from '@/components/agent-visualizer/shared-ui'
 import { dockStore, SHEET_BREAKPOINT } from '@/lib/panel-layout'
 import { shouldAutoOpenConversation } from '@/lib/exclusive-panels'
 import type { UiPrefs } from '@/lib/ui-preferences'
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context' | 'system'
+
+/** The preference each resizable dock size is stored under. */
+const RESIZE_PREF_KEY: Readonly<Record<DockResizeTarget, 'dockRightWidth' | 'dockLeftWidth' | 'detailPanelHeight' | 'systemPanelHeight'>> = {
+  rightWidth: 'dockRightWidth',
+  leftWidth: 'dockLeftWidth',
+  detailHeight: 'detailPanelHeight',
+  systemHeight: 'systemPanelHeight',
+}
 
 type FlagKey = 'showStats' | 'showHexGrid' | 'showCostOverlay' | 'showTimeline' | 'showFiles' | 'showConversation'
 
@@ -46,10 +54,13 @@ export function usePanelsState(uiPrefs: UseUiPreferences, selectedAgentId: strin
   const [showContext, setShowContext] = useState(false)
   const [showSystem, setShowSystem] = useState(false)
 
-  // Right dock width: the stored width is applied after mount (and when another tab changes it); a resize
-  // by the user is stored. A width that was only clamped by a narrow viewport is never written back.
+  // Dock sizes: the stored size is applied after mount (and when another tab changes it); a resize
+  // by the user is stored. A size that was only clamped by a narrow viewport is never written back.
   useEffect(() => { dockStore.setRightWidth(prefs.dockRightWidth) }, [prefs.dockRightWidth])
-  useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
+  useEffect(() => { dockStore.setLeftWidth(prefs.dockLeftWidth) }, [prefs.dockLeftWidth])
+  useEffect(() => { dockStore.setLeftHeight('detail', prefs.detailPanelHeight) }, [prefs.detailPanelHeight])
+  useEffect(() => { dockStore.setLeftHeight('system', prefs.systemPanelHeight) }, [prefs.systemPanelHeight])
+  useEffect(() => subscribeDockUserResize((target, value) => setPref(RESIZE_PREF_KEY[target], value)), [setPref])
 
   // Files, Conversation and Context share the right dock and are mutually exclusive; Cost is an independent overlay (#370)
   const toggleExclusivePanel = useCallback((panel: ExclusivePanel) => {
