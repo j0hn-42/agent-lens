@@ -35,6 +35,17 @@ export function pluralText(locale: Locale, base: string, n: number, params: Para
   return translate(locale, `${base}.${rule}` as MessageKey, { n, ...params })
 }
 
+/** A count written for the language: "1 234" in French, "1,234" in English. */
+export function formatCount(locale: Locale, n: number): string {
+  return new Intl.NumberFormat(locale).format(n)
+}
+
+/** `pluralText` whose count and numeric parameters are written for the language (formatCount). */
+export function pluralCountText(locale: Locale, base: string, n: number, params: Params = {}): string {
+  const written = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, typeof v === 'number' ? formatCount(locale, v) : v]))
+  return pluralText(locale, base, n, { n: formatCount(locale, n), ...written })
+}
+
 /** A message that embeds data (a path): the text before and after the slot, so the caller can mark the data lang="en". */
 export function splitAround(locale: Locale, key: MessageKey, param: string): [string, string] {
   const [before = '', after = ''] = t(locale, key, { [param]: '\u0001' }).split('\u0001')

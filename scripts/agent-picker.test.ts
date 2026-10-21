@@ -66,3 +66,16 @@ test('finished agents are folded by default only when there are many of them, an
   assert.equal(doneCollapsedByDefault(6, false), true)
   assert.equal(doneCollapsedByDefault(30, true), false)
 })
+
+test('the counts of the picker are written for the language (Intl.NumberFormat) and take its plural (Intl.PluralRules)', async () => {
+  const { formatCount, pluralCountText } = await import('../web/lib/panel-text')
+  const fr = new Intl.NumberFormat('fr').format(1234)
+  assert.notEqual(fr, '1234', 'French groups the thousands')
+  assert.equal(formatCount('fr', 1234), fr)
+  assert.equal(formatCount('en', 1234), '1,234')
+  assert.equal(pluralCountText('en', 'conv.picker.count', 1234, { total: 2000 }), '1,234 agents of 2,000')
+  assert.equal(pluralCountText('fr', 'conv.picker.count', 1234, { total: 2000 }), `${fr} agents sur ${new Intl.NumberFormat('fr').format(2000)}`)
+  assert.equal(pluralCountText('fr', 'conv.picker.unread', 1), '1 non lu')
+  assert.equal(pluralCountText('fr', 'conv.picker.unread', 0), '0 non lu', 'French: 0 is singular')
+  assert.equal(pluralCountText('en', 'conv.picker.unread', 2), '2 unread')
+})

@@ -17,7 +17,7 @@ import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { useLocale } from '@/lib/locale'
 import type { Locale } from '@/lib/messages'
 import { stateText } from '@/lib/card-text'
-import { DATA_EN, t as tr, pluralText, messageCountText, teamChipTexts } from '@/lib/panel-text'
+import { DATA_EN, t as tr, pluralCountText, formatCount, messageCountText, teamChipTexts } from '@/lib/panel-text'
 import { ChevronIcon } from './feed-icons'
 
 export interface AgentPickerProps {
@@ -42,7 +42,7 @@ function stateLabelOf(locale: Locale, agent: Agent | undefined): string {
 }
 
 function groupLabel(locale: Locale, g: PickerGroup): string {
-  const n = g.ids.length
+  const n = formatCount(locale, g.ids.length)
   if (g.kind === 'done') return tr(locale, 'conv.picker.group.done', { n })
   if (g.kind === 'active') return tr(locale, 'conv.picker.group.active', { n })
   if (g.kind === 'session') return tr(locale, 'conv.picker.group.session', { label: g.name, n })
@@ -160,7 +160,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
   const optionRow = (key: string) => {
     const isAll = key === 'all'
     const agent = isAll ? undefined : agents.get(key)
-    const name = isAll ? t('conv.picker.all', { n: ids.length }) : agentNameOf(agents, key)
+    const name = isAll ? t('conv.picker.all', { n: formatCount(locale, ids.length) }) : agentNameOf(agents, key)
     const color = isAll ? COLORS.holoBase : (agent ? getStateColor(agent.state) : COLORS.idle)
     const done = !isAll && isAgentDone(agent)
     const count = isAll ? totalMessages : (messageCounts.get(key) ?? 0)
@@ -232,7 +232,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
           <span className="shrink-0" style={{ color: COLORS.textMuted }}>{t('conv.picker.button')}</span>
           {' '}
           {activeName === null
-            ? <span className="truncate font-semibold">{t('conv.picker.all', { n: ids.length })}</span>
+            ? <span className="truncate font-semibold">{t('conv.picker.all', { n: formatCount(locale, ids.length) })}</span>
             : <span className="truncate font-semibold" {...DATA_EN}>{activeName}</span>}
           {activeName !== null && <>{' '}<span className="shrink-0">(<span>{stateLabelOf(locale, activeAgent)}</span>)</span></>}
           <span aria-hidden="true" className="ml-auto shrink-0" style={{ color: COLORS.textMuted }}><ChevronIcon direction={open ? 'up' : 'down'} size={10} /></span>
@@ -247,7 +247,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
             style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
           >
             <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: COLORS.unreadDot }} />
-            {pluralText(locale, 'conv.picker.unread', unreadIds.length)}
+            {pluralCountText(locale, 'conv.picker.unread', unreadIds.length)}
           </button>
         )}
         {children}
@@ -297,7 +297,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
               >
                 <ChevronIcon direction={doneOpen ? 'up' : 'down'} size={10} />
                 {/* Its state is aria-expanded and the chevron; the name is the visible text, short enough to share the row with the search */}
-                {t('conv.picker.group.done', { n: doneTotal })}
+                {t('conv.picker.group.done', { n: formatCount(locale, doneTotal) })}
               </button>
             )}
           </div>
@@ -322,7 +322,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
             )}
           </div>
           <div className="px-2 py-1 text-[11px] font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMuted }}>
-            <p role="status" className="m-0">{pluralText(locale, 'conv.picker.count', shownAgents, { total: ids.length })}</p>
+            <p role="status" className="m-0">{pluralCountText(locale, 'conv.picker.count', shownAgents, { total: ids.length })}</p>
             <p id={hintId} className="m-0 max-md:hidden">{t('conv.picker.hint')}</p>
           </div>
         </div>
