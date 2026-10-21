@@ -691,10 +691,11 @@ export function SessionListPanel({
                       type="button" data-row-main data-row-key={`session:${row.id}`} tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(ALL_SESSIONS_ID)}
-                      className={rowBase} style={rowStyle}
+                      className={`flex flex-wrap items-center gap-x-1.5 w-full min-h-8 rounded px-2 py-1.5 text-left text-xs font-semibold hover:bg-[var(--lens-hover-05)] ${FOCUS_RING}`}
+                      style={{ ...rowStyle, color: selected ? COLORS.holoBright : COLORS.textPrimary, background: selected ? COLORS.tabSelectedBg : COLORS.toggleInactive, border: `1px solid ${selected ? COLORS.holoBright : COLORS.controlBorder}` }}
                     >
                       <span className="flex-1">{t('sessions.allSessions')}</span>
-                      <span style={{ color: COLORS.textDim }}>{C.sharedNounCount(allSessionCount ?? sessions.length, 'session')}</span>
+                      <span className="font-normal" style={{ color: COLORS.textDim }}>{C.sharedNounCount(allSessionCount ?? sessions.length, 'session')}</span>
                     </button>
                     {row.roots.length > 0 && (
                       <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label={t('sessions.noListedSession')}>
