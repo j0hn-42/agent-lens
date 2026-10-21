@@ -588,7 +588,7 @@ export function ConversationPanel({
                     value={value}
                     onChange={e => set(e.target.value)}
                     className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
-                    style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
+                    style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, colorScheme: 'inherit' }}
                   >
                     <option value="">{label}</option>
                     {pickerAgentIds(agentsWithMessages, pair).map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
