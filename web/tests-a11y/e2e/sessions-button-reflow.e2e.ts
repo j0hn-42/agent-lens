@@ -1,6 +1,8 @@
 // Real-browser check of the Sessions button of the top bar when « non observées » is shown (#595): « Sessions : Toutes
-// les sessions » was cut by an ellipsis at 320 px in French. The visible label wraps instead of being cut, the
-// accessible name stays whole, and the page does not scroll sideways (WCAG 1.4.10). Measured in fr and en.
+// les sessions » was cut by an ellipsis at 320 px in French, and #595 made it wrap onto a second line. Since the bar holds
+// on one line (owner request, 2026-10-21) the label keeps one line: it is whole when the line has room (768 px), ends in
+// an ellipsis only when the line is full (320 px), and the accessible name and the tooltip always give the whole text; the
+// page does not scroll sideways (WCAG 1.4.10). Measured in fr and en.
 //
 //   pnpm --dir web run test:e2e
 import { test, before, after } from 'node:test'
@@ -51,7 +53,7 @@ const LONG = 'Refactor the relay hardening pipeline today'
 for (const c0 of CASES) for (const long of [false, true]) {
   const c = long ? { ...c0, label: LONG, button: /^Sessions\s?: Refactor/ } : c0
   for (const width of [320, 768]) {
-    test(`${c.locale} ${width}px: the Sessions button ${long ? 'keeps one line for a long session name' : 'shows its whole label next to the unobserved count'} (#595)`, { timeout: 300_000 }, async () => {
+    test(`${c.locale} ${width}px: the Sessions button ${long ? 'keeps one line for a long session name' : width >= 768 ? 'shows its whole label, the unobserved count read in full' : 'keeps one line, its whole label in its name and tooltip'} (#595, one-line bar)`, { timeout: 300_000 }, async () => {
       const context = await browser.newContext({ viewport: { width, height: 700 } })
       await context.addInitScript((loc) => { try { window.localStorage.setItem('agent-lens:locale', loc) } catch { /* blocked */ } }, c.locale)
       try {
@@ -84,9 +86,12 @@ for (const c0 of CASES) for (const long of [false, true]) {
         if (long) {
           // Named selection: one line, never taller than the « all sessions » case, the bar does not grow with the name
           assert.ok(m.button.height <= 46, `the button stays as tall as with « all sessions » (${m.button.height})`)
-        } else assert.ok(m.labelScroll <= m.labelClient + 1, `the label is not cut (scroll ${m.labelScroll} > client ${m.labelClient}, text-overflow ${m.textOverflow})`)
+        } else if (width >= 768) assert.ok(m.labelScroll <= m.labelClient + 1, `the line has room: the label is not cut (scroll ${m.labelScroll} > client ${m.labelClient})`)
         assert.ok(m.labelHeight < 20, `the label is on one line (height ${m.labelHeight})`)
-        if (!long) assert.notEqual(m.textOverflow, 'ellipsis', 'no ellipsis hides the label')
+        assert.ok(m.labelClient > 20, `the label is drawn, not replaced by an icon (${m.labelClient} px)`)
+        // The tooltip of the button gives the whole label, whatever the ellipsis hides
+        const tip = await page.locator('header').getByRole('button', { name: c.button }).first().evaluate((b: Element) => b.parentElement?.querySelector('[role="tooltip"]')?.textContent ?? '')
+        assert.ok(tip.includes(c.label), `the tooltip gives the whole label: ${tip}`)
         assert.ok(m.button.left >= -0.5 && m.button.right <= width + 0.5, `the button is inside the viewport (${JSON.stringify(m.button)})`)
         assert.ok(m.docScroll <= m.docClient, `no sideways scroll (${m.docScroll} > ${m.docClient})`)
         const name = await page.locator('header').getByRole('button', { name: c.button }).first().getAttribute('aria-label')

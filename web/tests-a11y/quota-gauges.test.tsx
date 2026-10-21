@@ -11,6 +11,7 @@ import { setLocaleChoice } from '@/lib/locale'
 import { MESSAGES } from '@/lib/messages'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import type { QuotaGaugeState, QuotaSnapshotView } from '@/lib/quota'
+import { openMore } from './topbar-more'
 
 // Reset times are formatted in the local zone: pin it so the expected strings are exact
 process.env.TZ = 'UTC'
@@ -270,18 +271,24 @@ const snapshot = (): QuotaSnapshotView => ({
   receivedAt: Date.now(),
 })
 
-test('top bar: the gauges sit with the totals, after the tokens and cost', () => {
+test('top bar: the gauges are in More (one-line bar), which reads their figures and marks a low one while closed', () => {
   setLocaleChoice('en')
   const view = render(<TopBar {...base} quota={snapshot()} selectedRuntime="claude" />)
-  const tokens = Array.from(view.container.querySelectorAll('span')).filter(s => /tokens in context/.test(s.textContent ?? '')).pop()!
+  const more = view.container.querySelector<HTMLElement>('#topbar-more')!
+  assert.equal(view.queryAllByRole('meter').length, 0, 'More closed: no gauge drawn, no hidden Tab stop')
+  const described = (more.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+  assert.match(described, /Quota: 5 h \d+ % left/, 'More reads the quota in its description')
+  assert.ok(view.container.querySelector('[data-more-mark]'), 'More carries a mark for what it holds')
+  openMore()
   const meters = view.getAllByRole('meter')
   assert.equal(meters.length, 2)
-  assert.ok(tokens.compareDocumentPosition(meters[0]) & Node.DOCUMENT_POSITION_FOLLOWING, 'the gauges come after the tokens')
-  assert.ok(view.container.querySelector('[role="toolbar"]')!.compareDocumentPosition(meters[0]) & Node.DOCUMENT_POSITION_PRECEDING, 'and before the view controls')
+  assert.ok(view.container.querySelector('[data-topbar-menu]')!.contains(meters[0]), 'the gauges are drawn in More')
+  assert.ok(more.compareDocumentPosition(meters[0]) & Node.DOCUMENT_POSITION_FOLLOWING, 'after More in the Tab order')
 })
 
 test('top bar: showQuota false renders nothing of it', () => {
   const view = render(<TopBar {...base} quota={snapshot()} selectedRuntime="claude" showQuota={false} />)
+  openMore()
   assert.equal(view.queryAllByRole('meter').length, 0)
   assert.doesNotMatch(view.container.textContent ?? '', /quota|% left|% restant/i)
 })
@@ -306,5 +313,6 @@ test('top bar: a snapshot that existed and expired (over 30 min) says the quota 
 
 test('top bar: the quota is on by default (showQuota omitted)', () => {
   const view = render(<TopBar {...base} quota={snapshot()} selectedRuntime="claude" />)
+  openMore()
   assert.equal(view.getAllByRole('meter').length, 2)
 })

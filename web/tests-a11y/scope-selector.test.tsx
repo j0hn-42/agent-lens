@@ -14,6 +14,7 @@ import { SessionListPanel } from '@/components/agent-visualizer/session-list-pan
 import { parseRelayScopeState, type RelayScopeState } from '@/lib/relay-scope'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { setLocaleChoice } from '@/lib/locale'
+import { openMore } from './topbar-more'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 
@@ -172,11 +173,18 @@ const topBarProps: TopBarProps = {
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
-test('the top bar carries the selector permanently when a relay reports its scope, and not otherwise', () => {
+test('the top bar carries the selector in More when a relay reports its scope, and not otherwise; More reads the scope while closed', () => {
   const without = render(<TopBar {...topBarProps} />)
+  openMore()
   assert.equal(without.queryByRole('combobox', { name: 'Session scope' }), null)
   without.unmount()
   const withScope = render(<TopBar {...topBarProps} scope={{ ...base, state: state() }} />)
+  // One-line bar: the selector is behind More, which says what is scanned in its description and carries a mark
+  const more = withScope.container.querySelector<HTMLElement>('#topbar-more')!
+  const described = (more.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+  assert.match(described, /^Scope: /, described)
+  assert.ok(withScope.container.querySelector('[data-more-mark]'), 'More carries a mark')
+  openMore()
   assert.ok(withScope.getByRole('combobox', { name: 'Session scope' }))
 })
 

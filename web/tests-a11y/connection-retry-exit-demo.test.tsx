@@ -6,6 +6,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
+import { openMore } from './topbar-more'
 
 const noop = () => {}
 afterEach(() => { cleanup(); document.body.replaceChildren() })
@@ -25,7 +26,13 @@ const DETAIL = 'reconnecting (attempt 2, retry in 10s)'
 
 test('offline: the detail is written, in the tooltip, and "Retry now" is a named button that calls back', () => {
   let retried = 0
-  const { getByTestId, getByRole, getByText } = render(topBar({ connectionDetail: DETAIL, onRetryConnection: () => { retried++ } }))
+  const { getByTestId, getByRole, getByText, container } = render(topBar({ connectionDetail: DETAIL, onRetryConnection: () => { retried++ } }))
+  // One-line bar: the detail is written in More, which carries the alert mark and reads it in its description
+  const more = container.querySelector('#topbar-more')!
+  assert.ok(container.querySelector('[data-more-mark="alert"]'), 'More carries the alert mark')
+  const described = (more.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+  assert.match(described, /attempt 2, retry in 10s/)
+  openMore()
   assert.equal(getByTestId('connection-detail').textContent, DETAIL)
   assert.match(getByText('OFFLINE').closest('[title]')!.getAttribute('title')!, /attempt 2, retry in 10s/)
   fireEvent.click(getByRole('button', { name: 'Retry now' }))
@@ -35,6 +42,7 @@ test('offline: the detail is written, in the tooltip, and "Retry now" is a named
 test('no retry button or detail when connected, connecting or in demo', () => {
   for (const props of [{ connectionStatus: 'connected' }, { connectionStatus: 'connecting' }, { connectionStatus: 'disconnected', isDemo: true }] as Partial<TopBarProps>[]) {
     const { queryByRole, queryByTestId, unmount } = render(topBar({ ...props, connectionDetail: DETAIL, onRetryConnection: noop }))
+    openMore()
     assert.equal(queryByRole('button', { name: 'Retry now' }), null)
     assert.equal(queryByTestId('connection-detail'), null)
     unmount()

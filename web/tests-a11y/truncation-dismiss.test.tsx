@@ -12,6 +12,7 @@ import { vscodeBridge } from '@/lib/vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { inMore } from './topbar-more'
 
 /** The sessionStorage key the dismissals live under (lib/event-loss) */
 const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
@@ -330,7 +331,8 @@ test('a total falling back while the focus is elsewhere does not move it', async
   await figure({ s1: 6 })
   assert.ok(banner(r))
   const sessions = sessionsButton()
-  const enter = r.getByRole('button', { name: 'Enter full screen' })
+  // More stands for any control of the bar away from Sessions (Enter full screen is behind it, one-line bar)
+  const enter = document.getElementById('topbar-more')!
   enter.focus()
   await figure({ s1: 3 })
   assert.equal(banner(r) === null, true)
@@ -410,7 +412,7 @@ test('leaving full screen does not take the focus back to Details after a reopen
   await act(async () => { fireEvent.click(indicator()!.querySelector('button')!) })
   await wait(100)
   assert.equal(document.activeElement === r.getByRole('button', { name: 'Details' }), true, 'the reopen itself focuses Details')
-  const enter = r.getByRole('button', { name: 'Enter full screen' })
+  const enter = inMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   enter.focus()
   await act(async () => { fireEvent.click(enter) })
   await wait(100)

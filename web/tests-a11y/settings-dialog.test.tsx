@@ -7,6 +7,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
+import { inMore, openMore } from './topbar-more'
 
 afterEach(() => {
   cleanup()
@@ -124,11 +125,14 @@ test('"View keyboard shortcuts" closes settings then opens the shortcuts dialog'
 test('top bar gear button opens settings, and is absent without a handler', () => {
   let opened = 0
   const view = render(<TopBar {...topBarProps} onOpenSettings={() => { opened++ }} />)
-  const gear = view.getByRole('button', { name: 'Settings' })
+  const gear = inMore(() => view.getByRole('button', { name: 'Settings' }))
   assert.equal(gear.getAttribute('aria-haspopup'), 'dialog')
   fireEvent.click(gear)
   assert.equal(opened, 1)
+  // More closes and keeps the focus, so the dialog gives it back to More (the gear is gone with More closed)
+  assert.equal(document.activeElement?.id, 'topbar-more')
   view.rerender(<TopBar {...topBarProps} />)
+  openMore()
   assert.equal(view.queryByRole('button', { name: 'Settings' }), null)
 })
 

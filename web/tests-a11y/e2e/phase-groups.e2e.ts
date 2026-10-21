@@ -4,6 +4,7 @@ import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { clickTopbarButton } from './topbar-fold'
 import { waitForStableLayout } from './stable-layout'
 
 let browser: Browser
@@ -51,7 +52,7 @@ test('workflow demo: finished members are hidden from the outline and the sessio
     assert.equal(await list.getByText('plan-a').count(), 0, 'finished agents are not listed')
     assert.equal(await list.getByText('plan-b').count(), 0)
 
-    await page.getByRole('button', { name: /^Hide inactive/ }).click()
+    await clickTopbarButton(page, /^Hide inactive/)
     await page.waitForFunction(() => !/finished agents? hidden/.test(document.body.textContent ?? ''))
     assert.ok((await phaseGroups(page)).includes('Phase Plan'))
     assert.ok(await list.getByText('plan-a').count() >= 1, 'listed again')
@@ -63,7 +64,7 @@ test('workflow demo: finished members are hidden from the outline and the sessio
 test('workflow demo: with every member shown, both phases form separate groups on the canvas', async () => {
   const { page, close } = await openWorkflow()
   try {
-    await page.getByRole('button', { name: /^Hide inactive/ }).click()
+    await clickTopbarButton(page, /^Hide inactive/)
     await page.waitForFunction(() => document.querySelector('[role="group"][aria-label="Phase Plan"]') !== null)
     await waitForStableLayout(page)
     await page.screenshot({ path: 'test-results/phase-groups.png' })

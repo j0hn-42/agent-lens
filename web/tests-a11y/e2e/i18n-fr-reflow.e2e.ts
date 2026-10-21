@@ -84,9 +84,17 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
   test(`fr ${w}x${h}: the armed context menu next to the right edge stays inside the window (#590)`, { timeout: 180_000 }, async () => {
     const page = await open(w, h)
     try {
-      // Four pixels from the right edge of the window, half way down: the menu has to be pushed back inside
-      await page.mouse.click(w - 4, Math.round(h / 2), { button: 'right' })
-      await page.getByRole('menu').waitFor()
+      // Four pixels from the right edge of the window, on the empty canvas: the menu has to be pushed back inside. Half way
+      // down first; an agent drawn there (the one-line top bar leaves the canvas taller) opens the agent menu instead, so
+      // lower, then higher
+      const clear = page.getByRole('menuitem', { name: 'Effacer l’historique' })
+      for (const y of [0.5, 0.7, 0.3].map(f => Math.round(h * f))) {
+        await page.mouse.click(w - 4, y, { button: 'right' })
+        await page.getByRole('menu').waitFor()
+        if (await clear.count() > 0) break
+        await page.keyboard.press('Escape')
+        await page.getByRole('menu').waitFor({ state: 'detached' })
+      }
       await expectFits(page, '[role="menu"]', `${w}x${h} menu`)
       await page.getByRole('menuitem', { name: 'Effacer l’historique' }).click()
       await page.getByRole('menuitem', { name: 'Confirmer l’effacement de l’historique' }).waitFor()

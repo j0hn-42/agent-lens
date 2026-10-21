@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Locator, type Page } from 'playwright'
 import { AxeBuilder } from '@axe-core/playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { closeMore, topbarButton } from './topbar-fold'
 import { GUIDED_STEPS } from '../../lib/guided-steps'
 
 let browser: Browser
@@ -124,14 +125,16 @@ async function openWithHideInactiveSaved() {
     const v = raw ? JSON.parse(raw)?.prefs?.show : undefined
     return v === 'active' ? 'true' : v === 'all' ? 'false' : null
   })
-  const hideToggle = page.getByRole('button', { name: /^Hide inactive/ })
+  // Behind More at every width (one-line bar): opened when the toggle is read or pressed, closed again before the tour is used
+  const hideToggle = () => topbarButton(page, /^Hide inactive/)
   assert.equal(await stored(), 'true')
   // The team step targets api-dev while it is idle: shown by the tour, while the toggle still reflects the preference
   const team = GUIDED_STEPS.findIndex(s => s.id === 'team')
   await page.getByRole('combobox', { name: 'Go to step' }).selectOption(String(team))
   await page.getByText(`Step ${team + 1} of ${GUIDED_STEPS.length}`).waitFor()
   await apiDevListed(page, true)
-  assert.equal(await hideToggle.getAttribute('aria-pressed'), 'true')
+  assert.equal(await (await hideToggle()).getAttribute('aria-pressed'), 'true')
+  await closeMore(page)
   assert.equal(await stored(), 'true')
   return { page, dialog, stored, hideToggle }
 }
@@ -147,8 +150,10 @@ test('the tour shows inactive agents without changing the saved Hide inactive pr
 
 test('during the tour the Hide inactive toggle reflects and changes the real preference', async () => {
   const { page, dialog, stored, hideToggle } = await openWithHideInactiveSaved()
-  await hideToggle.click()
-  assert.equal(await hideToggle.getAttribute('aria-pressed'), 'false')
+  const toggle = await hideToggle()
+  await toggle.click()
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
+  await closeMore(page)
   assert.equal(await stored(), 'false')
   // The tour keeps showing its agents either way
   await apiDevListed(page, true)
@@ -156,7 +161,8 @@ test('during the tour the Hide inactive toggle reflects and changes the real pre
   await dialog.waitFor({ state: 'detached' })
   // After the tour, the preference set during it applies: inactive agents stay shown
   assert.equal(await stored(), 'false')
-  assert.equal(await hideToggle.getAttribute('aria-pressed'), 'false')
+  assert.equal(await (await hideToggle()).getAttribute('aria-pressed'), 'false')
+  await closeMore(page)
   await apiDevListed(page, true)
 })
 

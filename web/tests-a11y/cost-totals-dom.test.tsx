@@ -14,6 +14,7 @@ import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { setLocaleChoice } from '@/lib/locale'
 import axe from 'axe-core'
+import { closeMore, pressInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -107,7 +108,7 @@ async function mount(lost: Record<string, number> | null, openCost = true, { row
   else await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions ?:/ })) }) // close the panel, as the click would
   await wait(100)
   await act(async () => { for (const e of events) FakeES.last.send(e) })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive|^Masquer les inactifs/ })) }) // idle agents are hidden by default
+  await pressInMore(() => r.getByRole('button', { name: /^Hide inactive|^Masquer les inactifs/ })); closeMore() // idle agents are hidden by default
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
   if (openCost) await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.cost)!) })
@@ -202,7 +203,7 @@ test('nothing to total: the canvas draws no panel, so the region renders nothing
 
 test('full screen: the canvas still draws the Cost panel, and the region keeps its text equivalent', async () => {
   const r = await mount({ s1: 7 })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   drawn = []
   await wait(400)
   assert.ok(r.getByRole('button', { name: 'Exit full screen' }), 'precondition: full screen is on')

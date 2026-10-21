@@ -10,6 +10,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { clearPair } from '@/lib/pair-filter-store'
 import { dockStore } from '@/lib/panel-layout'
+import { clickInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -121,7 +122,7 @@ test('selecting an agent opens the Conversation panel on that agent (no second c
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) })
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
   await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   assert.equal(conversationRegion(r), null)
   // the canvas outline lists the agents as buttons: clicking one selects it like a canvas click
@@ -157,7 +158,7 @@ async function mountWithAgents() {
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) })
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
   await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   return r
 }

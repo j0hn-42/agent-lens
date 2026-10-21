@@ -1,6 +1,6 @@
-// #476 (mobile view): below 768 px the top bar folds to the Sessions button, the connection state, the attention
-// counter and More; More shows the panel buttons, the totals and the filters. Every control of the bar is 44x44 px
-// there (the classes are checked here, the sizes in tests-a11y/e2e/mobile-view.e2e.ts). 768 px and wider: unchanged.
+// #476 (mobile view), one-line bar: below 768 px the top bar is the Sessions button, the connection state, the attention
+// counter and More; More shows the panel buttons, the filters and the tools. Every control of the bar is 44x44 px there
+// (the classes are checked here, the sizes in tests-a11y/e2e/topbar-layout.e2e.ts and mobile-view.e2e.ts).
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React, { useRef, useState } from 'react'
@@ -31,9 +31,9 @@ const base: TopBarProps = {
 
 const buttonNames = (root: HTMLElement) => Array.from(root.querySelectorAll('button')).map(b => b.getAttribute('aria-label') || b.textContent?.trim())
 
-test('768 px and wider: no More button, the panel buttons are in the bar', () => {
+test('1024 px and wider: the panel buttons are in the bar, More holds the filters and the tools', () => {
   const view = render(<TopBar {...base} />)
-  assert.equal(view.container.querySelector(`#${TOPBAR_MORE_ID}`), null)
+  assert.ok(view.container.querySelector(`#${TOPBAR_MORE_ID}`), 'More is drawn at every width')
   assert.ok(view.getByRole('button', { name: 'Files & repeats' }))
   assert.ok(view.getByRole('toolbar', { name: 'View controls' }))
 })
@@ -57,13 +57,13 @@ test('under 768 px, folded: Sessions, the attention counter and More only; no hi
   assert.deepEqual(results.violations.map(v => v.id), [])
 })
 
-test('under 768 px: More shows the panel buttons, the filters and the totals', () => {
+test('under 768 px: More shows the panel buttons, the filters and the tools', () => {
   setMobileView(true)
   const view = render(<TopBar {...base} />)
   const more = view.getByRole('button', { name: /^More/ })
   fireEvent.click(more)
   assert.equal(more.getAttribute('aria-expanded'), 'true')
-  // More controls the filters (row 1) and row 2 (#523): every id names a rendered element
+  // More controls its overlay: every id names a rendered element
   const regions = more.getAttribute('aria-controls')!.split(' ').map(id => document.getElementById(id))
   assert.ok(regions.length > 0 && regions.every(Boolean), 'aria-controls names rendered elements')
   for (const name of ['Files & repeats', 'Timeline', 'Hide inactive: agents', 'Settings', 'Keyboard shortcuts']) {

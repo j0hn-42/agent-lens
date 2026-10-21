@@ -1,12 +1,14 @@
-// #523: layout of the top bar measured in a real browser against the demo app (`pnpm --dir web run test:e2e`).
-// From 1024 px up the bar is TWO ordered rows: row 1 = Sessions, scope, connection state, attention and the filters;
-// row 2 = the quota gauges, the panel buttons and the tools. The bar draws no summary text any more (#523, user request:
-// no tokens, no cost, no agent counts; the counts are drawn in the Sessions panel header), so a single row was measured
-// first: it does not fit at 1440 px (see the pull request). The assignment is fixed and there is one DOM order, so the Tab order is the
-// same at 1440, 1280, 1100 and 1024 px. The seven panel buttons are icons under 1280 px (labels from 1280 px), at
-// least 24 x 24 px, and keep their accessible name. Under 1024 px the bar folds behind More into one row (Commands
-// stays in it from 768 px); the 44 px targets and drawers stay under 768 px. --topbar-h follows the bar in each case.
-// The widths and heights are logged ("#523 ...") for the pull request.
+// Layout of the top bar measured in a real browser against the demo app and the worst-case harness (`pnpm --dir web run test:e2e`).
+// Owner request (2026-10-21, option A): "the top bar must stay on one line". It is ONE row at every width, in English and in
+// French, also in the worst case (40-character session name, scope with its three discovery ceilings, attention counter with
+// errors, DEMO with Exit demo or OFFLINE with its reconnect detail and Retry now, blocked Notifications, a filter, the quota).
+// What does not fit moves behind More, an overlay disclosure that never adds a row, at fixed widths (no measuring in code):
+//   from 1280 px: Sessions, connection state (+ Retry now / Exit demo), attention · panels (7 icons), Commands, More
+//   1024-1279 px: Sessions, connection state, attention · panels, More
+//   768-1023 px:  Sessions, connection state, attention · Commands, More
+//   under 768 px: Sessions (label cut by an ellipsis), connection state, attention (count), More (44 px targets)
+// More always holds the scope, the filters, the quota gauges and the tools; what it holds that the bar does not show is
+// signalled on it (mark, description). --topbar-h follows the bar. The widths and heights are logged ("#one-line ...").
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -25,9 +27,12 @@ after(async () => {
   await server?.stop()
 })
 
-async function open(w: number, h = 900, locale?: 'fr' | 'en'): Promise<Page> {
-  const context = await browser.newContext({ viewport: { width: w, height: h } })
-  if (locale) await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
+const WIDTHS = [1920, 1440, 1280, 1100, 1024, 768, 390, 320] as const
+type Locale = 'en' | 'fr'
+
+async function open(w: number, locale: Locale = 'en'): Promise<Page> {
+  const context = await browser.newContext({ viewport: { width: w, height: w < 768 ? 800 : 900 } })
+  await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
   const page = await context.newPage()
   await page.goto(server.url, { waitUntil: 'networkidle' })
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
@@ -35,114 +40,251 @@ async function open(w: number, h = 900, locale?: 'fr' | 'en'): Promise<Page> {
   return page
 }
 
+async function worstCase(w: number, locale: Locale, query = '?worst=1'): Promise<Page> {
+  const context = await browser.newContext({ viewport: { width: w, height: w < 768 ? 800 : 900 } })
+  await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
+  const page = await openWorstCase(context, server.url, query)
+  await waitForStableLayout(page)
+  return page
+}
+
 const PANELS = ['Files & repeats', 'Conversation (C)', 'Context (P)', 'System (Y)', 'Cost', 'Timeline', 'Stats']
 
-interface Box { top: number; bottom: number; left: number; right: number; width: number; height: number }
 interface Layout {
   barHeight: number
   published: number
   rows: number
-  groups: Record<string, Box | null>
-  panels: Array<{ name: string; width: number; height: number; labelWidth: number; iconWidth: number }>
-  row2: { width: number; content: number } | null
+  pageScroll: boolean
+  headerScroll: boolean
+  /** Drawn controls of the bar (not of the More overlay) that leave the bar or the window */
+  outside: string[]
+  /** Drawn controls of the bar, in DOM order, with their size */
+  controls: Array<{ name: string; width: number; height: number }>
+  panels: number
+  commands: boolean
 }
 
-/** Visible controls of the bar grouped in rows (vertical centres more than 12 px apart), groups and panel buttons. */
+/** Drawn controls of the bar grouped in rows (vertical centres more than 12 px apart); the More overlay is left out. */
 const measure = (page: Page) => page.evaluate(`(() => {
   const header = document.querySelector('header')
-  const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height } }
-  const visible = [...header.querySelectorAll('button, select')].filter(el => {
+  const hb = header.getBoundingClientRect()
+  const menu = header.querySelector('[data-topbar-menu]')
+  const drawn = [...header.querySelectorAll('button, select, [data-testid="connection-detail"], [data-connection-label]')].filter(el => {
     const r = el.getBoundingClientRect()
-    return r.width > 1 && r.height > 1 && !el.closest('.sr-only')
+    return r.width > 1 && r.height > 1 && !(menu && menu.contains(el))
   })
-  const centres = visible.map(el => { const r = el.getBoundingClientRect(); return r.top + r.height / 2 }).sort((a, b) => a - b)
+  const centres = drawn.map(el => { const r = el.getBoundingClientRect(); return r.top + r.height / 2 }).sort((a, b) => a - b)
   let rows = 0, last = -Infinity
   for (const c of centres) { if (c - last > 12) rows++; last = c }
-  const groups = {}
-  for (const g of header.querySelectorAll('[data-topbar-group]')) groups[g.getAttribute('data-topbar-group')] = getComputedStyle(g).position === 'absolute' ? null : box(g)
-  const names = ${JSON.stringify(PANELS)}
-  const panels = [...header.querySelectorAll('button')].filter(b => names.includes(b.getAttribute('aria-label'))).map(b => {
-    const r = b.getBoundingClientRect()
-    const label = b.querySelector('[data-panel-label]').getBoundingClientRect()
-    const icon = b.querySelector('svg').getBoundingClientRect()
-    return { name: b.getAttribute('aria-label'), width: r.width, height: r.height, labelWidth: label.width, iconWidth: icon.width }
-  })
-  const row2El = header.querySelector('[data-topbar-row="2"]')
-  let row2 = null
-  if (row2El && getComputedStyle(row2El).display !== 'contents') {
-    const kids = [...row2El.children].filter(k => k.getBoundingClientRect().width > 0 && !k.matches('[data-topbar-spacer]'))
-    const gap = parseFloat(getComputedStyle(row2El).columnGap) || 0
-    row2 = { width: row2El.getBoundingClientRect().width, content: kids.reduce((s, k) => s + k.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) }
-  }
+  const name = el => (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 60)
+  const outside = drawn.filter(el => { const r = el.getBoundingClientRect(); return r.left < hb.left - 0.5 || r.right > hb.right + 0.5 || r.right > window.innerWidth + 0.5 }).map(name)
   return {
-    barHeight: header.getBoundingClientRect().height,
+    barHeight: hb.height,
     published: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h')),
-    rows, groups, panels, row2,
+    rows,
+    pageScroll: document.documentElement.scrollWidth > window.innerWidth,
+    headerScroll: header.scrollWidth > header.clientWidth + 1,
+    outside,
+    controls: drawn.map(el => { const r = el.getBoundingClientRect(); return { name: name(el), width: +r.width.toFixed(1), height: +r.height.toFixed(1) } }),
+    panels: drawn.filter(el => /^topbar-toggle-/.test(el.id) && el.id !== 'topbar-toggle-sessions').length,
+    commands: drawn.some(el => el.id === 'topbar-commands'),
   }
 })()`) as Promise<Layout>
-
-/** Tab from the Sessions button through the bar: the accessible names in order. */
-async function tabOrder(page: Page): Promise<string[]> {
-  await page.locator('header').getByRole('button', { name: /^Sessions/ }).focus()
-  const names: string[] = []
-  for (let i = 0; i < 40; i++) {
-    const name = await page.evaluate(`(() => {
-      const el = document.activeElement
-      if (!el || !document.querySelector('header').contains(el)) return null
-      return el.getAttribute('aria-label') || el.textContent.trim()
-    })()`) as string | null
-    if (name === null) break
-    names.push(name)
-    await page.keyboard.press('Tab')
-  }
-  return names
-}
 
 /** --topbar-h is the bar height + 20 px (topbarOffsetPx), rounded up. */
 const expectPublished = (l: Layout, where: string) =>
   assert.equal(l.published, Math.ceil(l.barHeight) + 20, `${where}: --topbar-h ${l.published} px for a ${l.barHeight} px bar`)
 
-const orders = new Map<number, string[]>()
+/** What each width draws in the bar (fixed widths, see the header of this file). */
+function expectTier(l: Layout, w: number, where: string) {
+  if (w >= 1024) assert.equal(l.panels, 7, `${where}: the seven panel buttons are in the bar`)
+  else assert.equal(l.panels, 0, `${where}: the panel buttons are behind More`)
+  assert.equal(l.commands, w >= 1280 || (w >= 768 && w < 1024), `${where}: Commands ${l.commands ? 'drawn' : 'not drawn'}`)
+  // 38.5 px from 768 px (26.5 px controls), 56 px under 768 px (44 px targets)
+  if (w >= 768) assert.ok(l.barHeight <= 40, `${where}: bar ${l.barHeight} px high`)
+  else {
+    assert.ok(l.barHeight <= 57, `${where}: bar ${l.barHeight} px high`)
+    for (const c of l.controls.filter(c => !/^(DEMO|DÉMO|LIVE|EN DIRECT|OFFLINE|HORS LIGNE|CONNECTED|CONNECTÉ|CONNECTING|CONNEXION)$/.test(c.name))) {
+      assert.ok(c.height >= 44 && c.width >= 44, `${where}: ${c.name} is ${c.width}x${c.height} px (44 px target)`)
+    }
+  }
+}
 
-for (const w of [1440, 1280, 1100, 1024]) {
-  test(`${w}x900: two rows (identity and filters, then quota, panels and tools), height published`, async () => {
+function expectOneLine(l: Layout, where: string) {
+  assert.equal(l.rows, 1, `${where}: ${l.rows} rows (${l.controls.map(c => c.name).join(' | ')})`)
+  assert.ok(!l.pageScroll, `${where}: the page scrolls sideways`)
+  assert.ok(!l.headerScroll, `${where}: the bar scrolls inside itself`)
+  assert.deepEqual(l.outside, [], `${where}: controls outside the bar or the window`)
+}
+
+for (const locale of ['en', 'fr'] as const) {
+  for (const w of WIDTHS) {
+    test(`${w} px ${locale}, demo: one row, the controls of its width, height published`, async () => {
+      const page = await open(w, locale)
+      try {
+        const l = await measure(page)
+        console.log(`#one-line demo ${locale} ${w}px: bar ${l.barHeight} px, ${l.rows} row(s), --topbar-h ${l.published} px; ${l.controls.map(c => `${c.name} ${c.width}`).join(', ')}`)
+        expectOneLine(l, `${w}px ${locale}`)
+        expectTier(l, w, `${w}px ${locale}`)
+        expectPublished(l, `${w}px ${locale}`)
+        assert.equal(await page.locator('header').getAttribute('lang'), locale)
+      } finally {
+        await page.context().close()
+      }
+    })
+  }
+}
+
+for (const [variant, query] of [['DEMO + Exit demo', '?worst=1'], ['OFFLINE + Retry now', '?worst=1&conn=offline']] as const) {
+  for (const locale of ['en', 'fr'] as const) {
+    for (const w of WIDTHS) {
+      test(`${w} px ${locale}, worst case (${variant}): one row, nothing outside, More signals what it holds`, async () => {
+        const page = await worstCase(w, locale, query)
+        try {
+          const l = await measure(page)
+          console.log(`#one-line worst ${variant} ${locale} ${w}px: bar ${l.barHeight} px, ${l.rows} row(s), --topbar-h ${l.published} px; ${l.controls.map(c => `${c.name} ${c.width}`).join(', ')}`)
+          expectOneLine(l, `${w}px ${locale} ${variant}`)
+          expectTier(l, w, `${w}px ${locale} ${variant}`)
+          expectPublished(l, `${w}px ${locale} ${variant}`)
+          const header = page.locator('header')
+          assert.equal(await header.locator('[data-testid="attention-counter"]').count(), 1, 'the attention counter is drawn')
+          // The connection state is written in the bar at every width, never only a colour
+          assert.ok(await header.locator('[data-connection-label]').isVisible(), 'the connection state is drawn')
+          const actionInBar = await header.locator(variant.startsWith('DEMO') ? '[data-testid="exit-demo"]' : '[data-testid="retry-connection"]').count()
+          assert.equal(actionInBar, w >= 1280 ? 1 : 0, `${variant}: its button ${w >= 1280 ? 'in the bar' : 'behind More'}`)
+          // More: one filter active (Hide inactive), and a mark for the scope ceilings and the critical quota it holds
+          const more = header.locator('#topbar-more')
+          assert.equal(await more.getAttribute('aria-expanded'), 'false')
+          assert.equal(await header.locator('[data-more-mark="alert"]').count(), 1, 'More carries the alert mark')
+          const described = await more.evaluate((el: Element) => (el.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' '))
+          assert.match(described, locale === 'fr' ? /Analyse de cet espace de travail seulement/ : /Scanning this workspace only/, 'the scope summary is read on More')
+          assert.match(described, locale === 'fr' ? /Au moins 2/ : /At least 2/, 'the discovery ceilings are read on More')
+          assert.match(described, locale === 'fr' ? /8 % restant/ : /8 % left/, 'the quota is read on More')
+          if (variant.startsWith('OFFLINE')) assert.match(described, locale === 'fr' ? /tentative 12/ : /attempt 12/, 'the reconnect detail is read on More')
+        } finally {
+          await page.context().close()
+        }
+      })
+    }
+  }
+}
+
+test('1440 px worst case: More opens an overlay (no new row) with the scope, filters, quota and tools; Escape gives the focus back', async () => {
+  const page = await worstCase(1440, 'en')
+  try {
+    const header = page.locator('header')
+    const before = await measure(page)
+    const more = header.locator('#topbar-more')
+    await more.focus()
+    await page.keyboard.press('Enter')
+    assert.equal(await more.getAttribute('aria-expanded'), 'true')
+    const menu = header.locator('[data-topbar-menu]')
+    await menu.waitFor({ state: 'visible' })
+    assert.equal(await menu.getAttribute('id'), (await more.getAttribute('aria-controls'))?.split(' ')[0], 'More controls the overlay')
+    const after = await measure(page)
+    assert.equal(after.barHeight, before.barHeight, 'the bar keeps its height: the overlay is drawn over the canvas')
+    expectPublished(after, 'More open')
+    for (const name of ['Session scope', 'Hide inactive: agents', 'Notifications blocked', 'Mute sound effects', 'Enter full screen', 'Settings', 'Keyboard shortcuts']) {
+      assert.equal(await menu.getByRole(name === 'Session scope' ? 'combobox' : 'button', { name, exact: true }).count(), 1, `${name} is in More`)
+    }
+    assert.equal(await menu.getByRole('meter').count(), 2, 'the two quota gauges are in More')
+    assert.ok(await menu.locator('[data-scope-notices]').isVisible(), 'the discovery ceilings are drawn in More')
+    const box = await menu.evaluate((el: Element) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom } })
+    assert.ok(box.left >= 0 && box.right <= 1440 && box.bottom <= 900, `the overlay stays in the window: ${JSON.stringify(box)}`)
+    // DOM order: Tab goes from More into the overlay
+    await page.keyboard.press('Tab')
+    assert.ok(await page.evaluate(`document.querySelector('header [data-topbar-menu]').contains(document.activeElement)`), 'Tab enters the overlay')
+    await page.keyboard.press('Escape')
+    assert.equal(await more.getAttribute('aria-expanded'), 'false')
+    assert.ok(await more.evaluate((el: Element) => el === document.activeElement), 'Escape gives the focus back to More')
+    await page.keyboard.press('Space')
+    assert.equal(await more.getAttribute('aria-expanded'), 'true', 'Space opens it too')
+    await page.mouse.click(700, 600)
+    assert.equal(await more.getAttribute('aria-expanded'), 'false', 'a click outside closes it')
+  } finally {
+    await page.context().close()
+  }
+})
+
+test('320 px worst case in French: the More overlay fits in the window and scrolls inside itself', async () => {
+  const page = await worstCase(320, 'fr')
+  try {
+    const header = page.locator('header')
+    await header.locator('#topbar-more').click()
+    const menu = header.locator('[data-topbar-menu]')
+    await menu.waitFor({ state: 'visible' })
+    const r = await menu.evaluate((el: Element) => { const b = el.getBoundingClientRect(); return { left: b.left, right: b.right, bottom: b.bottom, scroll: el.scrollHeight > el.clientHeight } })
+    console.log(`#one-line 320px fr overlay: ${JSON.stringify(r)}`)
+    assert.ok(r.left >= 0 && r.right <= 320 && r.bottom <= 800, JSON.stringify(r))
+    assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no sideways page scroll with the overlay open')
+    // The 44 px targets hold in the overlay too
+    const small = await menu.locator('button, select').evaluateAll(els => els.filter(e => { const b = e.getBoundingClientRect(); return b.width > 1 && (b.width < 44 || b.height < 44) }).map(e => (e.getAttribute('aria-label') || e.textContent || '').trim()))
+    assert.deepEqual(small, [])
+  } finally {
+    await page.context().close()
+  }
+})
+
+test('the Tab order is the DOM order: Sessions, attention, panels, Commands, then More', async () => {
+  for (const w of [1440, 1100]) {
     const page = await open(w)
     try {
-      const l = await measure(page)
-      console.log(`#523 ${w}px: bar ${l.barHeight} px, ${l.rows} rows, --topbar-h ${l.published} px; row 2 ${l.row2?.content.toFixed(2)} of ${l.row2?.width.toFixed(2)} px (margin ${l.row2 ? (l.row2.width - l.row2.content).toFixed(2) : '-'}); panels ${l.panels.map(p => `${p.name} ${p.width.toFixed(2)}x${p.height.toFixed(2)}`).join(', ')}`)
-      assert.equal(l.rows, 2, `${w}px: ${l.rows} rows`)
-      const { identity, filters, status, panels, tools } = l.groups
-      for (const [n, g] of Object.entries({ identity, filters, status, panels, tools })) assert.ok(g, `${n} group drawn`)
-      const mid = (b: Box) => b.top + b.height / 2
-      assert.ok(Math.abs(mid(identity!) - mid(filters!)) < 12, 'identity and filters share row 1')
-      for (const g of [status!, panels!, tools!]) assert.ok(g.top >= identity!.bottom && g.top >= filters!.bottom, 'row 2 is below row 1')
-      assert.ok(Math.abs(mid(status!) - mid(panels!)) < 12 && Math.abs(mid(panels!) - mid(tools!)) < 12, 'status, panels and tools share row 2')
-      expectPublished(l, `${w}px`)
-      assert.equal(l.panels.length, 7, 'seven panel buttons')
-      for (const p of l.panels) {
-        assert.ok(p.width >= 24 && p.height >= 24, `${p.name} is ${p.width}x${p.height} px (24 x 24 minimum)`)
-        if (w >= 1280) assert.ok(p.labelWidth > 1 && p.iconWidth === 0, `${w}px: ${p.name} shows its label`)
-        else assert.ok(p.labelWidth <= 1 && p.iconWidth > 0, `${w}px: ${p.name} shows its icon`)
+      await page.locator('header').getByRole('button', { name: /^Sessions/ }).focus()
+      const names: string[] = []
+      for (let i = 0; i < 30; i++) {
+        const name = await page.evaluate(`(() => { const el = document.activeElement; return el && document.querySelector('header').contains(el) ? (el.getAttribute('aria-label') || el.textContent.trim()) : null })()`) as string | null
+        if (name === null) break
+        names.push(name)
+        await page.keyboard.press('Tab')
       }
-      assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
-      const order = await tabOrder(page)
-      orders.set(w, order)
-      console.log(`#523 ${w}px tab order: ${order.join(' | ')}`)
-      const at = (name: string) => order.indexOf(name)
-      const show = order.findIndex(n => n.startsWith('Hide inactive'))
-      assert.ok(show > 0 && show < at(PANELS[0]), 'the filters (row 1, #372: Hide inactive) come before the panels (row 2)')
-      for (let i = 1; i < PANELS.length; i++) assert.ok(at(PANELS[i - 1]) < at(PANELS[i]), `${PANELS[i - 1]} before ${PANELS[i]}`)
-      assert.ok(at('Keyboard shortcuts') > at('Stats'), 'tools after panels')
+      console.log(`#one-line ${w}px tab order: ${names.join(' | ')}`)
+      const at = (n: string) => names.indexOf(n)
+      for (let i = 1; i < PANELS.length; i++) assert.ok(at(PANELS[i - 1]) < at(PANELS[i]), `${w}px: ${PANELS[i - 1]} before ${PANELS[i]}`)
+      assert.match(names[0], /^Sessions/)
+      assert.match(names.at(-1)!, /^More/, `${w}px: More is the last stop of the closed bar`)
+      if (w >= 1280) assert.ok(at('Commands') > at('Stats'), 'Commands after the panels')
     } finally {
       await page.context().close()
     }
-  })
-}
+  }
+})
 
-test('the Tab order is the same at 1440, 1280, 1100 and 1024 px', () => {
-  const first = orders.get(1440)
-  assert.ok(first && first.length > 10, 'measured at 1440 px')
-  for (const w of [1280, 1100, 1024]) assert.deepEqual(orders.get(w), first, `${w} px`)
+test('a resize that moves the focused control behind More opens More and keeps the focus on it (2.4.3)', async () => {
+  const page = await open(1100)
+  try {
+    const header = page.locator('header')
+    await header.locator('#topbar-toggle-files').focus()
+    await page.setViewportSize({ width: 900, height: 900 })
+    await page.waitForFunction(`document.activeElement && document.activeElement.id === 'topbar-toggle-files'`, undefined, { timeout: 5000 })
+    assert.equal(await header.locator('#topbar-more').getAttribute('aria-expanded'), 'true', 'More opened to keep the button')
+    assert.ok(await page.evaluate(`document.querySelector('header [data-topbar-menu]').contains(document.activeElement)`), 'the button is the one in More')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.waitForFunction(`document.activeElement && document.activeElement.id === 'topbar-toggle-files' && !document.querySelector('header [data-topbar-menu]')?.contains(document.activeElement)`, undefined, { timeout: 5000 })
+    await header.locator('#topbar-commands').focus()
+    await page.setViewportSize({ width: 1100, height: 900 })
+    await page.waitForFunction(`document.activeElement && document.activeElement.id === 'topbar-commands'`, undefined, { timeout: 5000 })
+    await page.setViewportSize({ width: 600, height: 800 })
+    await page.waitForFunction(`document.activeElement && document.activeElement.id === 'topbar-commands'`, undefined, { timeout: 5000 })
+  } finally {
+    await page.context().close()
+  }
+})
+
+test('768 px: a panel opened from More closes More; the docked panel takes the focus and gives it back to More', async () => {
+  const page = await open(768)
+  try {
+    const header = page.locator('header')
+    const more = header.locator('#topbar-more')
+    await more.click()
+    await header.getByRole('button', { name: 'Files & repeats', exact: true }).click()
+    assert.equal(await more.getAttribute('aria-expanded'), 'false')
+    assert.equal(await page.locator('[data-mobile-drawer]').count(), 0, 'no drawer from 768 px')
+    await page.waitForFunction(`document.activeElement && document.activeElement !== document.body && !document.querySelector('header').contains(document.activeElement)`)
+    await page.keyboard.press('Escape')
+    await page.waitForFunction(`document.activeElement && document.activeElement.id === 'topbar-more'`, undefined, { timeout: 5000 })
+  } finally {
+    await page.context().close()
+  }
 })
 
 test('1440x900: the bar draws no summary text; the agent counts are drawn in the Sessions panel header', async () => {
@@ -193,159 +335,6 @@ test('1100x900: an icon shows its tooltip on hover and on focus; Escape closes i
     await page.keyboard.press('Escape')
     await tip.waitFor({ state: 'hidden' })
     assert.ok(await files.evaluate((el: Element) => el === document.activeElement), 'the focus stayed')
-  } finally {
-    await page.context().close()
-  }
-})
-
-test('768x900: one folded row (Sessions, state, More, Commands), More opens every control, height published each time', async () => {
-  const page = await open(768)
-  try {
-    const header = page.locator('header')
-    const more = header.getByRole('button', { name: /^More/ })
-    assert.equal(await more.count(), 1, 'More is drawn at 768 px')
-    assert.equal(await header.getByRole('button', { name: 'Commands' }).count(), 1, 'Commands stays in the folded bar')
-    const folded = await measure(page)
-    console.log(`#523 768px folded: bar ${folded.barHeight} px, ${folded.rows} rows, --topbar-h ${folded.published} px`)
-    assert.equal(folded.rows, 1, `${folded.rows} rows`)
-    expectPublished(folded, '768px folded')
-    const order = await tabOrder(page)
-    console.log(`#523 768px tab order: ${order.join(' | ')}`)
-    assert.ok(order.findIndex(n => n.startsWith('More')) < order.indexOf('Commands'), 'More then Commands')
-    // The 44 px targets stay under 768 px
-    const sizes = await header.locator('button').evaluateAll(els => els.map(e => e.getBoundingClientRect().height))
-    assert.ok(sizes.every(h => h < 44), `no 44 px target at 768 px: ${sizes.join(', ')}`)
-    await more.click()
-    await page.waitForFunction(`document.querySelector('header [data-topbar-group="panels"]') !== null`)
-    await waitForStableLayout(page)
-    const expanded = await measure(page)
-    console.log(`#523 768px More open: bar ${expanded.barHeight} px, ${expanded.rows} rows, --topbar-h ${expanded.published} px; panels ${expanded.panels.map(p => `${p.name} ${p.width.toFixed(2)}x${p.height.toFixed(2)}`).join(', ')}`)
-    expectPublished(expanded, '768px More open')
-    assert.ok(expanded.barHeight > folded.barHeight)
-    assert.equal(expanded.panels.length, 7)
-    for (const p of expanded.panels) assert.ok(p.iconWidth > 0 && p.labelWidth <= 1 && p.width >= 24 && p.height >= 24, `${p.name} is an icon of at least 24 px`)
-    // A panel opened from More folds More (the panel stays docked: no drawer between 768 and 1023 px). As at every width
-    // the open panel takes the focus; closing it gives the focus back to More, which stands for the folded button
-    await header.getByRole('button', { name: 'Files & repeats', exact: true }).click()
-    assert.equal(await more.getAttribute('aria-expanded'), 'false')
-    assert.equal(await page.locator('[data-mobile-drawer]').count(), 0, 'no drawer')
-    await page.waitForFunction(`document.activeElement && document.activeElement !== document.body && !document.querySelector('header').contains(document.activeElement)`)
-    await page.keyboard.press('Escape')
-    await page.waitForFunction(`document.activeElement && document.activeElement.id === 'topbar-more'`, undefined, { timeout: 5000 })
-  } finally {
-    await page.context().close()
-  }
-})
-
-test('1000x900: still folded under 1024 px, one row', async () => {
-  const page = await open(1000)
-  try {
-    const l = await measure(page)
-    console.log(`#523 1000px folded: bar ${l.barHeight} px, ${l.rows} rows, --topbar-h ${l.published} px`)
-    assert.equal(await page.locator('header').getByRole('button', { name: /^More/ }).count(), 1)
-    assert.equal(l.rows, 1)
-    expectPublished(l, '1000px')
-  } finally {
-    await page.context().close()
-  }
-})
-
-// #500: the French labels are longer than the English ones (Sessions : Toutes les sessions, Masquer les inactifs,
-// 2 agents en attente / 1 agent en erreur). The bar keeps its two rows at 1440, 1280, 1100 and 1024 px, never taller than in
-// English; the heights are logged ("#500 ...") for the pull request.
-for (const w of [1440, 1280, 1100, 1024]) {
-  test(`${w}x900 in French: still two rows, no taller than in English, height published`, async () => {
-    const heights: Record<string, number> = {}
-    for (const locale of ['en', 'fr'] as const) {
-      const page = await open(w, 900, locale)
-      try {
-        const l = await measure(page)
-        heights[locale] = l.barHeight
-        // Room left in row 1 (identity and filters side by side): what the longer French texts can still take
-        const row1 = await page.evaluate(`(() => {
-          const row = document.querySelector('header [data-topbar-row="1"]')
-          const kids = [...row.children].filter(k => k.getBoundingClientRect().width > 0 && !k.matches('[data-topbar-spacer]'))
-          const gap = parseFloat(getComputedStyle(row).columnGap) || 0
-          return { width: row.getBoundingClientRect().width, content: kids.reduce((n, k) => n + k.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) }
-        })()`) as { width: number; content: number }
-        console.log(`#500 ${w}px ${locale}: bar ${l.barHeight} px, ${l.rows} rows, --topbar-h ${l.published} px; row 1 ${row1.content.toFixed(2)} of ${row1.width.toFixed(2)} px (margin ${(row1.width - row1.content).toFixed(2)})`)
-        assert.equal(l.rows, 2, `${w}px ${locale}: ${l.rows} rows`)
-        expectPublished(l, `${w}px ${locale}`)
-        assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
-        assert.equal(await page.locator('header').getAttribute('lang'), locale)
-      } finally {
-        await page.context().close()
-      }
-    }
-    assert.ok(heights.fr <= heights.en, `${w}px: ${heights.fr} px in French, ${heights.en} px in English`)
-  })
-}
-
-// #500, worst case of row 1 (the demo draws no attention counter and no scope selector; #372: the Hide inactive toggle replaced
-// the finished-sessions toggle and Hide inactive agents): the real TopBar is drawn alone (topbar-worstcase.ts) with them at once. At 1024 px the row is measured in French and in English
-// (logged); at 320 px in French the page must not scroll sideways and no control may be cropped.
-async function worstCase(w: number, locale: 'fr' | 'en', query = ''): Promise<Page> {
-  const context = await browser.newContext({ viewport: { width: w, height: 900 } })
-  await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
-  const page = await openWorstCase(context, server.url, query)
-  await waitForStableLayout(page)
-  return page
-}
-
-for (const [name, query] of [['with the three discovery ceilings', ''], ['without a ceiling', '?ceilings=0']] as const) {
-  test(`1024x900 row 1 with attention, scope and Hide inactive, ${name}: measured in French and English`, async () => {
-    const rows: Record<string, { content: number; width: number; rows: number; bar: number }> = {}
-    for (const locale of ['en', 'fr'] as const) {
-      const page = await worstCase(1024, locale, query)
-      try {
-        const l = await measure(page)
-        const row1 = await page.evaluate(`(() => {
-          const row = document.querySelector('header [data-topbar-row="1"]')
-          const kids = [...row.children].filter(k => k.getBoundingClientRect().width > 0 && !k.matches('[data-topbar-spacer]'))
-          const gap = parseFloat(getComputedStyle(row).columnGap) || 0
-          return { width: row.getBoundingClientRect().width, content: kids.reduce((n, k) => n + k.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) }
-        })()`) as { width: number; content: number }
-        rows[locale] = { ...row1, rows: l.rows, bar: l.barHeight }
-        assert.equal(await page.locator('header [data-testid="attention-counter"]').count(), 1, 'the attention counter is drawn')
-        assert.equal(await page.locator('header [data-scope-selector]').count(), 1, 'the scope selector is drawn')
-        assert.equal(await page.locator('header').getByRole('button', { name: locale === 'fr' ? /^Masquer les inactifs/ : /^Hide inactive/ }).count(), 1, 'the Hide inactive toggle is drawn (#372)')
-        console.log(`#500 1024px ${name} ${locale}: bar ${l.barHeight} px, ${l.rows} rows; row 1 children ${row1.content.toFixed(2)} of ${row1.width.toFixed(2)} px (margin ${(row1.width - row1.content).toFixed(2)})`)
-        assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), `${locale}: no horizontal page scroll`)
-      } finally {
-        await page.context().close()
-      }
-    }
-    // The row wraps rather than overflows; French may not make the bar taller than English does
-    assert.ok(rows.fr.bar <= rows.en.bar && rows.fr.rows <= rows.en.rows, `French ${rows.fr.rows} rows / ${rows.fr.bar} px, English ${rows.en.rows} rows / ${rows.en.bar} px`)
-  })
-}
-
-test('320x568 worst case in French: no sideways scroll, nothing cropped', async () => {
-  const page = await worstCase(320, 'fr')
-  try {
-    assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
-    // Every drawn control lies inside the window and the bar: scrollWidth alone misses a box cut by a clipped ancestor
-    const out = await page.evaluate(`(() => {
-      const w = window.innerWidth
-      const header = document.querySelector('header')
-      const hb = header.getBoundingClientRect()
-      const bad = []
-      for (const el of header.querySelectorAll('button, select, [data-testid="attention-counter"], [data-testid="connection-detail"]')) {
-        const r = el.getBoundingClientRect()
-        if (r.width <= 1 || r.height <= 1 || el.closest('.sr-only')) continue
-        const name = (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 40)
-        if (r.left < -0.5 || r.right > w + 0.5 || r.right > hb.right + 0.5 || r.left < hb.left - 0.5) bad.push(name + ' ' + r.left.toFixed(1) + '..' + r.right.toFixed(1))
-        else if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible') bad.push('text cut in ' + name)
-      }
-      // Text cut with an ellipsis: the full text stays in the DOM for screen readers, but a sighted person loses it
-      const ellipsis = [...header.querySelectorAll('*')].filter(e => getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1).map(e => (e.textContent || '').trim())
-      return { bad, ellipsis, header: header.scrollWidth <= header.clientWidth + 1, bar: hb.height, controls: [...header.querySelectorAll('button, select')].filter(e => e.getBoundingClientRect().width > 1).length }
-    })()`) as { bad: string[]; ellipsis: string[]; header: boolean; bar: number; controls: number }
-    console.log(`#500 320px worst case fr: bar ${out.bar} px, ${out.controls} controls drawn, outside the window or clipped: ${out.bad.length}; cut with an ellipsis: ${JSON.stringify(out.ellipsis)}`)
-    assert.deepEqual(out.bad, [])
-    assert.ok(out.header, 'the bar does not scroll inside itself')
-    // No text of the bar is cut with an ellipsis, the Sessions label included (#595)
-    assert.deepEqual(out.ellipsis, [])
   } finally {
     await page.context().close()
   }

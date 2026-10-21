@@ -9,6 +9,7 @@ import { useAttentionAlerts } from '@/hooks/use-attention-alerts'
 import { useAgentSimulation } from '@/hooks/use-agent-simulation'
 import type { SimulationEvent } from '@/lib/agent-types'
 import { summarizeAttention, trackForeignAttention, withForeignAttention, type AttentionAgent } from '@/lib/attention'
+import { openMore } from './topbar-more'
 
 const noop = () => {}
 const g = globalThis as unknown as { Notification?: unknown }
@@ -64,9 +65,11 @@ test('top bar: outside VS Code the counter says that a permission is answered wh
 
 test('top bar: the notification option is hidden when unsupported and says when blocked', () => {
   const none = render(topBar({ notifyState: 'unsupported', onToggleNotify: noop }))
+  openMore() // the filters are behind More (one-line bar)
   assert.equal(none.queryByRole('button', { name: /Notif/ }), null)
   none.unmount()
   const denied = render(topBar({ notifyState: 'denied', onToggleNotify: noop }))
+  openMore()
   denied.getByRole('button', { name: 'Notifications blocked' })
 })
 

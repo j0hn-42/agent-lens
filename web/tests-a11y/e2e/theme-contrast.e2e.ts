@@ -9,6 +9,7 @@ import { chromium, type Browser, type Page } from 'playwright'
 import { AxeBuilder } from '@axe-core/playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 import { THEME_IDS } from '@/lib/theme-tokens'
 
 let browser: Browser
@@ -27,7 +28,7 @@ after(async () => {
 /** Switch the theme through the Settings dialog, then close the dialog so only the page chrome is audited. */
 async function setTheme(page: Page, id: string) {
   const select = page.getByRole('combobox', { name: 'Theme' })
-  if (!(await select.isVisible())) await page.getByRole('button', { name: 'Settings' }).click()
+  if (!(await select.isVisible())) await (await topbarButton(page, 'Settings')).click()
   await select.waitFor()
   await select.selectOption(id)
   await page.keyboard.press('Escape')

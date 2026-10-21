@@ -19,6 +19,7 @@ import { chromium, type Browser, type Frame } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 import { postWhenListening } from './bridge-ready'
+import { closeMore, topbarButton } from './topbar-fold'
 
 let browser: Browser
 let server: DemoServer
@@ -66,10 +67,9 @@ async function openWithFakeRelay(width: number, height: number) {
   }
   // The top bar counts what React knows: wait until both agents of the shown session are in it
   await page.getByText(/2 agents/).first().waitFor()
-  // Idle agents are hidden by default. Under 768 px the filter is behind More (#378, #476)
-  const more = page.getByRole('button', { name: /^More/ })
-  if (await more.count()) await more.evaluate((el: HTMLElement) => el.click())
-  await page.getByRole('button', { name: /^Hide inactive/ }).evaluate((el: HTMLElement) => el.click())
+  // Idle agents are hidden by default. The filter is behind More at every width (one-line bar)
+  await (await topbarButton(page, /^Hide inactive/)).evaluate((el: HTMLElement) => el.click())
+  await closeMore(page)
   return { page, close: () => context.close() }
 }
 

@@ -36,6 +36,7 @@ import type { Agent, FileAttention, TimelineEntry, TimelineEvent } from '@/lib/a
 import type { SessionInfo, QuotaSnapshotView } from '@/lib/bridge-types'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { compareViolations, validateKnownViolations, type KnownViolation } from './axe-compare'
+import { openMore } from './topbar-more'
 
 const known: KnownViolation[] = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'known-violations.json'), 'utf8'),
@@ -236,6 +237,9 @@ test('shell: top bar with the attention counter and the notification option (#12
     />,
   )
   getByRole('button', { name: /2 agents waiting \/ 1 agent in error/ })
+  await check('top-bar-attention-closed', container)
+  // More open (one-line bar): its overlay holds the filters, the quota and the tools
+  openMore()
   getByRole('button', { name: 'Notifications' })
   await check('top-bar-attention', container)
 })
@@ -248,6 +252,7 @@ test('shell: top bar with the quota gauges (ok, low, critical, aged), tooltip op
     receivedAt: Date.now() - 12 * 60_000,
   }
   const { container, getAllByRole } = render(<><TopBar {...topBarProps} quota={quota} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  openMore() // the gauges are behind More, which carries their mark and reads them in its description
   assert.equal(getAllByRole('meter').length, 2)
   await check('top-bar-quota', container)
   await act(async () => { fireEvent.focus(container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
@@ -259,12 +264,14 @@ test('shell: top bar with the quota gauges (ok, low, critical, aged), tooltip op
 test('shell: top bar with the quota unknown, not available and without subscription', async () => {
   const expired: QuotaSnapshotView = { fiveHour: null, sevenDay: null, receivedAt: Date.now() - 31 * 60_000 }
   const unknown = render(<><TopBar {...topBarProps} quota={expired} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  openMore()
   await act(async () => { fireEvent.focus(unknown.container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
   assert.ok(unknown.container.querySelector('[data-testid="topbar-quota"] [role="tooltip"]'))
   await check('top-bar-quota-unknown', unknown.container)
   unknown.unmount()
   for (const runtime of ['copilot', 'opencode']) {
     const { container, unmount } = render(<><TopBar {...topBarProps} selectedRuntime={runtime} /><main id="visualizer-main" /></>)
+    openMore()
     await check(`top-bar-quota-${runtime}`, container)
     unmount()
   }

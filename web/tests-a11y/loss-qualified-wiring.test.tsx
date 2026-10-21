@@ -11,6 +11,7 @@ import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { clickInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -88,7 +89,7 @@ async function mount(lost: Record<string, number> | null) {
     // After the tool: an absolute context reading clears the gap a tool without a reported cost leaves, so the totals are complete
     FakeES.last.send(ev('s1', 'context_update', { agent: 'main', tokens: 120_000, tokenSource: 'reported' }, 4))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) }) // idle agents are hidden by default
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {}) // idle agents are hidden by default
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.cost)!) })

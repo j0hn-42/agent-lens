@@ -1,11 +1,11 @@
 // Test helper (#476, #523): make window.matchMedia report a viewport width for the queries of the chrome (mobile view
-// under 768 px, folded top bar under 1024 px). jsdom has no layout, so the setup stub answers `matches: false` to every
-// other query (the desktop render). The panel icons under 1280 px are CSS only (Tailwind max-xl).
+// under 768 px, the widths of the one-line top bar at 1024 and 1280 px). jsdom has no layout, so the setup stub answers
+// `matches: false` to every other query (the desktop render).
 import { act } from 'react'
-import { MOBILE_QUERY, TOPBAR_FOLD_QUERY } from '@/lib/mobile-view'
+import { MOBILE_QUERY, TOPBAR_FOLD_QUERY, TOPBAR_NARROW_QUERY } from '@/lib/mobile-view'
 
 type Listener = () => void
-const QUERIES = [MOBILE_QUERY, TOPBAR_FOLD_QUERY]
+const QUERIES = [MOBILE_QUERY, TOPBAR_FOLD_QUERY, TOPBAR_NARROW_QUERY]
 const listeners = new Map<string, Set<Listener>>(QUERIES.map(q => [q, new Set<Listener>()]))
 /** The wide default: none of the queries matches */
 const WIDE = 1440

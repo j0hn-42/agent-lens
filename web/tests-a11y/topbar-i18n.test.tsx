@@ -14,6 +14,7 @@ import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from '@/li
 import { attentionAriaLabel, attentionCounterText, attentionTooltip } from '@/lib/top-bar-text'
 import { reconnectDetail } from '@/lib/reconnect'
 import { parseRelayScopeState } from '@/lib/relay-scope'
+import { openMore } from './topbar-more'
 
 afterEach(() => {
   setMobileView(false)
@@ -42,6 +43,7 @@ for (const locale of LOCALES) {
   test(`the top bar controls it owns speak ${locale}, each declaring lang=${locale}`, () => {
     setLocaleChoice(locale)
     const view = render(<TopBar {...base} />)
+    openMore() // the filters and the tools are behind More (one-line bar); Commands is in the bar from 1280 px
     const names: MessageKey[] = ['topbar.notify', 'topbar.mute', 'topbar.fullscreen', 'topbar.commands', 'settings.title', 'topbar.shortcuts']
     for (const key of names) {
       const button = view.getByRole('button', { name: T(locale, key) })
@@ -60,13 +62,14 @@ for (const locale of LOCALES) {
 test('the denied and the muted states are translated as well', () => {
   setLocaleChoice('fr')
   const view = render(<TopBar {...base} notifyState="denied" isMuted />)
+  openMore()
   assert.ok(view.getByRole('button', { name: MESSAGES.fr['topbar.notify.blocked'] }))
   assert.ok(view.getByRole('button', { name: MESSAGES.fr['topbar.unmute'] }))
   assert.ok(titled(view.container, MESSAGES.fr['topbar.notify.blocked.title']))
   assert.ok(titled(view.container, MESSAGES.fr['topbar.unmute.title']))
 })
 
-// Under 768 px More names the filters that are on; the name uses the same wording as the filter button it hides, and the
+// More names the filters that are on (behind it at every width since the bar holds on one line); the name uses the same wording as the filter button it hides, and the
 // passage declares its own language (a screen reader must not hear one control under two names)
 for (const locale of LOCALES) {
   test(`under 768 px, More names "Hide inactive" as the button does (${locale})`, () => {
@@ -105,16 +108,23 @@ for (const locale of LOCALES) {
     const view = render(<TopBar {...base} sessionsWithActivity={new Set(['other'])} />)
     const button = view.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.sessions.button').split('{label}')[0]}`) })
     assert.equal(langOf(button), locale)
-    assert.equal(button.getAttribute('title'), T(locale, 'topbar.sessions.title'))
+    // The tooltip gives the whole text of the button (capped at 320 px, its label may end in an ellipsis), then what it opens
+    const tip = button.parentElement!.querySelector('[role="tooltip"]')!
+    assert.ok(tip.textContent!.endsWith(T(locale, 'topbar.sessions.title')), tip.textContent ?? '')
+    assert.equal(langOf(tip), locale)
     assert.ok(button.textContent?.includes(T(locale, 'sessions.allSessions')), button.textContent ?? '')
     assert.ok(button.textContent?.includes(T(locale, 'topbar.sessions.newActivity')))
-    assert.ok(Array.from(view.container.querySelectorAll('[title]')).some(e => (e.textContent ?? '').includes(T(locale, 'topbar.sessions.unobserved.one').replace('{n}', '1'))), 'one listed session nobody has heard from')
+    const unobserved = T(locale, 'topbar.sessions.unobserved.one').replace('{n}', '1')
+    assert.ok(button.textContent?.includes(unobserved), 'one listed session nobody has heard from, read in full')
+    assert.ok(tip.textContent?.includes(unobserved), 'and written in full in the tooltip')
+    assert.ok(button.textContent?.includes(T(locale, 'topbar.sessions.unobservedShort.one').replace('{n}', '1')), 'drawn short from 1280 px')
   })
 
   test(`the scope selector speaks ${locale}: group, select, options, summary, ceilings, and keeps relay text in its own language`, () => {
     setLocaleChoice(locale)
     const scope = { state: { ...scopeState, runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }] } as never, sessions: [], projectId: null, pending: false, error: 'The relay refused the change of scope (500)', onChoose: noop }
     const view = render(<TopBar {...base} scope={scope} />)
+    openMore()
     const group = view.getByRole('group', { name: T(locale, 'scope.group') })
     assert.equal(langOf(group), locale)
     const select = view.getByRole('combobox', { name: T(locale, 'scope.select') }) as HTMLSelectElement
@@ -136,6 +146,7 @@ for (const locale of LOCALES) {
     cleanup()
     const off = render(<TopBar {...base} connectionStatus="disconnected" connectionDetail={reconnectDetail(2, 10_000)} onRetryConnection={noop} />)
     assert.ok(off.getByText(T(locale, 'topbar.connection.offline')))
+    openMore() // the reconnect detail is written in More (one-line bar)
     assert.equal(off.getByTestId('connection-detail').textContent, T(locale, 'topbar.connection.reconnecting').replace('{attempt}', '2').replace('{seconds}', '10'))
     assert.equal(langOf(off.getByTestId('connection-detail')), locale)
     assert.equal(off.getByTestId('retry-connection').textContent, T(locale, 'topbar.connection.retry'))
@@ -148,7 +159,10 @@ for (const locale of LOCALES) {
   test(`an unknown connection detail never lands in the ${locale} tooltip unless it is in ${locale} (WCAG 3.1.2)`, () => {
     setLocaleChoice(locale)
     const view = render(<TopBar {...base} connectionStatus="disconnected" connectionDetail="proxy refused" onRetryConnection={noop} />)
-    // The detail stays visible beside the badge, declaring lang=en
+    openMore()
+    // The detail stays visible in More, declaring lang=en, and is read in More's description with the same lang
+    const holds = document.getElementById((view.container.querySelector('#topbar-more')!.getAttribute('aria-describedby') ?? '').split(' ')[0])!
+    assert.equal(Array.from(holds.querySelectorAll('[lang="en"]')).some(e => e.textContent === 'proxy refused'), true, 'the description keeps lang=en for it')
     assert.equal(view.getByTestId('connection-detail').textContent, 'proxy refused')
     assert.equal(langOf(view.getByTestId('connection-detail')), 'en')
     // A title attribute cannot declare its language: it inherits the page's
@@ -170,16 +184,22 @@ for (const locale of LOCALES) {
     assert.ok((counter.getAttribute('aria-label') ?? '').startsWith(attentionCounterText(locale, 1, 2)))
   })
 
-  test(`folded, More counts the Show filter only while it is on 'active' (${locale})`, () => {
+  test(`More counts the Show filter only while it is on 'active', at every width (${locale})`, () => {
     setLocaleChoice(locale)
-    setMobileView(true)
-    const on = render(<TopBar {...base} showMode="active" />)
-    const more = on.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
-    assert.equal(more.textContent, T(locale, 'topbar.more.withFilters.one').replace('{n}', '1'))
-    on.unmount()
-    const off = render(<TopBar {...base} showMode="all" />)
-    const plain = off.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
-    assert.equal(plain.textContent, T(locale, 'topbar.more'), "'all' hides nothing: no filter is announced")
+    for (const mobile of [false, true]) {
+      setMobileView(mobile)
+      const on = render(<TopBar {...base} showMode="active" />)
+      const more = on.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
+      // From 768 px "More · 1 filter"; under 768 px an icon and the number (the words are in its name)
+      const shown = Array.from(more.children).map(c => c.textContent).join('|')
+      assert.ok(shown.includes(T(locale, 'topbar.more.withFilters.one').replace('{n}', '1')), shown)
+      assert.ok(more.querySelector('[aria-hidden="true"].max-md\\:inline')?.textContent === '1', 'the number drawn under 768 px')
+      on.unmount()
+      const off = render(<TopBar {...base} showMode="all" />)
+      const plain = off.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
+      assert.equal(plain.textContent, T(locale, 'topbar.more'), "'all' hides nothing: no filter is announced")
+      off.unmount()
+    }
   })
 
   test(`the toolbar, the side panels group and the totals read by screen readers speak ${locale}`, () => {

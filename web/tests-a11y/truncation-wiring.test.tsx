@@ -13,6 +13,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { dockStore, intersects, BANNER_MIN_TOP, type Rect } from '@/lib/panel-layout'
+import { pressInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -125,7 +126,7 @@ test('full screen leaves the banner out; the live region is quiet there and spea
   const said = () => live().some(t => t === 'Graph incomplete or truncated: see the notice under the top bar.')
   assert.ok(banner(r))
   assert.ok(said(), 'announced when it appears')
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   await wait(100)
   assert.equal(banner(r) === null, true, 'no banner in full screen')
   assert.equal(said(), false, 'no sentence pointing at a notice that is not drawn')

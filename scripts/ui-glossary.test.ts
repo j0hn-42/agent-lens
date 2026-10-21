@@ -195,14 +195,15 @@ test('the retired double meanings are gone from the UI code (#372)', () => {
   assert.deepEqual(hits, [])
 })
 
-test('the top bar disclosure under 768 px (#378, #476): its visible text starts its accessible name (2.5.3)', async () => {
+test('the top bar disclosure, More (one-line bar): its visible text starts its accessible name (2.5.3) and names what it holds', async () => {
   const g = await import('../web/lib/ui-glossary')
   assert.equal(g.TOP_BAR_LABELS.more, 'More')
   assert.ok(g.TOP_BAR_LABELS.moreName.startsWith(g.TOP_BAR_LABELS.more))
-  assert.equal(g.TOP_BAR_LABELS.moreName, 'More: panels, totals and filters')
+  assert.equal(g.TOP_BAR_LABELS.moreName, 'More: scope, filters, quota and tools')
   assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /agent counts/, 'no agent counts in the bar any more (#523: Sessions panel header)')
   assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /tokens|cost/, 'no token total or cost in the bar any more (#523)')
-  assert.match(g.TOP_BAR_LABELS.moreHelp, /1024 px/, 'the bar folds under 1024 px (#523), the mobile view stays under 768 px')
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /scope.*filters.*quota.*tools/, 'More holds the scope, the filters, the quota and the tools at every width')
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /panel buttons too under 1024 px/, 'and the panel buttons under 1024 px')
 })
 
 test('folded with a filter on, the More button says so on screen and in its name (#378)', async () => {
@@ -210,7 +211,7 @@ test('folded with a filter on, the More button says so on screen and in its name
   assert.equal(g.TOP_BAR_LABELS.moreWithFilters(1), 'More · 1 filter')
   assert.equal(g.TOP_BAR_LABELS.moreWithFilters(2), 'More · 2 filters')
   const one = g.TOP_BAR_LABELS.moreNameWithFilters([g.TOP_BAR_LABELS.filterHideInactiveWithCount(3)])
-  assert.equal(one, 'More · 1 filter on: panels, totals and filters (Hide inactive · finished sessions hidden: 3)')
+  assert.equal(one, 'More · 1 filter on: scope, filters, quota and tools (Hide inactive · finished sessions hidden: 3)')
   // 2.5.3: the accessible name starts with the visible text
   assert.ok(one.startsWith(g.TOP_BAR_LABELS.moreWithFilters(1)))
   const two = g.TOP_BAR_LABELS.moreNameWithFilters([g.TOP_BAR_LABELS.filterHideInactive, 'Another filter'])

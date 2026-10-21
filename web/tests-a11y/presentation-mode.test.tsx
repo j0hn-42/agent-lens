@@ -14,6 +14,7 @@ import { usePresentationSubtitle } from '@/hooks/use-presentation'
 import { PRESENTATION_STORAGE_KEY } from '@/lib/presentation'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import type { Agent } from '@/lib/agent-types'
+import { pressInMore } from './topbar-more'
 
 // jsdom's storage is on window only; the app reads the bare global
 Object.defineProperty(globalThis, 'localStorage', { value: window.localStorage, configurable: true })
@@ -98,7 +99,7 @@ test('panels that show the content of a session carry data-sensitive (blurred un
 
 test('Settings has a Presentation section with named switches that persist', async () => {
   const r = await mount()
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /settings/i })) })
+  await pressInMore(() => r.getByRole('button', { name: /settings/i }))
   await settle()
   const dialog = r.getByRole('dialog')
   // Settings sit in tabs since #533: Presentation is in the "Sessions and presentation" tab
