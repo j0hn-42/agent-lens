@@ -17,7 +17,9 @@ export const TOUCH_TARGET_PX = 44
  * - 'wide' (1280 px and wider): Sessions, connection state with Retry now / Exit demo, attention, the panels, Commands, More
  * - 'mid' (1024 to 1279 px): Sessions, connection state, attention, the panels, More
  * - 'fold' (768 to 1023 px): Sessions, connection state, attention, Commands, More
- * - 'mobile' (under 768 px): Sessions (an icon), connection state, attention (a count), More; 44 px targets and drawers
+ * - 'mobile' (under 768 px): Sessions (the selection, its label cut by an ellipsis), connection state, attention, More;
+ *   44 px targets and drawers
+ * Under 1440 px the attention counter is a number (TOPBAR_ATTENTION_SHORT_QUERY).
  * The CSS side of the same widths is Tailwind `xl` (80rem), `lg` (64rem) and `md` (48rem).
  */
 const TOPBAR_FOLD_BREAKPOINT = 1024
@@ -25,6 +27,14 @@ export const TOPBAR_FOLD_QUERY = `(max-width: ${TOPBAR_FOLD_BREAKPOINT - 0.02}px
 const TOPBAR_WIDE_BREAKPOINT = 1280
 /** Under 1280 px: Commands and the connection buttons leave the bar for More. */
 export const TOPBAR_NARROW_QUERY = `(max-width: ${TOPBAR_WIDE_BREAKPOINT - 0.02}px)`
+
+/**
+ * Under 1440 px the attention counter is drawn as the number of agents ("! 3"), its name starting with that number then
+ * giving the full text (review of PR 631): spelled out, it took 263 to 290 px and left no room for the selection on the
+ * Sessions button at 768 and 1280 px in the worst case (measured in topbar-layout.e2e.ts).
+ */
+const TOPBAR_ROOMY_BREAKPOINT = 1440
+export const TOPBAR_ATTENTION_SHORT_QUERY = `(max-width: ${TOPBAR_ROOMY_BREAKPOINT - 0.02}px)`
 
 export type TopbarTier = 'wide' | 'mid' | 'fold' | 'mobile'
 

@@ -24,7 +24,7 @@ import { QuotaGauges, quotaSummary } from "./quota-gauges"
 import { quotaGaugeState, type QuotaSnapshotView } from "@/lib/quota"
 import { useMinuteClock } from "@/hooks/use-minute-clock"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
-import { getTopbarTier, subscribeTopbarTier } from "@/hooks/use-mobile-view"
+import { getAttentionShort, getTopbarTier, subscribeAttentionShort, subscribeTopbarTier } from "@/hooks/use-mobile-view"
 import { scopeLossNotices, scopeNotices, scopeSummary } from "@/lib/relay-scope"
 import { TopBarTooltip } from "./topbar-tooltip"
 import { PanelIcon, type TopBarPanelId } from "./panel-icons"
@@ -92,7 +92,7 @@ const TOPBAR_COMMANDS_ID = 'topbar-commands'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, wrap }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, wrap, className = '' }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -123,6 +123,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   lang?: string
   /** Content wraps onto a second line instead of squeezing its first item (#595); the text is never cut */
   wrap?: boolean
+  /** Extra classes (a narrower padding under 768 px, where the box is at least 44 px anyway) */
+  className?: string
 }) {
   return (
     <button
@@ -143,7 +145,7 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Bold + the 2 px bar under the button (boxShadow below) are the non-colour cues of the active state (WCAG 1.4.1).
       // Never also a text underline: it drew a second stroke next to the bar, and one per wrapped line on Sessions
-      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold' : ''} ${FOCUS_RING}`}
+      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold' : ''} ${FOCUS_RING} ${className}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -177,7 +179,7 @@ function ConnectionLabel({ display, labelRef }: { display: ConnectionText; label
     <span ref={labelRef} tabIndex={-1} title={display.description} data-connection-label="" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-semibold outline-none" style={{ color }}>
       <span
         aria-hidden="true"
-        className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
+        className={`w-2 h-2 shrink-0 rounded-full max-md:hidden ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
         style={{ background: display.tone === 'error' ? 'transparent' : color, border: `2px solid ${color}`, boxShadow: `0 0 4px ${color}` }}
       />
       {display.label}
@@ -363,6 +365,8 @@ export const TopBar = memo(function TopBar({
   const panelsInBar = tier === 'wide' || tier === 'mid'
   const commandsInBar = tier === 'wide' || tier === 'fold'
   const connectionActionsInBar = tier === 'wide'
+  // Under 1440 px the attention counter is a number (lib/mobile-view.ts): spelled out it left no room for the selection
+  const attentionShort = useSyncExternalStore(subscribeAttentionShort, getAttentionShort, () => false)
   useLayoutEffect(() => {
     const id = pendingFocus.current
     if (!id) return
@@ -580,7 +584,12 @@ export const TopBar = memo(function TopBar({
     </ToggleButton>
   )
 
-  const sessionLabel = t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })
+  const selectionText = selectionLabelText(locale, selectedSessionId, sessions, teams)
+  const sessionLabel = t('topbar.sessions.button', { label: selectionText })
+  // "Sessions: " is read, not drawn (review of PR 631): measured in a browser, the drawn prefix left no room for the
+  // selection at 320 px, at 768 px and at 1280 px in the worst case. The button draws the selection and its marks; its
+  // accessible name and its tooltip still start with "Sessions: " (2.5.3: the drawn text is part of the name)
+  const sessionPrefix = sessionLabel.endsWith(selectionText) ? sessionLabel.slice(0, sessionLabel.length - selectionText.length) : ''
   const unobservedText = unobservedCount > 0 ? unobservedSessionsText(locale, unobservedCount) : null
   // The whole Sessions text in its tooltip: the button is capped and gives way first (its label then ends in an ellipsis)
   const sessionsTip = [`${sessionLabel} (${sessions.length})`, unobservedText, t('topbar.sessions.title')].filter(Boolean).join(' · ')
@@ -589,12 +598,15 @@ export const TopBar = memo(function TopBar({
     <header
       ref={rootRef}
       lang={locale}
-      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-1 rounded-md font-mono text-[11px]"
+      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-0.5 rounded-md font-mono text-[11px]"
       style={{ zIndex: openTooltips > 0 || moreOpen ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', color: COLORS.textMuted }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session). Capped at 320 px, it
-          gives way first when the bar is full: its label ends in an ellipsis (the whole text is its name and its tooltip),
-          at every width, so the selection stays written in the bar; the marks of a loss and of new activity never shrink */}
+          gives way first when the bar is full: it draws the selection, which ends in an ellipsis (the whole text, from
+          "Sessions: ", is its name and its tooltip); the marks of a loss and of new activity never shrink. Measured in
+          topbar-layout.e2e.ts, at least 10 characters of the selection are drawn from 320 to 1920 px, in English and in
+          French, worst case included (40-character name, OFFLINE or DEMO, attention, a filter, More marked). Under 768 px
+          the number of sessions is read, not drawn, and the padding is narrower (the box stays 44 px) to leave it room */}
       <TopBarTooltip text={sessionsTip} lang={locale} sensitive onOpen={onTooltip} boxClassName="min-w-0 max-w-[320px]">
         {() => (
           <ToggleButton
@@ -605,13 +617,16 @@ export const TopBar = memo(function TopBar({
             lang={locale}
             shortcut="l"
             keepsInspector
+            className="max-md:px-1.5"
             style={{ maxWidth: '100%', whiteSpace: 'nowrap' }}
           >
-            <span className="min-w-0 truncate" data-sensitive="">{sessionLabel}</span>
-            <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
+            {/* The space is a text node of its own: inside the hidden span it would be trimmed from the name */}
+            {sessionPrefix && <><span className="sr-only">{sessionPrefix.trimEnd()}</span>{' '}</>}
+            <span className="min-w-0 truncate" data-sensitive="">{sessionPrefix ? selectionText : sessionLabel}</span>
+            <span className="ml-1.5 shrink-0 max-md:sr-only" style={{ color: COLORS.textDim }}>({sessions.length})</span>
             {lossMarked && (
               // A symbol, never a colour alone; its words are read with the button name
-              <span data-loss-mark="" className="ml-1.5 shrink-0 max-md:ml-1">
+              <span data-loss-mark="" className="ml-1.5 shrink-0 max-md:ml-0.5">
                 <span aria-hidden="true">⚠</span>
                 <span className="sr-only">, {t('truncation.topbarMark')}</span>
               </span>
@@ -627,7 +642,7 @@ export const TopBar = memo(function TopBar({
             )}
             {sessionsWithActivity.size > 0 && (
               <>
-                <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse max-md:ml-1" style={{ border: `2px solid ${COLORS.complete}` }} />
+                <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse max-md:ml-0.5" style={{ border: `2px solid ${COLORS.complete}` }} />
                 <span className="sr-only">, {t('topbar.sessions.newActivity')}</span>
               </>
             )}
@@ -645,8 +660,8 @@ export const TopBar = memo(function TopBar({
           data-testid="attention-counter"
           onClick={onJumpToAttention}
           lang={locale}
-          // Under 768 px the counter is the number of agents; its name starts with that number, then gives the full text
-          aria-label={mobile
+          // Under 1440 px the counter is the number of agents; its name starts with that number, then gives the full text
+          aria-label={attentionShort
             ? t('topbar.attention.compactName', { n: attention!.waiting + attention!.errors, name: attentionAriaLabel(locale, attention!.waiting, attention!.errors) })
             : attentionAriaLabel(locale, attention!.waiting, attention!.errors)}
           title={attentionTooltip(locale, attention!.waiting, attention!.errors, isVSCode)}
@@ -657,12 +672,12 @@ export const TopBar = memo(function TopBar({
             color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
           }}
         >
-          <span aria-hidden="true">! </span>{mobile ? attention!.waiting + attention!.errors : attentionText}
+          <span aria-hidden="true">! </span>{attentionShort ? attention!.waiting + attention!.errors : attentionText}
         </button>
       )}
 
-      {/* Spacer: the panels, Commands and More go to the right */}
-      <div data-topbar-spacer="" className="flex-1" />
+      {/* Spacer: the panels, Commands and More go to the right (under 768 px More alone, by its auto margin) */}
+      <div data-topbar-spacer="" className="flex-1 max-md:hidden" />
 
       {(panelsInBar || (commandsInBar && onOpenPalette)) && (
         <div role="toolbar" aria-label={t('topbar.toolbar')} lang={locale} className="flex shrink-0 flex-nowrap items-center gap-1">
@@ -683,7 +698,10 @@ export const TopBar = memo(function TopBar({
         lang={locale}
         expanded={moreOpen}
         controls={menuId}
-        style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+        className="max-md:px-1"
+        // Under 768 px the spacer is not drawn (its gap went to Sessions): the auto margin keeps More on the right. From
+        // 768 px the spacer grows first, so this margin stays 0
+        style={{ flexShrink: 0, whiteSpace: 'nowrap', marginLeft: 'auto' }}
       >
         {/* Under 768 px: an icon, then the number of filters on */}
         <MoreIcon />

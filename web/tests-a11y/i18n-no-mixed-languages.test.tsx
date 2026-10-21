@@ -813,7 +813,8 @@ for (const locale of LOCALES) {
     setMobileView(false)
 
     for (const x of [
-      T('topbar.sessions.button', { label: T('sessions.allSessions') }), T('topbar.sessions.newActivity'), T('topbar.sessions.unobserved.one', { n: 1 }),
+      // The Sessions button reads "Sessions: " (visually hidden) then draws the selection (review of PR 631)
+      T('topbar.sessions.button', { label: '' }).trimEnd(), T('sessions.allSessions'), T('topbar.sessions.newActivity'), T('topbar.sessions.unobserved.one', { n: 1 }),
       T('topbar.attention.waiting.one', { n: 1 }) + ' / ' + T('topbar.attention.error.other', { n: 2 }),
       T('topbar.attention.title.many'),
       T('topbar.connection.watching'), T('topbar.connection.connecting'), T('topbar.connection.offline'), T('topbar.connection.demo'), T('topbar.connection.retry'), T('topbar.connection.exitDemo'),
@@ -843,7 +844,9 @@ for (const locale of LOCALES) {
     const fixtureNames = new Set(['alpha-run', 'alpha', 'Alpha', 'a'])
     // An unknown connection detail is exempt (data-i18n-exempt, lang=en) only on a page that is not in English; in English it is the page's own language, so it is data like the names above
     if (locale === 'en') fixtureNames.add('proxy refused')
-    const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
+    // "Sessions: " is the catalog value topbar.sessions.button before its {label}, read but not drawn (review of PR 631)
+    const sessionsPrefix = T('topbar.sessions.button', { label: '' }).trimEnd()
+    const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', sessionsPrefix, ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
     assert.deepEqual(unknown, [])
     assert.deepEqual(foreignWords(locale, strings.filter(s => !s.includes('OpenCode') && !s.includes('The relay refused') && !fixtureNames.has(s)), new Set(['alpha-run'])), [])
   })
