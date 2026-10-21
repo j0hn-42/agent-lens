@@ -45,12 +45,12 @@ test('e2e: V masks the Files panel (blur, no selection) and a second V clears it
     // Letter shortcuts are ignored while a button or a dialog has the focus
     await page.evaluate('document.activeElement && document.activeElement.blur()')
     await page.keyboard.press('v')
-    await page.getByRole('button', { name: 'Stop presentation mode' }).waitFor()
+    await page.getByRole('button', { name: 'Presentation mode · V to stop' }).waitFor()
     const during = await page.evaluate(FILTER) as { filter: string; select: string }
     assert.match(during.filter, /blur\(/)
     assert.equal(during.select, 'none')
     await page.keyboard.press('v')
-    assert.equal(await page.getByRole('button', { name: 'Stop presentation mode' }).count(), 0)
+    assert.equal(await page.getByRole('button', { name: 'Presentation mode · V to stop' }).count(), 0)
     assert.equal(((await page.evaluate(FILTER)) as { filter: string }).filter, 'none')
   } finally { await close() }
 })
@@ -59,7 +59,7 @@ test('e2e: the badge sits below the top bar and inside the viewport, and is reac
   const { page, close } = await open()
   try {
     await page.keyboard.press('v')
-    const badge = page.getByRole('button', { name: 'Stop presentation mode' })
+    const badge = page.getByRole('button', { name: 'Presentation mode · V to stop' })
     await badge.waitFor()
     const [b, bar] = await Promise.all([
       badge.boundingBox(),
@@ -70,7 +70,7 @@ test('e2e: the badge sits below the top bar and inside the viewport, and is reac
     assert.ok(b!.x >= 0 && b!.x + b!.width <= 1280)
     await badge.focus()
     await page.keyboard.press('Enter')
-    assert.equal(await page.getByRole('button', { name: 'Stop presentation mode' }).count(), 0, 'Enter on the badge stops the mode')
+    assert.equal(await page.getByRole('button', { name: 'Presentation mode · V to stop' }).count(), 0, 'Enter on the badge stops the mode')
   } finally { await close() }
 })
 
@@ -78,7 +78,7 @@ test('e2e: no new serious or critical axe violation with presentation mode on', 
   const { page, close } = await open()
   try {
     await page.keyboard.press('v')
-    await page.getByRole('button', { name: 'Stop presentation mode' }).waitFor()
+    await page.getByRole('button', { name: 'Presentation mode · V to stop' }).waitFor()
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
     const serious = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical')
     const { unexpected } = compareViolations('e2e:initial page', serious.map(v => v.id), known)

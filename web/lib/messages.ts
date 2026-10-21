@@ -1379,7 +1379,6 @@ const fr = {
   'announce.presentation.off': 'Mode présentation désactivé',
   // Mode présentation : badge (#613)
   'presentation.badge': 'Mode présentation · V pour arrêter',
-  'presentation.badge.name': 'Arrêter le mode présentation',
   'presentation.badge.title': 'Arrêter le mode présentation (V)',
   // Aide clavier du graphe lue par les lecteurs d’écran (graphKeyboardHelp), touches dites en toutes lettres (#613)
   'graph.help.entry': '{keys} : {description}.',
@@ -2747,7 +2746,6 @@ const en: Record<MessageKey, string> = {
   'announce.presentation.off': 'Presentation mode off',
   // Presentation mode: badge (#613)
   'presentation.badge': 'Presentation mode · V to stop',
-  'presentation.badge.name': 'Stop presentation mode',
   'presentation.badge.title': 'Stop presentation mode (V)',
   // Keyboard help of the graph read by screen readers (graphKeyboardHelp), keys spelled out (#613)
   'graph.help.entry': '{keys}: {description}.',

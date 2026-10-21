@@ -3,7 +3,7 @@
 import { Z } from '@/lib/agent-types'
 import { SCENE } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { useT } from '@/lib/locale'
+import { useLocale, useT } from '@/lib/locale'
 
 /**
  * Caption of the latest transition (presentation mode). It is for the audience: a status role without a live
@@ -28,11 +28,14 @@ export function PresentationSubtitle({ text }: { text: string | null }) {
 /** Visible marker of the mode and its exit; the mode also stops with V or Escape. */
 export function PresentationBadge({ onStop }: { onStop: () => void }) {
   const t = useT()
+  const { locale } = useLocale()
+  // No aria-label: the name is the visible text (WCAG 2.5.3); the language of the interface is declared on the button,
+  // which covers its text and its tooltip (WCAG 3.1.2).
   return (
     <button
       type="button"
       onClick={onStop}
-      aria-label={t('presentation.badge.name')}
+      lang={locale}
       title={t('presentation.badge.title')}
       className={`fixed left-1/2 -translate-x-1/2 rounded-md px-3 py-1 font-mono text-xs ${FOCUS_RING}`}
       style={{ top: 'calc(var(--topbar-h, 48px) + 8px)', zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}

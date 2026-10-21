@@ -9,6 +9,8 @@ export interface ToastItem {
   /** Called once when the toast goes away without its action being used (timeout or dismiss) */
   onExpire?: () => void
   durationMs: number
+  /** Language of the message when it comes from the catalog; unset for the English-only texts (the page is lang=en) */
+  lang?: string
 }
 
 export type ToastInput = Omit<ToastItem, 'id' | 'durationMs'> & { durationMs?: number }
