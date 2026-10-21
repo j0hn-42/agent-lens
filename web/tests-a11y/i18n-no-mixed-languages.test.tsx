@@ -1218,6 +1218,52 @@ for (const locale of LOCALES) {
   })
 }
 
+// ---- The agent picker of the Conversation panel (owner's request: many agents, no sideways scroll) ----
+const PICKER_NAMES = ['orchestrator', 'builder-01', 'builder-02', 'builder-03', 'reviewer-01', 'done-01', 'done-02', 'done-03', 'done-04', 'done-05', 'done-06', 'mega', 'crew']
+for (const d of PICKER_NAMES) FIXTURE_DATA.add(d)
+const PICKER_AGENTS = new Map<string, Agent>([
+  ['s1:o', convAgent('s1:o', 'orchestrator', { isMain: true, state: 'thinking' })],
+  ...['builder-01', 'builder-02', 'builder-03'].map((n, i): [string, Agent] => [`s1:b${i}`, convAgent(`s1:b${i}`, n, { teamName: 'mega', teamKind: 'workflow', kind: 'teammate', state: i === 0 ? 'tool_calling' : 'idle' })]),
+  ['s1:r', convAgent('s1:r', 'reviewer-01', { teamName: 'crew', teamKind: 'team', kind: 'teammate', state: 'waiting_permission' })],
+  ...Array.from({ length: 6 }, (_, i): [string, Agent] => [`s1:d${i}`, convAgent(`s1:d${i}`, `done-0${i + 1}`, { state: 'complete', kind: 'subagent' })]),
+])
+const pickerConversations = (extra = 0) => new Map<string, ConversationMessage[]>([...PICKER_AGENTS.keys()].map((id, i): [string, ConversationMessage[]] =>
+  [id, [msgOf(`${id}-a`, 'assistant', i + 1, 'plan the work'), ...(id === 's1:b1' && extra ? [msgOf(`${id}-late`, 'assistant', 40, 'auditing')] : [])]]))
+
+for (const locale of LOCALES) {
+  test(`the agent picker (button, unread pill, search, groups, finished agents, empty search) speaks only ${locale}`, async () => {
+    setLocaleChoice(locale)
+    const registry = createPanelRegistry()
+    const strings: string[] = []
+    const props = { agents: PICKER_AGENTS, links: new Map(), teams: new Map(), onAgentClick: noop, initialOpen: true }
+    const view = render(<ConversationHarness registry={registry} selectedAgentId="s1:o" conversations={pickerConversations()} {...props} />)
+    view.rerender(<ConversationHarness registry={registry} selectedAgentId="s1:o" conversations={pickerConversations(1)} {...props} />)
+    const button = view.getByRole('button', { name: new RegExp(`^${escapeRe(MESSAGES[locale]['conv.picker.button'])}`) })
+    assert.equal(langOf(button), locale)
+    assert.equal(button.querySelector('[lang="en"][data-i18n-exempt]')?.textContent, 'orchestrator', 'the agent name in the button is data, lang="en"')
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.unread.one', { n: 1 }) }))
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['conv.picker.unreadOnly'] }))
+    fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.group.done', { n: 6 }) }))
+    strings.push(...surfaceStrings(view.container))
+    assert.deepEqual(labelInNameViolations(view.container), [], `${locale}: the name of a control contains its visible text (WCAG 2.5.3)`)
+    for (const o of view.getAllByRole('option')) {
+      assert.equal(o.getAttribute('aria-label'), null, 'an option is named by its visible text')
+      if (!/^(Tous|All) /.test(o.textContent ?? '')) assert.ok(o.querySelector('[lang="en"][data-i18n-exempt]'), 'the agent name of an option declares lang="en"')
+    }
+    const search = view.getByRole('combobox', { name: MESSAGES[locale]['conv.picker.search'] })
+    fireEvent.change(search, { target: { value: 'done' } })
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.change(search, { target: { value: 'zzz-no-match' } })
+    strings.push(...surfaceStrings(view.container))
+    fireEvent.keyDown(search, { key: 'Escape' })
+    assert.ok(strings.length > 30, `${strings.length} strings`)
+    assert.deepEqual(strangers(locale, strings, { allow: PANEL_ALLOW, data: PANEL_DATA }), [], `${locale}: strings outside the catalog`)
+    assert.deepEqual(foreignWords(locale, strings), [], `${locale}: words of the other language`)
+  })
+}
+
 // ---- Files panel ----
 
 const FP = '/repo/src/'

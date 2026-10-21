@@ -17,8 +17,10 @@ import {
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, EMPTY_SEARCH, FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair, filterBySearch, latestFeedMessage,
   droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
-  pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, type FeedMessage,
+  pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, usesAgentPicker, type FeedMessage,
 } from '@/lib/feed-utils'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { AgentPicker } from './agent-picker'
 import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { nextTabIndex } from '@/lib/tab-nav'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
@@ -86,12 +88,11 @@ export function ConversationPanel({
   const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   const logRef = useRef<HTMLDivElement>(null)
   const unreadStateRef = useRef<UnreadState>(emptyUnreadState())
+  const unreadBaselineRef = useRef(false)
   const pillRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const searchToggleRef = useRef<HTMLButtonElement>(null)
-  const tabsRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
   const baseId = useId()
   const regionId = `${baseId}-region`
   const pillLeadId = `${baseId}-pill-lead`
@@ -148,7 +149,11 @@ export function ConversationPanel({
   useEffect(() => {
     const { increased, next } = trackUnread(unreadStateRef.current, conversations, links, FEED_MESSAGE_TYPES)
     unreadStateRef.current = next
-    if (!open || activeTab === 'all') return
+    // The first pass is the baseline: messages that existed before the panel mounted are not "unread" (opened on an
+    // agent tab, every other agent was otherwise counted, which the agent picker shows as "n unread")
+    const baseline = !unreadBaselineRef.current
+    unreadBaselineRef.current = true
+    if (baseline || !open || activeTab === 'all') return
     if (increased.length === 0) return
     setUnread(prev => markUnread(prev, increased, activeTab))
   }, [conversations, links, open, activeTab])
@@ -208,24 +213,9 @@ export function ConversationPanel({
     if (showSearch) searchRef.current?.focus()
   }, [showSearch])
 
-  const updateTabOverflow = useCallback(() => {
-    const el = tabsRef.current
-    if (!el) return
-    const left = el.scrollLeft > 1
-    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
-    setTabOverflow(prev => (prev.left === left && prev.right === right ? prev : { left, right }))
-  }, [])
-
-  useEffect(() => {
-    updateTabOverflow()
-    const el = tabsRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(updateTabOverflow)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [updateTabOverflow, agentsWithMessages, open])
-
-  const showTabs = agentsWithMessages.length > 1
+  // From AGENT_PICKER_MIN agents with messages one picker replaces the tabs (a row of 83 tabs scrolled sideways and showed 1 or 2)
+  const showPicker = usesAgentPicker(agentsWithMessages.length)
+  const showTabs = agentsWithMessages.length > 1 && !showPicker
   const tabKeys = ['all', ...agentsWithMessages]
   const activeTabIndex = activeTabIndexOf(tabKeys, activeTab)
 
@@ -421,6 +411,20 @@ export function ConversationPanel({
 
   const newMessagesLabel = newMessagesText(locale, newCount)
 
+  // "Filter pair" toggle, on the row of the tabs or of the agent picker
+  const pairToggle = (
+    <button
+      type="button"
+      aria-expanded={pickerOpen}
+      title={t('conv.pair.title')}
+      onClick={() => setPickerOpen(v => !v)}
+      className={`shrink-0 min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+      style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+    >
+      {t('conv.pair.button')}
+    </button>
+  )
+
   return (
     <SlidingPanel
       visible
@@ -526,20 +530,35 @@ export function ConversationPanel({
           </div>
         )}
 
-        {/* Agent tabs (hidden when only one agent speaks) */}
+        {/* Many agents: one picker button and a searchable, grouped list instead of the tabs */}
+        {showPicker && (
+          <AgentPicker
+            ids={agentsWithMessages}
+            agents={agents}
+            teams={teams}
+            activeKey={activeTab}
+            unread={unread}
+            messageCounts={messageCounts}
+            totalMessages={allMessages.length}
+            onPick={onTabClick}
+          >
+            {pairToggle}
+          </AgentPicker>
+        )}
+
+        {/* Agent tabs (hidden when only one agent speaks): they wrap, never scroll sideways */}
         {showTabs && (
-          <div className="relative flex-shrink-0 pt-1.5 flex items-start pr-2" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
-            <div className="relative min-w-0 flex-1">
+          <div className="flex-shrink-0 pt-1.5 pb-1.5 px-2 flex flex-wrap items-start gap-1" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
             <div
-              ref={tabsRef}
               role="tablist"
               aria-label={t('conv.tablist')}
               aria-orientation="horizontal"
               // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
               tabIndex={-1}
               onKeyDown={onTabKeyDown}
-              onScroll={updateTabOverflow}
-              className="flex gap-1 px-2 pb-1.5 overflow-x-auto outline-none"
+              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 128 px high (four rows), 192 px under 768 px
+              // (44 px tabs), then a vertical scroll
+              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-32 max-md:max-h-48 overflow-y-auto outline-none"
               style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
             >
               {tabKeys.map((key, i) => {
@@ -569,37 +588,19 @@ export function ConversationPanel({
                 )
               })}
             </div>
-            {tabOverflow.left && (
-              <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1.5 bottom-1.5 w-4 flex items-center"
-                style={{ color: COLORS.textMuted, background: `linear-gradient(90deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="left" size={10} /></span>
-            )}
-            {tabOverflow.right && (
-              <span aria-hidden="true" className="pointer-events-none absolute right-0 top-1.5 bottom-1.5 w-4 flex items-center justify-end"
-                style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="right" size={10} /></span>
-            )}
-            </div>
-            <button
-              type="button"
-              aria-expanded={pickerOpen}
-              title={t('conv.pair.title')}
-              onClick={() => setPickerOpen(v => !v)}
-              className={`shrink-0 min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
-              style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
-            >
-              {t('conv.pair.button')}
-            </button>
+            {pairToggle}
           </div>
         )}
 
         {/* Pair filter: the communications exchanged between two agents (toggle lives in the tab row) */}
         {(pickerOpen || isPairSet(pair)) && (
-          <div className="px-2 py-1 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 overflow-y-auto">
-            {!showTabs && (
+          <div className="px-2 py-1 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 max-md:max-h-32 overflow-y-auto">
+            {!showTabs && !showPicker && (
               <button
                 type="button"
                 aria-expanded={pickerOpen}
                 onClick={() => setPickerOpen(v => !v)}
-                className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                className={`min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
                 style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
               >
                 {t('conv.pair.button')}
@@ -607,14 +608,15 @@ export function ConversationPanel({
             )}
             <PairFilterChip pair={pair} nameOf={nameOfAgent} count={messages.length} onClear={clearPair} locale={locale} />
             {pickerOpen && (
-              <span className="inline-flex flex-wrap items-center gap-1">
+              <span className="inline-flex flex-wrap items-center gap-1 max-w-full min-w-0">
                 {([[t('conv.pair.first'), pair.a, (v: string) => setPair(v, pair.b)], [t('conv.pair.second'), pair.b, (v: string) => setPair(pair.a, v)]] as const).map(([label, value, set]) => (
                   <select
                     key={label}
                     aria-label={label}
                     value={value}
                     onChange={e => set(e.target.value)}
-                    className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                    // No fixed width: a long agent name is no longer cut at 120 px; the panel width is the limit
+                    className={`min-h-6 ${TOUCH_TARGET} max-w-full min-w-0 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
                     style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
                   >
                     <option value="">{label}</option>
@@ -735,7 +737,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       tabIndex={active ? 0 : -1}
       title={fullName}
       onClick={onClick}
-      className={`px-2 min-h-7 rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
+      className={`px-2 min-h-7 ${TOUCH_TARGET} max-w-full rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
       style={{
         background: active ? color + '26' : COLORS.holoBg05,
         color: active ? color : COLORS.textMuted,
