@@ -50,6 +50,8 @@ export const SYSTEM_SIZE = { h: 360, minH: 160 } as const
 
 /** The panels of the left column: they share its width and each keeps its own height. */
 export type LeftPanelId = Extract<PanelId, 'detail' | 'system'>
+/** In column order, top to bottom: the card, then System under it. */
+export const LEFT_COLUMN_PANELS: readonly LeftPanelId[] = ['detail', 'system']
 const LEFT_PANEL_MIN_H: Readonly<Record<LeftPanelId, number>> = { detail: DETAIL_SIZE.minH, system: SYSTEM_SIZE.minH }
 const LEFT_PANEL_DEFAULT_H: Readonly<Record<LeftPanelId, number>> = { detail: DETAIL_SIZE.h, system: SYSTEM_SIZE.h }
 export const LINK_H = 300
@@ -105,15 +107,31 @@ export function dockWidthForDrag(startWidth: number, startX: number, x: number, 
 
 // ─── Left column (agent card + System): width and heights ───────────────────
 
-/** Range of the left column's width for this viewport (the card and System share one width). */
-export function leftDockWidthBounds(viewportW: number): { min: number; max: number } {
-  const max = Math.max(LEFT_DOCK.min, Math.min(LEFT_DOCK.maxPx, Math.floor(finite(viewportW, 0) * LEFT_DOCK.maxFraction)))
+const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
+
+/**
+ * Range of the left column's width (the card and System share one width). It stops at the free room beside
+ * the right dock when one of its panels is open: a column wider than that leaves the layout no way to place
+ * both, which would drop every panel to a full-width sheet — the grip must not be able to cost the dock its
+ * room. Below the sheet breakpoint only the viewport applies (the panels are sheets there anyway).
+ */
+export function leftDockWidthBounds(
+  viewportW: number,
+  open: readonly PanelId[] = [],
+  rightWidth: number = RIGHT_DOCK.default,
+): { min: number; max: number } {
+  const vw = finite(viewportW, 0)
+  let max = Math.max(LEFT_DOCK.min, Math.min(LEFT_DOCK.maxPx, Math.floor(vw * LEFT_DOCK.maxFraction)))
+  if (vw >= SHEET_BREAKPOINT && open.some(id => RIGHT_DOCK_PANELS.includes(id))) {
+    const room = Math.floor(vw - 2 * DOCK_EDGE - rightWidth - DOCK_GAP)
+    max = Math.max(LEFT_DOCK.min, Math.min(max, room))
+  }
   return { min: LEFT_DOCK.min, max }
 }
 
-/** Clamp a left column width to [min, max] for this viewport (NaN falls back to the default). */
-function clampLeftDockWidth(width: number, viewportW: number): number {
-  const { min, max } = leftDockWidthBounds(viewportW)
+/** Clamp a left column width to [min, max] for this viewport and open set (NaN falls back to the default). */
+function clampLeftDockWidth(width: number, viewportW: number, open: readonly PanelId[] = [], rightWidth?: number): number {
+  const { min, max } = leftDockWidthBounds(viewportW, open, rightWidth)
   return Math.round(clamp(finite(width, LEFT_DOCK.default), min, max))
 }
 
@@ -127,14 +145,23 @@ function leftHeightLadder(wanted: number, min: number): readonly number[] {
   return Array.from(new Set([top, ...[300, 240, 180, min].filter(h => h < top && h >= min)]))
 }
 
-/** Range of a left-column panel's height: its minimum, up to the height of the dock area. */
-export function leftHeightBounds(areaH: number, min: number): { min: number; max: number } {
-  return { min, max: Math.max(min, Math.floor(finite(areaH, min))) }
+/**
+ * Tallest height the column can really give one of its panels: the dock area, minus what the other panel of
+ * the column needs under (or over) it. computeDockLayout publishes it per panel as `leftHeightCap`, and each
+ * grip takes its maximum from there, so End lands on a height the layout actually grants instead of one it
+ * would refuse (and then quietly drop the panel a rung).
+ */
+function leftHeightCapFor(id: LeftPanelId, areaH: number, otherNeeds: number | null): number {
+  const room = otherNeeds === null ? areaH : areaH - otherNeeds - DOCK_GAP
+  return Math.max(LEFT_PANEL_MIN_H[id], Math.floor(finite(room, LEFT_PANEL_MIN_H[id])))
+}
+
+/** Range of a left-column panel's height: its minimum, up to the height the column can grant it. */
+export function leftHeightBounds(cap: number, min: number): { min: number; max: number } {
+  return { min, max: Math.max(min, Math.floor(finite(cap, min))) }
 }
 
 // ─── Left panel (Sessions) width ────────────────────────────────────────────
-
-const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
 
 /**
  * Bounds of a panel anchored on the left edge (the Sessions list) that must not run into its
@@ -241,6 +268,8 @@ export interface DockLayout {
   rightWidth: number
   /** Width the left column was placed at: the Sessions list reserves exactly this much. */
   leftWidth: number
+  /** Tallest height the column can grant each of its panels: the maximum of its height grip. */
+  leftHeightCap: Readonly<Record<LeftPanelId, number>>
   /** Band a sheet keeps free right under the top bar for the permission cards, 0 in dock mode (#410). */
   permissionsBand: number
 }
@@ -351,9 +380,7 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
 
   // Left dock: the agent card. With System under it, the card never takes so much of the column that
   // System no longer fits: a height asked for the card alone would otherwise drop the whole dock to a sheet.
-  const detailCap = isOpen('system')
-    ? Math.max(DETAIL_SIZE.minH, area.h - LEFT_PANEL_MIN_H.system - DOCK_GAP)
-    : Number.POSITIVE_INFINITY
+  const detailCap = leftHeightCapFor('detail', area.h, isOpen('system') ? LEFT_PANEL_MIN_H.system : null)
   if (isOpen('detail')) {
     const w = Math.min(lw, vp.w - 2 * DOCK_EDGE)
     const leftArea: Rect = { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
@@ -377,7 +404,11 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
       ? { x: card.x, y: area.y, w, h: area.h }
       : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
     let placed: Rect | null = null
-    for (const h of leftHeightLadder(finite(input.systemHeight ?? SYSTEM_SIZE.h, SYSTEM_SIZE.h), SYSTEM_SIZE.minH)) {
+    // Clipped, not dropped: asking for more than the card leaves used to fall to the next rung of the ladder,
+    // so one keyboard step past the room shrank System by a third instead of growing it.
+    const cap = leftHeightCapFor('system', area.h, card ? card.h : null)
+    const wanted = Math.min(finite(input.systemHeight ?? SYSTEM_SIZE.h, SYSTEM_SIZE.h), cap)
+    for (const h of leftHeightLadder(wanted, SYSTEM_SIZE.minH)) {
       placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
       if (placed) break
     }
@@ -413,6 +444,18 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
   return rects
 }
 
+/**
+ * The cap of each panel of the left column, for the given open set. The card's cap keeps System's minimum free
+ * under it; System's cap keeps the height the card asks for (itself capped) free over it.
+ */
+function leftHeightCaps(areaH: number, open: readonly PanelId[], detailHeight?: number): Readonly<Record<LeftPanelId, number>> {
+  const detail = leftHeightCapFor('detail', areaH, open.includes('system') ? LEFT_PANEL_MIN_H.system : null)
+  const cardH = open.includes('detail')
+    ? Math.min(finite(detailHeight ?? DETAIL_SIZE.h, DETAIL_SIZE.h), detail)
+    : null
+  return { detail, system: leftHeightCapFor('system', areaH, cardH) }
+}
+
 export function computeDockLayout(input: DockInput): DockLayout {
   const vp = { w: Math.max(0, finite(input.viewport.w, 0)), h: Math.max(0, finite(input.viewport.h, 0)) }
   const topbarH = clamp(finite(input.topbarH, TOPBAR_FALLBACK_H), 0, vp.h)
@@ -420,14 +463,18 @@ export function computeDockLayout(input: DockInput): DockLayout {
   const controlBar = controlBarRect(vp, controlBarH)
   const areaBottom = controlBar.y - DOCK_GAP
   const area: Rect = { x: DOCK_EDGE, y: topbarH, w: Math.max(0, vp.w - 2 * DOCK_EDGE), h: Math.max(0, areaBottom - topbarH) }
+  const open = Array.from(new Set(input.open))
+  const rightWidth = clampDockWidth(input.rightWidth ?? RIGHT_DOCK.default, vp.w)
   const base = {
     area,
     topbar: { x: 0, y: 0, w: vp.w, h: topbarH },
     controlBar,
-    rightWidth: clampDockWidth(input.rightWidth ?? RIGHT_DOCK.default, vp.w),
-    leftWidth: clampLeftDockWidth(input.leftWidth ?? LEFT_DOCK.default, vp.w),
+    rightWidth,
+    // The stored width is kept as it is (it comes back when the right dock closes); what is DRAWN stops at the
+    // room the column really has, so leftWidth is always the width of the panels on screen.
+    leftWidth: clampLeftDockWidth(input.leftWidth ?? LEFT_DOCK.default, vp.w, open, rightWidth),
+    leftHeightCap: leftHeightCaps(area.h, open, input.detailHeight),
   }
-  const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [], permissionsBand: 0 }
   if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH, input.permissionsH)
   const rects = tryDock({ ...input, viewport: vp, open }, base)

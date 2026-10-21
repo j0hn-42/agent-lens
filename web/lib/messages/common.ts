@@ -40,11 +40,11 @@ export const fr = {
   'panel.heading.files': FILES_PANEL_FR.toLocaleUpperCase('fr'),
   'panel.heading.timeline': 'CHRONOLOGIE D’EXÉCUTION',
   'panel.heading.context': 'CONTEXTE DU PROJET',
-  'panel.name.detail': 'Détail de l’agent',
-  'common.resize.width': 'Redimensionner la largeur du panneau {name}',
-  'common.resize.height': 'Redimensionner la hauteur du panneau {name}',
+  'common.resize.column.width': 'Redimensionner la largeur de la colonne de gauche',
+  'common.resize.height.card': 'Redimensionner la hauteur de la carte de l’agent',
+  'common.resize.height.panel': 'Redimensionner la hauteur du panneau {name}',
   'common.resize.width.value': '{px} pixels de large',
-  'common.resize.height.value': '{px} pixels de haut',
+  'common.resize.height.value': '{px} pixels de haut au plus',
 } as const
 
 export const en: Record<keyof typeof fr, string> = {
@@ -83,9 +83,9 @@ export const en: Record<keyof typeof fr, string> = {
   'panel.heading.files': PANEL_NAMES.files.toLocaleUpperCase('en'),
   'panel.heading.timeline': 'EXECUTION TIMELINE',
   'panel.heading.context': 'PROJECT CONTEXT',
-  'panel.name.detail': 'Agent detail',
-  'common.resize.width': 'Resize the width of the {name} panel',
-  'common.resize.height': 'Resize the height of the {name} panel',
+  'common.resize.column.width': 'Resize the width of the left column',
+  'common.resize.height.card': 'Resize the height of the agent card',
+  'common.resize.height.panel': 'Resize the height of the {name} panel',
   'common.resize.width.value': '{px} pixels wide',
-  'common.resize.height.value': '{px} pixels tall',
+  'common.resize.height.value': '{px} pixels tall at most',
 }

@@ -9,7 +9,7 @@ import { translate } from '@/lib/messages'
 import { panelName } from '@/lib/command-palette'
 import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
-import { dockStore, leftDockWidthBounds, leftHeightBounds, SYSTEM_SIZE } from '@/lib/panel-layout'
+import { dockStore, leftDockWidthBounds, leftHeightBounds, SYSTEM_SIZE, LEFT_COLUMN_PANELS } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs, dockPanelDomId, DockResizer, DockVResizer, notifyDockUserResize, useDockSnapshot } from './shared-ui'
 
@@ -270,13 +270,15 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
   const { rect } = dock
   const titleId = useId()
   const { locale } = useLocale()
-  // Resizable column: the width is shared with the agent card, the height is this panel's own. Both are
-  // stored by usePanelsState; the layout keeps them inside the room the column has, and lowers the height on a
-  // short viewport, so what is drawn is always the size really granted.
-  const { layout, env } = useDockSnapshot()
-  const widthBounds = leftDockWidthBounds(env.viewport.w)
-  const heightBounds = leftHeightBounds(layout.area.h, SYSTEM_SIZE.minH)
+  // Resizable column: the width is shared with the agent card, the height is this panel's own. Both are stored
+  // by usePanelsState. Every bound comes from the layout, so a grip never offers a size the layout would refuse:
+  // the width stops at the room beside the right dock, the height at what the card leaves under it.
+  const { layout, env, open: openPanels } = useDockSnapshot()
+  const widthBounds = leftDockWidthBounds(env.viewport.w, openPanels, layout.rightWidth)
+  const heightBounds = leftHeightBounds(layout.leftHeightCap.system, SYSTEM_SIZE.minH)
   const panelLabel = panelName(locale, 'system')
+  // One width for the column: the grip states both panels it resizes, so it never claims to move this one alone
+  const columnControls = LEFT_COLUMN_PANELS.filter(id => openPanels.includes(id)).map(dockPanelDomId).join(' ')
   const announcement = useSeverityAnnouncement(samples, visible)
   // The body is a scroll container: a tab stop only while it actually scrolls (WCAG 2.1.1), as in the Context panel
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -305,18 +307,20 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
     >
       <DockResizer
         edge="right"
+        sheet={dock.sheet}
         bounds={widthBounds}
         width={layout.leftWidth}
         onWidthChange={w => { dockStore.setLeftWidth(w); notifyDockUserResize('leftWidth', w) }}
-        label={translate(locale, 'common.resize.width', { name: panelLabel })}
+        label={translate(locale, 'common.resize.column.width')}
         valueText={px => translate(locale, 'common.resize.width.value', { px })}
-        controls={dockPanelDomId('system')}
+        controls={columnControls}
       />
       <DockVResizer
+        sheet={dock.sheet}
         bounds={heightBounds}
         height={rect?.h ?? SYSTEM_SIZE.h}
         onHeightChange={h => { dockStore.setLeftHeight('system', h); notifyDockUserResize('systemHeight', h) }}
-        label={translate(locale, 'common.resize.height', { name: panelLabel })}
+        label={translate(locale, 'common.resize.height.panel', { name: panelLabel })}
         valueText={px => translate(locale, 'common.resize.height.value', { px })}
         controls={dockPanelDomId('system')}
       />

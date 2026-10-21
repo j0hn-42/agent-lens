@@ -169,7 +169,7 @@ test('the left column width and the System height are stored on resize and appli
   await wait(50)
   const root = () => r.container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
   assert.equal(root().style.width, '320px', 'the column opens wider than its 240 px minimum')
-  await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize the width of the System panel' }), { target: { value: '460' } }) })
+  await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize the width of the left column' }), { target: { value: '460' } }) })
   await act(async () => { fireEvent.change(r.getByRole('slider', { name: 'Resize the height of the System panel' }), { target: { value: '480' } }) })
   assert.equal(root().style.width, '460px')
   await wait(60)

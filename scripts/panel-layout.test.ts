@@ -620,3 +620,64 @@ test('the stored sizes of the left column agree with the layout (two modules, on
   assert.equal(sanitizePref('detailPanelHeight', -10), Math.min(DETAIL_SIZE.minH, SYSTEM_SIZE.minH))
   assert.equal(sanitizePref('systemPanelHeight', 'tall' as unknown as number), DEFAULT_UI_PREFS.systemPanelHeight)
 })
+
+test('the column stops at the room beside the right dock, so widening it never costs the dock its layout', () => {
+  // 1200 px with the Conversation panel at its widest: a column of 540 (45 %) left no way to place both,
+  // and every panel fell to a full-width sheet — one drag could not be allowed to do that
+  const bounds = leftDockWidthBounds(1200, ['conversation', 'detail'], 720)
+  assert.equal(bounds.max, 1200 - 2 * 12 - 720 - 8)
+  const at = (leftWidth: number) => computeDockLayout({
+    viewport: { w: 1200, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H,
+    open: ['conversation', 'detail'], leftWidth, rightWidth: 720,
+  })
+  assert.equal(at(bounds.max).mode, 'dock', 'the widest the grip offers still docks')
+  assert.equal(at(bounds.max).rects.detail!.w, bounds.max)
+  // Without a right-dock panel open the column keeps the whole viewport range
+  assert.equal(leftDockWidthBounds(1200, ['detail'], 720).max, leftDockWidthBounds(1200).max)
+  // Below the sheet breakpoint only the viewport applies: the panels are sheets there anyway
+  assert.deepEqual(leftDockWidthBounds(800, ['conversation', 'detail'], 720), leftDockWidthBounds(800))
+  // The minimum always stays reachable, even where the room is smaller than it (900 x 720: 148 px free)
+  assert.equal(leftDockWidthBounds(900, ['files', 'detail'], 720).max, LEFT_MIN_W)
+  for (const w of [900, 1024, 1200, 1440, 1600, 2560]) {
+    const { min, max } = leftDockWidthBounds(w, ['conversation', 'detail', 'system'], 720)
+    assert.ok(max >= min, `bounds stay usable at ${w}`)
+  }
+})
+
+test('a height grip offers exactly what the column can grant: the wanted height is clipped, never dropped a rung', () => {
+  const at = (detailHeight: number, systemHeight: number) => computeDockLayout({
+    viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H,
+    open: ['detail', 'system'], detailHeight, systemHeight,
+  })
+  const l = at(300, 300)
+  const cap = l.leftHeightCap
+  assert.equal(cap.system, l.area.h - 300 - 8, 'System may take what the card leaves under it')
+  assert.equal(cap.detail, l.area.h - SYSTEM_SIZE.minH - 8, 'the card may take what System needs free')
+  // Asking for more than the cap gives the cap. It used to fall to the next rung of the ladder, so one
+  // keyboard step past the room shrank System from 440 to 300 px instead of growing it.
+  for (const wanted of [cap.system - 10, cap.system, cap.system + 1, cap.system + 10, 5000]) {
+    const drawn = at(300, wanted).rects.system!.h
+    assert.equal(drawn, Math.min(wanted, cap.system), `System asked ${wanted}`)
+  }
+  for (const wanted of [cap.detail, cap.detail + 10, 5000]) {
+    assert.equal(at(wanted, 300).rects.detail!.h, cap.detail, `the card asked ${wanted}`)
+  }
+  // The height a grip reports is the height the panel is drawn at, at every step up to its maximum
+  for (const wanted of [200, 300, 400, cap.system]) {
+    const shown = at(300, wanted)
+    assert.equal(shown.rects.system!.h, Math.min(wanted, shown.leftHeightCap.system))
+  }
+})
+
+test('the cap of each panel follows the other one: alone in the column, a panel may take the whole band', () => {
+  const only = (open: PanelId[], detailHeight?: number) => computeDockLayout({
+    viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, detailHeight,
+  })
+  const alone = only(['system'])
+  assert.equal(alone.leftHeightCap.system, alone.area.h)
+  assert.equal(only(['detail']).leftHeightCap.detail, alone.area.h)
+  // A taller card leaves System less, and the two caps never ask for more than the band together
+  const tall = only(['detail', 'system'], 500)
+  assert.equal(tall.leftHeightCap.system, tall.area.h - 500 - 8)
+  assert.ok(tall.rects.detail!.h + 8 + tall.leftHeightCap.system <= tall.area.h)
+})

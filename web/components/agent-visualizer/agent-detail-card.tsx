@@ -9,7 +9,7 @@ import { usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs, dockPanelDomId, DockResizer, DockVResizer, notifyDockUserResize, useDockSnapshot } from './shared-ui'
-import { dockStore, leftDockWidthBounds, leftHeightBounds, DETAIL_SIZE } from '@/lib/panel-layout'
+import { dockStore, leftDockWidthBounds, leftHeightBounds, DETAIL_SIZE, LEFT_COLUMN_PANELS } from '@/lib/panel-layout'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
 import { agentRoleOf, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
@@ -120,12 +120,14 @@ export function AgentDetailCard({
   const dock = useDockPanel('detail', true)
   const { rect } = dock
   // Resizable: the width is the left column's, shared with the System panel; the height is the card's own.
-  // usePanelsState stores both; the layout keeps them inside the room the column has, so the grips always sit on
-  // the size really granted. The card's name, not the agent's, labels them: an agent name is masked in presentation.
-  const { layout, env } = useDockSnapshot()
-  const widthBounds = leftDockWidthBounds(env.viewport.w)
-  const heightBounds = leftHeightBounds(layout.area.h, DETAIL_SIZE.minH)
-  const cardLabel = t('panel.name.detail')
+  // usePanelsState stores both. Every bound comes from the layout, so a grip never offers a size the layout
+  // would refuse: the width stops at the room beside the right dock, the height at what the column can grant
+  // this card (leftHeightCap). No agent name reaches the labels: a name is masked in presentation mode.
+  const { layout, env, open: openPanels } = useDockSnapshot()
+  const widthBounds = leftDockWidthBounds(env.viewport.w, openPanels, layout.rightWidth)
+  const heightBounds = leftHeightBounds(layout.leftHeightCap.detail, DETAIL_SIZE.minH)
+  // One width for the column: the grip states both panels it resizes, so it never claims to move this card alone
+  const columnControls = LEFT_COLUMN_PANELS.filter(id => openPanels.includes(id)).map(dockPanelDomId).join(' ')
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
@@ -177,18 +179,20 @@ export function AgentDetailCard({
     >
       <DockResizer
         edge="right"
+        sheet={dock.sheet}
         bounds={widthBounds}
         width={layout.leftWidth}
         onWidthChange={w => { dockStore.setLeftWidth(w); notifyDockUserResize('leftWidth', w) }}
-        label={t('common.resize.width', { name: cardLabel })}
+        label={t('common.resize.column.width')}
         valueText={px => t('common.resize.width.value', { px })}
-        controls={dockPanelDomId('detail')}
+        controls={columnControls}
       />
       <DockVResizer
+        sheet={dock.sheet}
         bounds={heightBounds}
         height={rect?.h ?? DETAIL_SIZE.h}
         onHeightChange={h => { dockStore.setLeftHeight('detail', h); notifyDockUserResize('detailHeight', h) }}
-        label={t('common.resize.height', { name: cardLabel })}
+        label={t('common.resize.height.card')}
         valueText={px => t('common.resize.height.value', { px })}
         controls={dockPanelDomId('detail')}
       />

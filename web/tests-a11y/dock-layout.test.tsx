@@ -241,8 +241,8 @@ test('the resizer step divides the range exactly so the maximum is a reachable n
 test('the agent card carries both grips: one width shared with System, one height of its own', () => {
   const { getByRole, container } = render(<AgentDetailCard agent={agent} onClose={() => {}} />)
   const dialog = getByRole('dialog')
-  const width = getByRole('slider', { name: 'Resize the width of the Agent detail panel' }) as HTMLInputElement
-  const height = getByRole('slider', { name: 'Resize the height of the Agent detail panel' }) as HTMLInputElement
+  const width = getByRole('slider', { name: 'Resize the width of the left column' }) as HTMLInputElement
+  const height = getByRole('slider', { name: 'Resize the height of the agent card' }) as HTMLInputElement
   assert.equal(width.type, 'range', 'a native range input, not a div with a tabindex')
   assert.equal(height.type, 'range')
   assert.equal(width.getAttribute('aria-controls'), dialog.id, 'each grip controls the card')
@@ -253,7 +253,7 @@ test('the agent card carries both grips: one width shared with System, one heigh
   assert.equal(width.value, '320')
   assert.equal(width.getAttribute('aria-valuetext'), '320 pixels wide')
   assert.equal(height.value, '300')
-  assert.equal(height.getAttribute('aria-valuetext'), '300 pixels tall')
+  assert.equal(height.getAttribute('aria-valuetext'), '300 pixels tall at most')
   // Widening through the range control (arrows, Page keys, Home/End and thumb drags all end here)
   fireEvent.change(width, { target: { value: '440' } })
   assert.equal(dialog.style.width, '440px')
@@ -266,7 +266,7 @@ test('the agent card carries both grips: one width shared with System, one heigh
   const card = container.querySelector<HTMLElement>('.glass-card')!
   fireEvent.change(height, { target: { value: '520' } })
   assert.equal(card.style.maxHeight, '520px')
-  assert.equal(height.getAttribute('aria-valuetext'), '520 pixels tall')
+  assert.equal(height.getAttribute('aria-valuetext'), '520 pixels tall at most')
   fireEvent.change(height, { target: { value: '0' } })
   assert.equal(card.style.maxHeight, '120px', 'never shorter than the minimum')
 })
@@ -287,7 +287,7 @@ test('the height grip grows the panel when dragged down and keeps its arrow keys
   const spy = () => { seen++ }
   window.addEventListener('keydown', spy)
   try {
-    const height = getByRole('slider', { name: 'Resize the height of the Agent detail panel' })
+    const height = getByRole('slider', { name: 'Resize the height of the agent card' })
     fireEvent.keyDown(height, { key: 'ArrowUp' })
     fireEvent.keyDown(height, { key: 'ArrowDown' })
     assert.equal(seen, 0, 'the grip stops its own arrow keys')
@@ -302,7 +302,7 @@ test('System follows the column: one width for both panels, its own height, and 
   const { getByRole, container, rerender } = render(<SystemPanel visible samples={[]} onClose={() => {}} />)
   const root = container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
   assert.equal(root.style.width, '320px')
-  const width = getByRole('slider', { name: 'Resize the width of the System panel' })
+  const width = getByRole('slider', { name: 'Resize the width of the left column' })
   const height = getByRole('slider', { name: 'Resize the height of the System panel' }) as HTMLInputElement
   assert.equal(width.getAttribute('aria-controls'), root.id)
   assert.equal(height.value, '360', 'System opens taller than the old 280 px slot')
@@ -316,4 +316,61 @@ test('System follows the column: one width for both panels, its own height, and 
   setViewport(600, 800)
   rerender(<SystemPanel visible samples={[]} onClose={() => {}} />)
   assert.equal(container.querySelectorAll('[data-dock-resizer]').length, 0)
+})
+
+test('no grip while a panel is drawn as a sheet, even on a wide window that simply has no room', () => {
+  // 1600 px wide but only 300 tall: the band between the bars cannot hold the two panels of the column, so
+  // the newest is drawn as a full-width sheet and the other is hidden. A sheet's width and height are the
+  // whole area, not the column's: a grip there would speak a size the panel is not drawn at.
+  setViewport(1600, 300)
+  const { container } = render(
+    <>
+      <AgentDetailCard agent={agent} onClose={() => {}} />
+      <SystemPanel visible samples={[]} onClose={() => {}} />
+    </>,
+  )
+  const root = container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
+  assert.equal(root.getAttribute('data-canvas-inset'), 'auto', 'a sheet is not a dock inset')
+  assert.ok(parseFloat(root.style.width) > 1000, 'the sheet takes the whole width')
+  assert.equal(container.querySelectorAll('[data-dock-resizer]').length, 0, 'no grip while the dock is sheets')
+  // Back in a window with room: four grips again, two per panel of the column
+  setViewport(1600, 900)
+  assert.equal(container.querySelectorAll('[data-dock-resizer]').length, 4)
+})
+
+test('the column width that is drawn is the one the grip speaks, even when the right dock takes the room', () => {
+  // A column stored wider than the room left beside the right dock: the layout draws what it can give,
+  // and the grip speaks that, never the stored wish (which comes back on a wider window).
+  setViewport(1200, 900)
+  act(() => { dockStore.setRightWidth(720); dockStore.setLeftWidth(640) })
+  const { getByRole, container } = render(
+    <>
+      <FileAttentionPanel visible fileAttention={new Map()} onClose={() => {}} />
+      <AgentDetailCard agent={agent} onClose={() => {}} />
+    </>,
+  )
+  const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!
+  const width = getByRole('slider', { name: 'Resize the width of the left column' }) as HTMLInputElement
+  const drawn = parseFloat(dialog.style.width)
+  assert.equal(drawn, 1200 - 2 * 12 - 720 - 8, 'the card takes the room left beside the right dock')
+  assert.equal(Number(width.value), drawn, 'the grip speaks the width that is drawn')
+  assert.equal(width.getAttribute('aria-valuetext'), `${drawn} pixels wide`)
+  assert.equal(Number(width.max), drawn, 'and End cannot ask for more than that room')
+})
+
+test('the width grip names the column and the panels it moves, not just its own', () => {
+  const sys = render(<SystemPanel visible samples={[]} onClose={() => {}} />)
+  const sysRoot = sys.container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
+  const alone = sys.getByRole('slider', { name: 'Resize the width of the left column' })
+  assert.equal(alone.getAttribute('aria-controls'), sysRoot.id, 'System alone: it controls System')
+  const card = render(<AgentDetailCard agent={agent} onClose={() => {}} />)
+  const cardRoot = card.getByRole('dialog')
+  // With both open, each width grip moves both panels and says so
+  for (const grip of document.querySelectorAll('[aria-label="Resize the width of the left column"]')) {
+    assert.deepEqual(
+      (grip.getAttribute('aria-controls') ?? '').split(' ').sort(),
+      [cardRoot.id, sysRoot.id].sort(),
+      'the grip controls the whole column',
+    )
+  }
 })

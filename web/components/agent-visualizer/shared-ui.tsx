@@ -303,6 +303,12 @@ interface DockResizerProps {
   bounds?: { min: number; max: number }
   /** Spoken value of the width, in the language of the panel (default: "<n> pixels wide") */
   valueText?: (px: number) => string
+  /**
+   * The panel is drawn as a full-width sheet (useDockPanel().sheet). A sheet takes the whole area, so no width
+   * of its own can be shown or spoken: the grip is not drawn at all. A wide viewport can go to sheets too (no
+   * room for every open panel), which the viewport check below does not catch.
+   */
+  sheet?: boolean
 }
 
 /**
@@ -315,7 +321,7 @@ interface DockResizerProps {
  * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
  * Renders nothing in sheet mode (narrow viewports have no resizable dock).
  */
-export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds, valueText }: DockResizerProps) {
+export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds, valueText, sheet = false }: DockResizerProps) {
   const onRight = edge === 'right'
   const side = onRight ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'
   const { layout, env } = useDockSnapshot()
@@ -329,7 +335,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
     dockStore.setRightWidth(next)
     notifyDockUserResize('rightWidth', next)
   }
-  if (vw < SHEET_BREAKPOINT) return null
+  if (sheet || vw < SHEET_BREAKPOINT) return null
   // The step divides the range exactly, so End lands on the real maximum (a fixed step from `min` can
   // miss `max` by up to step-1 px at some viewport widths and then input and layout disagree)
   const step = dockResizerStep(min, max)
@@ -391,6 +397,8 @@ interface DockVResizerProps {
   bounds: { min: number; max: number }
   /** Spoken value of the height, in the language of the panel. */
   valueText?: (px: number) => string
+  /** The panel is drawn as a full-width sheet: it takes the whole area, so there is no height to drag. */
+  sheet?: boolean
 }
 
 /**
@@ -401,13 +409,13 @@ interface DockVResizerProps {
  * jump to the bounds — and the visible grip is pointer-only (drag down to grow).
  * Renders nothing in sheet mode (a narrow viewport has no resizable dock).
  */
-export function DockVResizer({ height, onHeightChange, label, controls, bounds, valueText }: DockVResizerProps) {
+export function DockVResizer({ height, onHeightChange, label, controls, bounds, valueText, sheet = false }: DockVResizerProps) {
   const { env } = useDockSnapshot()
   const { min, max } = bounds
   const current = Math.round(Math.min(max, Math.max(min, height)))
   const dragRef = useRef<{ startY: number; startH: number } | null>(null)
   const apply = (h: number) => onHeightChange(Math.round(Math.min(Math.max(h, min), max)))
-  if (env.viewport.w < SHEET_BREAKPOINT) return null
+  if (sheet || env.viewport.w < SHEET_BREAKPOINT) return null
   // As in DockResizer: a step that divides the range exactly, so End lands on the real maximum
   const step = dockResizerStep(min, max)
 
