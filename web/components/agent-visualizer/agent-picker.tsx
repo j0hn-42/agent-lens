@@ -276,7 +276,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
       {open && (
         // Shrinks with the open area down to its search row, three options, a group heading and the count line (an explicit minimum: the automatic
         // one would be the whole list, so the listbox would never scroll); below that the open area scrolls instead
-        <div id={popupId} className="mt-1.5 flex flex-col min-h-[11.75rem] max-md:min-h-[14.75rem] rounded" style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.panelBg }}>
+        <div id={popupId} className="mt-1.5 flex flex-col min-h-[11.75rem] max-md:min-h-[15.25rem] rounded" style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.panelBg }}>
           <div className="flex flex-wrap items-center gap-1 p-1.5">
             <input
               ref={inputRef}
@@ -328,8 +328,9 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
             role="listbox"
             aria-label={t('conv.picker.list')}
             // At least three options high (28 px, 44 px under 768 px) plus a group heading, however short the panel: a list one can
-            // browse, not a sliver (640x400 left it 15 px high before)
-            className="flex-1 min-h-[6.5rem] max-md:min-h-[9.5rem] overflow-y-auto px-1.5 pb-1"
+            // browse, not a sliver (640x400 left it 15 px high before). Under 768 px 160 px, not 152: with the active option at an edge,
+            // a heading and two more whole options still fit (153 px showed two when a heading was in view)
+            className="flex-1 min-h-[6.5rem] max-md:min-h-[10rem] overflow-y-auto px-1.5 pb-1"
             style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
           >
             {showAll && optionRow('all')}
