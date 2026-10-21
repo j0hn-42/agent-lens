@@ -89,7 +89,7 @@ export const TOPBAR_MORE_ID = 'topbar-more'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, barCue, wrap }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, wrap }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -118,8 +118,6 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   controls?: string
   /** Language of this button's text when it is a translated control (#373); the others follow the page */
   lang?: string
-  /** Active, a 2 px bar under the button: the non-colour cue that still works on an icon (#523, WCAG 1.4.1) */
-  barCue?: boolean
   /** Content wraps onto a second line instead of squeezing its first item (#595); the text is never cut */
   wrap?: boolean
 }) {
@@ -140,13 +138,14 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       title={title}
       lang={lang}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
-      // Underline + bold is the non-colour cue for the active state (with the bar under a panel button)
-      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+      // Bold + the 2 px bar under the button (boxShadow below) are the non-colour cues of the active state (WCAG 1.4.1).
+      // Never also a text underline: it drew a second stroke next to the bar, and one per wrapped line on Sessions
+      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold' : ''} ${FOCUS_RING}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
         color: active ? (activeColor?.text ?? COLORS.holoBright) : COLORS.textMuted,
-        boxShadow: active && barCue ? `inset 0 -2px 0 ${activeColor?.text ?? COLORS.holoBright}` : undefined,
+        boxShadow: active ? `inset 0 -2px 0 ${activeColor?.text ?? COLORS.holoBright}` : undefined,
         ...style,
       }}
     >
@@ -461,7 +460,6 @@ export const TopBar = memo(function TopBar({
             shortcut={shortcut}
             lang={locale}
             activeColor={activeColor}
-            barCue
             style={inGroup ? { background: active ? undefined : 'transparent', border: 'none' } : undefined}
           >
             <PanelIcon panel={panel} />

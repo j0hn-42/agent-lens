@@ -350,3 +350,67 @@ test('320x568 worst case in French: no sideways scroll, nothing cropped', async 
     await page.context().close()
   }
 })
+
+// An active button draws ONE stroke (owner request, 2026-10-21: "le trait de soulignement est doublé"): the 2 px bar under it,
+// never a text underline next to it. Measured on the pixels of a 2x capture of the button: the rows (in the middle half of
+// its width, where the label sits) that are a stroke of the active colour, grouped in runs. Before the fix there were two
+// runs under Files and Conversation from 1280 px (underline, then the bar) and one underline per line on Sessions.
+async function strokeRuns(page: Page, name: string | RegExp): Promise<{ runs: number[]; textDecoration: string[]; boxShadow: string; fontWeight: string; pressed: string | null }> {
+  const button = page.locator('header').getByRole('button', { name }).first()
+  await button.click()
+  await page.mouse.move(5, 600)
+  await page.waitForTimeout(250)
+  const png = (await button.screenshot()).toString('base64')
+  const info = await button.evaluate((el: HTMLElement) => {
+    const cs = getComputedStyle(el)
+    return {
+      color: cs.color, boxShadow: cs.boxShadow, fontWeight: cs.fontWeight, pressed: el.getAttribute('aria-pressed'),
+      textDecoration: [el, ...el.querySelectorAll('*')].map(e => getComputedStyle(e).textDecorationLine),
+    }
+  })
+  // The pixel scan is page code passed as a string: tsx's keepNames helper (__name) does not exist in the page
+  const runs = await page.evaluate(`(async () => {
+    const color = ${JSON.stringify(info.color)}
+    const img = await createImageBitmap(await (await fetch('data:image/png;base64,${png}')).blob())
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0)
+    const [r0, g0, b0] = (color.match(/[0-9.]+/g) || []).map(Number)
+    const x0 = Math.floor(img.width * 0.25), x1 = Math.ceil(img.width * 0.75)
+    const row = y => {
+      const d = g.getImageData(x0, y, x1 - x0, 1).data
+      let hit = 0
+      for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - r0) + Math.abs(d[i + 1] - g0) + Math.abs(d[i + 2] - b0) < 60) hit++
+      return hit / (x1 - x0) >= 0.9
+    }
+    const out = []; let len = 0
+    for (let y = 0; y < img.height; y++) { if (row(y)) len++; else if (len) { out.push(len); len = 0 } }
+    if (len) out.push(len)
+    return out.map(n => n / 2)
+  })()`) as number[]
+  return { runs, textDecoration: info.textDecoration, boxShadow: info.boxShadow, fontWeight: info.fontWeight, pressed: info.pressed }
+}
+
+for (const [w, locale] of [[1440, 'en'], [1280, 'en'], [1280, 'fr'], [1024, 'en']] as const) {
+  test(`${w}x900 ${locale}: an active button of the bar draws one stroke, not two`, async () => {
+    const context = await browser.newContext({ viewport: { width: w, height: 900 }, deviceScaleFactor: 2 })
+    await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
+    const page = await context.newPage()
+    try {
+      await page.goto(server.url, { waitUntil: 'networkidle' })
+      await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
+      await waitForStableLayout(page)
+      const files = await strokeRuns(page, locale === 'fr' ? 'Fichiers et répétitions' : 'Files & repeats')
+      const sessions = await strokeRuns(page, /^Sessions/)
+      for (const [what, m] of [['Files', files], ['Sessions', sessions]] as const) {
+        console.log(`#active-stroke ${w}px ${locale} ${what}: strokes ${JSON.stringify(m.runs)} px, shadow ${m.boxShadow}`)
+        assert.equal(m.pressed, 'true', `${what}: aria-pressed`)
+        assert.ok(Number(m.fontWeight) >= 700, `${what}: still bold`)
+        assert.ok(m.textDecoration.every(d => d === 'none'), `${what}: no text underline (${m.textDecoration.join(',')})`)
+        assert.equal(m.runs.length, 1, `${what}: ${m.runs.length} strokes (${m.runs.join(', ')} px), expected the bar alone`)
+        assert.equal(m.runs[0], 2, `${what}: the stroke is 2 px thick`)
+      }
+    } finally {
+      await context.close()
+    }
+  })
+}
