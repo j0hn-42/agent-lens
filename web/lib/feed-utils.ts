@@ -507,3 +507,108 @@ export function trackUnread(
   }
   return { increased: [...increased], next: { convLens, convLast, convLastTs, linkSeen, linkKeys: new Set([...prevKeys, ...linkKeys]) } }
 }
+
+// ─── Agent picker of the Conversation panel ──────────────────────────────────
+// Below AGENT_PICKER_MIN agents with messages the panel shows tabs that wrap; from it on, one picker button opens a
+// searchable list grouped by team / workflow, by session, and with the finished agents in a group of their own.
+
+/** Number of agents with messages from which the agent tabs give way to the agent picker. */
+export const AGENT_PICKER_MIN = 5
+/** Finished agents are folded by default from this many on (unless the selected agent is one of them). */
+export const PICKER_DONE_FOLD_MIN = 6
+
+export function usesAgentPicker(agentsWithMessages: number): boolean {
+  return agentsWithMessages >= AGENT_PICKER_MIN
+}
+
+export function doneCollapsedByDefault(doneCount: number, selectedIsDone: boolean): boolean {
+  return !selectedIsDone && doneCount >= PICKER_DONE_FOLD_MIN
+}
+
+export type PickerGroupKind = GroupKind | 'session' | 'active' | 'done'
+
+interface PickerAgent {
+  name: string
+  sessionId: string
+  sessionLabel?: string
+  teamName?: string
+  teamKind?: GroupKind
+  state?: string
+  archived?: boolean
+  activity?: string
+}
+
+export interface PickerGroup {
+  key: string
+  kind: PickerGroupKind
+  /** Team / workflow name, or session label; empty for the 'active' and 'done' groups */
+  name: string
+  /** Team / workflow: the start of the lead session id when two groups share a name */
+  sessionHint: string | null
+  ids: string[]
+}
+
+/** Characters of a session id shown when the session has no label */
+const PICKER_SESSION_LEN = 8
+
+/**
+ * Groups of the agent picker, in the order of `ids` inside each group: the agents of no team first (the main agent among
+ * them; one group per session when there are several sessions, else one group), then the team and workflow groups
+ * (teamChipGroups), then every finished agent.
+ * Each id is in exactly one group.
+ */
+export function agentPickerGroups(
+  ids: readonly string[],
+  agents: ReadonlyMap<string, PickerAgent>,
+  teams: ReadonlyMap<string, TeamSummary> | undefined,
+): PickerGroup[] {
+  const done: string[] = []
+  const teamed: Array<PickerAgent & { id: string }> = []
+  const loose: string[] = []
+  for (const id of ids) {
+    const a = agents.get(id)
+    if (isAgentDone(a)) done.push(id)
+    else if (a?.teamName) teamed.push({ ...a, id })
+    else loose.push(id)
+  }
+  const out: PickerGroup[] = []
+  const sessions = new Set(loose.map(id => agents.get(id)?.sessionId ?? ''))
+  if (sessions.size > 1) {
+    const bySession = new Map<string, string[]>()
+    for (const id of loose) {
+      const s = agents.get(id)?.sessionId ?? ''
+      bySession.set(s, [...(bySession.get(s) ?? []), id])
+    }
+    for (const [s, members] of bySession) {
+      const label = agents.get(members[0])?.sessionLabel ?? s.slice(0, PICKER_SESSION_LEN)
+      out.push({ key: `session:${s}`, kind: 'session', name: label, sessionHint: null, ids: members })
+    }
+  } else if (loose.length > 0) {
+    out.push({ key: 'active', kind: 'active', name: '', sessionHint: null, ids: loose })
+  }
+  for (const g of teamChipGroups(teamed, teams)) {
+    out.push({ key: `team:${g.key}`, kind: g.kind, name: g.name, sessionHint: g.sessionHint, ids: g.items.map(i => i.id) })
+  }
+  if (done.length > 0) out.push({ key: 'done', kind: 'done', name: '', sessionHint: null, ids: done })
+  return out
+}
+
+/** Lowercased, without accents: what a search compares. */
+function foldText(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+/** Ids kept by the search field (agent or team name, case and accents ignored) and by "Unread only". */
+export function filterPickerIds(
+  ids: readonly string[],
+  agents: ReadonlyMap<string, { name: string; teamName?: string }>,
+  opts: { query: string; unreadOnly: boolean; unread: ReadonlySet<string> },
+): string[] {
+  const q = foldText(opts.query.trim())
+  return ids.filter(id => {
+    if (opts.unreadOnly && !opts.unread.has(id)) return false
+    if (q === '') return true
+    const a = agents.get(id)
+    return foldText(agentNameOf(agents, id)).includes(q) || (a?.teamName !== undefined && foldText(a.teamName).includes(q))
+  })
+}
