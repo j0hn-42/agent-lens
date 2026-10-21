@@ -2,8 +2,8 @@
 // 'Show finished sessions (N)'. aria-pressed = the inactive ones are hidden. Its accessible name starts with the visible
 // label and says only what applies to the view (sessions only in All sessions); the rule and the 10-minute window of
 // the session filter are in the tooltip. In All, while it hides finished sessions, it says how many (the count the
-// former 'Show finished sessions (N)' carried), and so does More when folded. Its place in the Tab order does not
-// depend on its state or on the view.
+// former 'Show finished sessions (N)' carried), and so does More, behind which it is (one-line bar). Its place in the Tab
+// order does not depend on its state or on the view.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -15,6 +15,7 @@ import { setLocaleChoice } from '@/lib/locale'
 import { LOCALES, translate } from '@/lib/messages'
 import type { ShowMode } from '@/lib/show-mode'
 import { setMobileView } from './mobile-media'
+import { openMore } from './topbar-more'
 
 afterEach(() => {
   setMobileView(false)
@@ -45,6 +46,7 @@ const labelOf = (el: HTMLElement) => el.getAttribute('aria-label') ?? (el.getAtt
 test('one native toggle, short name, pressed while the inactive ones are hidden', () => {
   const calls: ShowMode[] = []
   const { getByRole, rerender } = render(<TopBar {...base} showMode="active" onChangeShowMode={m => calls.push(m)} />)
+  openMore() // the filters are behind More (one-line bar)
   const btn = getByRole('button', { name: NAME_ALL })
   assert.equal(btn.tagName, 'BUTTON')
   assert.equal(btn.getAttribute('type'), 'button', 'native button: Enter and Space work without a key handler')
@@ -65,6 +67,7 @@ test('one native toggle, short name, pressed while the inactive ones are hidden'
 
 test('in a single session the name and the tooltip speak of agents only: no session is hidden there', () => {
   const view = render(<TopBar {...base} selectedSessionId="s1" showMode="active" onChangeShowMode={noop} finishedSessionCount={3} />)
+  openMore() // the filters are behind More (one-line bar)
   const btn = view.getByRole('button', { name: NAME_ONE })
   assert.equal(btn.textContent, 'Hide inactive')
   assert.doesNotMatch(btn.getAttribute('title') ?? '', /session|minute/)
@@ -73,6 +76,7 @@ test('in a single session the name and the tooltip speak of agents only: no sess
 
 test('All sessions, inactive hidden: the number of finished sessions hidden is described and in the tooltip', () => {
   const { getByRole, rerender } = render(<TopBar {...base} showMode="active" onChangeShowMode={noop} finishedSessionCount={3} />)
+  openMore() // the filters are behind More (one-line bar)
   const btn = getByRole('button', { name: NAME_ALL })
   assert.equal(describedText(btn), 'Finished sessions hidden: 3')
   assert.match(btn.getAttribute('title') ?? '', /Finished sessions hidden: 3/)
@@ -88,12 +92,14 @@ test('All sessions, inactive hidden: the number of finished sessions hidden is d
 test('folded, More names the filter with the number of finished sessions it hides in All', () => {
   setMobileView(true)
   const view = render(<TopBar {...base} showMode="active" onChangeShowMode={noop} finishedSessionCount={3} onToggleFullscreen={noop} />)
+  openMore() // the filters are behind More (one-line bar)
   const more = view.container.querySelector<HTMLButtonElement>(`#${TOPBAR_MORE_ID}`)!
   assert.match(labelOf(more), /\(Hide inactive · finished sessions hidden: 3\)$/)
   assert.match(more.textContent ?? '', /1 filter/, 'one filter, however many sessions it hides')
   view.unmount()
   // In a single session the count does not apply
   const one = render(<TopBar {...base} selectedSessionId="s1" showMode="active" onChangeShowMode={noop} finishedSessionCount={3} onToggleFullscreen={noop} />)
+  openMore() // the filters are behind More (one-line bar)
   const more1 = one.container.querySelector<HTMLButtonElement>(`#${TOPBAR_MORE_ID}`)!
   assert.match(labelOf(more1), /\(Hide inactive\)$/)
 })
@@ -101,6 +107,7 @@ test('folded, More names the filter with the number of finished sessions it hide
 test('the two former filter buttons are gone, in the All view and in a session', () => {
   for (const selectedSessionId of [ALL_SESSIONS_ID, 's1']) {
     const view = render(<TopBar {...base} selectedSessionId={selectedSessionId} showMode="active" onChangeShowMode={noop} />)
+    openMore() // the filters are behind More (one-line bar)
     assert.ok(view.queryByRole('button', { name: /Hide inactive agents|Show finished sessions|Active only/ }) === null, 'no former filter button')
     assert.equal(view.getAllByRole('button', { name: /^Hide inactive/ }).length, 1, 'one control, also in a single session')
     view.unmount()
@@ -110,6 +117,7 @@ test('the two former filter buttons are gone, in the All view and in a session',
 test('stable Tab order: the control keeps its place whatever its state and the view', () => {
   const position = (mode: ShowMode, selectedSessionId: string) => {
     const view = render(<TopBar {...base} selectedSessionId={selectedSessionId} showMode={mode} onChangeShowMode={noop} finishedSessionCount={2} />)
+    openMore() // the filters are behind More (one-line bar)
     const buttons = view.getAllByRole('button')
     const at = buttons.findIndex(b => (b.getAttribute('aria-label') ?? '').startsWith('Hide inactive'))
     const order = buttons.map(b => b.getAttribute('aria-label') ?? b.textContent ?? '')
@@ -131,6 +139,7 @@ for (const locale of LOCALES) {
   test(`the control speaks ${locale}: label, name, tooltip, count, lang`, () => {
     setLocaleChoice(locale)
     const view = render(<TopBar {...base} showMode="active" onChangeShowMode={noop} finishedSessionCount={4} />)
+    openMore() // the filters are behind More (one-line bar)
     const name = translate(locale, 'show.hideInactive.name.all')
     const btn = view.getByRole('button', { name })
     assert.equal(btn.textContent, translate(locale, 'show.hideInactive'))
@@ -143,5 +152,6 @@ for (const locale of LOCALES) {
 
 test('without a handler the control is not drawn (no dead button)', () => {
   const view = render(<TopBar {...base} showMode="active" />)
+  openMore() // the filters are behind More (one-line bar)
   assert.ok(view.queryByRole('button', { name: /^Hide inactive/ }) === null)
 })

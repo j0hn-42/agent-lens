@@ -14,6 +14,7 @@ import { SessionListPanel } from '@/components/agent-visualizer/session-list-pan
 import { parseRelayScopeState, type RelayScopeState } from '@/lib/relay-scope'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { setLocaleChoice } from '@/lib/locale'
+import { openMore } from './topbar-more'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 
@@ -172,11 +173,18 @@ const topBarProps: TopBarProps = {
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
-test('the top bar carries the selector permanently when a relay reports its scope, and not otherwise', () => {
+test('the top bar carries the selector in More when a relay reports its scope, and not otherwise; More reads the scope while closed', () => {
   const without = render(<TopBar {...topBarProps} />)
+  openMore()
   assert.equal(without.queryByRole('combobox', { name: 'Session scope' }), null)
   without.unmount()
   const withScope = render(<TopBar {...topBarProps} scope={{ ...base, state: state() }} />)
+  // One-line bar: the selector is behind More, which says what is scanned in its description and carries a mark
+  const more = withScope.container.querySelector<HTMLElement>('#topbar-more')!
+  const described = (more.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+  assert.match(described, /^Scope: /, described)
+  assert.ok(withScope.container.querySelector('[data-more-mark]'), 'More carries a mark')
+  openMore()
   assert.ok(withScope.getByRole('combobox', { name: 'Session scope' }))
 })
 
@@ -190,4 +198,40 @@ test('the session list does not stay silently empty on a single workspace: it st
   )
   assert.match(view.container.textContent ?? '', /this workspace/)
   assert.match(view.container.textContent ?? '', /All workspaces/)
+})
+
+// PR #631 review: a live region inserted with its text already in it is not announced by NVDA, JAWS and often VoiceOver.
+// The bar's copy of the ceilings is in the DOM from the first render, empty while there is nothing to say, and is the only
+// region that announces them: the selector drawn in More writes them without a second live region (no double announcement,
+// nothing announced again each time More closes).
+test('the bar announces the ceilings from a live region that exists, empty, before the first ceiling arrives', () => {
+  const ceilings = state({ skippedSessions: { watchLimit: 0, sizeLimit: 0, fileLimit: 4 } })
+  const view = render(<TopBar {...topBarProps} scope={{ ...base, state: state() }} />)
+  const region = view.container.querySelector<HTMLElement>('[data-topbar-scope-live]')
+  assert.ok(region, 'the live region is rendered before any ceiling')
+  assert.equal(region.getAttribute('role'), 'status')
+  assert.equal(region.textContent, '', 'empty while there is nothing to announce')
+  view.rerender(<TopBar {...topBarProps} scope={{ ...base, state: ceilings }} />)
+  assert.equal(view.container.querySelector('[data-topbar-scope-live]'), region, 'the same element is filled, not a new one inserted')
+  assert.match(region.textContent ?? '', /at least 4/i)
+  // More open: the selector writes the ceilings without a second live region; the bar's region keeps its text (no re-announce on close)
+  openMore()
+  assert.equal(view.container.querySelectorAll('[role="status"]').length, 1, 'one live region for the ceilings')
+  assert.match(view.container.querySelector('[data-scope-notices]')?.textContent ?? '', /at least 4/i)
+  assert.equal(view.container.querySelector('[data-topbar-scope-live]'), region)
+  assert.match(region.textContent ?? '', /at least 4/i)
+})
+
+test('without a relay scope (demo, VS Code) the bar still renders its empty live region, so a later scope is announced', () => {
+  const view = render(<TopBar {...topBarProps} />)
+  const region = view.container.querySelector<HTMLElement>('[data-topbar-scope-live]')
+  assert.ok(region)
+  assert.equal(region.textContent, '')
+})
+
+test('the selector alone keeps its own live region; drawn in the bar it leaves the announcing to the bar', () => {
+  const quiet = render(<ScopeSelector {...base} state={state()} announce={false} error="boom" />)
+  const notices = quiet.container.querySelector('[data-scope-notices]') as HTMLElement
+  assert.equal(notices.getAttribute('role'), null)
+  assert.match(notices.textContent ?? '', /boom/)
 })

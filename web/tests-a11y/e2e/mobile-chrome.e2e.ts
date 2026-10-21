@@ -3,6 +3,7 @@
 // control and every total on its own wrapped line), and the Timeline drew its last header label half outside
 // the canvas ("0:0"). Under 600 px the totals and filters then folded behind a named disclosure button; since #476
 // the fold starts under 768 px and also takes the panel buttons (More is the focus fallback of the panels they open).
+// Since the one-line bar (owner request, 2026-10-21) the bar is one row at every width and More an overlay.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
@@ -74,24 +75,26 @@ const topbarBox = (page: Page) => page.locator('header').first().boundingBox().t
 const noHorizontalScroll = (page: Page) => page.evaluate('document.documentElement.scrollWidth <= window.innerWidth') as Promise<boolean>
 
 /** Interactive controls of the top bar that are rendered, with their size. */
-async function visibleControls(page: Page): Promise<Array<{ name: string; w: number; h: number }>> {
+async function visibleControls(page: Page): Promise<Array<{ name: string; w: number; h: number; top: number }>> {
   return page.evaluate(`[...document.querySelector('header').querySelectorAll('button, [role="combobox"], select, a[href]')]
     .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' })
-    .map(el => { const r = el.getBoundingClientRect(); return { name: el.getAttribute('aria-label') || el.textContent.trim(), w: r.width, h: r.height } })`) as Promise<Array<{ name: string; w: number; h: number }>>
+    .map(el => { const r = el.getBoundingClientRect(); return { name: el.getAttribute('aria-label') || el.textContent.trim(), w: r.width, h: r.height, top: r.top } })`) as Promise<Array<{ name: string; w: number; h: number; top: number }>>
 }
 
-// Height budgets, folded (#476: the panel buttons fold too, every control is 44 px high): Sessions, then the
-// connection state and More, on two or three rows; 767 px is the last folded width. Measured before #378: 193 and
-// 290.5 px; after #378 (600 px fold, 24 px controls): 138 and 166.5 px.
-for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]] as Array<[number, number, number]>) {
-  test(`top bar ${w}x${h}: folded under 768 px it stays within ${budget} px, totals one named button away`, async () => {
+// Height budgets under 768 px. Before #378: 193 and 290.5 px; after #378 (600 px fold): 138 and 166.5 px; with the fold of
+// #476 two or three rows of 44 px controls. Since the one-line bar (owner request, 2026-10-21) it is one row of 44 px
+// targets: Sessions, the connection state, the attention counter and More, 56 px high (measured), More an overlay.
+for (const [w, h] of [[767, 900], [390, 844], [320, 568]] as Array<[number, number]>) {
+  test(`top bar ${w}x${h}: one row of 44 px targets under 768 px, More an overlay, totals one named button away`, async () => {
     const page = await open(w, h)
     try {
       const bar = await topbarBox(page)
-      assert.ok(bar.height <= budget, `the top bar is ${bar.height} px high at ${w}x${h} (budget ${budget})`)
+      assert.ok(bar.height <= 57, `the top bar is ${bar.height} px high at ${w}x${h} (one row of 44 px targets)`)
       assert.ok(await noHorizontalScroll(page), 'no horizontal page scroll')
+      const tops = (await visibleControls(page)).map(c => c.top)
+      assert.ok(Math.max(...tops) - Math.min(...tops) < 12, `one row: control tops ${tops.join(', ')}`)
 
-      const more = page.getByRole('button', { name: /^More/ })
+      const more = page.locator('header #topbar-more')
       assert.equal(await more.getAttribute('aria-expanded'), 'false')
       // #523: the bar draws no totals (no tokens, no cost, no agent counts: those are in the Sessions panel header); the
       // totals stay in the bar for screen readers only (sr-only, 1 px), in the accessibility tree
@@ -105,56 +108,64 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
         }
         return w
       })
-      assert.ok(await drawnWidth() <= 1, 'folded: the totals are not drawn')
-      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total (#523: read, not drawn)')
-      assert.equal(await page.getByRole('button', { name: /^Hide inactive: agents( and sessions)?$/ }).count(), 0, 'folded: the filters are not in the Tab order')
+      assert.ok(await drawnWidth() <= 1, 'the totals are not drawn')
+      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'screen readers still read the token total (#523: read, not drawn)')
+      assert.equal(await page.getByRole('button', { name: /^Hide inactive: agents( and sessions)?$/ }).count(), 0, 'More closed: the filters are not in the Tab order')
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
-      assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
-      // Folded under 768 px (#476): the panel buttons are behind More, not rendered (no hidden Tab stop)
+      assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'More closed: no invisible Tab stop')
+      // Under 768 px the panel buttons are behind More, not rendered (no hidden Tab stop)
       for (const name of ['Timeline', 'Stats', 'Files & repeats']) {
-        assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0, `${name} is folded behind More`)
+        assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0, `${name} is behind More`)
       }
-      assert.ok(await page.locator('header').getByRole('button', { name: /^Sessions/ }).isVisible(), 'Sessions stays in the bar')
+      const sessions = page.locator('header').getByRole('button', { name: /^Sessions/ })
+      assert.ok(await sessions.isVisible(), 'Sessions stays in the bar')
+      // The selection stays written in the bar (its label may end in an ellipsis; the whole text is the name)
+      assert.ok(await sessions.locator('[data-sensitive]').evaluate((el: Element) => el.getBoundingClientRect().width > 20), 'the Sessions label is drawn')
       for (const c of await visibleControls(page)) {
-        assert.ok(c.w >= 44 && c.h >= 44, `folded: "${c.name}" is ${c.w}x${c.h} px (44x44 under 768 px, #476)`)
+        assert.ok(c.w >= 44 && c.h >= 44, `"${c.name}" is ${c.w}x${c.h} px (44x44 under 768 px, #476)`)
       }
       await expectHeaderClean(page, `e2e:topbar-folded-${w}`)
 
-      // Keyboard: the disclosure opens with Enter and the next Tab stop is the first folded control
+      // Keyboard: Enter opens the overlay and the next Tab stop is inside it
       await more.focus()
       await page.keyboard.press('Enter')
       assert.equal(await more.getAttribute('aria-expanded'), 'true')
-      assert.ok(await drawnWidth() <= 1, 'expanded: the totals are still not drawn (#523)')
+      assert.ok(await drawnWidth() <= 1, 'More open: the totals are still not drawn (#523)')
       await page.keyboard.press('Tab')
-      const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
-      assert.match(String(next), /Notifications|Hide inactive/, `Tab after More reaches a folded control (got "${next}")`)
-      assert.ok(await noHorizontalScroll(page), 'expanded: no horizontal page scroll')
+      assert.ok(await page.evaluate(`!!document.activeElement && !!document.activeElement.closest('header [data-topbar-menu]')`), 'Tab after More enters the overlay')
+      assert.ok(await noHorizontalScroll(page), 'More open: no horizontal page scroll')
       for (const name of ['Timeline', 'Stats', 'Files & repeats']) {
-        assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `expanded: ${name} is shown`)
+        assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `More open: ${name} is shown`)
       }
       for (const c of await visibleControls(page)) {
-        assert.ok(c.w >= 44 && c.h >= 44, `expanded: "${c.name}" is ${c.w}x${c.h} px`)
+        assert.ok(c.w >= 44 && c.h >= 44, `More open: "${c.name}" is ${c.w}x${c.h} px`)
       }
       await expectHeaderClean(page, `e2e:topbar-expanded-${w}`)
-      // The panels move below the bar that grew
-      const grown = await topbarBox(page)
-      assert.ok(grown.height > bar.height, 'expanding shows more rows')
-      await more.click()
+      // An overlay: the bar keeps its height (the panels stay below it) and the overlay stays in the window
+      assert.equal((await topbarBox(page)).height, bar.height, 'More open: the bar keeps its height')
+      const menu = (await page.locator('header [data-topbar-menu]').boundingBox())!
+      assert.ok(menu.x >= 0 && menu.x + menu.width <= w + 0.5 && menu.y + menu.height <= h + 0.5, `the overlay stays in the window (${JSON.stringify(menu)})`)
+      await page.keyboard.press('Escape')
       assert.equal(await more.getAttribute('aria-expanded'), 'false')
+      assert.ok(await more.evaluate((el: Element) => el === document.activeElement), 'Escape gives the focus back to More')
     } finally {
       await page.context().close()
     }
   })
 }
 
-// 1024 px and wider nothing folds, no disclosure button (#523; 768 px in #476, 600 px before). From 768 to 1023 px the
-// bar folds without the mobile branches (tests-a11y/e2e/topbar-layout.e2e.ts). 1280 px at 200 % browser zoom is 640 px
-// wide, so it folds: it is checked with the folded widths above
+// From 1024 px the seven panel buttons are in the bar, on the same row as Sessions and More (one-line bar); the bar draws
+// no summary text (#523). 1280 px at 200 % browser zoom is 640 px wide: it is checked with the widths above
 for (const [w, h] of [[1024, 900], [1280, 800]] as Array<[number, number]>) {
-  test(`top bar ${w}x${h}: nothing is folded at 1024 px and wider`, async () => {
+  test(`top bar ${w}x${h}: one row with the seven panel buttons, no summary text drawn`, async () => {
     const page = await open(w, h)
     try {
-      assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
+      assert.equal(await page.locator('header #topbar-more').count(), 1, 'More is in the bar at every width')
+      for (const name of ['Files & repeats', 'Timeline', 'Stats']) {
+        assert.ok(await page.locator('header').getByRole('button', { name, exact: true }).isVisible(), `${name} is in the bar`)
+      }
+      const tops = (await visibleControls(page)).map(c => c.top + c.h / 2)
+      assert.ok(Math.max(...tops) - Math.min(...tops) < 12, `one row: control centres ${tops.join(', ')}`)
       // #523: the bar draws no summary text; the agent counts are drawn in the Sessions panel header
       assert.equal(await page.locator('header').getByTestId('topbar-agent-counts').count(), 0, 'no agent counts in the bar')
       const drawn = await page.locator('header').evaluate((el: Element) => { const c = el.cloneNode(true) as Element; for (const n of Array.from(c.querySelectorAll('.sr-only, [hidden], [role="tooltip"]'))) n.remove(); return c.textContent ?? '' })
@@ -166,8 +177,8 @@ for (const [w, h] of [[1024, 900], [1280, 800]] as Array<[number, number]>) {
   })
 }
 
-// Folded, a filter that changes what the canvas shows is never hidden behind a plain "More" (docs/reading-the-ui.md)
-test('top bar 390x844: folded with Hide inactive on, More says a filter is on', async () => {
+// A filter that changes what the canvas shows is never hidden behind a plain "More" (docs/reading-the-ui.md)
+test('top bar 390x844: with Hide inactive on, More says a filter is on', async () => {
   const page = await open(390, 844)
   try {
     const more = page.getByRole('button', { name: /^More · \d+ filters? on/ })
@@ -175,15 +186,18 @@ test('top bar 390x844: folded with Hide inactive on, More says a filter is on', 
     // The name is built from a hidden span through aria-labelledby (#373), so read that span, not aria-label
     const nameParts = await more.evaluate((el) => (el.getAttribute('aria-labelledby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? '').join(' '))
     assert.match(nameParts, /Hide inactive/, 'its name says which one')
-    // Visible text kept short: at 320 px "More · 1 filter on" pushed More onto a row of its own (196.5 px bar)
-    assert.match(String(await more.textContent()), /^More · \d+ filters?$/)
+    // Under 768 px More is an icon followed by the number of filters on; its name contains that number (2.5.3)
+    const drawnText = (await more.innerText()).trim()
+    assert.equal(drawnText, '1', `drawn: the number of filters on ("${drawnText}")`)
+    assert.ok(nameParts.includes(drawnText))
     // Turn the filter off: More no longer lists it
     await more.click()
     const hide = page.getByRole('button', { name: /^Hide inactive: agents( and sessions)?$/ })
     assert.equal(await hide.getAttribute('aria-pressed'), 'true', 'Hide inactive is on by default')
     await hide.click()
     assert.equal(await hide.getAttribute('aria-pressed'), 'false')
-    const disclosure = page.locator('header button[aria-expanded]')
+    const disclosure = page.locator('header #topbar-more')
+    assert.equal(await disclosure.getAttribute('aria-expanded'), 'true', 'a filter keeps More open')
     await disclosure.click()
     assert.equal(await disclosure.getAttribute('aria-expanded'), 'false')
     assert.doesNotMatch(String(await disclosure.getAttribute('aria-label')), /Hide inactive/)
@@ -192,31 +206,30 @@ test('top bar 390x844: folded with Hide inactive on, More says a filter is on', 
   }
 })
 
-// Crossing 768 px (a resize or a browser zoom) must not drop the focus on <body> (2.4.3)
+// Crossing 1024 or 768 px (a resize or a browser zoom) must not drop the focus on <body> (2.4.3)
 const focusedName = (page: Page) => page.evaluate(`(() => { const a = document.activeElement; return !a || a === document.body ? 'BODY' : (a.getAttribute('aria-label') || a.textContent.trim()) })()`) as Promise<string>
 
-test('top bar: More has the focus and the window widens past 1024 px, the focus stays in the bar', async () => {
+test('top bar: More has the focus and the window widens past 1024 px, More keeps it (it is in the bar at every width)', async () => {
   const page = await open(390, 844)
   try {
-    await page.locator('header button[aria-expanded]').focus()
+    await page.locator('header #topbar-more').focus()
     await page.setViewportSize({ width: 1100, height: 844 })
-    await page.waitForFunction(`!document.querySelector('header button[aria-expanded]')`)
-    const name = await focusedName(page)
-    assert.notEqual(name, 'BODY', 'the focus is not lost on <body>')
-    assert.ok(await page.evaluate(`document.querySelector('header').contains(document.activeElement)`), `the focus stays in the top bar (got "${name}")`)
+    await page.waitForFunction(`!!document.querySelector('header #topbar-toggle-files')`)
+    assert.equal(await page.evaluate('document.activeElement && document.activeElement.id'), 'topbar-more', `the focus stays on More (got "${await focusedName(page)}")`)
   } finally {
     await page.context().close()
   }
 })
 
-test('top bar: a filter has the focus and the window narrows under 1024 px, the filter keeps it', async () => {
+test('top bar: a filter of More has the focus and the window narrows under 768 px, the filter keeps it', async () => {
   const page = await open(1100, 844)
   try {
-    await page.getByRole('button', { name: /^Hide inactive: agents( and sessions)?$/ }).focus()
+    await (await topbarButton(page, /^Hide inactive: agents( and sessions)?$/)).focus()
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.waitForFunction(`!!document.querySelector('header button[aria-expanded]')`)
+    await page.waitForFunction(`!document.querySelector('header #topbar-toggle-files') || !!document.activeElement?.closest('[data-topbar-menu]')`)
+    await waitForStableLayout(page)
     assert.match(String(await focusedName(page)), /^Hide inactive: agents( and sessions)?$/, 'the focused filter is still rendered and focused')
-    assert.equal(await page.locator('header button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'More opened to keep it')
+    assert.equal(await page.locator('header #topbar-more').getAttribute('aria-expanded'), 'true', 'More stays open around it')
   } finally {
     await page.context().close()
   }

@@ -10,6 +10,7 @@ import { chromium, type Browser, type Frame, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 import { postWhenListening } from './bridge-ready'
+import { topbarButton } from './topbar-fold'
 
 let browser: Browser
 let server: DemoServer
@@ -138,7 +139,7 @@ test('1280px: after a dismissal the Sessions button carries ⚠ with its words; 
 
     // Full screen and back: record every focus move inside the app
     await frame.evaluate(`(() => { window.__moves = []; document.addEventListener('focusin', e => window.__moves.push((e.target.getAttribute('aria-label') || e.target.textContent || '').trim())) })()`)
-    await frame.getByRole('button', { name: 'Enter full screen' }).click()
+    await (await topbarButton(frame, 'Enter full screen')).click()
     await banner(frame).waitFor({ state: 'detached' })
     await frame.getByRole('button', { name: 'Exit full screen' }).click()
     await banner(frame).waitFor()

@@ -71,6 +71,7 @@ import type { ProjectContextData } from '@/lib/project-context'
 import type { SessionCapabilities } from '@/lib/session-capabilities'
 import type { ResumableSession } from '@/lib/resume-command'
 import type { ConversationMessage } from '@/hooks/simulation/types'
+import { openMore } from './topbar-more'
 
 afterEach(() => {
   cleanup()
@@ -790,6 +791,9 @@ for (const locale of LOCALES) {
       const header = view.container.querySelector('header') as HTMLElement
       assert.equal(langOf(header), locale, `the bar declares lang=${locale}`)
       strings.push(...surfaceStrings(header))
+      // More open (one-line bar): the scope, the filters, the quota and the tools it holds
+      openMore()
+      strings.push(...surfaceStrings(header))
       // What the relay wrote in English declares it
       for (const e of Array.from(header.querySelectorAll('[data-i18n-exempt]'))) assert.equal(e.getAttribute('lang'), 'en', 'an exempt subtree declares lang=en')
       cleanup()
@@ -802,14 +806,15 @@ for (const locale of LOCALES) {
     keep({ connectionStatus: 'disconnected', connectionDetail: 'proxy refused', onRetryConnection: barNoop })
     keep({ isDemo: true, onExitDemo: barNoop, isVSCode: true, notifyState: 'on' })
     keep({ selectedSessionId: 'team:alpha', attention: { waiting: 2, errors: 0 } })
-    // Folded under 1024 px, then under 768 px: More names the filters that are on
+    // Under 768 px: More names the filters that are on, the panel buttons are in it
     setMobileView(true)
     keep({})
     keep({ showMode: 'all' })
     setMobileView(false)
 
     for (const x of [
-      T('topbar.sessions.button', { label: T('sessions.allSessions') }), T('topbar.sessions.title'), T('topbar.sessions.newActivity'), T('topbar.sessions.unobserved.one', { n: 1 }),
+      // The Sessions button reads "Sessions: " (visually hidden) then draws the selection (review of PR 631)
+      T('topbar.sessions.button', { label: '' }).trimEnd(), T('sessions.allSessions'), T('topbar.sessions.newActivity'), T('topbar.sessions.unobserved.one', { n: 1 }),
       T('topbar.attention.waiting.one', { n: 1 }) + ' / ' + T('topbar.attention.error.other', { n: 2 }),
       T('topbar.attention.title.many'),
       T('topbar.connection.watching'), T('topbar.connection.connecting'), T('topbar.connection.offline'), T('topbar.connection.demo'), T('topbar.connection.retry'), T('topbar.connection.exitDemo'),
@@ -820,6 +825,8 @@ for (const locale of LOCALES) {
       T('scope.group'), T('scope.select'), T('scope.title'), T('scope.option.workspace'), T('scope.option.all'), T('scope.summary', { name: 'alpha' }),
     ]) assert.ok(strings.includes(x), `"${x}" was rendered`)
     assert.ok(strings.some(s => s.endsWith(T('topbar.attention.answerWhere'))), 'the tooltip says where a permission is answered')
+    // The Sessions tooltip gives the whole text of the button (capped, its label may end in an ellipsis), then what it opens
+    assert.ok(strings.some(s => s.endsWith(T('topbar.sessions.title'))), 'the Sessions tooltip says what the button opens')
     assert.ok(strings.some(s => s.includes(T('scope.notice.fileLimit.other', { n: 2, max: 500 }))), 'the ceilings are worded in the language')
     assert.ok(strings.length > 60, 'the bar was rendered')
 
@@ -837,7 +844,9 @@ for (const locale of LOCALES) {
     const fixtureNames = new Set(['alpha-run', 'alpha', 'Alpha', 'a'])
     // An unknown connection detail is exempt (data-i18n-exempt, lang=en) only on a page that is not in English; in English it is the page's own language, so it is data like the names above
     if (locale === 'en') fixtureNames.add('proxy refused')
-    const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
+    // "Sessions: " is the catalog value topbar.sessions.button before its {label}, read but not drawn (review of PR 631)
+    const sessionsPrefix = T('topbar.sessions.button', { label: '' }).trimEnd()
+    const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', sessionsPrefix, ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
     assert.deepEqual(unknown, [])
     assert.deepEqual(foreignWords(locale, strings.filter(s => !s.includes('OpenCode') && !s.includes('The relay refused') && !fixtureNames.has(s)), new Set(['alpha-run'])), [])
   })

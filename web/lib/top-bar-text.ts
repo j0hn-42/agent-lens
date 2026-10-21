@@ -42,6 +42,11 @@ export function unobservedSessionsText(locale: Locale, n: number): string {
   return plural(locale, 'topbar.sessions.unobserved', n)
 }
 
+/** The same, short, as the Sessions button draws it from 1280 px ("2 not observed"); the full text is read */
+export function unobservedSessionsShortText(locale: Locale, n: number): string {
+  return plural(locale, 'topbar.sessions.unobservedShort', n)
+}
+
 // ─── Attention counter (#501) ────────────────────────────────────────────────
 
 /**

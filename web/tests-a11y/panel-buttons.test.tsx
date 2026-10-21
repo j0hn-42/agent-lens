@@ -5,9 +5,11 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup } from '@testing-library/react'
 
+import { setViewportWidth } from './mobile-media'
 import { TopBar, PANEL_BUTTON_IDS, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { SHORTCUTS } from '@/lib/shortcuts'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
+import { openMore } from './topbar-more'
 
 afterEach(() => {
   cleanup()
@@ -69,13 +71,25 @@ test('in VS Code the Context button exposes why the panel is unavailable', () =>
 
 // #357, WCAG 1.4.10: with the System toggle the side panel group is wider than a 320 px viewport; it wraps like the
 // toolbar around it instead of pushing Files and Context out of the screen (e2e reflow-320 measures the real layout).
-test('the side panel group wraps on a narrow viewport and keeps every toggle in it', () => {
-  render(<TopBar {...props} />)
-  const group = document.querySelector<HTMLElement>('[role="group"][aria-label="Side panels"]')!
-  assert.match(group.className, /\bflex-wrap\b/)
-  for (const panel of ['files', 'conversation', 'context', 'system', 'cost'] as const) {
-    assert.ok(group.contains(document.getElementById(PANEL_BUTTON_IDS[panel])), `${panel} toggle stays in the group`)
+test('the side panel group keeps every toggle in it: on one line in the bar, wrapping in More under 1024 px', () => {
+  const view = render(<TopBar {...props} />)
+  const group = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Side panels"]')!
+  const all = () => {
+    for (const panel of ['files', 'conversation', 'context', 'system', 'cost'] as const) {
+      assert.ok(group().contains(document.getElementById(PANEL_BUTTON_IDS[panel])), `${panel} toggle stays in the group`)
+    }
   }
+  // From 1024 px the group is in the one-line bar: it never wraps there
+  assert.doesNotMatch(group().className, /\bflex-wrap\b/)
+  all()
+  try {
+    setViewportWidth(900)
+    openMore()
+    assert.ok(view.container.querySelector('[data-topbar-menu]')!.contains(group()), 'under 1024 px the group is in More')
+    // At 320 px the five toggles do not fit on one line of More (WCAG 1.4.10)
+    assert.match(group().className, /\bflex-wrap\b/)
+    all()
+  } finally { setViewportWidth(1440) }
 })
 
 test('outside VS Code the Context button has no unavailability note', () => {

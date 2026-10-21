@@ -6,6 +6,7 @@ import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 
 let browser: Browser
 let server: DemoServer
@@ -23,7 +24,7 @@ after(async () => {
 /** The theme selector lives in the Settings dialog: open it (once) and return the selector. */
 async function themeSelect(page: Page) {
   const select = page.getByRole('combobox', { name: 'Theme' })
-  if (!(await select.isVisible())) await page.getByRole('button', { name: 'Settings' }).click()
+  if (!(await select.isVisible())) await (await topbarButton(page, 'Settings')).click()
   await select.waitFor()
   return select
 }

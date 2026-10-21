@@ -8,14 +8,22 @@ import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { parseRelayScopeState } from '@/lib/relay-scope'
 
 const noop = () => {}
+const query = new URLSearchParams(location.search)
 const scopeState = parseRelayScopeState({
   relayVersion: '1', workspace: '/home/me/code/alpha', runtimes: ['claude'], hooksConfigured: true, disable1MContext: false,
   sessionCount: 1, allWorkspaces: false,
   // ?ceilings=0: no discovery ceiling reached, so the scope sentence is the only text next to the select
-  skippedSessions: new URLSearchParams(location.search).get('ceilings') === '0' ? { watchLimit: 0, sizeLimit: 0, fileLimit: 0 } : { watchLimit: 1, sizeLimit: 2, fileLimit: 2 },
+  skippedSessions: query.get('ceilings') === '0' ? { watchLimit: 0, sizeLimit: 0, fileLimit: 0 } : { watchLimit: 1, sizeLimit: 2, fileLimit: 2 },
   discovery: { projectDirsCapped: false, maxProjectDirs: 200, maxFilesPerDir: 500 },
 })!
-const sessions = [{ id: 's1', label: 'alpha-run', status: 'active', startTime: 1, lastActivityTime: 2, projectId: 'p', projectName: 'Alpha' }] as TopBarProps['sessions']
+// ?worst=1 (one-line bar): a selected session named with 40 characters, the DEMO state with its Exit demo button, blocked
+// Notifications and both quota gauges, on top of the attention counter, the scope and its ceilings
+const worst = query.get('worst') === '1'
+const LONG_NAME = 'refactor-authentication-flow-and-tests-x'
+const sessions = [
+  { id: 's1', label: worst ? LONG_NAME : 'alpha-run', status: 'active', startTime: 1, lastActivityTime: 2, projectId: 'p', projectName: 'Alpha' },
+] as TopBarProps['sessions']
+const now = Date.now()
 const props: TopBarProps = {
   sessions, selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(['other']),
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'watching',
@@ -26,5 +34,14 @@ const props: TopBarProps = {
   showMode: 'active',
   attention: { waiting: 2, errors: 1 }, onJumpToAttention: noop,
   scope: { state: scopeState, sessions, projectId: null, pending: false, error: null, onChoose: noop },
+  ...(worst ? {
+    selectedSessionId: 's1', lossMarked: true, isDemo: true, onExitDemo: noop, notifyState: 'denied' as const, selectedRuntime: 'claude',
+    quota: { fiveHour: { remainingPercent: 38, resetsAt: Math.floor(now / 1000) + 3600 }, sevenDay: { remainingPercent: 8, resetsAt: Math.floor(now / 1000) + 86400 * 3 }, receivedAt: now - 7 * 60_000 },
+  } : {}),
+  // &conn=offline: the relay link is down instead of the demo (its reconnect detail and Retry now)
+  ...(query.get('conn') === 'offline' ? {
+    isDemo: false, onExitDemo: undefined, connectionStatus: 'disconnected' as const,
+    connectionDetail: 'reconnecting (attempt 12, retry in 30s)', onRetryConnection: noop,
+  } : {}),
 }
 createRoot(document.getElementById('root')!).render(<TopBar {...props} />)

@@ -9,6 +9,7 @@ import { vscodeBridge } from '@/lib/vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair, getPair } from '@/lib/pair-filter-store'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { clickInMore } from './topbar-more'
 
 // Web Audio is not in jsdom: a deep no-op stub
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
@@ -66,7 +67,7 @@ async function mountTwoSessions() {
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
     post(spawn('sb', 'main-b', { isMain: true }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) })
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
   const agentItems = () => Array.from(r.container.querySelectorAll('li')).map(li => li.textContent ?? '')
   await waitUntil(() => ['main-a', 'worker-a', 'main-b'].every(n => agentItems().some(t => t.startsWith(n))), 'the three agents are drawn')
   // the halos carry the session meta once the layout has grouped the agents: wait for that, not for a fixed time (#440)
@@ -133,7 +134,7 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) })
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
   await waitUntil(() => r.container.textContent?.includes('Session payments-api, 2 agents') ?? false, 'the payments-api halo is drawn')
   await openSessions(r)
   const tab = () => sessionRow(r, /payments-api/)

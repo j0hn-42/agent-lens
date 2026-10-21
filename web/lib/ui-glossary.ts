@@ -197,19 +197,20 @@ export const SESSION_LIST_LABELS = {
   hiddenUnnamed: 'Session hidden',
 } as const
 
-/** Top bar under 768 px (#378, #476): the panel buttons, the totals and the view filters fold behind this disclosure button. */
+/** Top bar on one line (owner request, 2026-10-21): the scope, the view filters, the quota gauges and the tools are behind
+ *  this disclosure button at every width, the panel buttons too under 1024 px (#378, #476, #523 before). */
 export const TOP_BAR_LABELS = {
   more: 'More',
-  moreName: 'More: panels, totals and filters',
-  moreHelp: 'Panel buttons, quota gauges and the view filters (folded under 1024 px wide)',
+  moreName: 'More: scope, filters, quota and tools',
+  moreHelp: 'Session scope, view filters, quota gauges and tools; the panel buttons too under 1024 px wide',
   /** Folded with filters on: the visible text says the canvas is filtered (short: it shares a row at 320 px) */
   moreWithFilters: (count: number) => `More · ${count} ${count === 1 ? 'filter' : 'filters'}`,
   /** Its accessible name starts with that visible text (2.5.3), then names the filters */
   moreNameWithFilters: (names: readonly string[]) =>
-    `More · ${names.length} ${names.length === 1 ? 'filter' : 'filters'} on: panels, totals and filters (${names.join(', ')})`,
+    `More · ${names.length} ${names.length === 1 ? 'filter' : 'filters'} on: scope, filters, quota and tools (${names.join(', ')})`,
   /** The same name in two parts around the list of filters, so each filter can carry its own language (#373) */
   moreNameWithFiltersParts: (count: number) => ({
-    before: `More · ${count} ${count === 1 ? 'filter' : 'filters'} on: panels, totals and filters (`,
+    before: `More · ${count} ${count === 1 ? 'filter' : 'filters'} on: scope, filters, quota and tools (`,
     after: ')',
   }),
   /** Filter names used in those strings */

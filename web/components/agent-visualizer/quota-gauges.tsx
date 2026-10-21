@@ -4,7 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { useLocale, useT } from '@/lib/locale'
-import type { Locale } from '@/lib/messages'
+import { translate, type Locale } from '@/lib/messages'
 import type { GaugeView, QuotaGaugeState } from '@/lib/quota'
 
 /** Under this share of the window left (after rounding, as displayed) the gauge is "low", and under the second one "critical".
@@ -196,4 +196,24 @@ export function QuotaGauges({ state, interactive = true }: {
   // Exhaustiveness: a new QuotaGaugeState kind must fail tsc here instead of silently rendering nothing
   const exhaustive: never = state
   return exhaustive
+}
+
+/** The quota in one sentence, as the gauges draw it ("5 h 38 % left, 7 d 8 % left critical"), for the description of More
+ *  (one-line bar): the gauges are behind More, their figures and level are still read on it. `alert` when a gauge is low
+ *  or critical or the figures are unknown. Null when nothing is drawn. */
+export function quotaSummary(state: QuotaGaugeState, locale: Locale): { text: string; alert: boolean } | null {
+  if (state.kind === 'hidden') return null
+  if (state.kind === 'unknown') return { text: translate(locale, 'quota.unknown'), alert: true }
+  let alert = false
+  const parts: string[] = []
+  for (const [kind, gauge] of [['fiveHour', state.fiveHour], ['sevenDay', state.sevenDay]] as const) {
+    if (!gauge) continue
+    const percent = Math.round(gauge.remainingPercent)
+    const level = quotaLevel(percent)
+    if (level !== 'ok') alert = true
+    const levelText = level === 'ok' ? '' : ` ${translate(locale, level === 'low' ? 'quota.level.low' : 'quota.level.critical')}`
+    parts.push(`${translate(locale, kind === 'fiveHour' ? 'quota.window.fiveHour' : 'quota.window.sevenDay')} ${translate(locale, 'quota.left', { percent })}${levelText}`)
+  }
+  if (state.ageMinutes !== null) parts.push(translate(locale, 'quota.updatedAgo', { minutes: state.ageMinutes }))
+  return parts.length > 0 ? { text: parts.join(', '), alert } : null
 }

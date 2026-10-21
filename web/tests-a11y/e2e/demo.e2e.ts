@@ -98,7 +98,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
   test('e2e: keyboard shortcuts dialog', async () => {
     const { page, close } = await open()
     try {
-      await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+      await (await topbarButton(page, 'Keyboard shortcuts')).click()
       await page.getByRole('dialog').waitFor()
       expectClean('e2e:shortcuts-dialog', await axeFailures(page, 'e2e:shortcuts-dialog'))
     } finally { await close() }

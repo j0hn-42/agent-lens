@@ -14,6 +14,7 @@ import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { withSlowFrames } from './slow-frames'
 import { linkDashCount } from './link-dashes'
 import { waitFor } from './wait-for'
+import { clickInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -76,7 +77,7 @@ async function mountWith(sessions: unknown[], events: unknown[], row: number | n
   }
   await wait(100)
   await act(async () => { for (const e of events) post(e) })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) }) // idle agents are hidden by default
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {}) // idle agents are hidden by default
   await wait(700)
   return r
 }

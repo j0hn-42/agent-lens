@@ -1,10 +1,8 @@
-// #523: the seven panel buttons of the top bar (Files, Conversation, Context, System, Cost, Timeline, Stats) show an icon
-// under 1280 px wide and their name from 1280 px. The name is the same at every width (WCAG 2.5.3, 4.1.2): the visible
-// label stays in the button (visually hidden by CSS under 1280 px, measured in e2e/topbar-layout.e2e.ts) and the icon
-// is an aria-hidden SVG. Each button has a role=tooltip linked by aria-describedby, shown on hover and on focus,
-// hoverable, and closed by Escape even when it was opened by hover with the focus elsewhere (1.4.13). The bar folds
-// behind More under 1024 px (a query apart from the 768 px mobile view): there, Commands stays in the bar and a panel
-// button folds More again.
+// #523, one-line bar (owner request, 2026-10-21): the seven panel buttons of the top bar (Files, Conversation, Context,
+// System, Cost, Timeline, Stats) show an icon at every width. The name is the same at every width (WCAG 2.5.3, 4.1.2): the
+// label stays in the button, visually hidden, and the icon is an aria-hidden SVG. Each button has a role=tooltip linked by aria-describedby, shown on hover and on focus,
+// hoverable, and closed by Escape even when it was opened by hover with the focus elsewhere (1.4.13). What does not fit
+// on the line is behind More at fixed widths (lib/mobile-view.ts): a panel button of More closes it again.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -18,6 +16,7 @@ import { TOOLTIP_CLOSE_DELAY_MS } from '@/lib/chrome-utils'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { COST_LABELS } from '@/lib/ui-glossary'
 import { setMobileView, setViewportWidth } from './mobile-media'
+import { openMore } from './topbar-more'
 
 afterEach(() => {
   setMobileView(false)
@@ -90,8 +89,9 @@ for (const locale of ['en', 'fr'] as const) {
       assert.ok(label, `${p}: the visible label stays in the DOM`)
       assert.ok(name.startsWith(label!.textContent ?? '\u0000'), `${p}: the visible label "${label!.textContent}" starts the name "${name}" (2.5.3)`)
       // Hidden by CSS under 1280 px (sr-only keeps it in the accessibility tree), the icon drawn there only
-      assert.match(label!.className, /\bmax-xl:sr-only\b/)
-      assert.match(svg!.getAttribute('class') ?? '', /\bmax-xl:block\b/)
+      // An icon at every width (one-line bar): the label is visually hidden, the icon always drawn
+      assert.match(label!.className, /(^| )sr-only\b/)
+      assert.doesNotMatch(svg!.getAttribute('class') ?? '', /\bhidden\b/)
       assert.equal(button.closest('[lang]')?.getAttribute('lang'), locale, `${p}: declares its language`)
     }
   })
@@ -238,54 +238,66 @@ test('in VS Code the Context tooltip says why the panel is unavailable', () => {
 const tabStops = (root: HTMLElement) => Array.from(root.querySelectorAll<HTMLElement>('button, [tabindex="0"], select'))
   .map(el => el.getAttribute('aria-label') || el.textContent?.trim() || el.tagName)
 
-test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2 (quota and spoken totals, panels, tools)', () => {
+test('one DOM order on one line: Sessions, connection, attention, panels, Commands, More, then what More holds', () => {
   const view = render(<TopBar {...base} />)
   const header = view.container.querySelector('header')!
-  const stops = tabStops(header)
-  const at = (re: RegExp) => { const i = stops.findIndex(s => re.test(s)); assert.ok(i >= 0, `${re} in ${stops.join(' | ')}`); return i }
-  const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
-  const idx = order.map(at)
-  assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${stops.join(' | ')}`)
-  // The groups: identity and filters (row 1), status (quota, spoken totals), panels and tools (row 2)
-  const groups = Array.from(header.querySelectorAll('[data-topbar-group]')).map(g => g.getAttribute('data-topbar-group'))
-  assert.deepEqual(groups, ['identity', 'filters', 'status', 'panels', 'tools'])
-  const row = (n: string) => header.querySelector(`[data-topbar-row="${n}"]`)!
-  for (const g of ['identity', 'filters']) assert.ok(row('1').contains(header.querySelector(`[data-topbar-group="${g}"]`)), `${g} in row 1`)
-  for (const g of ['status', 'panels', 'tools']) assert.ok(row('2').contains(header.querySelector(`[data-topbar-group="${g}"]`)), `${g} in row 2`)
-  // #523: no counts drawn any more (they are in the Sessions panel header); row 2 opens with the totals read by screen readers
+  const closed = tabStops(header)
+  const at = (stops: string[], re: RegExp) => { const i = stops.findIndex(s => re.test(s)); assert.ok(i >= 0, `${re} in ${stops.join(' | ')}`); return i }
+  const barOrder = [/^Sessions/, /needs you/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^Cost$/, /^Timeline$/, /^Stats$/, /^Commands$/, /^More/]
+  const idx = barOrder.map(re => at(closed, re))
+  assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${closed.join(' | ')}`)
+  assert.match(closed.at(-1)!, /^More/, 'More closes the bar; nothing of it is a Tab stop while closed')
+  // More open: its overlay comes right after it in the DOM (Tab goes from More into it)
+  openMore()
+  const open = tabStops(header)
+  const menuOrder = [/^More/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /sound effects/, /full screen/, /^Settings$/, /^Keyboard shortcuts$/]
+  const mIdx = menuOrder.map(re => at(open, re))
+  assert.deepEqual([...mIdx].sort((a, b) => a - b), mIdx, `tab order with More open: ${open.join(' | ')}`)
+  const menu = header.querySelector('[data-topbar-menu]')!
+  assert.equal(menu.id, header.querySelector('#topbar-more')!.getAttribute('aria-controls'))
+  assert.deepEqual(Array.from(menu.querySelectorAll('[data-topbar-group]')).map(g => g.getAttribute('data-topbar-group')), ['filters', 'tools'])
+  // #523: no counts drawn (they are in the Sessions panel header); the totals are read by screen readers
   assert.equal(header.querySelector('[data-testid="topbar-agent-counts"]'), null, 'no agent counts drawn in the bar')
-  assert.ok(row('2').querySelector('[data-testid="topbar-spoken-totals"].sr-only'), 'the spoken totals open row 2')
-  // No group clips the focus ring
-  for (const g of Array.from(header.querySelectorAll<HTMLElement>('[data-topbar-group], [data-topbar-row]'))) assert.doesNotMatch(g.className, /overflow-/)
+  assert.ok(header.querySelector('[data-testid="topbar-spoken-totals"].sr-only'), 'the spoken totals stay in the bar')
+  // No box of the bar clips a focus ring or the overlay
+  assert.doesNotMatch(header.className, /overflow-/)
+  for (const g of Array.from(header.querySelectorAll<HTMLElement>('[data-topbar-group]'))) assert.doesNotMatch(g.className, /overflow-/)
 })
 
-test('the DOM order is the same with icons (1100 px) and labels (1440 px)', () => {
-  const wide = render(<TopBar {...base} />)
-  const a = tabStops(wide.container.querySelector('header')!)
-  cleanup()
-  setViewportWidth(1100)
-  const icons = render(<TopBar {...base} />)
-  assert.deepEqual(tabStops(icons.container.querySelector('header')!), a)
-  assert.equal(icons.container.querySelector(`#${TOPBAR_MORE_ID}`), null, 'not folded at 1100 px')
+test('fixed widths: what the bar draws at 1440, 1100, 900 and 375 px (the rest is in More)', () => {
+  const cases: Array<[number, { panels: boolean; commands: boolean }]> = [
+    [1440, { panels: true, commands: true }], [1100, { panels: true, commands: false }],
+    [900, { panels: false, commands: true }], [375, { panels: false, commands: false }],
+  ]
+  for (const [w, want] of cases) {
+    setViewportWidth(w)
+    const view = render(<TopBar {...base} />)
+    const header = view.container.querySelector('header')!
+    assert.equal(!!header.querySelector(`#${PANEL_BUTTON_IDS.files}`), want.panels, `${w} px: panels ${want.panels ? 'in the bar' : 'in More'}`)
+    assert.equal(!!header.querySelector('#topbar-commands'), want.commands, `${w} px: Commands ${want.commands ? 'in the bar' : 'in More'}`)
+    openMore()
+    // Open, More holds the rest: every control is reachable at every width, once
+    for (const id of [PANEL_BUTTON_IDS.files, PANEL_BUTTON_IDS.stats, 'topbar-commands', 'topbar-settings', 'topbar-shortcuts', 'topbar-mute']) {
+      assert.equal(header.querySelectorAll(`[id="${id}"]`).length, 1, `${w} px: ${id} once`)
+    }
+    cleanup()
+  }
 })
 
-test('768 to 1023 px: the bar folds behind More, Commands stays in the bar, no 44 px target and no mobile branch', async () => {
+test('768 to 1023 px: no 44 px target and no mobile branch; axe passes with More closed and open', async () => {
   setViewportWidth(900)
   const view = render(<TopBar {...base} />)
   const header = view.container.querySelector('header')!
-  const more = view.getByRole('button', { name: /^More/ })
-  assert.equal(more.id, TOPBAR_MORE_ID)
-  assert.equal(more.getAttribute('aria-expanded'), 'false')
-  assert.ok(view.getByRole('button', { name: 'Commands' }), 'Commands stays in the folded bar')
-  assert.equal(view.queryByRole('button', { name: 'Files & repeats' }), null, 'the panel buttons fold')
-  assert.equal(view.queryByRole('button', { name: /^Hide inactive/ }), null, 'the filters fold')
   // The 44 px classes only act under 768 px (max-md); they are the same classes as before
   for (const b of Array.from(header.querySelectorAll('button'))) assert.ok(b.className.includes(TOUCH_TARGET))
-  const results = await axe.run(view.container, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
-  assert.deepEqual(results.violations.map(v => v.id), [])
+  const run = async () => (await axe.run(view.container, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations.map(v => v.id)
+  assert.deepEqual(await run(), [])
+  openMore()
+  for (const b of Array.from(header.querySelectorAll('button'))) assert.ok(b.className.includes(TOUCH_TARGET), `${b.getAttribute('aria-label') ?? b.textContent}`)
+  assert.deepEqual(await run(), [])
 })
 
-test('768 to 1023 px: More shows every control; a panel button folds More again and leaves the focus on More', () => {
+test('768 to 1023 px: a panel button of More closes it and leaves the focus on More', () => {
   setViewportWidth(900)
   const toggled: string[] = []
   const view = render(<TopBar {...base} onTogglePanel={p => toggled.push(p)} onToggleTimeline={() => toggled.push('timeline')} />)
@@ -293,41 +305,97 @@ test('768 to 1023 px: More shows every control; a panel button folds More again 
   for (const [name, id] of [['Files & repeats', 'files'], ['Conversation (C)', 'conversation'], ['Timeline', 'timeline']] as const) {
     fireEvent.click(more)
     assert.equal(more.getAttribute('aria-expanded'), 'true')
-    for (const n of ['Hide inactive: agents and sessions', 'Stats', 'Settings', 'Keyboard shortcuts', 'Commands']) assert.ok(view.getByRole('button', { name: n }), `${n} shown`)
+    for (const n of ['Hide inactive: agents and sessions', 'Stats', 'Settings', 'Keyboard shortcuts']) assert.ok(view.getByRole('button', { name: n }), `${n} shown`)
     const button = view.getByRole('button', { name })
     button.focus()
     fireEvent.click(button)
     assert.equal(toggled.at(-1), id)
-    assert.equal(more.getAttribute('aria-expanded'), 'false', `${name} folds More`)
+    assert.equal(more.getAttribute('aria-expanded'), 'false', `${name} closes More`)
     assert.equal(document.activeElement, more, `the focus waits on More after ${name}`)
   }
   assert.equal(view.getAllByRole('button', { name: 'Commands' }).length, 1, 'one Commands button')
 })
 
-test('crossing 1024 px keeps the focus: on Commands it stays on Commands, on a panel button More opens, on More it goes to the bar', () => {
+test('More: Escape closes it and gives the focus back to More; the app Escape waits; a click outside closes it', () => {
+  const view = render(<><TopBar {...base} /><button type="button">outside</button></>)
+  const more = openMore()
+  const settings = view.getByRole('button', { name: 'Settings' })
+  settings.focus()
+  let reached = false
+  const late = () => { reached = true }
+  window.addEventListener('keydown', late)
+  try {
+    fireEvent.keyDown(settings, { key: 'Escape' })
+  } finally { window.removeEventListener('keydown', late) }
+  assert.equal(more.getAttribute('aria-expanded'), 'false')
+  assert.equal(document.activeElement, more, 'the focus is back on More (2.4.3)')
+  assert.equal(reached, false, 'the app Escape (close a panel, clear the selection) did not also run')
+  openMore()
+  fireEvent.pointerDown(view.getByRole('button', { name: 'outside' }))
+  assert.equal(more.getAttribute('aria-expanded'), 'false', 'a click outside the bar closes it')
+})
+
+test('crossing a width keeps the focus: a control that moves behind More opens More and keeps it, one that comes back keeps it too', () => {
   const view = render(<TopBar {...base} />)
-  const commands = view.getByRole('button', { name: 'Commands' })
-  commands.focus()
-  setViewportWidth(900)
-  assert.equal(document.activeElement, commands, 'the same Commands button keeps the focus')
-  assert.equal(view.getByRole('button', { name: /^More/ }).getAttribute('aria-expanded'), 'false', 'More stays folded')
-  setViewportWidth(1440)
+  const header = view.container.querySelector('header')!
+  const menu = () => header.querySelector('[data-topbar-menu]')!
+  const more = () => view.getByRole('button', { name: /^More/ })
+  // Commands: in the bar at 1440 px, in More at 1100 px
+  view.getByRole('button', { name: 'Commands' }).focus()
+  setViewportWidth(1100)
+  assert.equal(document.activeElement?.id, 'topbar-commands', 'Commands keeps the focus')
+  assert.ok(menu().contains(document.activeElement), 'More opened to show it')
+  assert.equal(more().getAttribute('aria-expanded'), 'true')
+  fireEvent.click(more())
+  // A panel button: in the bar at 1100 px, in More at 900 px
   view.getByRole('button', { name: 'Files & repeats' }).focus()
   setViewportWidth(900)
   assert.equal(document.activeElement?.id, PANEL_BUTTON_IDS.files)
-  assert.equal(view.getByRole('button', { name: /^More/ }).getAttribute('aria-expanded'), 'true')
-  fireEvent.click(view.getByRole('button', { name: /^More/ }))
-  view.getByRole('button', { name: /^More/ }).focus()
-  setViewportWidth(1100)
-  assert.ok(document.activeElement && document.activeElement !== document.body, 'the focus is not dropped on <body>')
-  assert.ok(view.container.querySelector('header')!.contains(document.activeElement), 'it stays in the bar')
+  assert.ok(menu().contains(document.activeElement))
+  // Back to 1440 px: the button is in the bar again and keeps the focus
+  setViewportWidth(1440)
+  assert.equal(document.activeElement?.id, PANEL_BUTTON_IDS.files)
+  assert.ok(!menu().contains(document.activeElement), 'the one in the bar')
+  // More itself never moves
+  more().focus()
+  setViewportWidth(375)
+  assert.equal(document.activeElement, more())
 })
 
-test('under 768 px Commands is not drawn and its focus goes to More (unchanged)', () => {
+test('under 768 px Commands is in More and keeps the focus when the window narrows', () => {
   setViewportWidth(900)
   const view = render(<TopBar {...base} />)
   view.getByRole('button', { name: 'Commands' }).focus()
   setMobileView(true)
-  assert.equal(view.queryByRole('button', { name: 'Commands' }), null)
-  assert.equal(document.activeElement?.id, TOPBAR_MORE_ID)
+  assert.equal(document.activeElement?.id, 'topbar-commands')
+  assert.ok(view.container.querySelector('[data-topbar-menu]')!.contains(document.activeElement))
+})
+
+// PR #631 review: "Notifications blocked" was drawn in the bar from 1024 px before the one-line bar; it is behind More now,
+// so More signals it: the warning triangle (a shape, not a colour alone) and a description that names the blocked
+// notifications. The accessible name of More still contains its visible text (2.5.3).
+const describedText = (el: HTMLElement) =>
+  (el.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+test('blocked notifications are signalled on More: warning mark and description, at every width, in both languages', () => {
+  for (const [label, mobile] of [['1440 px', false], ['375 px', true]] as const) {
+    setMobileView(mobile)
+    const view = render(<TopBar {...base} notifyState="denied" />)
+    const more = document.getElementById(TOPBAR_MORE_ID)!
+    assert.equal(view.container.querySelector('[data-more-mark]')?.getAttribute('data-more-mark'), 'alert', `${label}: warning triangle`)
+    assert.match(describedText(more), /Notifications blocked/, `${label}: ${describedText(more)}`)
+    const name = more.getAttribute('aria-label') ?? ''
+    // Visible text: what is not aria-hidden, and not hidden under 768 px (max-md:hidden) at 375 px
+    const visible = [...more.querySelectorAll('span')]
+      .filter(s => !s.closest('[aria-hidden="true"]') && !(mobile && s.classList.contains('max-md:hidden')))
+      .map(s => s.textContent).join('').trim()
+    assert.ok(name.includes(visible), `${label}: name "${name}" contains the visible text "${visible}"`)
+    view.unmount()
+  }
+  setMobileView(false)
+  const off = render(<TopBar {...base} notifyState="off" />)
+  assert.equal(off.container.querySelector('[data-more-mark]'), null, 'notifications not blocked: no mark')
+  off.unmount()
+  setLocaleChoice('fr')
+  render(<TopBar {...base} notifyState="denied" />)
+  assert.match(describedText(document.getElementById(TOPBAR_MORE_ID)!), /Notifications bloquées/)
 })
