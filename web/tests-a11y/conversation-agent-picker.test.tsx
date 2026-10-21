@@ -77,7 +77,9 @@ test('opening moves focus to the search field (combobox); groups carry a name; f
   const listbox = document.getElementById(input.getAttribute('aria-controls')!)!
   assert.equal(listbox.getAttribute('role'), 'listbox')
   const groups = Array.from(listbox.querySelectorAll('[role="group"]')).map(g => g.getAttribute('aria-label'))
-  assert.deepEqual(groups, ['Not finished (1)', 'Workflow mega (4)'])
+  // The first group holds the agents of no team (here the main agent): it says so, not "not finished" (53 agents of workflow83
+  // are not finished, the group held 1)
+  assert.deepEqual(groups, ['No team (1)', 'Workflow mega (4)'])
   const toggle = r.getByRole('button', { name: 'Finished (7)' })
   assert.equal(toggle.getAttribute('aria-expanded'), 'false')
   assert.equal(r.queryByRole('option', { name: /^done-01/ }), null)
@@ -158,21 +160,25 @@ test('unread: a pill "n unread" beside the button opens the list on the unread a
   const more = new Map(base)
   more.set('b3', [...base.get('b3')!, msg('b3-2', 'assistant', 50, 'late news')])
   r.retree({ selectedAgentId: 'b1', conversations: more })
-  const pill = r.getByRole('button', { name: '1 unread' })
+  // The pill counts agents, not messages: it says so (b3 got one message, but « 1 unread » read as one unread message)
+  const pill = r.getByRole('button', { name: '1 agent with unread messages' })
   assert.equal(pill.getAttribute('aria-label'), null)
+  assert.equal(pill.textContent, '1 agent with unread messages')
   fireEvent.click(pill)
   const only = r.getByRole('button', { name: 'Unread only' })
   assert.equal(only.getAttribute('aria-pressed'), 'true')
   const options = r.getAllByRole('option')
   assert.equal(options.length, 1)
-  assert.match(options[0].textContent ?? '', /^builder-03.*unread/)
+  // 2 is the agent's total of messages; how many are unread is not known here, so the option never writes « 2 unread messages »
+  assert.match(options[0].textContent ?? '', /^builder-03 \(.+\) 2 messages, some unread$/)
+  assert.ok(r.getByRole('option', { name: /^builder-03 \(.+\) 2 messages, some unread$/ }))
   fireEvent.click(only)
   assert.ok(r.getAllByRole('option').length > 1, 'turning it off lists every agent again')
 })
 
 test('messages that existed before the panel mounted are not counted as unread, even opened on an agent', () => {
   const r = panel({ selectedAgentId: 'b1' })
-  assert.equal(r.queryByRole('button', { name: /unread$/ }), null, 'no unread pill on mount')
+  assert.equal(r.queryByRole('button', { name: /unread/ }), null, 'no unread pill on mount')
   openPicker(r)
   assert.ok(!r.getAllByRole('option').some(o => /unread/.test(o.textContent ?? '')))
 })
@@ -219,7 +225,7 @@ test('French: « Agent : Tous (12) », « Rechercher un agent », groups and cou
   fireEvent.click(button)
   assert.ok(r.getByRole('combobox', { name: 'Rechercher un agent' }))
   assert.equal(r.getByRole('button', { name: 'Terminés (7)' }).getAttribute('aria-expanded'), 'false')
-  assert.ok(r.getByRole('group', { name: 'Non terminés (1)' }))
+  assert.ok(r.getByRole('group', { name: 'Sans équipe (1)' }))
   assert.ok(r.getByText(`5 agents sur ${TOTAL}`))
   act(() => { fireEvent.keyDown(r.getByRole('combobox'), { key: 'Escape' }) })
 })
@@ -232,4 +238,53 @@ test('below the threshold the tabs stay, wrap instead of scrolling sideways, and
   assert.ok(!list.className.includes('overflow-x-auto'), 'no horizontal scroll')
   assert.equal(r.queryByRole('button', { name: /^Agent: / }), null)
   assert.ok(r.getAllByRole('tab').every(t => t.className.includes('max-md:min-h-11')), '44 px targets under 768 px')
+})
+
+test('French: the pill says « agents avec des messages non lus », the option keeps its total apart from « non lus »', () => {
+  setLocaleChoice('fr')
+  const r = panel({ selectedAgentId: 'b1' })
+  const more = new Map(base)
+  more.set('b3', [...base.get('b3')!, msg('b3-2', 'assistant', 50, 'late news')])
+  more.set('b4', [...base.get('b4')!, msg('b4-2', 'assistant', 51, 'later news')])
+  r.retree({ selectedAgentId: 'b1', conversations: more })
+  const pill = r.getByRole('button', { name: '2 agents avec des messages non lus' })
+  fireEvent.click(pill)
+  const option = r.getByRole('option', { name: /^builder-03 / })
+  assert.match(option.textContent ?? '', /^builder-03 \(.+\) 2 messages, dont des non lus$/)
+  assert.doesNotMatch(option.textContent ?? '', /\d+ messages non lus/, 'never « n messages non lus »: n is the total')
+})
+
+// The focused element, described in words: an assert.equal on two jsdom elements prints the whole DOM tree on failure,
+// which exhausts the memory of the test process instead of saying what has the focus
+const describe = (el: Element | null) => el ? `<${el.tagName.toLowerCase()}${el.getAttribute('role') ? ` role=${el.getAttribute('role')}` : ''}> ${JSON.stringify(el.textContent?.slice(0, 60) ?? '')}` : 'null'
+const assertFocused = (el: Element, message: string) => assert.ok(document.activeElement === el, `${message}: focus is on ${describe(document.activeElement)}, expected ${describe(el)}`)
+
+// The 5th agent that speaks swaps the tablist for the picker: focus on a tab must not fall to <body> (WCAG 2.4.3)
+const FOUR = new Map([...base].slice(0, 4))
+test('focus on a tab moves to the picker button when the 5th agent speaks and the tabs give way to the picker', () => {
+  const r = panel({ conversations: FOUR })
+  const tab = r.getAllByRole('tab').find(t => t.getAttribute('tabindex') === '0')!
+  act(() => { tab.focus() })
+  assertFocused(tab, 'the tab has the focus')
+  act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
+  assert.equal(r.queryByRole('tablist'), null)
+  assertFocused(pickerButton(r), 'focus is on the picker button, not on <body>')
+})
+
+test('focus on the picker button moves to the active tab when the agents fall under the threshold', () => {
+  const r = panel({ conversations: new Map([...base].slice(0, 5)) })
+  const button = pickerButton(r)
+  act(() => { button.focus() })
+  act(() => { r.retree({ conversations: FOUR }) })
+  const active = r.getAllByRole('tab').find(t => t.getAttribute('aria-selected') === 'true')!
+  assertFocused(active, 'focus is on the active tab, not on <body>')
+})
+
+test('the switch never takes focus from elsewhere: focus outside the agent row stays where it is', () => {
+  const outside = document.createElement('button')
+  document.body.appendChild(outside)
+  const r = panel({ conversations: FOUR })
+  act(() => { outside.focus() })
+  act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
+  assertFocused(outside, 'focus outside the agent row stays there')
 })

@@ -26,6 +26,7 @@ const TEXT = {
   fr: { button: /^Agent : /, all: `Tous (${AGENTS})`, search: 'Rechercher un agent', showDone: /^Terminés \(/, pair: 'Filtrer une paire' },
   en: { button: /^Agent: /, all: `All (${AGENTS})`, search: 'Search agents', showDone: /^Finished \(/, pair: 'Filter pair' },
 } as const
+const TEAMS = { fr: /^Équipes/, en: /^Teams/ } as const
 
 async function open(w: number, h: number, locale: 'fr' | 'en'): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h }, reducedMotion: 'reduce' })
@@ -102,6 +103,8 @@ for (const locale of ['fr', 'en'] as const) {
         assert.equal(await search.evaluate(el => el === document.activeElement), true, 'focus moves to the search field')
         await panel.getByRole('button', { name: TEXT[locale].showDone }).click()
         await waitForStableLayout(page)
+        // On a short panel (320 x 640) the list keeps its minimum of three options and the open area scrolls vertically to show it
+        await page.evaluate(() => document.querySelector('[data-dock-panel="conversation"] [role="listbox"]')?.scrollIntoView({ block: 'nearest' }))
         g = await page.evaluate(MEASURE) as Geometry
         console.log(`# [${locale} ${w}x${h}] panel ${Math.round(g.panel.h)} px, list ${Math.round(g.listbox?.h ?? 0)} px, options ${g.options}, reachable without a sideways scroll ${g.reachable}, option height ${g.minOptionH}, area ${g.areaScroll}/${g.areaClient}`)
         assert.equal(g.options, AGENTS + 1, 'every agent and All are listed')
@@ -155,4 +158,76 @@ for (const locale of ['fr', 'en'] as const) {
       }
     })
   }
+}
+
+// Reflow at 200 % (WCAG 1.4.10): 640 x 400 is 1280 x 800 zoomed to 200 %. The panel is 230 px high; before, the open area was
+// capped at 70 % and the list squeezed to 15 px, no option visible. Now the list keeps at least three options of height (plus a
+// group heading; 160 px under 768 px), the Teams block folds while it is open, and when the panel cannot hold it all the open area scrolls vertically.
+for (const locale of ['fr', 'en'] as const) {
+  test(`${locale} 640x400 (200 % zoom): the open list keeps room for three options and every option stays reachable`, { timeout: 180_000 }, async () => {
+    const page = await open(640, 400, locale)
+    try {
+      const panel = page.locator('[data-dock-panel="conversation"]')
+      assert.equal(await panel.getByRole('region', { name: TEAMS[locale] }).count(), 1, 'the Teams block is shown while the list is closed')
+      await panel.getByRole('button', { name: TEXT[locale].button }).click()
+      await panel.getByRole('combobox', { name: TEXT[locale].search }).waitFor()
+      await panel.getByRole('button', { name: TEXT[locale].showDone }).click()
+      await waitForStableLayout(page)
+      assert.equal(await panel.getByRole('region', { name: TEAMS[locale] }).count(), 0, 'the Teams block is folded while the list is open')
+      // bring the list into the view of the open area, then into the middle of its own options
+      await page.evaluate(() => {
+        const lb = document.querySelector('[data-dock-panel="conversation"] [role="listbox"]')!
+        lb.scrollIntoView({ block: 'nearest' })
+        lb.scrollTop = lb.scrollHeight / 2
+      })
+      const m = await page.evaluate(`(() => {
+        const panel = document.querySelector('[data-dock-panel="conversation"]')
+        const area = panel.querySelector('[data-agent-picker]')
+        const lb = panel.querySelector('[role="listbox"]')
+        const p = panel.getBoundingClientRect(), a = area.getBoundingClientRect(), l = lb.getBoundingClientRect()
+        const top = Math.max(p.top, a.top, l.top), bottom = Math.min(p.bottom, a.bottom, l.bottom)
+        const options = [...lb.querySelectorAll('[role="option"]')]
+        const optH = Math.min(...options.map(o => o.getBoundingClientRect().height))
+        return {
+          listH: l.height, optH, options: options.length,
+          visible: options.filter(o => { const r = o.getBoundingClientRect(); return r.top >= top - 0.5 && r.bottom <= bottom + 0.5 }).length,
+          docScroll: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth,
+          areaX: area.scrollWidth - area.clientWidth, listX: lb.scrollWidth - lb.clientWidth,
+        }
+      })()`) as { listH: number; optH: number; options: number; visible: number; docScroll: number; vw: number; areaX: number; listX: number }
+      console.log(`# [${locale} 640x400] list ${Math.round(m.listH)} px, options of ${m.optH} px, ${m.visible} whole options visible mid-list, ${m.options} options`)
+      assert.ok(m.listH >= 3 * m.optH - 0.5, `the list is at least three options high (${m.listH} px for options of ${m.optH} px)`)
+      assert.ok(m.visible >= 3, `three whole options are visible at once (${m.visible})`)
+      assert.equal(m.options, AGENTS + 1, 'every agent and All are listed')
+      assert.ok(m.docScroll <= m.vw && m.areaX <= 1 && m.listX <= 1, `nothing scrolls sideways ${JSON.stringify(m)}`)
+
+      // Browsing with the keyboard from the top, across the two group headings there (No team, Workflow mega): the active option
+      // is always whole in view, and from the third option on at least three whole options are visible at each step (the list is
+      // 160 px under 768 px: an option at the edge, two more and a heading). On the first two steps the two headings share the
+      // window with All and the main agent: two whole options, measured and said in the PR. With the wheel, at an arbitrary
+      // offset, the window can show one to three whole options. 12 steps: a key press takes about 3 s at 640x400 in the demo
+      // (the page draws slowly at that size, list closed too), the whole list would not fit the test time.
+      await panel.getByRole('combobox', { name: TEXT[locale].search }).focus()
+      const steps: Array<{ visible: number; activeWhole: boolean }> = []
+      for (let i = 0; i < 12; i++) {
+        await page.keyboard.press('ArrowDown')
+        steps.push(await page.evaluate(`(() => {
+          const panel = document.querySelector('[data-dock-panel="conversation"]')
+          const area = panel.querySelector('[data-agent-picker]')
+          const lb = panel.querySelector('[role="listbox"]')
+          const input = panel.querySelector('[role="combobox"]')
+          const p = panel.getBoundingClientRect(), a = area.getBoundingClientRect(), l = lb.getBoundingClientRect()
+          const top = Math.max(p.top, a.top, l.top), bottom = Math.min(p.bottom, a.bottom, l.bottom)
+          const whole = o => { const r = o.getBoundingClientRect(); return r.top >= top - 0.5 && r.bottom <= bottom + 0.5 }
+          const active = document.getElementById(input.getAttribute('aria-activedescendant') || '')
+          return { visible: [...lb.querySelectorAll('[role="option"]')].filter(whole).length, activeWhole: !!active && whole(active) }
+        })()`) as { visible: number; activeWhole: boolean })
+      }
+      console.log(`# [${locale} 640x400] keyboard: whole options visible at each step ${JSON.stringify(steps.map(s => s.visible))}`)
+      assert.ok(steps.every(s => s.activeWhole), 'the active option is always whole in view')
+      assert.ok(steps.slice(2).every(s => s.visible >= 3), `three whole options visible from the third step on ${JSON.stringify(steps.map(s => s.visible))}`)
+    } finally {
+      await page.context().close()
+    }
+  })
 }

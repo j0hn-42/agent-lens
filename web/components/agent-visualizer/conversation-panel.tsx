@@ -6,7 +6,7 @@
 // It replaces the former message feed, session transcript and per-agent chat. The per-agent chat is a preset
 // of this panel: selecting an agent opens it with that agent's tab selected.
 
-import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId } from 'react'
 import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
@@ -241,6 +241,35 @@ export function ConversationPanel({
     setActiveTab(tabKeys[next])
     tabRefs.current[next]?.focus()
   }
+
+  // The 5th agent that speaks swaps the tablist for the picker (and the other way when agents go): the focused element is
+  // removed with it and focus would fall to <body> (WCAG 2.4.3). Where focus was in the row that leaves, it moves to its
+  // counterpart: the picker button, or the active tab. Focus elsewhere is never taken. The refs follow focus in each row;
+  // a blur without a target (the element removed, or the window left) does not clear them.
+  const [agentListOpen, setAgentListOpen] = useState(false)
+  const focusInTabsRef = useRef(false)
+  const focusInPickerRef = useRef(false)
+  const pickerSlotRef = useRef<HTMLDivElement>(null)
+  const shownPickerRef = useRef(showPicker)
+  useLayoutEffect(() => {
+    const was = shownPickerRef.current
+    shownPickerRef.current = showPicker
+    if (was === showPicker) return
+    const fromTabs = focusInTabsRef.current
+    const fromPicker = focusInPickerRef.current
+    focusInTabsRef.current = false
+    focusInPickerRef.current = false
+    const focused = document.activeElement
+    if (focused && focused !== document.body) return
+    if (showPicker && fromTabs) pickerSlotRef.current?.querySelector<HTMLElement>('[data-agent-picker-button]')?.focus({ preventScroll: true })
+    else if (!showPicker && fromPicker) tabRefs.current[activeTabIndex]?.focus({ preventScroll: true })
+  }, [showPicker, activeTabIndex])
+  const trackFocus = (ref: React.MutableRefObject<boolean>) => ({
+    onFocus: () => { ref.current = true },
+    onBlur: (e: React.FocusEvent<HTMLElement>) => {
+      if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) ref.current = false
+    },
+  })
 
   const teamGroups = useMemo(
     () => (open && teams && teams.size > 0
@@ -532,6 +561,8 @@ export function ConversationPanel({
 
         {/* Many agents: one picker button and a searchable, grouped list instead of the tabs */}
         {showPicker && (
+          // display: contents keeps the picker a direct flex item of the panel (its 70 % cap); the wrapper only follows focus
+          <div ref={pickerSlotRef} className="contents" {...trackFocus(focusInPickerRef)}>
           <AgentPicker
             ids={agentsWithMessages}
             agents={agents}
@@ -541,14 +572,16 @@ export function ConversationPanel({
             messageCounts={messageCounts}
             totalMessages={allMessages.length}
             onPick={onTabClick}
+            onOpenChange={setAgentListOpen}
           >
             {pairToggle}
           </AgentPicker>
+          </div>
         )}
 
         {/* Agent tabs (hidden when only one agent speaks): they wrap, never scroll sideways */}
         {showTabs && (
-          <div className="flex-shrink-0 pt-1.5 pb-1.5 px-2 flex flex-wrap items-start gap-1" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+          <div className="flex-shrink-0 pt-1.5 pb-1.5 px-2 flex flex-wrap items-start gap-1" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }} {...trackFocus(focusInTabsRef)}>
             <div
               role="tablist"
               aria-label={t('conv.tablist')}
@@ -629,7 +662,8 @@ export function ConversationPanel({
         )}
 
         {/* Teammates grouped under their team heading */}
-        {teamGroups.length > 0 && (
+        {/* Folded while the agent list is open: on a short panel it took the height the list needed (WCAG 1.4.10) */}
+        {teamGroups.length > 0 && !(showPicker && agentListOpen) && (
           <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? t('conv.teamsAndWorkflows') : t('conv.teams')} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING_INSET}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
             {teamGroups.map(g => (
               <div key={g.key} role="group" aria-label={teamChipTexts(locale, g).label}>
