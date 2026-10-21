@@ -42,10 +42,29 @@ test('neither card draws text below 11 px', () => {
   }
 })
 
-test('the rows of both cards are at 12 px or more: only a badge or a note may stay at 11 px', () => {
+/**
+ * The only two elements allowed under 12 px, named so the test tells them apart from a row: the model badge beside the
+ * model name, and the platform note under the System metrics. Both are a short aside, never a row of content.
+ */
+const SMALL_EXCEPTIONS: Record<string, readonly string[]> = {
+  'agent-detail-card.tsx': ['model-badge'],
+  'system-panel.tsx': ['platform-note'],
+}
+
+test('the rows of both cards are at 12 px or more: only the named badge and note stay at 11 px', () => {
   for (const file of CARDS) {
-    const small = fontSizes(source(file)).filter(s => s.px < ROW_PX)
-    assert.ok(small.length <= 2, `${file}: ${small.length} uses of a sub-${ROW_PX} px size, the rows are not meant to be among them`)
+    const src = source(file)
+    const small = [...src.matchAll(/text-\[(\d+(?:\.\d+)?)px\]/g)].filter(m => Number(m[1]) < ROW_PX)
+    for (const m of small) {
+      // The element carrying the small class must be one of the named exceptions: its data-testid sits in the same tag
+      const open = src.lastIndexOf('<', m.index)
+      const tag = src.slice(open, src.indexOf('>', m.index) + 1)
+      const named = SMALL_EXCEPTIONS[file].some(id => tag.includes(`data-testid="${id}"`))
+      assert.ok(named, `${file}: ${m[0]} is used by something other than ${SMALL_EXCEPTIONS[file].join(', ')}:\n${tag}`)
+    }
+    for (const id of SMALL_EXCEPTIONS[file]) {
+      assert.ok(src.includes(`data-testid="${id}"`), `${file}: the exception ${id} is gone, drop it from this test`)
+    }
   }
 })
 

@@ -283,30 +283,34 @@ function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permi
   }
 }
 
-/** Widths a left card tries, widest first, clamped to the viewport. */
-function cardWidths(viewportW: number): number[] {
+/**
+ * Sizes the cards of the left column are allowed, biggest first: `computeDockLayout` walks this ladder and keeps the
+ * first size at which EVERY open panel finds a place. A card is placed before System and before the timeline, so a
+ * card that grabs all it asks for can leave them nothing — and a layout that cannot place one panel becomes a sheet,
+ * which hides all but the newest. Height comes before width because the cards are a column of rows: more rows in a
+ * narrow card read better than fewer in a wide one.
+ */
+function cardSizes(viewportW: number): Array<{ w: number; h: number }> {
   const room = viewportW - 2 * DOCK_EDGE
   const widths = [DETAIL_SIZE.w, DETAIL_SIZE.minW].map(w => Math.min(w, room)).filter(w => w > 0)
-  return widths.filter((w, i) => widths.indexOf(w) === i)
+  const out: Array<{ w: number; h: number }> = []
+  for (const h of [DETAIL_SIZE.h, ...CARD_HEIGHTS.filter(h => h < DETAIL_SIZE.h)]) {
+    for (const w of widths) if (!out.some(s => s.w === w && s.h === h)) out.push({ w, h })
+  }
+  return out
 }
 
-/**
- * First spot a left card fits in, biggest first: the asked-for height, then the shorter ones, and at each height the
- * widest width that fits. Height comes first because the cards are a column of rows: 20 rows in a narrow card read
- * better than 10 rows in a wide one. Null when not even the smallest size fits (the caller then falls back to a sheet).
- */
-function placeCard(preferredH: number, widths: readonly number[], leftArea: Rect, blockers: readonly Rect[]): Rect | null {
-  const heights = [preferredH, ...CARD_HEIGHTS.filter(h => h < preferredH)]
+/** First spot a left card fits in at that width, from `maxH` down the ladder. Null when not even the shortest fits. */
+function placeCard(maxH: number, w: number, leftArea: Rect, blockers: readonly Rect[]): Rect | null {
+  const heights = [maxH, ...CARD_HEIGHTS.filter(h => h < maxH)]
   for (const h of heights) {
-    for (const w of widths) {
-      const placed = findFreeSpot(w, Math.min(h, leftArea.h), leftArea, blockers)
-      if (placed) return placed
-    }
+    const placed = findFreeSpot(w, Math.min(h, leftArea.h), leftArea, blockers)
+    if (placed) return placed
   }
   return null
 }
 
-function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>): Partial<Record<PanelId, Rect>> | null {
+function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, card: { w: number; h: number }): Partial<Record<PanelId, Rect>> | null {
   const { viewport: vp, open } = input
   const { area, rightWidth: rw } = base
   const rects: Partial<Record<PanelId, Rect>> = {}
@@ -332,10 +336,16 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     blockers.push(r)
   }
 
+  // With both cards in the column, neither asks for more than half of it: the agent card is placed first, and taking
+  // the whole column would leave System a sliver, or nothing at all.
+  const share = isOpen('detail') && isOpen('system')
+    ? Math.max(DETAIL_SIZE.minH, Math.floor((area.h - DOCK_GAP) / 2))
+    : Number.POSITIVE_INFINITY
+
   // Left dock: the agent card.
   if (isOpen('detail')) {
     const leftArea: Rect = { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
-    const placed = placeCard(DETAIL_SIZE.h, cardWidths(vp.w), leftArea, blockers)
+    const placed = placeCard(Math.min(card.h, share), card.w, leftArea, blockers)
     if (!placed) return null
     rects.detail = placed
     blockers.push(placed)
@@ -344,11 +354,11 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
   // Left dock, second slot: System, in the card's column (below it, and as wide as it), or at the top of the
   // column when the card is closed.
   if (isOpen('system')) {
-    const card = rects.detail
-    const leftArea: Rect = card
-      ? { x: card.x, y: area.y, w: card.w, h: area.h }
+    const above = rects.detail
+    const leftArea: Rect = above
+      ? { x: above.x, y: area.y, w: above.w, h: area.h }
       : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
-    const placed = placeCard(SYSTEM_H, card ? [card.w] : cardWidths(vp.w), leftArea, blockers)
+    const placed = placeCard(Math.min(SYSTEM_H, card.h, share), above ? above.w : card.w, leftArea, blockers)
     if (!placed) return null
     rects.system = placed
     blockers.push(placed)
@@ -397,9 +407,14 @@ export function computeDockLayout(input: DockInput): DockLayout {
   const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [], permissionsBand: 0 }
   if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH, input.permissionsH)
-  const rects = tryDock({ ...input, viewport: vp, open }, base)
-  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
-  return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
+  // The biggest card size at which every open panel finds a place (cardSizes); the ladder is walked only when a card
+  // is open, since nothing else reads the cap.
+  const sizes = open.includes('detail') || open.includes('system') ? cardSizes(vp.w) : [{ w: 0, h: 0 }]
+  for (const size of sizes) {
+    const rects = tryDock({ ...input, viewport: vp, open }, base, size)
+    if (rects) return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
+  }
+  return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
 }
 
 // ─── Popups ─────────────────────────────────────────────────────────────────

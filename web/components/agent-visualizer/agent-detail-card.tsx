@@ -22,7 +22,7 @@ import { gitCommitTotal, type GitState } from '@/lib/git-state'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness, deriveSilence } from '@/hooks/simulation/freshness'
 import type { HealthVerdict } from '@/lib/loop-detection'
-import { FOCUS_RING, FOCUS_RING_STRONG } from '@/lib/focus-ring'
+import { FOCUS_RING, FOCUS_RING_INSET, FOCUS_RING_STRONG } from '@/lib/focus-ring'
 import type { DelegationRow } from '@/lib/delegation-report'
 import * as C from '@/lib/card-text'
 
@@ -119,6 +119,16 @@ export function AgentDetailCard({
   // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
   const dock = useDockPanel('detail', true)
   const { rect } = dock
+  // The card's body is a scroll container: it joins the tab order only while it actually scrolls, so a keyboard user
+  // can scroll a card taller than its slot (WCAG 2.1.1), as the System panel does. Set imperatively: the jsx-a11y rule
+  // rejects a static tabIndex on a non-interactive element.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    if (el.scrollHeight > el.clientHeight + 1) el.setAttribute('tabindex', '0')
+    else el.removeAttribute('tabindex')
+  })
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
@@ -168,15 +178,15 @@ export function AgentDetailCard({
         display: dock.hidden ? 'none' : undefined,
       }}
     >
-      <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
+      <GlassCard ref={bodyRef} className={FOCUS_RING_INSET} visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
         <PanelHeader onClose={onClose} className="mb-3" titleId={titleId} closeLabel={t('common.close')}>
           <span
             aria-hidden="true"
             className="w-2 h-2 rounded-full"
             style={{ background: stateColor, boxShadow: `0 0 8px ${stateColor}` }}
           />
-          <span className="flex flex-col">
-            <span className="text-sm font-mono" data-sensitive="" style={{ color: COLORS.textPrimary }}>
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-mono" data-sensitive="" title={agent.name} style={{ color: COLORS.textPrimary }}>
               {agent.name}
             </span>
             {agent.model && (

@@ -217,7 +217,7 @@ function CoreDetail({ cores }: { cores: readonly (number | null)[] }) {
             const label = `Core ${i + 1}`
             const level = severity(v)
             return (
-              <div key={i} data-metric={label} className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-2 text-xs font-mono">
+              <div key={i} data-metric={label} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-xs font-mono">
                 <span style={{ color: COLORS.textPrimary }}>{label}</span>
                 {v !== null ? <Gauge label={label} value={v} level={level} thin /> : <span />}
                 <span className="inline-flex items-center gap-1 text-right">
@@ -328,7 +328,7 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
                 </dd>
               </dl>
               {last.platformNote && (
-                <p className="text-[11px] font-mono pt-2 m-0" style={{ color: COLORS.textMuted }}>{last.platformNote}</p>
+                <p data-testid="platform-note" className="text-[11px] font-mono pt-2 m-0" style={{ color: COLORS.textMuted }}>{last.platformNote}</p>
               )}
             </>
           )}
