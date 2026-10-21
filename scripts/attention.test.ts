@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  attentionTitle, baseTitle, formatAttention, newlyBlocked, nextAttentionTarget, sessionAttentionText, summarizeAttention, type AttentionAgent,
+  attentionTitle, baseTitle, newlyBlocked, nextAttentionTarget, summarizeAttention, type AttentionAgent,
 } from '../web/lib/attention'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 
@@ -43,13 +43,6 @@ test('attention: a live permission still pending past the freshness window is co
 })
 
 test('attention: wording of the counter, the row and the tab title', () => {
-  assert.equal(formatAttention(2, 1), '2 waiting / 1 error')
-  assert.equal(formatAttention(0, 3), '3 errors')
-  assert.equal(formatAttention(1, 0), '1 waiting')
-  assert.equal(formatAttention(0, 0), '')
-  assert.equal(sessionAttentionText({ waiting: 1, errors: 2 }), '1 waiting / 2 errors')
-  assert.equal(sessionAttentionText({ waiting: 0, errors: 0 }), null)
-  assert.equal(sessionAttentionText(undefined), null)
   assert.equal(attentionTitle('Agent Lens', 3), '(3) Agent Lens')
   assert.equal(attentionTitle('Agent Lens', 0), 'Agent Lens')
   assert.equal(baseTitle('(12) Agent Lens'), 'Agent Lens')

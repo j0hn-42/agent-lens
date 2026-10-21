@@ -70,3 +70,13 @@ test('the canvas control labels are the ones the owner validated, in both locale
   } as const
   for (const l of LOCALES) for (const [k, v] of Object.entries(expected[l])) assert.equal(MESSAGES[l][`controls.${k}` as MessageKey], v, `${l}.controls.${k}`)
 })
+
+test('the native notification bodies exist in both languages with the same placeholders and differ in French (#373)', () => {
+  const keys = (Object.keys(MESSAGES.fr) as MessageKey[]).filter(k => k.startsWith('notify.'))
+  assert.deepEqual([...keys].sort(), ['notify.complete.one', 'notify.complete.other', 'notify.cost'])
+  const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join()
+  for (const k of keys) {
+    assert.notEqual(MESSAGES.fr[k], MESSAGES.en[k], k)
+    assert.equal(holes(MESSAGES.fr[k]), holes(MESSAGES.en[k]), k)
+  }
+})

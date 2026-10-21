@@ -79,14 +79,6 @@ export function nextAttentionTarget(summary: Pick<AttentionSummary, 'order'>, cu
   return order[(at + 1) % order.length]
 }
 
-/** "2 waiting / 1 error": zero parts are left out; empty when nothing is blocked. */
-export function formatAttention(waiting: number, errors: number): string {
-  const parts: string[] = []
-  if (waiting > 0) parts.push(`${waiting} waiting`)
-  if (errors > 0) parts.push(`${errors} ${errors === 1 ? 'error' : 'errors'}`)
-  return parts.join(' / ')
-}
-
 /** Tab title prefixed with the number of blocked agents; the base title when none. */
 export function attentionTitle(base: string, total: number): string {
   return total > 0 ? `(${total}) ${base}` : base
@@ -100,12 +92,6 @@ export function baseTitle(title: string): string {
 /** Ids blocked now that were not blocked before: what a browser notification may announce. */
 export function newlyBlocked(previous: ReadonlySet<string>, current: ReadonlySet<string>): string[] {
   return [...current].filter(id => !previous.has(id))
-}
-
-/** Row text of a session: spelled out (never colour alone). Null when nothing is blocked. */
-export function sessionAttentionText(a: SessionAttention | undefined): string | null {
-  if (!a) return null
-  return formatAttention(a.waiting, a.errors) || null
 }
 
 /** Agents of every received session blocked on a permission, keyed by agent key (`session:name`). */
