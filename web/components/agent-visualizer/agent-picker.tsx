@@ -34,6 +34,8 @@ export interface AgentPickerProps {
   onPick: (key: string, shift: boolean) => void
   /** Controls placed after the button on the same row (the "Filter pair" button) */
   children?: React.ReactNode
+  /** Told when the list opens or closes (the panel folds its Teams block while the list is open, to give it the height) */
+  onOpenChange?: (open: boolean) => void
 }
 
 /** "(Thinking)" or "(done)": the state of an agent as the tabs say it */
@@ -44,7 +46,9 @@ function stateLabelOf(locale: Locale, agent: Agent | undefined): string {
 function groupLabel(locale: Locale, g: PickerGroup): string {
   const n = formatCount(locale, g.ids.length)
   if (g.kind === 'done') return tr(locale, 'conv.picker.group.done', { n })
-  if (g.kind === 'active') return tr(locale, 'conv.picker.group.active', { n })
+  // The 'active' group holds the agents of no team (finished ones go to 'done'): its label says « No team », since the
+  // unfinished agents of a team or workflow are counted in their own group
+  if (g.kind === 'active') return tr(locale, 'conv.picker.group.noTeam', { n })
   if (g.kind === 'session') return tr(locale, 'conv.picker.group.session', { label: g.name, n })
   // The team or workflow name, then the start of the lead session id when two groups share a name (as the Teams block says it)
   const name = g.sessionHint ? `${g.name} ${tr(locale, 'conv.team.sessionHint', { id: g.sessionHint })}` : g.name
@@ -53,7 +57,7 @@ function groupLabel(locale: Locale, g: PickerGroup): string {
 
 const ROW = `min-h-7 ${TOUCH_TARGET}`
 
-export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCounts, totalMessages, onPick, children }: AgentPickerProps) {
+export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCounts, totalMessages, onPick, children, onOpenChange }: AgentPickerProps) {
   const { locale } = useLocale()
   const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   const [open, setOpen] = useState(false)
@@ -108,6 +112,10 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
   useEffect(() => {
     if (open) inputRef.current?.focus({ preventScroll: true })
   }, [open])
+  const onOpenChangeRef = useRef(onOpenChange)
+  onOpenChangeRef.current = onOpenChange
+  useEffect(() => { onOpenChangeRef.current?.(open) }, [open])
+  useEffect(() => () => onOpenChangeRef.current?.(false), [])
   // The active option (on opening: the current choice, even one picked on the canvas) is brought into the list's view
   useEffect(() => {
     if (open && activeDomId) document.getElementById(activeDomId)?.scrollIntoView?.({ block: 'nearest' })
@@ -197,10 +205,12 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
         {/* The spaces are text nodes between the pieces, so the accessible name keeps them (2.5.3: the name reads as shown) */}
         {!isAll && <>{' '}<span>(<span>{stateLabelOf(locale, agent)}</span>)</span></>}
         {count > 0 && <>{' '}<span style={{ color: COLORS.textMuted }}>{messageCountText(locale, count)}</span></>}
-        {hasUnread && <>{' '}<span className="font-semibold" style={{ color: COLORS.textPrimary }}>
-          <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle" style={{ background: COLORS.unreadDot }} />
-          {t('conv.tab.unread')}
-        </span></>}
+        {/* The count is the agent's total of messages; how many are unread is not known here, so the words that follow carry
+            no number (« 5 messages, dont des non lus », never « 5 messages non lus ») */}
+        {hasUnread && <span className="font-semibold" style={{ color: COLORS.textPrimary }}>
+          {count > 0 ? t('conv.picker.someUnread') : <>{' '}{t('conv.tab.unread')}</>}
+          <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full ml-1 align-middle" style={{ background: COLORS.unreadDot }} />
+        </span>}
         </span>
         {isCurrent && <><span aria-hidden="true" className="absolute right-2">✓</span><span className="sr-only">{t('conv.picker.current')}</span></>}
       </div>
@@ -211,9 +221,15 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
     <div
       ref={rootRef}
       data-agent-picker=""
-      // The open list takes at most 70 % of the panel height; the listbox scrolls vertically inside it
-      className="flex flex-col min-h-0 flex-shrink-0 px-2 pt-1.5 pb-1.5"
-      style={{ maxHeight: open ? '70%' : undefined, borderBottom: `1px solid ${COLORS.holoBorder06}` }}
+      // The open list takes at most 70 % of the panel height, or 16rem when 70 % is less (a short panel: 640x400, i.e. 1280x800
+      // at 200 %, left a 230 px panel and a 15 px list, WCAG 1.4.10). It may then shrink to the room left, never below the
+      // listbox's own minimum (three options): past that the open area scrolls vertically as a whole, so no option is lost
+      className={`flex flex-col min-h-0 px-2 pt-1.5 pb-1.5 ${open ? 'flex-shrink overflow-y-auto' : 'flex-shrink-0'}`}
+      style={{
+        maxHeight: open ? 'max(70%, 16rem)' : undefined,
+        borderBottom: `1px solid ${COLORS.holoBorder06}`,
+        scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent`,
+      }}
     >
       <div className="flex flex-wrap items-center gap-1">
         <button
@@ -258,7 +274,9 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
       </div>
 
       {open && (
-        <div id={popupId} className="mt-1.5 flex flex-col min-h-0 rounded" style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.panelBg }}>
+        // Shrinks with the open area down to its search row, three options, a group heading and the count line (an explicit minimum: the automatic
+        // one would be the whole list, so the listbox would never scroll); below that the open area scrolls instead
+        <div id={popupId} className="mt-1.5 flex flex-col min-h-[11.75rem] max-md:min-h-[14.75rem] rounded" style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.panelBg }}>
           <div className="flex flex-wrap items-center gap-1 p-1.5">
             <input
               ref={inputRef}
@@ -309,7 +327,9 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
             id={listId}
             role="listbox"
             aria-label={t('conv.picker.list')}
-            className="flex-1 min-h-0 overflow-y-auto px-1.5 pb-1"
+            // At least three options high (28 px, 44 px under 768 px) plus a group heading, however short the panel: a list one can
+            // browse, not a sliver (640x400 left it 15 px high before)
+            className="flex-1 min-h-[6.5rem] max-md:min-h-[9.5rem] overflow-y-auto px-1.5 pb-1"
             style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
           >
             {showAll && optionRow('all')}
