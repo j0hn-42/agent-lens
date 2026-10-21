@@ -2,8 +2,9 @@
 // the demo app (`pnpm --dir web run test:e2e`). The French labels of the header actions, the search, the pair filter and the
 // file rows are longer than the English ones: at 320 px and at 1280 px / 200 % (a 640 x 512 window) nothing may scroll
 // sideways, leave the window, be cut or sit on top of another button. The Context panel needs a relay (it is not available
-// in demo mode: the panel is unavailable by construction, the bridge decides it, so no network mock can render it), so its French states
-// are covered by the jsdom test of the message catalog. Its 320 px reflow (table Branche / Pull request / Vérifications) is NOT measured in a browser.
+// in demo mode: the panel is unavailable by construction, the bridge decides it, so no network mock can render it): its 320 px and
+// 640 x 512 reflow in French and English (table Branche / Pull request / Vérifications included) is measured in a browser by
+// context-panel-reflow.e2e.ts, on a harness that renders the panel outside the demo (context-panel.ts, #625).
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { chromium, type Browser, type Page } from 'playwright'

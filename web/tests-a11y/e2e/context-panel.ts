@@ -30,6 +30,9 @@ export const WORK = {
     { number: 599, title: 'Reflow en français du panneau Contexte vérifié à 320 px', url: `${REPO}/pull/599`, branch: 'fix/599-reflow-contexte-tres-long-nom-de-branche', checks: check('passing', 12, 0, 0) },
     { number: 612, title: 'Brouillon: refonte de la barre de session', url: `${REPO}/pull/612`, branch: 'feat/612-barre', draft: true, checks: check('failing', 12, 3, 1) },
     { number: 7, title: 'Mise à jour', url: `${REPO}/pull/7`, branch: 'docs/7', checks: check('pending', 4, 0, 2) },
+    // A branch with no hyphen, slash or space: no break opportunity, so only `break-all` keeps it inside the table at 320 px
+    // (#613: the branches above can wrap at their hyphens, and the test stayed green without `break-all`)
+    { number: 8, title: 'Sans tiret', url: `${REPO}/pull/8`, branch: 'refactorauthenticationmiddlewareforsessionstore', checks: check('passing', 2, 0, 0) },
   ],
   issues: [{ number: 130, title: 'Un titre d’issue assez long pour passer à la ligne dans un panneau étroit', url: `${REPO}/issues/130` }],
   prsTruncated: false,
