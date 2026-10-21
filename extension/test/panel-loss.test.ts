@@ -29,6 +29,17 @@ describe('PanelLossLedger (#592)', () => {
     assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { a: 5, b: 1 } })
   })
 
+  it('a session id longer than 256 characters (a key the page ignores) is neither counted nor kept, whatever the source (#613)', async () => {
+    const { PANEL_LOSS_SESSION_ID_MAX } = await import('../src/panel-loss')
+    assert.equal(PANEL_LOSS_SESSION_ID_MAX, 256, 'same bound as web/lib/event-loss.ts MAX_KEY_LENGTH')
+    const l = new PanelLossLedger()
+    const long = 'x'.repeat(257)
+    l.note(ev(long))
+    l.note(ev(long, 'message', true))
+    l.note(ev('y'.repeat(256)))
+    assert.deepEqual(l.snapshotAfterReplay(() => {}), { evicted: { ['y'.repeat(256)]: 1 } })
+  })
+
   it('history read from a transcript (marked replayed by the reader) is still an event the page lacks', () => {
     const l = new PanelLossLedger()
     l.note(ev('a', 'tool_call_start', true))

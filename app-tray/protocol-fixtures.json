@@ -1,5 +1,5 @@
 {
-  "comment": "Shared contract of the tray JSON line protocol (docs/tray.md, #510). Read by app-tray/src/protocol-contract.test.ts (Node driver) and app-tray/native/trayproto/contract_test.go (Go binary). A line is written here without its final newline.",
+  "comment": "Shared contract of the tray JSON line protocol (docs/tray.md, #510). Read by app-tray/src/protocol-contract.test.ts (Node driver) and app-tray/native/trayproto/contract_test.go (Go binary). A line is written here without its final newline. driverToBinaryRefused is checked by the Go side only: the driver has no parser for the lines it writes, so the Node side only checks that the section is there (#613).",
   "driverToBinary": [
     {
       "name": "real French menu with every item (deriveMenu)",

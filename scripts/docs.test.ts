@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
@@ -11,6 +12,42 @@ import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERM
 import { READING_GUIDE_DIR, READING_GUIDE_INDEX, readReadingGuide, readingGuideFiles } from './reading-guide'
 
 const root = path.resolve(__dirname, '..')
+
+/**
+ * The files git tracks under `scope` (paths relative to `dir`). Outside a git checkout (a source archive, #613) every
+ * file present is a shipped file: the tree is walked instead, without node_modules and .git.
+ */
+function trackedFiles(dir: string, scope = ''): string[] {
+  try {
+    return execFileSync('git', ['ls-files', '-z', '--', scope || '.'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\0').filter(Boolean)
+  } catch {
+    const out: string[] = []
+    const walk = (rel: string) => {
+      for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === '.git') continue
+        const child = rel ? `${rel}/${e.name}` : e.name
+        if (e.isDirectory()) walk(child)
+        else out.push(child)
+      }
+    }
+    walk(scope)
+    return out
+  }
+}
+
+test('the tracked-file listing still works outside a git checkout, as in a source archive (#613)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'af-no-git-'))
+  try {
+    fs.mkdirSync(path.join(tmp, 'app-tray/native/trayproto/node_modules'), { recursive: true })
+    fs.writeFileSync(path.join(tmp, 'app-tray/native/go.mod'), 'module x\n')
+    fs.writeFileSync(path.join(tmp, 'app-tray/native/trayproto/p.go'), 'package p\n')
+    fs.writeFileSync(path.join(tmp, 'app-tray/native/trayproto/node_modules/x.js'), '')
+    fs.writeFileSync(path.join(tmp, 'README.md'), '')
+    assert.deepEqual(trackedFiles(tmp, 'app-tray/native').sort(), ['app-tray/native/go.mod', 'app-tray/native/trayproto/p.go'])
+    assert.ok(trackedFiles(tmp).includes('README.md'))
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+})
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
 /** The reading guide is an index and one file per domain (#612): the tests read all of it, in the order of the index */
 const guideText = () => readReadingGuide()
@@ -110,8 +147,7 @@ function guideSectionFiles(): Map<string, Set<string>> {
 
 test('a link to the reading guide that names a section in bold or in quotes points to the file of that section (#612)', () => {
   const sections = guideSectionFiles()
-  const docs = execFileSync('git', ['ls-files', '*.md', '.github/*.md', '.claude/*.md'], { cwd: root, encoding: 'utf8' })
-    .split('\n').filter(f => f && !f.includes('node_modules/'))
+  const docs = trackedFiles(root).filter(f => f.endsWith('.md') && !f.includes('node_modules/'))
   const isGuide = (t: string) => t === READING_GUIDE_INDEX || t.startsWith(`${READING_GUIDE_DIR}/`)
   let checked = 0
   const wrong: string[] = []
@@ -326,9 +362,8 @@ test('no old jobailla repository reference remains outside the CHANGELOG (#224)'
   // The repository was renamed j0hn-42/agent-lens: the old owner name only lives on through a GitHub redirect.
   // `publisher: "jobailla"` is a different identifier and is kept on purpose.
   const old = ['jobailla', 'agent-lens'].join('/')
-  const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
-    .split('\0')
-    .filter(f => f && !/(^|\/)CHANGELOG/i.test(f) && f !== 'pnpm-lock.yaml' && fs.existsSync(path.join(root, f)))
+  const files = trackedFiles(root)
+    .filter(f =>!/(^|\/)CHANGELOG/i.test(f) && f !== 'pnpm-lock.yaml' && fs.existsSync(path.join(root, f)))
   const offenders = files.filter(f => {
     const buf = fs.readFileSync(path.join(root, f))
     return !buf.includes(0) && buf.toString('utf8').includes(old)
@@ -588,7 +623,7 @@ test('the Go protocol module of the tray is checked in CI, listed in CONTRIBUTIN
   assert.ok(fs.existsSync(path.join(root, 'app-tray/native/go.mod')))
   // No compiled binary is committed: only Go sources and the module files. The files git tracks, not the working
   // tree: a local `go test -c`, `-coverprofile` or `.DS_Store` is not committed and must not fail the test (#613)
-  const files = execFileSync('git', ['ls-files', '-z', '--', 'app-tray/native'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
+  const files = trackedFiles(root, 'app-tray/native')
   assert.ok(files.includes('app-tray/native/go.mod'), 'app-tray/native is tracked by git')
   for (const f of files) assert.match(path.posix.basename(f), /^(go\.mod|go\.sum|.+\.go)$/, `unexpected file committed in app-tray/native: ${f}`)
 })
