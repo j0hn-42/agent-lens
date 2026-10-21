@@ -110,6 +110,49 @@ function expectTier(l: Layout, w: number, where: string) {
   }
 }
 
+/**
+ * How many leading characters of the selection (session name, "All sessions") the Sessions button draws in the bar, before
+ * its ellipsis (review of PR 631: at 320 px the button showed "Session… (1) ⚠ ●", and nothing of the name offline). Read on
+ * the drawn text: a text node outside the visually hidden parts, each character's box inside the box that clips the label,
+ * the last character before the clip edge being covered by the ellipsis.
+ */
+const selectionShown = (page: Page, selection: string) => page.evaluate(`(() => {
+  const selection = ${JSON.stringify(selection)}
+  const button = document.getElementById('topbar-toggle-sessions')
+  const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
+  let node = null
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.parentElement.closest('.sr-only, [aria-hidden="true"]')) continue
+    if (n.data.includes(selection)) { node = n; break }
+  }
+  if (!node) return { chars: 0, clipWidth: 0 }
+  let clip = node.parentElement
+  while (clip !== button && getComputedStyle(clip).overflow === 'visible') clip = clip.parentElement
+  const cb = clip.getBoundingClientRect()
+  const start = node.data.indexOf(selection)
+  const range = document.createRange()
+  let chars = 0
+  for (let k = 0; k < selection.length; k++) {
+    range.setStart(node, start + k); range.setEnd(node, start + k + 1)
+    const r = range.getBoundingClientRect()
+    const truncated = clip.scrollWidth > clip.clientWidth + 0.5
+    // With an ellipsis, it covers the last character box that reaches into its width (one character in a monospace font)
+    const limit = truncated ? cb.right - r.width : cb.right
+    if (r.width > 0 && r.left >= cb.left - 0.5 && r.right <= limit + 0.5) chars++
+    else break
+  }
+  return { chars, clipWidth: +cb.width.toFixed(1) }
+})()`) as Promise<{ chars: number; clipWidth: number }>
+
+/** At least this many characters of the selection are drawn (all of it when it is shorter): enough to tell sessions apart. */
+const MIN_SELECTION_CHARS = 10
+async function expectSelectionShown(page: Page, selection: string, where: string) {
+  const shown = await selectionShown(page, selection)
+  const want = Math.min(MIN_SELECTION_CHARS, selection.length)
+  console.log(`#selection ${where}: ${shown.chars} of ${selection.length} characters of "${selection}" drawn (${shown.clipWidth} px)`)
+  assert.ok(shown.chars >= want, `${where}: ${shown.chars} characters of the selection drawn, expected at least ${want}`)
+}
+
 function expectOneLine(l: Layout, where: string) {
   assert.equal(l.rows, 1, `${where}: ${l.rows} rows (${l.controls.map(c => c.name).join(' | ')})`)
   assert.ok(!l.pageScroll, `${where}: the page scrolls sideways`)
@@ -127,6 +170,7 @@ for (const locale of ['en', 'fr'] as const) {
         expectOneLine(l, `${w}px ${locale}`)
         expectTier(l, w, `${w}px ${locale}`)
         expectPublished(l, `${w}px ${locale}`)
+        await expectSelectionShown(page, locale === 'fr' ? 'Toutes les sessions' : 'All sessions', `demo ${locale} ${w}px`)
         assert.equal(await page.locator('header').getAttribute('lang'), locale)
       } finally {
         await page.context().close()
@@ -146,7 +190,12 @@ for (const [variant, query] of [['DEMO + Exit demo', '?worst=1'], ['OFFLINE + Re
           expectOneLine(l, `${w}px ${locale} ${variant}`)
           expectTier(l, w, `${w}px ${locale} ${variant}`)
           expectPublished(l, `${w}px ${locale} ${variant}`)
+          // The selected session stays written in the bar; its whole name is in the accessible name of Sessions
+          await expectSelectionShown(page, 'refactor-authentication-flow-and-tests-x', `worst ${variant} ${locale} ${w}px`)
           const header = page.locator('header')
+          // Accessible name computed by Chromium: "Sessions: " (read, not drawn), then the whole name (2.5.3: the drawn text is in it)
+          const sessionsName = locale === 'fr' ? /^Sessions : refactor-authentication-flow-and-tests-x/ : /^Sessions: refactor-authentication-flow-and-tests-x/
+          assert.equal(await header.getByRole('button', { name: sessionsName }).count(), 1, 'the name of Sessions starts with "Sessions: " and the whole selection')
           assert.equal(await header.locator('[data-testid="attention-counter"]').count(), 1, 'the attention counter is drawn')
           // The connection state is written in the bar at every width, never only a colour
           assert.ok(await header.locator('[data-connection-label]').isVisible(), 'the connection state is drawn')
@@ -160,6 +209,8 @@ for (const [variant, query] of [['DEMO + Exit demo', '?worst=1'], ['OFFLINE + Re
           assert.match(described, locale === 'fr' ? /Analyse de cet espace de travail seulement/ : /Scanning this workspace only/, 'the scope summary is read on More')
           assert.match(described, locale === 'fr' ? /Au moins 2/ : /At least 2/, 'the discovery ceilings are read on More')
           assert.match(described, locale === 'fr' ? /8 % restant/ : /8 % left/, 'the quota is read on More')
+          // Blocked notifications were drawn in the bar from 1024 px before the one-line bar: More names them (review of PR 631)
+          assert.match(described, locale === 'fr' ? /Notifications bloquées/ : /Notifications blocked/, 'blocked notifications are read on More')
           if (variant.startsWith('OFFLINE')) assert.match(described, locale === 'fr' ? /tentative 12/ : /attempt 12/, 'the reconnect detail is read on More')
         } finally {
           await page.context().close()
