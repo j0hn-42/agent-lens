@@ -1,5 +1,6 @@
 // The reading guide (docs/reading-the-ui.md) is an index and one file per domain in docs/reading-the-ui/ (#612).
 // Tests that check what the guide says read all of it through this helper, in the order of the index links.
+// A translated surface is one bullet under "### In your language" in the file of its domain; language.md only links those sections.
 import fs from 'node:fs'
 import path from 'node:path'
 

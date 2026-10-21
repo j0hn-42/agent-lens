@@ -38,3 +38,7 @@ The guided demo tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [dem
 - **Discoveries**: none of these entries is shown in the demo; they are all described only (*Seen only in a real session*).
 - **Runtime**: steps *Meet your agent* (Claude) and *Two runtimes* (Codex).
 - **Loops and repeats**: both badges are described only (*Seen only in a real session*): the demo has no loop and no repeated call.
+
+### In your language
+
+- the guided tour (#557): the legend button (*Visite guidée* in the demo, *Visiter cette session* in a real session) and its command in the palette, the offer made on the first launch (*Nouveau sur Agent Lens ?*, *Commencer la visite*, *Pas maintenant*), the card (*Étape n sur N*, *Précédent*, *Suivant*, *Aller à l’étape*, *Quitter la visite*, the notice that a step is no longer on screen) and every step, of the demo and of a real session. The steps say what they said in English: same order, same symbols, same figures (the loop badge still counts the same call 3 times in a row), and the same cautions (a state that only appears when the agent really asked, a symbol the demo cannot draw). The words the canvas draws (*LEAD*, *MAIN*) and the names of tools (*Grep*, *Glob*) are quoted as they are; the label of the highlighted agent, taken from its prompt, is data. A real-session tour keeps the symbols it was built from, not its words: changing the language while it runs rewrites it in the new language. The ring drawn around the explained element has no text.

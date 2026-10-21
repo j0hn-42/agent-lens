@@ -62,6 +62,19 @@ test('the reading guide is an index and one file per domain, each linked once, i
   }
 })
 
+test('a translated surface is listed in the file of its domain, and language.md only links them (#612)', () => {
+  const language = read(`${READING_GUIDE_DIR}/language.md`)
+  const bullets = [...language.matchAll(/^- (.*)$/gm)].map(m => m[1])
+  const linked = bullets.map(b => b.match(/^\[[^\]]+\]\(([a-z0-9-]+\.md)#in-your-language\)$/)?.[1])
+  assert.deepEqual(bullets.filter((b, i) => !linked[i]), [], 'every bullet of language.md is a link to the In your language section of a domain file')
+  const withSection = readingGuideFiles().filter(f => /^### In your language$/m.test(read(f))).map(f => path.posix.basename(f)).sort()
+  assert.deepEqual([...linked].sort(), withSection, 'each domain file with translated surfaces is linked once from language.md')
+  for (const f of withSection) {
+    const section = read(`${READING_GUIDE_DIR}/${f}`).split(/^### In your language$/m)[1].split(/^#{1,3} /m)[0]
+    assert.match(section, /^- the /m, `${f}: its In your language section lists surfaces`)
+  }
+})
+
 test('every link to a section of the reading guide lands on a heading of the file it names (#612)', () => {
   const docs = ['README.md', ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`), READING_GUIDE_INDEX, ...readingGuideFiles()]
   const anchorsOf = new Map<string, Set<string>>()

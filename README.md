@@ -144,7 +144,7 @@ You can also point Agent Lens at a JSONL event log file:
 |----------|--------|
 | `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Agent Lens |
 
-Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, panels, sessions (direct jump) and agents, all from the keyboard. `?` lists every shortcut. See [Reading the UI](docs/reading-the-ui/views.md).
+Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, panels, sessions (direct jump) and agents, all from the keyboard. `?` lists every shortcut. See [Reading the UI](docs/reading-the-ui/command-palette.md).
 
 ## Settings
 

@@ -5,3 +5,7 @@ When the normalizer discarded something for the selected session (or, in a view 
 ### Context readings replaced in the relay replay
 
 The relay's replay replaces a context reading of an agent by a later reading of the same agent taken at the same instant (a tool call emits up to three in a row), when nothing shown can tell them apart: the current context of each agent, the gauge at every instant of a review, the agents and their states are the same. These replaced readings are not lost events and are not counted in "at least N earlier events were not replayed"; the replay keeps more of the session for the same caps. Readings of different instants are all kept. A [session export](../session-export.md) of a replayed session has no row for a replaced reading. Rules and measures: [relay-sources.md](../relay-sources.md#replay-buffer-context-readings-replaced-at-the-same-instant-567).
+
+### In your language
+
+- the [Graph truncated](relay-and-losses.md#graph-truncated) notice (its sentence, **Details** and the counters by reason, the dismiss button and its announcement), which carries its own `lang`.

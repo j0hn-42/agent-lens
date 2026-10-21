@@ -74,7 +74,7 @@ The development relay (`scripts/dev-relay.ts`) takes none of these flags: it ref
 
 ## Phone-sized window
 
-Below 768 px wide, the view changes: an open panel becomes a full-width drawer, the controls are at least 44 by 44 px, and Escape closes the drawer. The behaviour is described in [Reading the UI](reading-the-ui/views.md), under **Phone width (below 768 px)**.
+Below 768 px wide, the view changes: an open panel becomes a full-width drawer, the controls are at least 44 by 44 px, and Escape closes the drawer. The behaviour is described in [Reading the UI](reading-the-ui/small-screens.md), under **Phone width (below 768 px)**.
 
 The view comes from issue [#476](https://github.com/j0hn-42/agent-lens/issues/476), delivered by PR [#481](https://github.com/j0hn-42/agent-lens/pull/481). You can try it by narrowing a desktop browser window. The view never says whether it runs on the relay's machine or elsewhere, because the event stream does not show it.
 
@@ -88,5 +88,5 @@ The view comes from issue [#476](https://github.com/j0hn-42/agent-lens/issues/47
 ## See also
 
 - [Remote access: guards and pairing](relay-sources.md#remote-access-guards-and-pairing-241) in the event-source guide (the guards, the read-only surface and their limits)
-- [Reading the UI](reading-the-ui/views.md) (the views, including the phone-width drawer)
+- [Reading the UI](reading-the-ui/small-screens.md) (the views, including the phone-width drawer)
 - `node app/dist/app.js --help` (the flags)

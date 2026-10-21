@@ -27,7 +27,7 @@ Hot files that cause most conflicts here. Issues touching the same one go in **d
 - `scripts/relay.ts` and `scripts/routes*`
 - `web/lib/theme-tokens.json` (regenerates `web/app/themes.css`)
 - `web/lib/ui-glossary.ts`
-- The message catalog and the UI guide are split by domain since #612: `web/lib/messages/<domain>.ts` (both languages of a domain in one file; `web/lib/messages.ts` only assembles them) and `docs/reading-the-ui/<domain>.md` (`docs/reading-the-ui.md` is the index). Two issues on the same domain file go in different waves; different domains no longer conflict. Adding a domain file touches the shared lists (`web/lib/messages/domains.ts` and `web/lib/messages.ts`, or the index `docs/reading-the-ui.md`).
+- The message catalog and the UI guide are split by domain since #612: `web/lib/messages/<domain>.ts` (both languages of a domain in one file; `web/lib/messages.ts` only assembles them) and `docs/reading-the-ui/<domain>.md` (`docs/reading-the-ui.md` is the index). Two issues on the same domain file go in different waves; different domains no longer conflict. A translated surface is listed under `### In your language` in the file of its domain (`docs/reading-the-ui/language.md` only links those sections), so a translation issue touches its domain file, not `language.md`. Adding a domain file touches the shared lists (`web/lib/messages/domains.ts` and `web/lib/messages.ts`, or the index `docs/reading-the-ui.md`).
 - `web/hooks/simulation/process-event.ts`
 - `package.json` (an issue that adds a dependency goes first and alone)
 

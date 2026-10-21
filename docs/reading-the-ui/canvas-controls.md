@@ -11,6 +11,10 @@
   - Resizing while the focus is on one of these controls: folding sends the focus to the **Canvas controls** button, unfolding sends it to **View**. If the focus had already left the controls (a click elsewhere), it is not moved.
 - These settings were called *Fit*, *Pause animations*, *Keep cards visible* and *Expire unanswered calls after* before. Their behaviour is unchanged. Every label, accessible name and tooltip of these controls comes from the message catalog, in English and in French (*Tout afficher*, *Figer les animations*, *Garder les cartes affichées*, *Masquer les appels sans réponse après*, *Affichage*, *Zoom avant*, *Zoom arrière*), and the block carries `lang`.
 
+### In your language
+
+- the canvas controls (the Zoom group, the View button and its panel: Freeze motion, the per-layer toggles, Pin cards, Hide unanswered calls after);
+
 ## Motion by layer
 
 Besides the global **Freeze motion** setting (and your system's reduced-motion setting), the **View** panel of the canvas controls holds one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.

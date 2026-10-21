@@ -12,6 +12,10 @@ The two gauges of the top bar show the Claude Code subscription quota, as Claude
 - **Hide or show.** **Settings > Appearance > Quota gauges** (on by default, remembered in this browser). The gauges only exist when the relay stream is the source: in VS Code, the demo and the guided tour there is none, and the setting is not offered. Under 1024 px they fold behind **More** with the panel buttons.
 - **Turn the data source on.** The figures only arrive if Claude Code's status line passes them on, and that is **opt-in**: run `node scripts/setup.js --statusline`. It shows your current `statusLine` and the new one and asks `Apply? [y/N]` (`--yes` skips the question; with no terminal and no `--yes` nothing changes). Your own status line keeps running unchanged inside the wrapper. Undo with `node scripts/setup.js --restore-statusline`; uninstalling the extension restores it too. What is read and sent is in [Event sources](../relay-sources.md#claude-code-status-line-subscription-quota-467).
 
+### In your language
+
+- the quota gauges of the top bar (their text is in your language and carries its own `lang`).
+
 ## Context window (the "/ 1M" next to the gauge)
 
 The used part of the gauge is a reading. The total is a window that is either **reported** by the runtime or **inferred** by Agent Lens, because Claude Code transcripts do not state it. Where it comes from, strongest first:
