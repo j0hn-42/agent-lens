@@ -20,6 +20,12 @@ export interface ScopeSelectorProps {
   /** Why the last change failed; the shown scope is still the scanned one */
   error: string | null
   onChoose: (choice: ScopeChoice) => void
+  /**
+   * The ceilings and failures are a polite live region (default). The top bar passes false: it announces them from its own
+   * region, in the DOM from its first render, because the selector is mounted with More, its text already in it, and a
+   * region inserted already filled is not announced by NVDA, JAWS and often VoiceOver (review of PR 631)
+   */
+  announce?: boolean
 }
 
 /**
@@ -27,7 +33,7 @@ export interface ScopeSelectorProps {
  * operable, announced with its name and value), always visible with a sentence that says what is scanned and,
  * in a polite live region, the discovery ceilings that were hit. Colours come from the theme tokens; nothing moves.
  */
-export function ScopeSelector({ state, sessions, projectId, pending, error, onChoose }: ScopeSelectorProps) {
+export function ScopeSelector({ state, sessions, projectId, pending, error, onChoose, announce = true }: ScopeSelectorProps) {
   const { locale } = useLocale()
   if (!state) return null
   const options = scopeOptions(sessions, locale)
@@ -58,7 +64,7 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
         ))}
       </select>
       {summary && <span style={{ color: COLORS.textMuted }}>{summary}</span>}
-      <span role="status" data-scope-notices className="min-w-0" style={{ color: error ? COLORS.error : COLORS.textMuted }}>
+      <span role={announce ? "status" : undefined} data-scope-notices className="min-w-0" style={{ color: error ? COLORS.error : COLORS.textMuted }}>
         {relayTexts.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt="">{i > 0 && ' '}{text}</span>)}
         {notices.length > 0 && `${relayTexts.length > 0 ? ' ' : ''}${notices.join(' ')}`}
       </span>

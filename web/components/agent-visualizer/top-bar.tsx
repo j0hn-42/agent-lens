@@ -448,8 +448,9 @@ export const TopBar = memo(function TopBar({
   const showFilterCount = activeFilters.length > 0
 
   // What More holds that the bar does not show is never hidden behind it without a sign (reading-the-ui.md): the
-  // reconnect detail, the scope and its discovery ceilings, the quota. More reads them in its description and carries a
-  // mark: ⚠ when one of them needs a look (a ceiling, a failure, a low or unknown quota, the link down), • otherwise.
+  // reconnect detail, blocked notifications, the scope and its discovery ceilings, the quota. More reads them in its
+  // description and carries a mark: ⚠ when one of them needs a look (a ceiling, a failure, a low or unknown quota, the link
+  // down, notifications blocked by the browser), • otherwise.
   const connection = connectionText(locale, connectionStatus, isDemo, connectionDetail)
   const offline = !isDemo && connection.tone === 'error'
   const connectionDetailShown = offline ? connection.detail : null
@@ -462,7 +463,10 @@ export const TopBar = memo(function TopBar({
     losses: scopeLossNotices(scopeState, locale),
   } : null
   const quotaHeld = showQuota ? quotaSummary(quotaState, locale) : null
-  const holdsAlert = !!connectionDetailShown || !!quotaHeld?.alert
+  // Before the one-line bar "Notifications blocked" was drawn in the bar from 1024 px; behind More it is signalled on More
+  // (PR #631 review): no alert reaches the person while the browser blocks them
+  const notifyBlocked = notifyState === 'denied' && !!onToggleNotify
+  const holdsAlert = !!connectionDetailShown || notifyBlocked || !!quotaHeld?.alert
     || (!!scopeText && (scopeText.notices.length > 0 || scopeText.relay.length > 0 || scopeText.losses.length > 0))
   const holdsAny = holdsAlert || !!quotaHeld || !!scopeText?.summary
   const moreMark = holdsAlert ? 'alert' : holdsAny ? 'status' : null
@@ -713,6 +717,7 @@ export const TopBar = memo(function TopBar({
           {connectionDetailShown && (
             <span>{t('topbar.more.holds.connection')} <span lang={connectionDetailShown.lang} {...(connectionDetailShown.lang !== locale ? { 'data-i18n-exempt': '' } : {})}>{connectionDetailShown.text}</span>. </span>
           )}
+          {notifyBlocked && <span>{t('topbar.notify.blocked')}. </span>}
           {scopeText && (scopeText.summary || scopeText.notices.length > 0 || scopeText.relay.length > 0 || scopeText.losses.length > 0) && (
             <span>
               {t('topbar.more.holds.scope')}{' '}
@@ -725,14 +730,14 @@ export const TopBar = memo(function TopBar({
           {quotaHeld && <span>{t('topbar.more.holds.quota')} {quotaHeld.text}.</span>}
         </span>
       )}
-      {scopeText && !moreOpen && (scopeText.notices.length > 0 || scopeText.relay.length > 0) && (
-        // The discovery ceilings and the failures are a polite live region in the scope selector (#291); while More is closed
-        // the selector is not rendered, so this copy keeps announcing them
-        <span role="status" className="sr-only" lang={locale}>
-          {scopeText.relay.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt="">{i > 0 && ' '}{text}</span>)}
-          {scopeText.notices.length > 0 && `${scopeText.relay.length > 0 ? ' ' : ''}${scopeText.notices.join(' ')}`}
-        </span>
-      )}
+      {/* The discovery ceilings and the failures (#291) are announced from here, a polite live region that is in the DOM from
+          the first render, empty while there is nothing to say: a region inserted with its text already in it is not
+          announced by NVDA, JAWS and often VoiceOver (PR #631 review). It keeps its text while More is open, where the
+          selector writes the same text without a live region of its own: nothing is announced twice, nor again on close */}
+      <span role="status" data-topbar-scope-live="" className="sr-only" lang={locale}>
+        {scopeText?.relay.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt="">{i > 0 && ' '}{text}</span>)}
+        {scopeText && scopeText.notices.length > 0 && `${scopeText.relay.length > 0 ? ' ' : ''}${scopeText.notices.join(' ')}`}
+      </span>
 
       {/* More: an overlay below the bar, after its button in the DOM (Tab goes from More into it). It never adds a row */}
       <div
@@ -756,7 +761,7 @@ export const TopBar = memo(function TopBar({
                 )}
               </div>
             )}
-            {scope && <ScopeSelector {...scope} />}
+            {scope && <ScopeSelector {...scope} announce={false} />}
             {((notifyState !== 'unsupported' && onToggleNotify) || onChangeShowMode) && (
               <div role="group" aria-label={t('topbar.menu.filters')} data-topbar-group="filters" className="flex flex-wrap items-center gap-2">
                 {notifyState !== 'unsupported' && onToggleNotify && (
