@@ -23,11 +23,11 @@ after(async () => {
   await server?.stop()
 })
 
-async function open(w: number, h: number): Promise<Page> {
+async function open(w: number, h: number, query = ''): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h }, reducedMotion: 'reduce' })
   await context.addInitScript(() => { try { window.localStorage.setItem('agent-lens:locale', 'fr') } catch { /* blocked */ } })
   const page = await context.newPage()
-  await page.goto(server.url, { waitUntil: 'networkidle' })
+  await page.goto(`${server.url}/${query}`, { waitUntil: 'networkidle' })
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   await waitForStableLayout(page)
   return page
@@ -100,6 +100,30 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
 
   // #373: the French Timeline (header actions, legend, table view, message buttons). The demo has no link channel on opening, so the
   // Sequence button and the message list may be absent: said out loud below, not skipped silently.
+  // #613: the pair filter OPEN, in French. The default demo has no SEND / RETURN row (above), but the demo of 83 agents
+  // (?scenario=workflow83) shows the header button "Filtrer une paire" of the agent picker (#630), which opens the same filter.
+  test(`fr ${w}x${h}: the Conversation panel with the pair filter open fits (83 agents, #613)`, { timeout: 180_000 }, async () => {
+    const page = await open(w, h, '?scenario=workflow83')
+    try {
+      await page.locator('body').press('c')
+      const panel = page.locator('[data-dock-panel="conversation"]')
+      await panel.waitFor()
+      const pair = panel.getByRole('button', { name: 'Filtrer une paire', exact: true })
+      await pair.waitFor({ timeout: 60_000 })
+      await waitForStableLayout(page)
+      await pair.click()
+      // Both agents chosen: the two French selects and the chip "Filtre de paire : …" are drawn together
+      const first = panel.getByRole('combobox', { name: 'Premier agent' })
+      await first.selectOption({ index: 1 })
+      await panel.getByRole('combobox', { name: 'Second agent' }).selectOption({ index: 1 })
+      await panel.getByRole('group', { name: /^Filtre de paire/ }).waitFor()
+      await waitForStableLayout(page)
+      await expectFits(page, '[data-dock-panel="conversation"]', `${w}x${h} conversation, pair filter open (83 agents)`)
+    } finally {
+      await page.context().close()
+    }
+  })
+
   test(`fr ${w}x${h}: the Timeline panel (header, legend, table view) fits (#373)`, { timeout: 180_000 }, async () => {
     const page = await open(w, h)
     try {

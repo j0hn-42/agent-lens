@@ -32,7 +32,9 @@ export async function openWithCard(browser: Browser, server: DemoServer, w: numb
   // init, then the request once the page declared its decision surface (the extension holds requests until then).
   // The bridge listens only once React has hydrated and an init sent before that is lost: like the extension, which
   // waits for the page's answer, init is repeated until the page answers with its public `permission-surface`
-  // message (no React internal involved).
+  // message (no React internal involved). Same handshake as postWhenListening (bridge-ready.ts), kept apart on purpose
+  // (#613): with that helper, popup-permission.e2e.ts failed 3 then 6 times out of 14 against 14/14 with this loop
+  // (measured twice in #624), and the cause was not found. Do not merge the two without finding it.
   await page.evaluate(`new Promise((resolve, reject) => {
     const win = document.getElementById('app').contentWindow
     const retry = setInterval(() => win.postMessage({ type: '__vscode-bridge-init' }, '*'), 100)
