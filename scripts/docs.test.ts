@@ -9,7 +9,7 @@ import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED
 import { remoteStartupError } from './remote-access'
 import { REMOTE_PAIR_MAX_SESSIONS, REMOTE_PAIR_SESSION_TTL_MS, PAIR_COOKIE } from './remote-pairing'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
-import { READING_GUIDE_DIR, READING_GUIDE_INDEX, readReadingGuide, readingGuideFiles } from './reading-guide'
+import { READING_GUIDE_DIR, READING_GUIDE_INDEX, readReadingGuide, readReadingGuideDomains, readingGuideFiles } from './reading-guide'
 
 const root = path.resolve(__dirname, '..')
 
@@ -49,8 +49,9 @@ test('the tracked-file listing still works outside a git checkout, as in a sourc
   } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
 })
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
-/** The reading guide is an index and one file per domain (#612): the tests read all of it, in the order of the index */
-const guideText = () => readReadingGuide()
+/** The reading guide is an index and one file per domain (#612): a test that looks for a term reads every domain file,
+ *  in the order of the index, and never the index itself (#613: a word of the index cannot satisfy it) */
+const guideText = () => readReadingGuideDomains()
 /** A doc as the tests read it: the whole reading guide for its index, the file itself otherwise */
 const docText = (f: string) => (f === READING_GUIDE_INDEX ? guideText() : read(f))
 
@@ -84,9 +85,11 @@ test('the reading guide is an index and one file per domain, each linked once, i
   for (const f of listed) assert.match(read(f), /^## \S/, `${f} opens with a "## " heading, so read alone it has a title and no level is skipped`)
   assert.doesNotMatch(index, /^## /m, 'the index has no section of its own: a section lives in the file of its domain')
   assert.ok(index.split('\n').length < 80, 'the index stays short')
-  // The tests that look for a term read the index too: the index must not be what satisfies them
-  for (const term of ['not observed', 'at least', 'estimated', 'unattributed', 'observations', 'compaction', 'settings']) {
-    assert.ok(!index.toLowerCase().includes(term), `the index says "${term}": write it in the file of its domain`)
+  // The tests that look for a term never read the index (#613: the 7 terms checked here before left every other one
+  // open): neither here (guideText) nor in the other test files (readReadingGuideDomains)
+  assert.ok(!guideText().includes(index.split('\n').find(l => l.startsWith('Principle'))!), 'a term search does not read the index')
+  for (const f of fs.readdirSync(path.join(root, 'scripts')).filter(n => n.endsWith('.test.ts') && n !== 'docs.test.ts')) {
+    assert.doesNotMatch(read(`scripts/${f}`), /readReadingGuide\(/, `scripts/${f} reads the index with readReadingGuide(): use readReadingGuideDomains()`)
   }
   // Read as one text, the guide starts with the index and follows its order
   const whole = readReadingGuide()
@@ -113,7 +116,10 @@ test('a translated surface is listed in the file of its domain, and language.md 
 })
 
 test('every link to a section of the reading guide lands on a heading of the file it names (#612)', () => {
-  const docs = ['README.md', ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`), READING_GUIDE_INDEX, ...readingGuideFiles()]
+  // Every Markdown file of the repository (#613: README, docs/ and the guide only before; CONTRIBUTING, CLAUDE.md, the
+  // PR template, the skills and agents link to the guide too)
+  const docs = trackedFiles(root).filter(f => f.endsWith('.md') && !f.includes('node_modules/'))
+  for (const f of ['README.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles()]) assert.ok(docs.includes(f), `${f} is checked`)
   const anchorsOf = new Map<string, Set<string>>()
   const anchors = (file: string) => {
     if (!anchorsOf.has(file)) anchorsOf.set(file, new Set([...read(file).matchAll(/^#{1,6} (.+)$/gm)].map(m => slug(m[1]))))

@@ -7,14 +7,30 @@ import {
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 import { MESSAGES } from '../web/lib/messages'
+import { MESSAGE_DOMAINS } from '../web/lib/messages/domains'
 import {
   EMPTY_MESSAGES, EMPTY_SEARCH, COLLAPSED_TEXT_MAX, TOOL_MESSAGE_TYPES, buildFeedMessages, latestFeedMessage,
   filterBySearch, tabForSelection,
 } from '../web/lib/feed-utils'
 import type { ConversationMessage } from '../web/hooks/simulation/types'
 
-/** The source files of the message catalog: the assembly point and its domain files (#612), in a fixed order */
-const CATALOG_FILES = [join('web/lib', 'messages.ts'), ...readdirSync(join('web/lib', 'messages')).filter(f => f.endsWith('.ts')).sort().map(f => join('web/lib', 'messages', f))]
+/**
+ * The source files of the message catalog: the assembly point, its REGISTERED domain files (#612) and shared.ts (the one
+ * French panel name the domains share), in a fixed order. Only these may hold accented text: domains.ts or any other
+ * file of that folder that is not a domain is checked like any source (#613).
+ */
+const CATALOG_FILES = [
+  join('web/lib', 'messages.ts'), join('web/lib', 'messages', 'shared.ts'),
+  ...Object.keys(MESSAGE_DOMAINS).sort().map(name => join('web/lib', 'messages', `${name}.ts`)),
+]
+
+test('the accent allow-list is the assembly point, shared.ts and the registered domains, not every file of web/lib/messages/ (#613)', () => {
+  assert.ok(!CATALOG_FILES.includes(join('web/lib', 'messages', 'domains.ts')))
+  for (const f of CATALOG_FILES) assert.ok(existsSync(f), `${f} exists`)
+  assert.equal(CATALOG_FILES.length, 2 + Object.keys(MESSAGE_DOMAINS).length)
+  // A file of the folder that is neither registered nor shared.ts (a future helper) is not allowed
+  assert.ok(!CATALOG_FILES.includes(join('web/lib', 'messages', 'future-helper.ts')))
+})
 
 const msg = (id: string, type: ConversationMessage['type'], timestamp: number, content: string, extra: Partial<ConversationMessage> = {}): ConversationMessage =>
   ({ id, type, timestamp, content, ...extra })
