@@ -146,6 +146,7 @@ Apply it to `develop` only once the CI runs on pull requests to `develop` (it do
 - Target `j0hn-42/agent-lens`, base `develop`. Fill in the pull request template and tick the checklist.
 - Keep the change focused; do not reformat or rename outside the scope of the issue.
 - Use English identifiers; keep comments rare. Commit messages in French or English, matching the history.
+- Interface strings: add your key to the file of your domain in `web/lib/messages/` (top bar, canvas, sessions, conversation…), with its two languages, fr and en, side by side. `web/lib/messages.ts` only assembles the domains and keeps the imports unchanged; `scripts/messages.test.ts` fails on a key missing in one language or defined in two domain files (#612).
 - Do not close issues by hand: the pull request reference does it on merge.
 
 ## Compatibility with the Agent Flow heritage

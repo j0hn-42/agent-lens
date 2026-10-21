@@ -1,7 +1,10 @@
 // #247: message catalog, French first. Pure logic, node:test.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { LOCALES, DEFAULT_LOCALE, MESSAGES, resolveLocale, translate, type MessageKey } from '../web/lib/messages'
+import fs from 'node:fs'
+import path from 'node:path'
+import { LOCALES, DEFAULT_LOCALE, MESSAGES, resolveLocale, translate, type Locale, type MessageKey } from '../web/lib/messages'
+import { MESSAGE_DOMAINS } from '../web/lib/messages/domains'
 
 test('French comes first in the catalog', () => {
   assert.deepEqual([...LOCALES], ['fr', 'en'])
@@ -78,5 +81,52 @@ test('the native notification bodies exist in both languages with the same place
   for (const k of keys) {
     assert.notEqual(MESSAGES.fr[k], MESSAGES.en[k], k)
     assert.equal(holes(MESSAGES.fr[k]), holes(MESSAGES.en[k]), k)
+  }
+})
+
+// #612: the catalog is split by domain in web/lib/messages/, one file per domain holding both languages side by side,
+// and web/lib/messages.ts assembles them, so two pull requests on different domains touch different files.
+const DOMAIN_DIR = path.join(__dirname, '..', 'web', 'lib', 'messages')
+/** The files of that folder that are not a domain: the list of domains and the helpers they share */
+const NOT_DOMAINS = new Set(['domains.ts', 'shared.ts'])
+
+test('every file of web/lib/messages/ is a registered domain, and every registered domain has its file (#612)', () => {
+  const files = fs.readdirSync(DOMAIN_DIR).filter(f => f.endsWith('.ts') && !NOT_DOMAINS.has(f)).map(f => f.replace(/\.ts$/, '')).sort()
+  assert.ok(files.length > 1, 'the catalog is split in several domain files')
+  assert.deepEqual(Object.keys(MESSAGE_DOMAINS).sort(), files)
+})
+
+test('every domain has both languages, with the same keys, none empty (#612)', () => {
+  for (const [name, domain] of Object.entries(MESSAGE_DOMAINS)) {
+    const tables = domain as Partial<Record<Locale, Readonly<Record<string, string>>>>
+    for (const l of LOCALES) {
+      const table = tables[l]
+      assert.ok(table && typeof table === 'object', `${name} has no ${l} table`)
+      assert.ok(Object.keys(table).length > 0, `${name}.${l} is empty`)
+      assert.deepEqual(Object.keys(table).sort(), Object.keys(tables.fr ?? {}).sort(), `${name}: keys of ${l} differ from fr`)
+      for (const [k, v] of Object.entries(table)) assert.ok(typeof v === 'string' && v.trim().length > 0, `${name}.${l}.${k}`)
+    }
+  }
+})
+
+test('no key is defined in two domain files (#612)', () => {
+  for (const l of LOCALES) {
+    const owner = new Map<string, string>()
+    for (const [name, domain] of Object.entries(MESSAGE_DOMAINS)) {
+      for (const k of Object.keys(domain[l])) {
+        assert.ok(!owner.has(k), `${l}.${k} is defined in ${owner.get(k)} and in ${name}`)
+        owner.set(k, name)
+      }
+    }
+  }
+})
+
+test('the assembled catalog is exactly the union of the domain files, nothing lost or added (#612)', () => {
+  for (const l of LOCALES) {
+    const merged: Record<string, string> = {}
+    for (const domain of Object.values(MESSAGE_DOMAINS)) Object.assign(merged, domain[l])
+    assert.deepEqual({ ...MESSAGES[l] }, merged, `assembled ${l}`)
+    const total = Object.values(MESSAGE_DOMAINS).reduce((n, d) => n + Object.keys(d[l]).length, 0)
+    assert.equal(Object.keys(MESSAGES[l]).length, total, `${l}: number of keys`)
   }
 })

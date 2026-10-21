@@ -7,6 +7,7 @@ Principle: never display a state or a number that cannot be proven ([docs/readin
 ## Layout
 
 - `web/`: Next.js 16 / React 19 / Tailwind 4 app and the Vite webview bundle. Canvas, panels, themes (`web/lib/theme-tokens.json`).
+- `web/lib/messages/<domain>.ts`: the message catalog, one file per domain with its fr and en tables side by side. Add your key in the file of your domain, with its two languages; `web/lib/messages.ts` only assembles them (import from there).
 - `extension/`: VS Code extension (esbuild).
 - `app/`: standalone app build.
 - `scripts/`: the relay server (`relay.ts`), routes, telemetry and most unit tests (`scripts/*.test.ts`).
