@@ -62,6 +62,13 @@ test('the CI shards stay balanced: none exceeds the mean by more than its larges
   for (const s of shards) assert.ok(s.reduce((n, f) => n + w(f), 0) <= total / SHARDS + largest)
 })
 
+test('the agent picker e2e (83 agents of the Conversation panel) has a weight and runs in exactly one shard', () => {
+  const f = 'conversation-agent-picker.e2e.ts'
+  assert.ok(e2eFiles().includes(f), `${f} is on disk`)
+  assert.ok((loadWeights()[f] ?? 0) > 0, `${f} has a weight`)
+  assert.equal(assignShards(e2eFiles(), loadWeights(), SHARDS).filter(s => s.includes(f)).length, 1)
+})
+
 test('the weight table names only existing e2e files, with positive seconds (#611)', () => {
   const weights = loadWeights()
   const files = new Set(e2eFiles())
