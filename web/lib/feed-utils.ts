@@ -515,7 +515,7 @@ export function trackUnread(
 /** Number of agents with messages from which the agent tabs give way to the agent picker. */
 export const AGENT_PICKER_MIN = 5
 /** Finished agents are folded by default from this many on (unless the selected agent is one of them). */
-export const PICKER_DONE_FOLD_MIN = 6
+const PICKER_DONE_FOLD_MIN = 6
 
 export function usesAgentPicker(agentsWithMessages: number): boolean {
   return agentsWithMessages >= AGENT_PICKER_MIN

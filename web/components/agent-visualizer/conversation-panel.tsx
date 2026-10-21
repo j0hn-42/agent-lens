@@ -556,9 +556,9 @@ export function ConversationPanel({
               // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
               tabIndex={-1}
               onKeyDown={onTabKeyDown}
-              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 112 px high, 192 px under 768 px
+              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 128 px high (four rows), 192 px under 768 px
               // (44 px tabs), then a vertical scroll
-              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-28 max-md:max-h-48 overflow-y-auto outline-none"
+              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-32 max-md:max-h-48 overflow-y-auto outline-none"
               style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
             >
               {tabKeys.map((key, i) => {
