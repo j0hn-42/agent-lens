@@ -1,3 +1,5 @@
+## Graph legend and guided tour
+
 The graph legend (bottom left of the canvas) explains the colours, shapes and lines that are on screen.
 
 ### The legend lists what is on screen

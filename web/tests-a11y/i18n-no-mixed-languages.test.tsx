@@ -5,7 +5,7 @@
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
 // lang) is left out. The Timeline panel is rendered here too, with no exemption of its own. The words the canvas draws for the
-// Cost and Stats overlays are out of this test on purpose: see docs/reading-the-ui.md. Control by control, the top bar also has
+// Cost and Stats overlays are out of this test on purpose: see docs/reading-the-ui/language.md. Control by control, the top bar also has
 // topbar-i18n.test.tsx.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'

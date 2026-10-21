@@ -44,6 +44,7 @@ test('the reading guide is an index and one file per domain, each linked once, i
   assert.ok(listed.length > 5, 'the guide is split in several domain files')
   assert.deepEqual([...listed].sort(), onDisk, 'every domain file is linked from the index, and every link has its file')
   assert.equal(new Set(listed).size, listed.length, 'no domain file is linked twice')
+  for (const f of listed) assert.match(read(f), /^## \S/, `${f} opens with a "## " heading, so read alone it has a title and no level is skipped`)
   assert.doesNotMatch(index, /^## /m, 'the index has no section of its own: a section lives in the file of its domain')
   assert.ok(index.split('\n').length < 80, 'the index stays short')
   // The tests that look for a term read the index too: the index must not be what satisfies them
