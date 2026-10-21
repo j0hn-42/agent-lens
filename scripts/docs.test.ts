@@ -80,6 +80,52 @@ test('every link to a section of the reading guide lands on a heading of the fil
   assert.ok(checked > 10, 'the links to sections of the guide are checked')
 })
 
+/** The named sections of the guide (its headings and the bold labels that open a bullet), each with the domain files that hold it */
+function guideSectionFiles(): Map<string, Set<string>> {
+  const sections = new Map<string, Set<string>>()
+  for (const file of readingGuideFiles()) {
+    const text = read(file)
+    const names = [...text.matchAll(/^#{1,6} (.+)$/gm), ...text.matchAll(/^\s*- \*\*([^*]+)\*\*/gm)].map(m => m[1].trim())
+    for (const name of names) {
+      if (!sections.has(name)) sections.set(name, new Set())
+      sections.get(name)!.add(file)
+    }
+  }
+  return sections
+}
+
+test('a link to the reading guide that names a section in bold or in quotes points to the file of that section (#612)', () => {
+  const sections = guideSectionFiles()
+  const docs = execFileSync('git', ['ls-files', '*.md', '.github/*.md', '.claude/*.md'], { cwd: root, encoding: 'utf8' })
+    .split('\n').filter(f => f && !f.includes('node_modules/'))
+  const isGuide = (t: string) => t === READING_GUIDE_INDEX || t.startsWith(`${READING_GUIDE_DIR}/`)
+  let checked = 0
+  const wrong: string[] = []
+  for (const doc of [...new Set(docs)]) {
+    for (const line of read(doc).split('\n')) {
+      const links = [...line.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)]
+      links.forEach((m, i) => {
+        if (m[1].includes('#') || /^[a-z]+:/i.test(m[1])) return // a link with an anchor is checked by the anchor test
+        const target = path.posix.normalize(path.posix.join(path.posix.dirname(doc), m[1]))
+        if (!isGuide(target)) return
+        // The words around this link: from the end of the previous link to the start of the next one
+        const from = i > 0 ? links[i - 1].index! + links[i - 1][0].length : 0
+        const to = i + 1 < links.length ? links[i + 1].index! : line.length
+        const around = line.slice(from, m.index!) + line.slice(m.index! + m[0].length, to)
+        for (const n of around.matchAll(/\*\*([^*]+)\*\*|"([^"]+)"|«\s*([^»]+?)\s*»/g)) {
+          const name = (n[1] ?? n[2] ?? n[3]).trim()
+          const files = sections.get(name)
+          if (!files) continue
+          if (!files.has(target)) wrong.push(`${doc} names the section "${name}" next to a link to ${target}, but that section is in ${[...files].join(', ')}`)
+          checked++
+        }
+      })
+    }
+  }
+  assert.deepEqual(wrong, [])
+  assert.ok(checked >= 1, 'links that name a section of the guide are checked')
+})
+
 test('README documents the fork views and links the docs (#129)', () => {
   const readme = read('README.md')
   for (const word of ['Fleet', 'All', 'Workflow', 'Comms', 'Context', 'Reading the UI']) {

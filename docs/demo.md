@@ -131,4 +131,4 @@ La visite guidée ne sert pas qu'à la démo. Sur une session réelle (ou sur le
 - la scène n'est ni mise en pause ni rejouée : la visite reste en direct. Quand ce qu'une étape explique a quitté la scène, la carte l'écrit (« This is no longer on screen ») ;
 - mêmes contrôles que la visite de la démo : **Previous**, **Next**, **Go to step**, **Exit tour**, `←` `→` et `Échap` dans la carte ; le focus revient au bouton d'origine.
 
-La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui.md).
+La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui/legend-and-tour.md).

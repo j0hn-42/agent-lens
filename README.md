@@ -27,8 +27,8 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree), sorted by recent activity, renamable (F2) and prefixed by folder when several folders are open
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
-- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [docs/reading-the-ui.md](docs/reading-the-ui.md)), and the conversation (one panel for messages, tool calls and per-agent views)
-- **Repeated reads and calls**: the Files & repeats panel lists, in a section folded behind a counted summary, files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui.md))
+- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [Reading the UI](docs/reading-the-ui/views.md)), and the conversation (one panel for messages, tool calls and per-agent views)
+- **Repeated reads and calls**: the Files & repeats panel lists, in a section folded behind a counted summary, files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui/repeated-reads.md))
 - **Delegation report**: the inspector of an agent lists each of its sub-agents with its tokens, the files it was seen to read, the duration the runtime reported and the start of its returned report; unknown values say so (see [Reading the UI](docs/reading-the-ui/delegation-report.md#delegation-report))
 - **System panel**: CPU, memory, swap, disk and load of the machine that runs the relay, with a 2-minute history and no invented value (see [docs/system-stats.md](docs/system-stats.md))
 - **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
@@ -37,7 +37,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand, and the session's capabilities (instruction files, skills grouped by plugin, MCP servers) as its transcript recorded them. Standalone relay only (`pnpm run dev` / app), not in the VS Code extension, where the Context button says so; the issue and PR links of the panel are relay-only too
 - **Nine dark themes**: Catppuccin Macchiato (default) with Mocha and Frappé, Midnight (calm indigo), Graphite (neutral), Neon (the original cyan look), Ember (warm, low blue light), Anthropic (warm neutrals and orange, inspired by the public Anthropic colours, not an official theme) and High contrast (pure black, white text, yellow accent, for low vision), chosen with the **Theme** selector in **Settings** (the gear button in the top bar; the theme applies to the interface and to the agent state colours on the canvas; the rest of the canvas and the page background keep the neon colours). See [Reading the UI](docs/reading-the-ui/themes.md#themes)
 - **Subscription quota gauges**: two small gauges in the top bar show how much of the Claude Code 5-hour and weekly quota is left, as Claude Code reports it, with the reset time on hover or focus and `quota: unknown for now` when it cannot be proven. The data comes from Claude Code's status line, which Agent Lens wraps only if you run `node scripts/setup.js --statusline` (opt-in, undone with `--restore-statusline`). Nothing is shown before any quota has been received, nor for a Copilot or OpenCode session (see [Reading the UI](docs/reading-the-ui/cost-and-usage.md#subscription-quota-gauges))
-- **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui.md)
+- **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui/honest-values.md)
 - **Operator control (VS Code, off by default)**: an optional `PermissionRequest` hook and a decision channel let the panel answer Claude Code permission requests. Fails closed (no answer means Claude Code asks as usual), one decision per request, journalled in a 0600 file without the tool input. See [docs/operator-control.md](docs/operator-control.md)
 - **Session export and HTML replay**: save a session as one offline HTML file with a keyboard scrubber, secrets redacted before writing (best effort). See [docs/session-export.md](docs/session-export.md)
 - **Headless use**: `ps`, `tail` and `statusline` commands, a one-line `/statusline` endpoint for tmux or zellij, and webhooks on live agent events (explicit destinations, fixed body, bounded). See [docs/headless.md](docs/headless.md)
@@ -144,7 +144,7 @@ You can also point Agent Lens at a JSONL event log file:
 |----------|--------|
 | `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Agent Lens |
 
-Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, panels, sessions (direct jump) and agents, all from the keyboard. `?` lists every shortcut. See [Reading the UI](docs/reading-the-ui.md).
+Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, panels, sessions (direct jump) and agents, all from the keyboard. `?` lists every shortcut. See [Reading the UI](docs/reading-the-ui/views.md).
 
 ## Settings
 
@@ -179,7 +179,7 @@ Other scripts:
 |--------|-------------|
 | `pnpm run dev:demo` | Start with the demo tour: every feature on mock data (script: [docs/demo.md](docs/demo.md)) |
 | `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
-| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)). On a real session, **Tour this session** (beside **Legend**) explains only the symbols on screen ([docs/reading-the-ui.md](docs/reading-the-ui.md)) |
+| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)). On a real session, **Tour this session** (beside **Legend**) explains only the symbols on screen ([Reading the UI](docs/reading-the-ui/legend-and-tour.md)) |
 | `pnpm run dev:relay` | Run the event relay server standalone |
 | `pnpm run mcp` | Run the read-only `agent-lens` MCP server on stdio (started by Claude Code from `.mcp.json`, see [docs/mcp-server.md](docs/mcp-server.md)) |
 | `pnpm run dev:extension` | Watch-build the extension |
