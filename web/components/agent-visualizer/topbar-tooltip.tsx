@@ -18,8 +18,12 @@ const MARGIN = 8
  * focus nor with Escape). `children` receives the id to put in the button's aria-describedby. `onOpen` is called with
  * +1 when it opens and -1 when it closes, so the bar can rise above the docked panels the tooltip is drawn over.
  */
-export function TopBarTooltip({ text, lang, onOpen, children }: {
+export function TopBarTooltip({ text, lang, onOpen, children, sensitive = false, boxClassName = '' }: {
   text: string; lang?: string; onOpen?: (delta: 1 | -1) => void; children: (tooltipId: string) => ReactNode
+  /** The text holds free text (a session name): blurred in presentation mode like the button that shows it (#245) */
+  sensitive?: boolean
+  /** Extra classes of the box around the button (it is the flex item of the bar) */
+  boxClassName?: string
 }) {
   const id = useId()
   const [hovered, setHovered] = useState(false)
@@ -99,7 +103,7 @@ export function TopBarTooltip({ text, lang, onOpen, children }: {
   }, [open])
 
   return (
-    <span ref={boxRef} className="relative inline-flex">
+    <span ref={boxRef} className={`relative inline-flex ${boxClassName}`}>
       {children(id)}
       <span
         ref={tipRef}
@@ -107,6 +111,7 @@ export function TopBarTooltip({ text, lang, onOpen, children }: {
         role="tooltip"
         hidden={!open}
         lang={lang}
+        {...(sensitive ? { 'data-sensitive': '' } : {})}
         className="fixed z-10 w-max max-w-[min(20rem,calc(100vw-16px))] whitespace-normal rounded px-2 py-1 text-[11px] font-normal leading-snug"
         style={{
           background: COLORS[TOPBAR_TOOLTIP.ground],

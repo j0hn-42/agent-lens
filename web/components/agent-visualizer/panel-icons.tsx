@@ -1,6 +1,6 @@
 /**
- * Icons of the seven panel buttons of the top bar (#523), drawn instead of their name under 1280 px wide (Tailwind
- * `max-xl`). Decorative: the button keeps its name (aria-label) at every width, so each SVG is aria-hidden and out of
+ * Icons of the seven panel buttons of the top bar (#523), drawn instead of their name at every width since the bar holds
+ * on one line (owner request, 2026-10-21). Decorative: the button keeps its name (aria-label) and its tooltip, so each SVG is aria-hidden and out of
  * the Tab order. Stroked in currentColor, so they follow the button's text colour in every theme.
  */
 import type { ReactNode } from 'react'
@@ -24,10 +24,10 @@ const PATHS: Record<TopBarPanelId, ReactNode> = {
   stats: <path d="M4 20V11M10 20V4M16 20v-7M2 20h20" />,
 }
 
-/** The icon of a panel button: hidden from 1280 px wide, where the button shows its name instead. */
+/** The icon of a panel button (its name is the tooltip and the accessible name). */
 export function PanelIcon({ panel }: { panel: TopBarPanelId }) {
   return (
-    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="hidden max-xl:block">
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="block">
       {PATHS[panel]}
     </svg>
   )

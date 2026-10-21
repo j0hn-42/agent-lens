@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import type { UsageTotal } from "@/lib/usage"
@@ -11,7 +11,7 @@ import { FOCUS_RING } from "@/lib/focus-ring"
 import { sessionStatusHelp } from "@/lib/card-text"
 import {
   attentionAriaLabel, attentionCounterText, attentionTooltip, connectionText,
-  moreText, selectionLabelText, unobservedSessionsText,
+  moreText, selectionLabelText, unobservedSessionsShortText, unobservedSessionsText, type ConnectionText,
 } from "@/lib/top-bar-text"
 import { ACTIVE_WINDOW_MINUTES, type ShowMode } from "@/lib/show-mode"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
@@ -20,11 +20,12 @@ import { useLocale } from "@/lib/locale"
 import { translate, type Locale, type MessageKey } from "@/lib/messages"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
 import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
-import { QuotaGauges } from "./quota-gauges"
+import { QuotaGauges, quotaSummary } from "./quota-gauges"
 import { quotaGaugeState, type QuotaSnapshotView } from "@/lib/quota"
 import { useMinuteClock } from "@/hooks/use-minute-clock"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
-import { isMobileView as isNarrow, subscribeMobileView as subscribeNarrow, isTopbarFolded, subscribeTopbarFold } from "@/hooks/use-mobile-view"
+import { getTopbarTier, subscribeTopbarTier } from "@/hooks/use-mobile-view"
+import { scopeLossNotices, scopeNotices, scopeSummary } from "@/lib/relay-scope"
 import { TopBarTooltip } from "./topbar-tooltip"
 import { PanelIcon, type TopBarPanelId } from "./panel-icons"
 
@@ -84,8 +85,10 @@ function GearIcon() {
   )
 }
 
-/** DOM id of More (under 1024 px, #523): the focus fallback of the panels whose button it folds (#476). */
+/** DOM id of More (at every width since the bar holds on one line): the focus fallback of the panels whose button it holds (#476). */
 export const TOPBAR_MORE_ID = 'topbar-more'
+/** DOM id of the Commands button (in the bar or in More, by width) */
+const TOPBAR_COMMANDS_ID = 'topbar-commands'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
@@ -164,43 +167,53 @@ const TONE_COLOR: Record<ConnectionTone, string> = themed(() => ({
 }))
 
 /**
- * Shown in every mode. The text label (never colour alone) carries the state. While offline the reconnect detail
- * ("attempt 2, retry in 10s") is written next to it and in the tooltip, with a "Retry now" button (#371).
- * In demo, a button leaves it.
+ * Shown in every mode, in the bar at every width. The text label (never colour alone) carries the state; while offline its
+ * tooltip gives the reconnect detail ("attempt 2, retry in 10s"), also written in More with the "Retry now" button (#371)
+ * when the bar has no room for it. In demo, a button leaves it.
  */
-function ConnectionIndicator({ locale, status, isDemo, detail, onRetry, onExitDemo }: {
-  locale: Locale; status: ConnectionStatus; isDemo: boolean; detail?: string | null; onRetry?: () => void; onExitDemo?: () => void
-}) {
-  const display = connectionText(locale, status, isDemo, detail)
+function ConnectionLabel({ display, labelRef }: { display: ConnectionText; labelRef: React.Ref<HTMLSpanElement> }) {
   const color = TONE_COLOR[display.tone]
-  const offline = !isDemo && display.tone === 'error'
+  return (
+    <span ref={labelRef} tabIndex={-1} title={display.description} data-connection-label="" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap font-semibold outline-none" style={{ color }}>
+      <span
+        aria-hidden="true"
+        className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
+        style={{ background: display.tone === 'error' ? 'transparent' : color, border: `2px solid ${color}`, boxShadow: `0 0 4px ${color}` }}
+      />
+      {display.label}
+    </span>
+  )
+}
+
+/** "Retry now" (offline) and "Exit demo" (demo): in the bar from 1280 px, in More under it. */
+function ConnectionActions({ locale, offline, isDemo, onRetry, onExitDemo, labelRef }: {
+  locale: Locale; offline: boolean; isDemo: boolean; onRetry?: () => void; onExitDemo?: () => void; labelRef: React.RefObject<HTMLSpanElement | null>
+}) {
   // The buttons disappear once used (state changes): hand focus to the label so it is not lost on <body> (2.4.3)
-  const labelRef = useRef<HTMLSpanElement>(null)
   const then = (fn?: () => void) => () => { labelRef.current?.focus({ preventScroll: true }); fn?.() }
-  const buttonClass = `min-h-6 min-w-6 ${TOUCH_TARGET} px-2 rounded text-xs font-semibold ${FOCUS_RING}`
+  const buttonClass = `min-h-6 min-w-6 ${TOUCH_TARGET} shrink-0 whitespace-nowrap px-2 rounded text-xs font-semibold ${FOCUS_RING}`
   const buttonStyle = { background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
-      <span ref={labelRef} tabIndex={-1} title={display.description} className="flex items-center gap-1.5 font-semibold outline-none" style={{ color }}>
-        <span
-          aria-hidden="true"
-          className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
-          style={{ background: display.tone === 'error' ? 'transparent' : color, border: `2px solid ${color}`, boxShadow: `0 0 4px ${color}` }}
-        />
-        {display.label}
-      </span>
-      {offline && display.detail && <span data-testid="connection-detail" lang={display.detail.lang} {...(display.detail.lang !== locale ? { 'data-i18n-exempt': '' } : {})} style={{ color: COLORS.textMuted }}>{display.detail.text}</span>}
+    <>
       {offline && onRetry && (
-        <button type="button" data-testid="retry-connection" onClick={then(onRetry)} className={buttonClass} style={buttonStyle}>
+        <button type="button" id="topbar-retry" data-testid="retry-connection" onClick={then(onRetry)} className={buttonClass} style={buttonStyle}>
           {translate(locale, 'topbar.connection.retry')}
         </button>
       )}
       {isDemo && onExitDemo && (
-        <button type="button" data-testid="exit-demo" onClick={then(onExitDemo)} className={buttonClass} style={buttonStyle}>
+        <button type="button" id="topbar-exit-demo" data-testid="exit-demo" onClick={then(onExitDemo)} className={buttonClass} style={buttonStyle}>
           {translate(locale, 'topbar.connection.exitDemo')}
         </button>
       )}
-    </span>
+    </>
+  )
+}
+
+function MoreIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="hidden shrink-0 max-md:block">
+      <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+    </svg>
   )
 }
 
@@ -293,7 +306,7 @@ export interface TopBarProps {
   /** Browser notifications opt-in; absent or 'unsupported' = no control */
   notifyState?: NotifyState
   onToggleNotify?: () => void
-  /** Scope of the session discovery (#291): shown permanently when a relay reports its scope */
+  /** Scope of the session discovery (#291): in More when a relay reports its scope, signalled on More */
   scope?: ScopeSelectorProps
   /** Subscription quota snapshot of the relay (#467); null until it sends one (always null in VS Code and demo mode) */
   quota?: QuotaSnapshotView | null
@@ -326,57 +339,71 @@ export const TopBar = memo(function TopBar({
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
   const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
-  // Under 1024 px (#523; 768 px in #476, 600 px in #378) the filters, the quota gauges, the panel buttons and the tools
-  // fold behind a disclosure button; the drawers and the 44 px targets stay under 768 px (mobile view). Folded, the
-  // buttons are not rendered (no hidden Tab stop). Commands stays
-  // in the folded bar from 768 px, where there is room for it.
+  // One line at every width (owner request, 2026-10-21): what does not fit moves behind More, an overlay, at fixed widths
+  // (lib/mobile-view.ts, measured in tests-a11y/e2e/topbar-layout.e2e.ts). Behind More a control is not rendered while More
+  // is closed (no hidden Tab stop).
   const [moreOpen, setMoreOpen] = useState(false)
-  const filtersId = useId()
-  const row2Id = useId()
+  const menuId = useId()
   const moreNameId = useId()
+  const holdsId = useId()
   const hiddenFinishedId = useId()
-  // Crossing 1024 or 768 px (resize, browser zoom) unmounts More or a folded control: keep the focus out of <body>
-  // (2.4.3). The focus is read in the media query handlers, before React renders the new width.
-  const filtersRef = useRef<HTMLDivElement>(null)
-  const row2Ref = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
-  const refocusAfterWiden = useRef(false)
-  const paletteRef = useRef<HTMLButtonElement>(null)
-  const refocusAfterNarrow = useRef(false)
-  const subscribeFold = useCallback((onChange: () => void) => subscribeTopbarFold(() => {
+  const connectionLabelRef = useRef<HTMLSpanElement>(null)
+  // A resize (or a browser zoom) that crosses a width moves controls between the bar and More, which mounts them anew: the
+  // focused one is remembered here, before React renders the new width, and focused again where it is drawn now, More
+  // opening to show it if it moved there (2.4.3, as #523 did for the folded bar)
+  const pendingFocus = useRef<string | null>(null)
+  const subscribeTier = useCallback((onChange: () => void) => subscribeTopbarTier(() => {
     const active = typeof document === 'undefined' ? null : document.activeElement
-    if (isTopbarFolded()) {
-      // A control that folds has the focus: open More in the same render, so it stays mounted (Commands does not fold)
-      const folds = !!active && active !== paletteRef.current && (!!filtersRef.current?.contains(active) || !!row2Ref.current?.contains(active))
-      if (folds) setMoreOpen(true)
-    } else if (active && active === moreRef.current) {
-      refocusAfterWiden.current = true
+    if (active && active.id && active.id !== TOPBAR_MORE_ID && rootRef.current?.contains(active)) pendingFocus.current = active.id
+    onChange()
+  }), [])
+  const tier = useSyncExternalStore(subscribeTier, getTopbarTier, () => 'wide' as const)
+  const mobile = tier === 'mobile'
+  const panelsInBar = tier === 'wide' || tier === 'mid'
+  const commandsInBar = tier === 'wide' || tier === 'fold'
+  const connectionActionsInBar = tier === 'wide'
+  useLayoutEffect(() => {
+    const id = pendingFocus.current
+    if (!id) return
+    const el = document.getElementById(id)
+    if (el && rootRef.current?.contains(el)) {
+      pendingFocus.current = null
+      if (document.activeElement !== el) el.focus({ preventScroll: true })
+    } else if (!moreOpen) {
+      setMoreOpen(true) // the control moved behind More: this effect runs again once More shows it
+    } else {
+      pendingFocus.current = null
+      moreRef.current?.focus({ preventScroll: true })
     }
-    onChange()
-  }), [])
-  const foldNarrow = useSyncExternalStore(subscribeFold, isTopbarFolded, () => false)
-  const subscribeMobile = useCallback((onChange: () => void) => subscribeNarrow(() => {
-    const active = typeof document === 'undefined' ? null : document.activeElement
-    // Commands is not drawn under 768 px: its focus goes to More
-    if (isNarrow() && active && active === paletteRef.current) refocusAfterNarrow.current = true
-    onChange()
-  }), [])
-  const narrow = useSyncExternalStore(subscribeMobile, isNarrow, () => false)
-  useLayoutEffect(() => {
-    if (!narrow || !refocusAfterNarrow.current) return
-    refocusAfterNarrow.current = false
-    moreRef.current?.focus({ preventScroll: true })
-  }, [narrow])
-  useLayoutEffect(() => {
-    if (foldNarrow || !refocusAfterWiden.current) return
-    refocusAfterWiden.current = false
-    // More is gone: the first filter takes the focus, else the first view control
-    const target = filtersRef.current?.querySelector<HTMLElement>('button')
-      ?? rootRef.current?.querySelector<HTMLElement>('[role="toolbar"] button')
-    target?.focus({ preventScroll: true })
-  }, [foldNarrow])
-  const folded = foldNarrow && !moreOpen
-  // While a tooltip of the bar is open the bar rises above the docked panels, which the tooltip is drawn over (#497 review)
+  }, [tier, moreOpen])
+  // More closes on Escape (the focus goes back to it, 2.4.3), on a click outside the bar, and when the focus leaves the bar
+  useEffect(() => {
+    if (!moreOpen) return
+    const root = rootRef.current
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      // Only More closes: the app's own Escape (close the latest panel, clear the selection) waits for the next one
+      e.stopPropagation()
+      const inside = !!root && root.contains(document.activeElement)
+      setMoreOpen(false)
+      if (inside) moreRef.current?.focus({ preventScroll: true })
+    }
+    const onDown = (e: PointerEvent) => { if (root && !root.contains(e.target as Node)) setMoreOpen(false) }
+    const onFocusOut = (e: FocusEvent) => {
+      const next = e.relatedTarget as Node | null
+      if (next && root && !root.contains(next)) setMoreOpen(false)
+    }
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('pointerdown', onDown)
+    root?.addEventListener('focusout', onFocusOut)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('pointerdown', onDown)
+      root?.removeEventListener('focusout', onFocusOut)
+    }
+  }, [moreOpen])
+  // While a tooltip of the bar or More is open the bar rises above the docked panels, which they are drawn over (#497 review)
   const [openTooltips, setOpenTooltips] = useState(0)
   const onTooltip = useCallback((delta: 1 | -1) => setOpenTooltips(n => Math.max(0, n + delta)), [])
   // The age and the expiry of the quota move with the clock; it ticks once a minute, only while there is a snapshot to age
@@ -404,7 +431,7 @@ export const TopBar = memo(function TopBar({
     // Same rule, qualifiers and order as the Cost panel text region (#576): cost, tokens, then the unattributed part, in every view
     unattributedRestText(unattributedTokens, unattributedCost, unattributedEstimated, locale),
   ].filter((part): part is string => part !== null).join(', ')
-  // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
+  // The filters that change what the canvas shows are behind More: they are named on More, never hidden behind it (reading-the-ui.md)
   // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording
   // 'Hide inactive' (#372): in All, while it hides finished sessions, it says how many (the bridge count, never a guess)
   const hidesInactive = showMode === 'active' && !!onChangeShowMode
@@ -418,25 +445,52 @@ export const TopBar = memo(function TopBar({
   const activeFilters: { text: string; lang: string }[] = hidesInactive
     ? [{ text: hiddenFinished > 0 ? t('show.hideInactive.withCount', { n: hiddenFinished }) : hideInactiveLabel, lang: locale }]
     : []
-  const showFilterCount = folded && activeFilters.length > 0
-  // Folded (under 1024 px) a panel button folds More again and the focus waits on More (the button is gone). Under 768 px
-  // the panel opens as a drawer below the short bar, which takes the focus; More is where it comes back when it closes
+  const showFilterCount = activeFilters.length > 0
+
+  // What More holds that the bar does not show is never hidden behind it without a sign (reading-the-ui.md): the
+  // reconnect detail, the scope and its discovery ceilings, the quota. More reads them in its description and carries a
+  // mark: ⚠ when one of them needs a look (a ceiling, a failure, a low or unknown quota, the link down), • otherwise.
+  const connection = connectionText(locale, connectionStatus, isDemo, connectionDetail)
+  const offline = !isDemo && connection.tone === 'error'
+  const connectionDetailShown = offline ? connection.detail : null
+  const scopeState = scope?.state ?? null
+  const scopeText = scopeState ? {
+    summary: scopeSummary(scopeState, locale),
+    notices: scopeNotices({ ...scopeState, runtimeProblems: [] }, locale),
+    // What the relay or the link wrote is English data: it keeps its own lang (WCAG 3.1.2)
+    relay: [...(scope?.error ? [scope.error] : []), ...(scopeState.runtimeProblems ?? []).map(p => p.message)],
+    losses: scopeLossNotices(scopeState, locale),
+  } : null
+  const quotaHeld = showQuota ? quotaSummary(quotaState, locale) : null
+  const holdsAlert = !!connectionDetailShown || !!quotaHeld?.alert
+    || (!!scopeText && (scopeText.notices.length > 0 || scopeText.relay.length > 0 || scopeText.losses.length > 0))
+  const holdsAny = holdsAlert || !!quotaHeld || !!scopeText?.summary
+  const moreMark = holdsAlert ? 'alert' : holdsAny ? 'status' : null
+
+  // A control of More that opens a dialog, a panel or full screen closes More first and leaves the focus on More: the
+  // control is gone once More closes, so More is what the dialog gives the focus back to (2.4.3)
+  const fromMenu = (fn: () => void) => () => {
+    setMoreOpen(false)
+    moreRef.current?.focus({ preventScroll: true })
+    fn()
+  }
+  // A panel button of More closes More and the focus waits on More (the button is gone). Under 768 px the panel opens as a
+  // drawer below the short bar, which takes the focus; More is where it comes back when it closes
   const thenFold = (fn: () => void) => () => {
     fn()
-    if (!foldNarrow) return
     setMoreOpen(false)
     moreRef.current?.focus({ preventScroll: true })
   }
 
-  // Publish the measured height so panels can offset themselves below the (wrapping) bar.
+  // Publish the measured height so panels can offset themselves below the bar (More is an overlay: it does not count).
   useLayoutEffect(() => {
     const el = rootRef.current
     if (!el) return
     return observeTopbarHeight(el, document.documentElement, typeof ResizeObserver === 'undefined' ? undefined : ResizeObserver)
   }, [])
 
-  // A panel button: an icon under 1280 px, its name from 1280 px (CSS only, so the DOM and the Tab order never change).
-  // The accessible name is the same at every width (2.5.3, 4.1.2) and starts with the visible label; the tooltip names it.
+  // A panel button: an icon at every width (one-line bar, owner request); its name is the accessible name (2.5.3: no visible
+  // text, nothing to contradict), the tooltip names it and says what the panel shows.
   const panelButton = (panel: TopBarPanelId, { active, onClick, shortcut, inGroup, activeColor, tooltip, tooltipLang }: {
     active: boolean; onClick: () => void; shortcut: string; inGroup: boolean
     activeColor?: { bg: string; text: string }; tooltip?: string; tooltipLang?: string
@@ -463,195 +517,296 @@ export const TopBar = memo(function TopBar({
             style={inGroup ? { background: active ? undefined : 'transparent', border: 'none' } : undefined}
           >
             <PanelIcon panel={panel} />
-            <span data-panel-label="" className="max-xl:sr-only">{name.replace(/ \([A-Z]\)$/, '')}</span>
+            <span data-panel-label="" className="sr-only">{name.replace(/ \([A-Z]\)$/, '')}</span>
           </ToggleButton>
         )}
       </TopBarTooltip>
     )
   }
 
-  // One DOM order at every width (#523). From 1024 px the bar is two rows with a fixed content: row 1 = Sessions, scope,
-  // connection state, attention, then the filters; row 2 = the quota gauges, then the panel buttons
-  // and the tools. Under 1024 px the rows and groups are plain boxes (display: contents): the bar is one folded row,
-  // More expands it, and an expanded bar taller than the window scrolls under 768 px (#476).
-  const ROW = 'max-lg:contents lg:flex lg:w-full lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1.5'
-  const GROUP = 'max-lg:contents lg:flex lg:flex-wrap lg:items-center'
+  /** The seven panel buttons: in the bar from 1024 px, in More under it (where a panel closes More). */
+  const panels = (inMenu: boolean) => {
+    const wrapFn = inMenu ? thenFold : (fn: () => void) => fn
+    return (
+      <div data-topbar-group="panels" className={`flex items-center gap-1 ${inMenu ? 'flex-wrap' : 'shrink-0'}`}>
+        {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}
+        {/* No vertical padding: the group is as high as the other controls (26.5 px), so the bar stays 38.5 px high */}
+        <div role="group" aria-label={t('topbar.sidePanels')} className={`flex items-center gap-1 px-1 rounded ${inMenu ? 'flex-wrap' : ''}`} style={{
+          background: COLORS.holoBg03,
+          border: `1px solid ${COLORS.holoBorder06}`,
+        }}>
+          {panelButton('files', { active: showFileAttention, onClick: wrapFn(() => onTogglePanel('files')), shortcut: 'f', inGroup: true })}
+          {panelButton('conversation', { active: showConversation, onClick: wrapFn(() => onTogglePanel('conversation')), shortcut: 'c', inGroup: true })}
+          {panelButton('context', {
+            active: showContext, onClick: wrapFn(() => onTogglePanel('context')), shortcut: 'p', inGroup: true,
+            ...(isVSCode ? { tooltip: t('topbar.context.vscode') } : {}),
+          })}
+          {panelButton('system', { active: showSystem, onClick: wrapFn(() => onTogglePanel('system')), shortcut: 'y', inGroup: true })}
+          {/* Cost and Stats are drawn on the canvas and take no focus: More stays open, so several can be toggled in a row */}
+          {panelButton('cost', {
+            active: showCostOverlay, onClick: () => onTogglePanel('cost'), shortcut: '$', inGroup: true,
+            activeColor: { bg: COLORS.costActiveBg, text: COLORS.complete },
+          })}
+        </div>
+
+        {/* Independent toggles */}
+        {panelButton('timeline', { active: showTimeline, onClick: wrapFn(onToggleTimeline), shortcut: 't', inGroup: false })}
+        {panelButton('stats', { active: showStats, onClick: onToggleStats, shortcut: 's', inGroup: false })}
+      </div>
+    )
+  }
+
+  const commandsButton = (inMenu: boolean) => onOpenPalette && (
+    <ToggleButton
+      id={TOPBAR_COMMANDS_ID}
+      active={false}
+      onClick={inMenu ? fromMenu(onOpenPalette) : onOpenPalette}
+      ariaLabel={t('topbar.commands')}
+      title={t('topbar.commands.title')}
+      lang={locale}
+      shortcut="Control+K Meta+K"
+      hasDialog
+      style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+    >
+      <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <circle cx="7" cy="7" r="5" />
+        <path d="M11 11l4 4" />
+      </svg>
+      <span aria-hidden="true" className="ml-1">{t('topbar.commands')}</span>
+    </ToggleButton>
+  )
+
+  const sessionLabel = t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })
+  const unobservedText = unobservedCount > 0 ? unobservedSessionsText(locale, unobservedCount) : null
+  // The whole Sessions text in its tooltip: the button is capped and gives way first (its label then ends in an ellipsis)
+  const sessionsTip = [`${sessionLabel} (${sessions.length})`, unobservedText, t('topbar.sessions.title')].filter(Boolean).join(' · ')
+
   return (
     <header
       ref={rootRef}
       lang={locale}
-      className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px] max-md:max-h-[calc(100dvh-24px)] max-md:overflow-y-auto"
-      style={{ zIndex: openTooltips > 0 ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', color: COLORS.textMuted }}
+      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-1 rounded-md font-mono text-[11px]"
+      style={{ zIndex: openTooltips > 0 || moreOpen ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', color: COLORS.textMuted }}
     >
-      <div data-topbar-row="1" className={ROW}>
-        <div data-topbar-group="identity" className={`${GROUP} gap-x-4 gap-y-1.5 min-w-0`}>
-          {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
+      {/* Sessions button: opens the list of sessions and agents (always shown, even with one session). Capped at 320 px, it
+          gives way first when the bar is full: its label ends in an ellipsis (the whole text is its name and its tooltip),
+          at every width, so the selection stays written in the bar; the marks of a loss and of new activity never shrink */}
+      <TopBarTooltip text={sessionsTip} lang={locale} sensitive onOpen={onTooltip} boxClassName="min-w-0 max-w-[320px]">
+        {() => (
           <ToggleButton
             id={PANEL_BUTTON_IDS.sessions}
             active={showSessions}
             pressed={showSessions}
             onClick={onToggleSessions}
-            title={t('topbar.sessions.title')}
             lang={locale}
             shortcut="l"
             keepsInspector
-            wrap
-            style={{ maxWidth: 'min(320px, 100%)' }}
+            style={{ maxWidth: '100%', whiteSpace: 'nowrap' }}
           >
-            {/* The « all sessions » label wraps (#595); a named selection keeps one line, ending in an ellipsis past the button width, so a long name does not grow the bar */}
-            <span className={`min-w-0 max-w-full ${selectedSessionId === null || selectedSessionId === ALL_SESSIONS_ID ? 'break-words' : 'truncate'}`} data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
+            <span className="min-w-0 truncate" data-sensitive="">{sessionLabel}</span>
             <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
             {lossMarked && (
               // A symbol, never a colour alone; its words are read with the button name
-              <span data-loss-mark="" className="ml-1.5 shrink-0">
-                <span aria-hidden="true" title={t('truncation.topbarMark')}>⚠</span>
+              <span data-loss-mark="" className="ml-1.5 shrink-0 max-md:ml-1">
+                <span aria-hidden="true">⚠</span>
                 <span className="sr-only">, {t('truncation.topbarMark')}</span>
               </span>
             )}
-            {unobservedCount > 0 && (
-              <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={sessionStatusHelp(locale, 'unobserved')}>
-                {unobservedSessionsText(locale, unobservedCount)}
-              </span>
+            {unobservedText && (
+              // Drawn short from 1280 px ("2 not observed"), where the label keeps room; read in full; the Sessions panel marks each such session
+              <>
+                <span aria-hidden="true" className="ml-1.5 shrink-0 max-xl:hidden" style={{ color: COLORS.textMuted }}>
+                  {unobservedSessionsShortText(locale, unobservedCount)}
+                </span>
+                <span className="sr-only">, {unobservedText}</span>
+              </>
             )}
             {sessionsWithActivity.size > 0 && (
               <>
-                <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse" style={{ border: `2px solid ${COLORS.complete}` }} />
+                <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse max-md:ml-1" style={{ border: `2px solid ${COLORS.complete}` }} />
                 <span className="sr-only">, {t('topbar.sessions.newActivity')}</span>
               </>
             )}
           </ToggleButton>
+        )}
+      </TopBarTooltip>
 
-          {scope && <ScopeSelector {...scope} />}
+      <ConnectionLabel display={connection} labelRef={connectionLabelRef} />
+      {connectionActionsInBar && (
+        <ConnectionActions locale={locale} offline={offline} isDemo={isDemo} onRetry={onRetryConnection} onExitDemo={onExitDemo} labelRef={connectionLabelRef} />
+      )}
+      {attentionText && onJumpToAttention && (
+        <button
+          type="button"
+          data-testid="attention-counter"
+          onClick={onJumpToAttention}
+          lang={locale}
+          // Under 768 px the counter is the number of agents; its name starts with that number, then gives the full text
+          aria-label={mobile
+            ? t('topbar.attention.compactName', { n: attention!.waiting + attention!.errors, name: attentionAriaLabel(locale, attention!.waiting, attention!.errors) })
+            : attentionAriaLabel(locale, attention!.waiting, attention!.errors)}
+          title={attentionTooltip(locale, attention!.waiting, attention!.errors, isVSCode)}
+          className={`min-h-6 ${TOUCH_TARGET} shrink-0 whitespace-nowrap px-2 rounded font-bold ${FOCUS_RING}`}
+          style={{
+            background: COLORS.toggleInactive,
+            border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
+            color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
+          }}
+        >
+          <span aria-hidden="true">! </span>{mobile ? attention!.waiting + attention!.errors : attentionText}
+        </button>
+      )}
 
-          <ConnectionIndicator locale={locale} status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
-          {attentionText && onJumpToAttention && (
-            <button
-              type="button"
-              data-testid="attention-counter"
-              onClick={onJumpToAttention}
-              lang={locale}
-              aria-label={attentionAriaLabel(locale, attention!.waiting, attention!.errors)}
-              title={attentionTooltip(locale, attention!.waiting, attention!.errors, isVSCode)}
-              className={`min-h-6 ${TOUCH_TARGET} px-2 rounded font-bold ${FOCUS_RING}`}
-              style={{
-                background: COLORS.toggleInactive,
-                border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
-                color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
-              }}
-            >
-              <span aria-hidden="true">! </span>{attentionText}
-            </button>
-          )}
+      {/* Spacer: the panels, Commands and More go to the right */}
+      <div data-topbar-spacer="" className="flex-1" />
+
+      {(panelsInBar || (commandsInBar && onOpenPalette)) && (
+        <div role="toolbar" aria-label={t('topbar.toolbar')} lang={locale} className="flex shrink-0 flex-nowrap items-center gap-1">
+          {panelsInBar && panels(false)}
+          {commandsInBar && commandsButton(false)}
         </div>
+      )}
 
-        {/* Spacer: the filters (or More) go to the right */}
-        <div data-topbar-spacer="" className="flex-1" />
-
-        {foldNarrow && (
-          <ToggleButton
-            id={TOPBAR_MORE_ID}
-            buttonRef={moreRef}
-            active={moreOpen}
-            onClick={() => setMoreOpen(v => !v)}
-            ariaLabel={showFilterCount ? undefined : more.name}
-            labelledBy={showFilterCount ? moreNameId : undefined}
-            title={more.help}
-            lang={locale}
-            expanded={moreOpen}
-            controls={`${filtersId} ${row2Id}`}
-          >
-            {showFilterCount ? more.withFilters(activeFilters.length) : more.more}
-          </ToggleButton>
+      <ToggleButton
+        id={TOPBAR_MORE_ID}
+        buttonRef={moreRef}
+        active={moreOpen}
+        onClick={() => setMoreOpen(v => !v)}
+        ariaLabel={showFilterCount ? undefined : more.name}
+        labelledBy={showFilterCount ? moreNameId : undefined}
+        describedBy={holdsAny ? holdsId : undefined}
+        title={more.help}
+        lang={locale}
+        expanded={moreOpen}
+        controls={menuId}
+        style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+      >
+        {/* Under 768 px: an icon, then the number of filters on */}
+        <MoreIcon />
+        <span className="max-md:hidden">{showFilterCount ? more.withFilters(activeFilters.length) : more.more}</span>
+        {showFilterCount && <span aria-hidden="true" className="hidden max-md:inline ml-1">{activeFilters.length}</span>}
+        {moreMark && (
+          // A shape, never a colour alone: a warning triangle, or a dot when More only holds figures; the words are its description
+          <svg aria-hidden="true" focusable="false" data-more-mark={moreMark} width="10" height="10" viewBox="0 0 10 10" className="ml-1.5 shrink-0 max-md:ml-1">
+            {moreMark === 'alert'
+              ? <path d="M5 0.8 L9.6 9.2 L0.4 9.2 Z M5 3.6 V6.2 M5 7.4 V7.6" fill="none" stroke={COLORS.waiting_permission} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
+              : <circle cx="5" cy="5" r="2.5" fill={COLORS.textMuted} />}
+          </svg>
         )}
-        {foldNarrow && showFilterCount && (
-          // The accessible name of More, in parts: each filter keeps the language of its button (read through aria-labelledby)
-          <span id={moreNameId} hidden lang={locale}>
-            {more.nameParts(activeFilters.length).before}
-            {activeFilters.map((f, i) => (
-              <Fragment key={f.text}>
-                {i > 0 && ', '}
-                <span lang={f.lang}>{f.text}</span>
-              </Fragment>
-            ))}
-            {more.nameParts(activeFilters.length).after}
-          </span>
-        )}
-
-        <div id={filtersId} ref={filtersRef} data-topbar-group="filters" className={`${GROUP} justify-end gap-x-4 gap-y-1.5`}>
-          {!folded && notifyState !== 'unsupported' && onToggleNotify && (
-            <ToggleButton
-              active={notifyState === 'on'}
-              pressed={notifyState === 'on'}
-              onClick={onToggleNotify}
-              lang={locale}
-              title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
-            >
-              {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
-            </ToggleButton>
-          )}
-          {/* 'Show: active / all' (#372): one toggle, pressed = the inactive ones are hidden. Its short name starts with the
-              label (2.5.3) and names only what the view hides (sessions in All only); the rule is in the tooltip; in All the
-              number of finished sessions it hides is its description */}
-          {!folded && onChangeShowMode && (
-            <Fragment>
-              <ToggleButton
-                active={showMode === 'active'}
-                pressed={showMode === 'active'}
-                onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
-                ariaLabel={isAllMode ? t('show.hideInactive.name.all') : t('show.hideInactive.name.one')}
-                title={hideInactiveTitle}
-                describedBy={hideInactiveCount ? hiddenFinishedId : undefined}
-                lang={locale}
-              >
-                {hideInactiveLabel}
-              </ToggleButton>
-              {hideInactiveCount && <span id={hiddenFinishedId} lang={locale} className="sr-only">{hideInactiveCount}</span>}
+      </ToggleButton>
+      {showFilterCount && (
+        // The accessible name of More, in parts: each filter keeps the language of its button (read through aria-labelledby)
+        <span id={moreNameId} hidden lang={locale}>
+          {more.nameParts(activeFilters.length).before}
+          {activeFilters.map((f, i) => (
+            <Fragment key={f.text}>
+              {i > 0 && ', '}
+              <span lang={f.lang}>{f.text}</span>
             </Fragment>
+          ))}
+          {more.nameParts(activeFilters.length).after}
+        </span>
+      )}
+      {holdsAny && (
+        // The description of More: what it holds that the bar does not show, each part in its own language
+        <span id={holdsId} hidden lang={locale}>
+          {connectionDetailShown && (
+            <span>{t('topbar.more.holds.connection')} <span lang={connectionDetailShown.lang} {...(connectionDetailShown.lang !== locale ? { 'data-i18n-exempt': '' } : {})}>{connectionDetailShown.text}</span>. </span>
           )}
-        </div>
-      </div>
-
-      <div id={row2Id} ref={row2Ref} data-topbar-row="2" className={ROW}>
-        {/* Quota gauges, and the totals read by screen readers only (#523: no summary text drawn) */}
-        <div data-topbar-group="status" className={folded ? 'sr-only' : `${GROUP} gap-x-4 gap-y-1.5 min-w-0`}>
-          <span data-testid="topbar-spoken-totals" lang={locale} className="sr-only">{spokenTotals}</span>
-          {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
-        </div>
-
-        <div data-topbar-spacer="" className="flex-1" />
-
-        {/* Under 768 px with More folded nothing of it is drawn (Commands is not drawn there) */}
-        {!(folded && narrow) && (
-        <div role="toolbar" aria-label={t('topbar.toolbar')} lang={locale} className="flex flex-wrap items-center gap-1 lg:justify-end">
-          {!folded && (
-          <div data-topbar-group="panels" className={`${GROUP} gap-1`}>
-            {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}
-            {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
-            <div role="group" aria-label={t('topbar.sidePanels')} className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
-              background: COLORS.holoBg03,
-              border: `1px solid ${COLORS.holoBorder06}`,
-            }}>
-              {panelButton('files', { active: showFileAttention, onClick: thenFold(() => onTogglePanel('files')), shortcut: 'f', inGroup: true })}
-              {panelButton('conversation', { active: showConversation, onClick: thenFold(() => onTogglePanel('conversation')), shortcut: 'c', inGroup: true })}
-              {panelButton('context', {
-                active: showContext, onClick: thenFold(() => onTogglePanel('context')), shortcut: 'p', inGroup: true,
-                ...(isVSCode ? { tooltip: t('topbar.context.vscode') } : {}),
-              })}
-              {panelButton('system', { active: showSystem, onClick: thenFold(() => onTogglePanel('system')), shortcut: 'y', inGroup: true })}
-              {panelButton('cost', {
-                active: showCostOverlay, onClick: () => onTogglePanel('cost'), shortcut: '$', inGroup: true,
-                activeColor: { bg: COLORS.costActiveBg, text: COLORS.complete },
-              })}
-            </div>
-
-            {/* Independent toggles */}
-            {panelButton('timeline', { active: showTimeline, onClick: thenFold(onToggleTimeline), shortcut: 't', inGroup: false })}
-            {panelButton('stats', { active: showStats, onClick: onToggleStats, shortcut: 's', inGroup: false })}
-          </div>
+          {scopeText && (scopeText.summary || scopeText.notices.length > 0 || scopeText.relay.length > 0 || scopeText.losses.length > 0) && (
+            <span>
+              {t('topbar.more.holds.scope')}{' '}
+              {[scopeText.summary, ...scopeText.notices].filter(Boolean).join(' ')}
+              {scopeText.relay.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt=""> {text}</span>)}
+              {scopeText.losses.length > 0 && ` ${scopeText.losses.join(' ')}`}
+              {'. '}
+            </span>
           )}
-          <div data-topbar-group="tools" className={`${GROUP} gap-1`}>
-            {!folded && (
+          {quotaHeld && <span>{t('topbar.more.holds.quota')} {quotaHeld.text}.</span>}
+        </span>
+      )}
+      {scopeText && !moreOpen && (scopeText.notices.length > 0 || scopeText.relay.length > 0) && (
+        // The discovery ceilings and the failures are a polite live region in the scope selector (#291); while More is closed
+        // the selector is not rendered, so this copy keeps announcing them
+        <span role="status" className="sr-only" lang={locale}>
+          {scopeText.relay.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt="">{i > 0 && ' '}{text}</span>)}
+          {scopeText.notices.length > 0 && `${scopeText.relay.length > 0 ? ' ' : ''}${scopeText.notices.join(' ')}`}
+        </span>
+      )}
+
+      {/* More: an overlay below the bar, after its button in the DOM (Tab goes from More into it). It never adds a row */}
+      <div
+        id={menuId}
+        data-topbar-menu=""
+        hidden={!moreOpen}
+        className="absolute right-0 top-full mt-1 flex w-max max-w-[min(34rem,calc(100vw-24px))] max-h-[calc(100dvh-var(--topbar-h,60px)-8px)] flex-col gap-2 overflow-y-auto rounded-md max-md:left-0 max-md:w-auto max-md:max-w-none"
+        style={{ background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', border: `1px solid ${COLORS.controlBorder}` }}
+      >
+        {moreOpen && (
+          <>
+            {(connectionDetailShown || (!connectionActionsInBar && ((offline && onRetryConnection) || (isDemo && onExitDemo)))) && (
+              <div data-topbar-group="connection" className="flex flex-wrap items-center gap-2">
+                {connectionDetailShown && (
+                  <span data-testid="connection-detail" lang={connectionDetailShown.lang} {...(connectionDetailShown.lang !== locale ? { 'data-i18n-exempt': '' } : {})} style={{ color: COLORS.textMuted }}>
+                    {connectionDetailShown.text}
+                  </span>
+                )}
+                {!connectionActionsInBar && (
+                  <ConnectionActions locale={locale} offline={offline} isDemo={isDemo} onRetry={onRetryConnection} onExitDemo={onExitDemo} labelRef={connectionLabelRef} />
+                )}
+              </div>
+            )}
+            {scope && <ScopeSelector {...scope} />}
+            {((notifyState !== 'unsupported' && onToggleNotify) || onChangeShowMode) && (
+              <div role="group" aria-label={t('topbar.menu.filters')} data-topbar-group="filters" className="flex flex-wrap items-center gap-2">
+                {notifyState !== 'unsupported' && onToggleNotify && (
+                  <ToggleButton
+                    id="topbar-notify"
+                    active={notifyState === 'on'}
+                    pressed={notifyState === 'on'}
+                    onClick={onToggleNotify}
+                    lang={locale}
+                    title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
+                  >
+                    {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
+                  </ToggleButton>
+                )}
+                {/* 'Show: active / all' (#372): one toggle, pressed = the inactive ones are hidden. Its short name starts with the
+                    label (2.5.3) and names only what the view hides (sessions in All only); the rule is in the tooltip; in All the
+                    number of finished sessions it hides is its description */}
+                {onChangeShowMode && (
+                  <Fragment>
+                    <ToggleButton
+                      id="topbar-hide-inactive"
+                      active={showMode === 'active'}
+                      pressed={showMode === 'active'}
+                      onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
+                      ariaLabel={isAllMode ? t('show.hideInactive.name.all') : t('show.hideInactive.name.one')}
+                      title={hideInactiveTitle}
+                      describedBy={hideInactiveCount ? hiddenFinishedId : undefined}
+                      lang={locale}
+                    >
+                      {hideInactiveLabel}
+                    </ToggleButton>
+                    {hideInactiveCount && <span id={hiddenFinishedId} lang={locale} className="sr-only">{hideInactiveCount}</span>}
+                  </Fragment>
+                )}
+              </div>
+            )}
+            {showQuota && quotaState.kind !== 'hidden' && (
+              <div data-topbar-group="status" className="flex flex-wrap items-center gap-2">
+                <QuotaGauges state={quotaState} />
+              </div>
+            )}
+            {!panelsInBar && (
+              <div role="toolbar" aria-label={t('topbar.toolbar')} lang={locale} className="flex flex-wrap items-center gap-1">
+                {panels(true)}
+              </div>
+            )}
+            <div role="group" aria-label={t('topbar.menu.tools')} data-topbar-group="tools" className="flex flex-wrap items-center gap-1">
+              {!commandsInBar && commandsButton(true)}
               <ToggleButton
+                id="topbar-mute"
                 active={!isMuted}
                 onClick={onToggleMute}
                 ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
@@ -661,56 +816,37 @@ export const TopBar = memo(function TopBar({
               >
                 {isMuted ? <MutedIcon /> : <UnmutedIcon />}
               </ToggleButton>
-            )}
-            {!folded && onToggleFullscreen && (
+              {onToggleFullscreen && (
+                <ToggleButton
+                  id={FULLSCREEN_BUTTON_ID}
+                  active={false}
+                  onClick={fromMenu(onToggleFullscreen)}
+                  ariaLabel={t('topbar.fullscreen')}
+                  title={t('topbar.fullscreen.title')}
+                  lang={locale}
+                  shortcut="z"
+                >
+                  <FullscreenIcon />
+                </ToggleButton>
+              )}
+              {onOpenSettings && (
+                <ToggleButton
+                  id="topbar-settings"
+                  active={false}
+                  onClick={fromMenu(onOpenSettings)}
+                  ariaLabel={t('settings.title')}
+                  title={t('topbar.settings.title')}
+                  lang={locale}
+                  shortcut=","
+                  hasDialog
+                >
+                  <GearIcon />
+                </ToggleButton>
+              )}
               <ToggleButton
-                id={FULLSCREEN_BUTTON_ID}
+                id="topbar-shortcuts"
                 active={false}
-                onClick={onToggleFullscreen}
-                ariaLabel={t('topbar.fullscreen')}
-                title={t('topbar.fullscreen.title')}
-                lang={locale}
-                shortcut="z"
-              >
-                <FullscreenIcon />
-              </ToggleButton>
-            )}
-            {/* Kept in the folded bar from 768 px; not under 768 px: one more button wraps the folded bar onto another row (#378 height budget) */}
-            {onOpenPalette && !narrow && (
-              <ToggleButton
-                buttonRef={paletteRef}
-                active={false}
-                onClick={onOpenPalette}
-                ariaLabel={t('topbar.commands')}
-                title={t('topbar.commands.title')}
-                lang={locale}
-                shortcut="Control+K Meta+K"
-                hasDialog
-              >
-                <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <circle cx="7" cy="7" r="5" />
-                  <path d="M11 11l4 4" />
-                </svg>
-                <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.commands')}</span>
-              </ToggleButton>
-            )}
-            {!folded && onOpenSettings && (
-              <ToggleButton
-                active={false}
-                onClick={onOpenSettings}
-                ariaLabel={t('settings.title')}
-                title={t('topbar.settings.title')}
-                lang={locale}
-                shortcut=","
-                hasDialog
-              >
-                <GearIcon />
-              </ToggleButton>
-            )}
-            {!folded && (
-              <ToggleButton
-                active={false}
-                onClick={onOpenShortcuts}
+                onClick={fromMenu(onOpenShortcuts)}
                 ariaLabel={t('topbar.shortcuts')}
                 title={t('topbar.shortcuts.title')}
                 lang={locale}
@@ -718,13 +854,15 @@ export const TopBar = memo(function TopBar({
                 hasDialog
               >
                 <span aria-hidden="true">?</span>
-                <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.shortcuts.short')}</span>
+                <span aria-hidden="true" className="ml-1">{t('topbar.shortcuts.short')}</span>
               </ToggleButton>
-            )}
-          </div>
-        </div>
+            </div>
+          </>
         )}
       </div>
+
+      {/* The totals read by screen readers only (#523: no summary text drawn) */}
+      <span data-testid="topbar-spoken-totals" lang={locale} className="sr-only">{spokenTotals}</span>
     </header>
   )
 })

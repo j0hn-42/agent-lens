@@ -12,12 +12,27 @@ export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 0.02}px)`
 export const TOUCH_TARGET_PX = 44
 
 /**
- * Top bar (#523), apart from the mobile view: below TOPBAR_FOLD_BREAKPOINT the bar folds behind More (one row), but the
- * panels stay docked and the controls keep their size (drawers and 44 px targets stay under MOBILE_BREAKPOINT). The CSS
- * side of the same width is Tailwind `lg` (64rem): the rows of the bar are `display: contents` below it.
+ * Top bar on one line (owner request, 2026-10-21; #523 before it): what does not fit moves behind More, an overlay, at
+ * fixed widths measured in a browser (tests-a11y/e2e/topbar-layout.e2e.ts), never by measuring in code:
+ * - 'wide' (1280 px and wider): Sessions, connection state with Retry now / Exit demo, attention, the panels, Commands, More
+ * - 'mid' (1024 to 1279 px): Sessions, connection state, attention, the panels, More
+ * - 'fold' (768 to 1023 px): Sessions, connection state, attention, Commands, More
+ * - 'mobile' (under 768 px): Sessions (an icon), connection state, attention (a count), More; 44 px targets and drawers
+ * The CSS side of the same widths is Tailwind `xl` (80rem), `lg` (64rem) and `md` (48rem).
  */
 const TOPBAR_FOLD_BREAKPOINT = 1024
 export const TOPBAR_FOLD_QUERY = `(max-width: ${TOPBAR_FOLD_BREAKPOINT - 0.02}px)`
+const TOPBAR_WIDE_BREAKPOINT = 1280
+/** Under 1280 px: Commands and the connection buttons leave the bar for More. */
+export const TOPBAR_NARROW_QUERY = `(max-width: ${TOPBAR_WIDE_BREAKPOINT - 0.02}px)`
+
+export type TopbarTier = 'wide' | 'mid' | 'fold' | 'mobile'
+
+/** The tier of the bar from what the three queries report. */
+export function topbarTier(mobile: boolean, folded: boolean, narrow: boolean): TopbarTier {
+  return mobile ? 'mobile' : folded ? 'fold' : narrow ? 'mid' : 'wide'
+}
+
 /**
  * Classes that give a control a 44x44 px box below 768 px only (Tailwind `max-md` is `width < 48rem`, 768 px).
  * A literal string so Tailwind finds it.
