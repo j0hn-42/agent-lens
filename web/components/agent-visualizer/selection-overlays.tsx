@@ -62,7 +62,7 @@ export function SelectionOverlays({
   const { locale } = useLocale()
   return (
     <>
-      {/* Agent detail card (floating, tethered to node) */}
+      {/* Agent detail card: placed by the shared dock layout, in the left column */}
       {selectedAgent && selection.selectedAgentWorldPos && (
         <div {...stopPropagationHandlers}>
           <AgentDetailCard

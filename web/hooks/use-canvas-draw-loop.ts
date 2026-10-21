@@ -3,13 +3,13 @@ import type { Particle, Edge, DepthParticle, TeamSummary } from '@/lib/agent-typ
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import {
-  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
+  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold,
 } from '@/lib/canvas-constants'
 import { BloomRenderer } from '@/components/agent-visualizer/bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from '@/components/agent-visualizer/background-layer'
 import {
   type VisualEffect,
-  drawTetherLine, drawEffects, drawAgents, drawMessageBubblesWorld,
+  drawEffects, drawAgents, drawMessageBubblesWorld,
   drawEdges, getActiveEdgeIds,
   delegationPathEdges, drawDelegationPath, createPathAnimation,
   drawParticles, buildEdgeMap, drawToolCalls,
@@ -451,18 +451,6 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       drawParticles(ctx, particles, edgeMap, agents, toolCalls, timeRef.current, opts)
       if (!opts.reducedMotion) drawEffects(ctx, deps.effectsRef.current)
       opts.reducedMotion = reducedMotion
-
-      // Tether from the selected node to its detail card
-      if (selectedAgentId) {
-        const agent = agents.get(selectedAgentId)
-        if (agent) drawTetherLine(ctx, agent, transform, h)
-      } else if (selectedToolCallId) {
-        const tool = toolCalls.get(selectedToolCallId)
-        if (tool) drawTetherLine(ctx, tool, transform, h, toolCardSize(tool).w / 2)
-      } else if (selectedDiscoveryId) {
-        const disc = discoveries.find(d => d.id === selectedDiscoveryId)
-        if (disc) drawTetherLine(ctx, disc, transform, h, getDiscoveryCardDimensions(disc.label, disc.content.split('\n')).cardW / 2 * discoveryCardScale(opts))
-      }
 
       // Keyboard focus ring (distinct from hover/selection glow)
       const focusedNow = deps.hasFocusRef.current ? deps.focusedNodeRef.current : null

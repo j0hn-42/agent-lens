@@ -1,4 +1,4 @@
-import { Agent, NODE, CARD, TETHER } from '../../../lib/agent-types'
+import { Agent } from '../../../lib/agent-types'
 import { SCENE } from '../../../lib/colors'
 import { sceneStateColor } from '../../../lib/scene-state-colors'
 import type { ThemeId } from '../../../lib/theme-tokens'
@@ -33,52 +33,6 @@ export function fitHeaderTokens(ctx: CanvasRenderingContext2D, text: string, max
   }
   ctx.font = `${HEADER_TOKENS_FONT_MIN}px monospace`
   return { text: truncateText(ctx, text, maxWidth), font: ctx.font }
-}
-
-/** Anything the tether can start from: an agent, a tool card or a discovery card. */
-export type TetherSource = { x: number; y: number; isMain?: boolean }
-
-export function drawTetherLine(
-  ctx: CanvasRenderingContext2D,
-  agent: TetherSource,
-  transform: { x: number; y: number; scale: number },
-  canvasH: number,
-  radiusOverride?: number,
-) {
-  const r = radiusOverride ?? (agent.isMain ? NODE.radiusMain : NODE.radiusSub)
-
-  // Match the detail card's fixed middle-left position (glass-card.tsx)
-  const screenLeft = CARD.margin
-  const screenTop = Math.max(100, (canvasH - CARD.detail.height) / 2)
-
-  // Convert card position (screen space) back to world coords for the tether endpoint
-  const endX = (screenLeft - transform.x) / transform.scale
-  const endY = (screenTop + CARD.detail.height * 0.3 - transform.y) / transform.scale
-
-  // Start from hex edge toward the card
-  const angle = Math.atan2(endY - agent.y, endX - agent.x)
-  const startX = agent.x + Math.cos(angle) * r
-  const startY = agent.y + Math.sin(angle) * r
-
-  ctx.save()
-  ctx.globalAlpha = TETHER.alpha
-  ctx.strokeStyle = SCENE.holoBase + TETHER.strokeAlpha
-  ctx.lineWidth = TETHER.lineWidth
-  ctx.setLineDash(TETHER.dash)
-  ctx.beginPath()
-  ctx.moveTo(startX, startY)
-  const midX = (startX + endX) / 2
-  const midY = Math.min(startY, endY) - TETHER.curveOffset
-  ctx.quadraticCurveTo(midX, midY, endX, endY)
-  ctx.stroke()
-  ctx.setLineDash([])
-
-  // Dot at the end
-  ctx.beginPath()
-  ctx.fillStyle = SCENE.holoBase + '90'
-  ctx.arc(endX, endY, TETHER.dotRadius, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.restore()
 }
 
 /** Draw a regular hexagon centered at (x, y) */
