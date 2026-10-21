@@ -268,8 +268,11 @@ test('320 px worst case in French: the More overlay fits in the window and scrol
     console.log(`#one-line 320px fr overlay: ${JSON.stringify(r)}`)
     assert.ok(r.left >= 0 && r.right <= 320 && r.bottom <= 800, JSON.stringify(r))
     assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no sideways page scroll with the overlay open')
-    // The 44 px targets hold in the overlay too
-    const small = await menu.locator('button, select').evaluateAll(els => els.filter(e => { const b = e.getBoundingClientRect(); return b.width > 1 && (b.width < 44 || b.height < 44) }).map(e => (e.getAttribute('aria-label') || e.textContent || '').trim()))
+    // The 44 px targets hold in the overlay too, for every focusable element a tap can reach: the quota gauges are focusable
+    // groups (their reset time shows on focus), not buttons, and measured 17 px high before #613
+    const focusable = menu.locator('button, select, [tabindex="0"]')
+    assert.ok(await menu.locator('[tabindex="0"][role="group"]').count() >= 1, 'precondition: the quota gauges are in the overlay')
+    const small = await focusable.evaluateAll(els => els.filter(e => { const b = e.getBoundingClientRect(); return b.width > 1 && (b.width < 44 || b.height < 44) }).map(e => `${(e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 40)} ${Math.round(e.getBoundingClientRect().width)}x${Math.round(e.getBoundingClientRect().height)}`))
     assert.deepEqual(small, [])
   } finally {
     await page.context().close()

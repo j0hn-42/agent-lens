@@ -280,6 +280,27 @@ test('focus on the picker button moves to the active tab when the agents fall un
   assertFocused(active, 'focus is on the active tab, not on <body>')
 })
 
+// #613 (review of #633): the row's focus ref is cleared only by a blur that names where focus went. Focus that left a tab
+// for a frame or another window (the blur has no relatedTarget) leaves the ref set: the check of document.activeElement is
+// then what keeps the switch from taking it back.
+test('focus that left a tab without a blur target (a frame, another window) is not taken back by the switch', () => {
+  const outside = document.createElement('button')
+  document.body.appendChild(outside)
+  const r = panel({ conversations: FOUR })
+  const tab = r.getAllByRole('tab').find(t => t.getAttribute('tabindex') === '0')!
+  act(() => { tab.focus() })
+  // The blur of a move to another document carries no relatedTarget; the element that holds focus in this document is not <body>
+  act(() => {
+    tab.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }))
+    // jsdom names the target of a focus() move: that blur is kept from React, which saw only the one above
+    window.addEventListener('focusout', e => e.stopImmediatePropagation(), { capture: true, once: true })
+    outside.focus()
+  })
+  assertFocused(outside, 'precondition: focus left the row')
+  act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
+  assertFocused(outside, 'focus that left the row stays where it went')
+})
+
 test('the switch never takes focus from elsewhere: focus outside the agent row stays where it is', () => {
   const outside = document.createElement('button')
   document.body.appendChild(outside)
