@@ -9,6 +9,7 @@ import { usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
+import { DETAIL_SIZE } from '@/lib/panel-layout'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
 import { agentRoleOf, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
@@ -21,7 +22,7 @@ import { gitCommitTotal, type GitState } from '@/lib/git-state'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness, deriveSilence } from '@/hooks/simulation/freshness'
 import type { HealthVerdict } from '@/lib/loop-detection'
-import { FOCUS_RING, FOCUS_RING_STRONG } from '@/lib/focus-ring'
+import { FOCUS_RING, FOCUS_RING_INSET, FOCUS_RING_STRONG } from '@/lib/focus-ring'
 import type { DelegationRow } from '@/lib/delegation-report'
 import * as C from '@/lib/card-text'
 
@@ -118,6 +119,16 @@ export function AgentDetailCard({
   // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
   const dock = useDockPanel('detail', true)
   const { rect } = dock
+  // The card's body is a scroll container: it joins the tab order only while it actually scrolls, so a keyboard user
+  // can scroll a card taller than its slot (WCAG 2.1.1), as the System panel does. Set imperatively: the jsx-a11y rule
+  // rejects a static tabIndex on a non-interactive element.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    if (el.scrollHeight > el.clientHeight + 1) el.setAttribute('tabindex', '0')
+    else el.removeAttribute('tabindex')
+  })
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
@@ -162,30 +173,30 @@ export function AgentDetailCard({
         position: 'absolute',
         left: rect?.x ?? 12,
         top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
-        width: rect?.w ?? 240,
+        width: rect?.w ?? DETAIL_SIZE.w,
         zIndex: Z.detailCard,
         display: dock.hidden ? 'none' : undefined,
       }}
     >
-      <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
+      <GlassCard ref={bodyRef} className={FOCUS_RING_INSET} visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
         <PanelHeader onClose={onClose} className="mb-3" titleId={titleId} closeLabel={t('common.close')}>
           <span
             aria-hidden="true"
             className="w-2 h-2 rounded-full"
             style={{ background: stateColor, boxShadow: `0 0 8px ${stateColor}` }}
           />
-          <span className="flex flex-col">
-            <span className="text-xs font-mono" data-sensitive="" style={{ color: COLORS.textPrimary }}>
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-mono" data-sensitive="" title={agent.name} style={{ color: COLORS.textPrimary }}>
               {agent.name}
             </span>
             {agent.model && (
-              <span className="flex flex-wrap items-center gap-x-2 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+              <span className="flex flex-wrap items-center gap-x-2 text-xs font-mono" style={{ color: COLORS.textDim }}>
                 <span>{formatModelName(agent.model)}</span>
                 {badge && (
                   <span
                     data-testid="model-badge"
                     data-kind={badge.kind}
-                    className="rounded px-1 text-[10px]"
+                    className="rounded px-1 text-[11px]"
                     style={{ border: `1px solid ${COLORS.glassBorder}`, color: badge.kind === 'mismatch' ? COLORS.toolIndicatorText : COLORS.textMuted }}
                   >
                     {C.modelBadgeText(locale, badge.kind)}
@@ -199,7 +210,7 @@ export function AgentDetailCard({
 
         {/* Models that really ran (runtime-reported), and the requested one when it differs */}
         {(agent.modelsUsed?.length || (badge?.kind === 'mismatch' && agent.requestedModel)) && (
-          <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-testid="models-used">
+          <div className="mb-3 text-xs font-mono" style={{ color: COLORS.textDim }} data-testid="models-used">
             {badge?.kind === 'mismatch' && agent.requestedModel && (
               <div>{t('card.requested', { model: formatModelName(agent.requestedModel) })}</div>
             )}
@@ -212,8 +223,8 @@ export function AgentDetailCard({
         {/* Context bar */}
         <div className="mb-3">
           <div className="flex justify-between mb-1">
-            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>{t('card.contextWindow')}</span>
-            <span data-testid="inspector-context" className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+            <span className="text-xs" style={{ color: COLORS.textMuted }}>{t('card.contextWindow')}</span>
+            <span data-testid="inspector-context" className="text-xs font-mono" style={{ color: COLORS.textDim }}>
               {C.usageText(locale, contextUsage)} / {formatTokens(agent.tokensMax)}{contextSuffix(locale, agent, contextPercent)}{contextIncomplete ? ` ${translate(locale, 'card.ctx.lastReadingIncomplete')}` : ''}
             </span>
           </div>
@@ -222,14 +233,14 @@ export function AgentDetailCard({
         </div>
 
         {/* Stats row */}
-        <div className="flex gap-3 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+        <div className="flex gap-3 mb-3 text-xs font-mono" style={{ color: COLORS.textDim }}>
           <span>{C.boundedCountText(locale, agent.toolCalls, replayLost, 'tool')}</span>
           <span>{t('card.alive', { duration: formatDuration(agent.timeAlive) })}</span>
           <span style={{ color: freshness === 'stale' ? COLORS.textMuted : stateColor }}>{stateText}</span>
         </div>
 
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
-        <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-xs font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
           {/* A history status is never live (#361): it was received, not seen happening, and never "no longer reporting" */}
           <span data-testid="inspector-freshness">{C.freshnessText(locale, freshness, agent.freshnessSource === 'history')}</span>
           {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
@@ -244,7 +255,7 @@ export function AgentDetailCard({
           {replayLost > 0 && <span data-testid="inspector-replay-lost">{C.replayLostText(locale, replayLost)}</span>}
           {sessionLabel && <span className="truncate">{sessionLabel}</span>}
         </div>
-        <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+        <div className="mb-3 text-xs font-mono" style={{ color: COLORS.textDim }}>
           <ActiveTimeStat agent={agent} locale={locale} />
         </div>
 
@@ -259,7 +270,7 @@ export function AgentDetailCard({
 
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
-          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono" style={{ color: COLORS.textDim }}>
             <span>{t(agent.teamKind === 'workflow' ? 'card.workflowAgent' : 'card.teammate')}</span>
             {teamName && (
               <span className="flex min-w-0 items-center gap-1">
@@ -278,7 +289,7 @@ export function AgentDetailCard({
           const mcp = parseMcpTool(agent.currentTool)
           return (
             <div
-              className="mb-3 px-2 py-1.5 rounded text-[11px] font-mono flex items-center gap-2"
+              className="mb-3 px-2 py-1.5 rounded text-xs font-mono flex items-center gap-2"
               style={mcp ? {
                 background: COLORS.mcpIndicatorBg,
                 border: `1px solid ${COLORS.mcpIndicatorBorder}`,
@@ -298,13 +309,13 @@ export function AgentDetailCard({
 
         {/* Issues / PRs carrying the agent:<role> label of this node. A failed load is said to be unavailable, never shown as "no link" (#149) */}
         {role && issueLinksStatus === 'unavailable' && (
-          <div className="mt-3 text-[11px] font-mono" data-testid="issue-links-unavailable">
+          <div className="mt-3 text-xs font-mono" data-testid="issue-links-unavailable">
             <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
             <p role="status" className="m-0" style={{ color: COLORS.textDim }}>{t('card.issueLinks.unavailable')}</p>
           </div>
         )}
         {role && issueLinks.length > 0 && (
-          <div className="mt-3 text-[11px] font-mono" data-testid="issue-links">
+          <div className="mt-3 text-xs font-mono" data-testid="issue-links">
             <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
             <ul className="flex flex-col gap-0.5" aria-label={t('card.issueLinks.list', { role })}>
               {issueLinks.slice(0, ISSUE_LINKS_SHOWN).map(link => (
@@ -390,7 +401,7 @@ function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessi
   const t = useT()
   const loop = health.status === 'loop'
   return (
-    <div className="mb-3 text-[11px] font-mono" data-testid="inspector-health">
+    <div className="mb-3 text-xs font-mono" data-testid="inspector-health">
       <div className="mb-1" style={{ color: COLORS.textMuted }}>{t('card.health')}</div>
       <p className="m-0" data-testid="inspector-health-verdict" style={{ color: loop ? COLORS.warn : COLORS.textDim }}>
         {loop && <span aria-hidden="true">⟳ </span>}{C.healthText(locale, health)}
@@ -422,8 +433,8 @@ function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number;
   const seen = (time: number) => typeof spawnTime === 'number' && Number.isFinite(spawnTime) ? ` · ${L.seen(formatDuration(time - spawnTime))}` : ''
   const total = gitCommitTotal(git)
   return (
-    <section className="mb-3 min-w-0 text-[11px] font-mono" aria-labelledby={headingId} data-testid="git-strip">
-      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>{L.title}</h3>
+    <section className="mb-3 min-w-0 text-xs font-mono" aria-labelledby={headingId} data-testid="git-strip">
+      <h3 id={headingId} className="m-0 mb-1 text-xs font-normal" style={{ color: COLORS.textMuted }}>{L.title}</h3>
       {lost > 0 && <p className="m-0" data-testid="git-lost" style={{ color: COLORS.textDim }}>{L.lost}</p>}
       {git.head && (
         <p className="m-0 break-all" data-testid="git-branch" style={{ color: COLORS.textDim }}>
@@ -480,8 +491,8 @@ function DelegationSection({ rows, onSelectAgent, lost = 0 }: { rows: Delegation
   const { locale } = useLocale()
   const t = useT()
   return (
-    <section className="mb-3 text-[11px] font-mono" aria-labelledby={headingId} data-testid="delegation-report">
-      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>{t('card.delegation.title')}</h3>
+    <section className="mb-3 text-xs font-mono" aria-labelledby={headingId} data-testid="delegation-report">
+      <h3 id={headingId} className="m-0 mb-1 text-xs font-normal" style={{ color: COLORS.textMuted }}>{t('card.delegation.title')}</h3>
       <ul className="flex flex-col gap-2" aria-label={t('card.delegation.list', { count: C.delegationCountText(locale, rows.length, lost) })}>
         {rows.map(row => (
           <li key={row.agentId} className="min-w-0" data-testid="delegation-row">
@@ -586,14 +597,14 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
         position: 'absolute',
         left: rect?.x ?? 12,
         top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
-        width: rect?.w ?? 240,
+        width: rect?.w ?? DETAIL_SIZE.w,
         zIndex: Z.detailCard,
         display: dock.hidden ? 'none' : undefined,
       }}
     >
       <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
         <PanelHeader onClose={onClose} className="mb-1" titleId={titleId} closeLabel={t('common.close')}>
-          <span role="status" className="text-xs font-mono" style={{ color: COLORS.textMuted }} data-testid="inspector-gone">
+          <span role="status" className="text-sm font-mono" style={{ color: COLORS.textMuted }} data-testid="inspector-gone">
             {C.goneText(locale, name)}
           </span>
         </PanelHeader>

@@ -1,4 +1,4 @@
-export { truncateText, drawTetherLine, drawFocusRing, stateColor } from './draw-misc'
+export { truncateText, drawFocusRing, stateColor } from './draw-misc'
 export type { FocusShape } from './draw-misc'
 export { drawEffects } from './draw-effects'
 export type { VisualEffect } from './draw-effects'

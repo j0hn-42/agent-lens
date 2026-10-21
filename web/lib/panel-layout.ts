@@ -38,8 +38,17 @@ export const CONTROL_BAR_FALLBACK_H = 56
 export const TOPBAR_FALLBACK_H = 60
 
 export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720, step: 16, bigStep: 64 } as const
-export const DETAIL_SIZE = { w: 240, h: 240, minH: 120 } as const
-const SYSTEM_H = 280
+/**
+ * The cards of the left dock: the size they ask for (`w` x `h`), and the narrowest and shortest they accept.
+ * Both carry rows of text (counts, durations, model names, paths, a delegation report), so the full size is what
+ * shows that content without scrolling it a row at a time; `minW` / `minH` keep them docked on a tight column
+ * instead of dropping the whole layout to a sheet.
+ */
+export const DETAIL_SIZE = { w: 320, h: 420, minW: 240, minH: 120 } as const
+/** Height the System panel asks for: its metric rows, its per-core detail and its load / uptime list. */
+const SYSTEM_H = 420
+/** Heights a left card falls back to, tallest first, once the one it asked for does not fit. */
+const CARD_HEIGHTS = [420, 320, 240, 180, DETAIL_SIZE.minH] as const
 export const LINK_H = 300
 export const MIN_MAIN_H = 160
 export const TIMELINE_SIZE = { maxW: 700, minW: 280, heights: [360, 280, 200] as readonly number[] }
@@ -108,7 +117,8 @@ export function leftPanelWidthBounds(
 ): { min: number; max: number } {
   if (viewportW < SHEET_BREAKPOINT) return dockWidthBounds(viewportW)
   const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
-  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? DETAIL_SIZE.w + DOCK_GAP : 0)
+  // What the cards *need* (minW), not what they ask for: a left panel widened past that only narrows them (placeCard)
+  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? DETAIL_SIZE.minW + DOCK_GAP : 0)
   const max = Math.max(0, Math.floor(viewportW - 2 * DOCK_EDGE - reserved))
   // Never wider than the room, even when the room is smaller than the usual minimum
   return { min: Math.min(RIGHT_DOCK.min, max), max }
@@ -273,7 +283,34 @@ function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permi
   }
 }
 
-function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>): Partial<Record<PanelId, Rect>> | null {
+/**
+ * Sizes the cards of the left column are allowed, biggest first: `computeDockLayout` walks this ladder and keeps the
+ * first size at which EVERY open panel finds a place. A card is placed before System and before the timeline, so a
+ * card that grabs all it asks for can leave them nothing — and a layout that cannot place one panel becomes a sheet,
+ * which hides all but the newest. Height comes before width because the cards are a column of rows: more rows in a
+ * narrow card read better than fewer in a wide one.
+ */
+function cardSizes(viewportW: number): Array<{ w: number; h: number }> {
+  const room = viewportW - 2 * DOCK_EDGE
+  const widths = [DETAIL_SIZE.w, DETAIL_SIZE.minW].map(w => Math.min(w, room)).filter(w => w > 0)
+  const out: Array<{ w: number; h: number }> = []
+  for (const h of [DETAIL_SIZE.h, ...CARD_HEIGHTS.filter(h => h < DETAIL_SIZE.h)]) {
+    for (const w of widths) if (!out.some(s => s.w === w && s.h === h)) out.push({ w, h })
+  }
+  return out
+}
+
+/** First spot a left card fits in at that width, from `maxH` down the ladder. Null when not even the shortest fits. */
+function placeCard(maxH: number, w: number, leftArea: Rect, blockers: readonly Rect[]): Rect | null {
+  const heights = [maxH, ...CARD_HEIGHTS.filter(h => h < maxH)]
+  for (const h of heights) {
+    const placed = findFreeSpot(w, Math.min(h, leftArea.h), leftArea, blockers)
+    if (placed) return placed
+  }
+  return null
+}
+
+function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, card: { w: number; h: number }): Partial<Record<PanelId, Rect>> | null {
   const { viewport: vp, open } = input
   const { area, rightWidth: rw } = base
   const rects: Partial<Record<PanelId, Rect>> = {}
@@ -299,33 +336,29 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     blockers.push(r)
   }
 
+  // With both cards in the column, neither asks for more than half of it: the agent card is placed first, and taking
+  // the whole column would leave System a sliver, or nothing at all.
+  const share = isOpen('detail') && isOpen('system')
+    ? Math.max(DETAIL_SIZE.minH, Math.floor((area.h - DOCK_GAP) / 2))
+    : Number.POSITIVE_INFINITY
+
   // Left dock: the agent card.
   if (isOpen('detail')) {
-    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
     const leftArea: Rect = { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
-    let placed: Rect | null = null
-    for (const h of [DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
-      placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
-      if (placed) break
-    }
+    const placed = placeCard(Math.min(card.h, share), card.w, leftArea, blockers)
     if (!placed) return null
     rects.detail = placed
     blockers.push(placed)
   }
 
-  // Left dock, second slot: System, in the card's column (below it), or at the top of the column when the
-  // card is closed.
+  // Left dock, second slot: System, in the card's column (below it, and as wide as it), or at the top of the
+  // column when the card is closed.
   if (isOpen('system')) {
-    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
-    const card = rects.detail
-    const leftArea: Rect = card
-      ? { x: card.x, y: area.y, w, h: area.h }
+    const above = rects.detail
+    const leftArea: Rect = above
+      ? { x: above.x, y: area.y, w: above.w, h: area.h }
       : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
-    let placed: Rect | null = null
-    for (const h of [SYSTEM_H, DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
-      placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
-      if (placed) break
-    }
+    const placed = placeCard(Math.min(SYSTEM_H, card.h, share), above ? above.w : card.w, leftArea, blockers)
     if (!placed) return null
     rects.system = placed
     blockers.push(placed)
@@ -374,9 +407,14 @@ export function computeDockLayout(input: DockInput): DockLayout {
   const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [], permissionsBand: 0 }
   if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH, input.permissionsH)
-  const rects = tryDock({ ...input, viewport: vp, open }, base)
-  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
-  return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
+  // The biggest card size at which every open panel finds a place (cardSizes); the ladder is walked only when a card
+  // is open, since nothing else reads the cap.
+  const sizes = open.includes('detail') || open.includes('system') ? cardSizes(vp.w) : [{ w: 0, h: 0 }]
+  for (const size of sizes) {
+    const rects = tryDock({ ...input, viewport: vp, open }, base, size)
+    if (rects) return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
+  }
+  return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
 }
 
 // ─── Popups ─────────────────────────────────────────────────────────────────

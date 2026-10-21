@@ -11,6 +11,7 @@ import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
 import { CollapsibleSection } from './collapsible-section'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
+import { DETAIL_SIZE } from '@/lib/panel-layout'
 
 interface SystemPanelProps {
   visible: boolean
@@ -108,7 +109,7 @@ function SeverityIcon({ level }: { level: Severity }) {
 
 function SeverityLabel({ level }: { level: Severity }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-mono" style={{ color: level === 'unknown' ? COLORS.textMuted : severityColor(level) }}>
+    <span className="inline-flex items-center gap-1 text-xs font-mono" style={{ color: level === 'unknown' ? COLORS.textMuted : severityColor(level) }}>
       <SeverityIcon level={level} />
       {SEVERITY_TEXT[level]}
     </span>
@@ -164,7 +165,7 @@ function MetricRow({ metric, samples }: { metric: Metric; samples: readonly Syst
   const use = metric.usage?.(last) ?? null
   if (metric.zeroMeansNone && use && use.total === 0) {
     return (
-      <div data-metric={metric.label} className="py-1.5 flex items-baseline justify-between gap-2 text-[11px] font-mono">
+      <div data-metric={metric.label} className="py-1.5 flex items-baseline justify-between gap-2 text-xs font-mono">
         <span style={{ color: COLORS.textPrimary }}>{metric.label}</span>
         <span style={{ color: COLORS.textMuted }}>No swap</span>
       </div>
@@ -175,7 +176,7 @@ function MetricRow({ metric, samples }: { metric: Metric; samples: readonly Syst
   const summary = summaryText(samples, metric.pick)
   return (
     <div data-metric={metric.label} className="py-1.5 flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-2 text-[11px] font-mono">
+      <div className="flex items-baseline justify-between gap-2 text-xs font-mono">
         <span style={{ color: COLORS.textPrimary }}>{metric.label}</span>
         {value !== null && (
           <span className="text-right" style={{ color: COLORS.textPrimary }}>
@@ -188,7 +189,7 @@ function MetricRow({ metric, samples }: { metric: Metric; samples: readonly Syst
       {summary && (
         <div className="flex items-center gap-2">
           <Sparkline samples={samples} pick={metric.pick} />
-          <span className="text-[10px] font-mono" style={{ color: COLORS.textMuted }}>{summary}</span>
+          <span className="text-xs font-mono" style={{ color: COLORS.textMuted }}>{summary}</span>
         </div>
       )}
     </div>
@@ -205,7 +206,7 @@ function CoreDetail({ cores }: { cores: readonly (number | null)[] }) {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(o => !o)}
-        className={`w-full text-left text-[11px] font-mono min-h-6 px-1 rounded ${FOCUS_RING_INSET}`}
+        className={`w-full text-left text-xs font-mono min-h-6 px-1 rounded ${FOCUS_RING_INSET}`}
         style={{ color: COLORS.textMuted }}
       >
         <span aria-hidden="true">{open ? '▾' : '▸'} </span>Per-core detail ({cores.length >= MAX_CORES_SHOWN ? `${MAX_CORES_SHOWN}+ logical CPUs` : `${cores.length} logical CPU${cores.length === 1 ? '' : 's'}`})
@@ -216,7 +217,7 @@ function CoreDetail({ cores }: { cores: readonly (number | null)[] }) {
             const label = `Core ${i + 1}`
             const level = severity(v)
             return (
-              <div key={i} data-metric={label} className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-2 text-[10px] font-mono">
+              <div key={i} data-metric={label} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-2 text-xs font-mono">
                 <span style={{ color: COLORS.textPrimary }}>{label}</span>
                 {v !== null ? <Gauge label={label} value={v} level={level} thin /> : <span />}
                 <span className="inline-flex items-center gap-1 text-right">
@@ -290,14 +291,14 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
       visible={visible}
       position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', left: 12 }}
       zIndex={Z.sidePanel}
-      width={rect?.w ?? 240}
+      width={rect?.w ?? DETAIL_SIZE.w}
       labelledBy={titleId}
       attrs={dockAttrs('system', 'left', dock, visible)}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h, background: COLORS.void }}>
         <PanelHeader onClose={onClose} titleId={titleId}>
-          <span lang={locale} className="text-[11px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{panelName(locale, 'system')}</span>
+          <span lang={locale} className="text-xs font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{panelName(locale, 'system')}</span>
         </PanelHeader>
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-system-announcer>{announcement}</div>
 
@@ -309,14 +310,14 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
           style={{ scrollbarWidth: 'thin' }}
         >
           {unavailableReason ? (
-            <p className="text-[11px] font-mono py-2 m-0" style={{ color: COLORS.textMuted }}>{unavailableReason}</p>
+            <p className="text-xs font-mono py-2 m-0" style={{ color: COLORS.textMuted }}>{unavailableReason}</p>
           ) : !last ? (
-            <p className="text-[11px] font-mono py-2 m-0" style={{ color: COLORS.textMuted }}>Waiting for the first measurement</p>
+            <p className="text-xs font-mono py-2 m-0" style={{ color: COLORS.textMuted }}>Waiting for the first measurement</p>
           ) : (
             <>
               {METRICS.map(m => <MetricRow key={m.label} metric={m} samples={samples} />)}
               {showCores && <CoreDetail cores={cores} />}
-              <dl className="m-0 pt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] font-mono">
+              <dl className="m-0 pt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs font-mono">
                 <dt style={{ color: COLORS.textMuted }}>Load 1 / 5 / 15</dt>
                 <dd className="m-0 text-right" style={{ color: COLORS.textPrimary }}>
                   {last.load ? last.load.map(l => l.toFixed(2)).join(' / ') : 'Not available'}
@@ -327,7 +328,7 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
                 </dd>
               </dl>
               {last.platformNote && (
-                <p className="text-[10px] font-mono pt-2 m-0" style={{ color: COLORS.textMuted }}>{last.platformNote}</p>
+                <p data-testid="platform-note" className="text-[11px] font-mono pt-2 m-0" style={{ color: COLORS.textMuted }}>{last.platformNote}</p>
               )}
             </>
           )}

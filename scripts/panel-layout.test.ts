@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -87,7 +87,10 @@ test('no two open panels overlap, none covers the bars or a foreign panel (all v
     }
   }
   assert.ok(total > 600)
-  assert.ok(docked > 100, `docking must really happen (got ${docked} docked layouts)`)
+  // Pinned, not a loose floor: a left card that grabs the room it asks for silently turns docked layouts into sheets
+  // (which hide all but the newest panel). `docked > 100` let 105 such regressions through while the cards were being
+  // enlarged. Raise this number when a change docks MORE; never lower it without saying which layouts gave up.
+  assert.ok(docked >= 702, `docking must really happen and must not regress (got ${docked} docked layouts, expected at least 702)`)
 })
 
 test('wide viewports dock the usual combination: card + files + timeline next to the feed and the chat', () => {
@@ -119,6 +122,57 @@ test('System alone takes the top of the left column and its width is reserved fo
   assert.equal(l.rects.system!.x, 12)
   assert.equal(l.rects.system!.y, l.area.y)
   assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - 240 - 8)
+})
+
+test('the agent card alone is given its full size: readable, not a 240 x 240 letterbox', () => {
+  const l = layoutFor(1600, 900, ['detail'], [])
+  assert.equal(l.mode, 'dock')
+  const detail = l.rects.detail!
+  assert.equal(detail.w, DETAIL_SIZE.w, 'the card takes the full card width')
+  assert.equal(detail.h, DETAIL_SIZE.h, 'the card takes the full card height')
+  assert.ok(detail.w >= 320 && detail.h >= 420, `a card of ${detail.w} x ${detail.h} shows its rows without a scroll for each one`)
+})
+
+test('both cards open: they share the column evenly, neither squeezes the other out', () => {
+  for (const [w, h] of [[1600, 900], [1280, 720], [1024, 640]] as Array<[number, number]>) {
+    const l = layoutFor(w, h, ['detail', 'system'], [])
+    assert.equal(l.mode, 'dock', `${w}x${h}: both cards stay docked`)
+    const { detail, system } = l.rects as Record<string, Rect>
+    assert.equal(detail.w, DETAIL_SIZE.w, `${w}x${h}: the card keeps the full width`)
+    assert.equal(system.w, detail.w, `${w}x${h}: System is as wide as the card above it`)
+    assert.ok(Math.abs(detail.h - system.h) <= 1, `${w}x${h}: ${detail.h} vs ${system.h} is not an even share`)
+    assert.ok(system.h >= 240, `${w}x${h}: System keeps at least the 240 px it had (got ${system.h})`)
+    assert.ok(!intersects(detail, system))
+  }
+})
+
+test('a column too tight for the full card narrows it instead of dropping to a sheet, and height wins over width', () => {
+  // 1024 x 640 with the expanded message feed on the left and the Files panel on the right: 320 px no longer fit
+  const feed = obstacleSets(1024, 640)[2].rects[0]
+  const l = layoutFor(1024, 640, ['detail', 'files'], [feed])
+  assert.equal(l.mode, 'dock', 'still docked, not a sheet')
+  const detail = l.rects.detail!
+  assert.equal(detail.w, DETAIL_SIZE.minW, 'the card falls back to its narrow width')
+  assert.equal(detail.h, DETAIL_SIZE.h, 'and keeps its full height: a tall narrow card beats a short wide one')
+  assert.ok(!intersects(detail, feed) && !intersects(detail, l.rects.files!))
+})
+
+test('System alone asks for 420 px of its own, on the full card width', () => {
+  const l = layoutFor(1600, 900, ['system'], [])
+  assert.equal(l.rects.system!.w, DETAIL_SIZE.w)
+  assert.equal(l.rects.system!.h, 420, 'its metric rows, per-core detail and load / uptime list fit without a scroll')
+})
+
+test('a card gives room back rather than pushing another panel out (a11y review of the bigger cards)', () => {
+  // Zoom levels of a 1920x1080 or 1280x800 screen at 166-200 %: exactly who needs the bigger text
+  for (const [w, h] of [[1152, 648], [1024, 640], [1000, 600], [960, 540], [900, 640]] as Array<[number, number]>) {
+    assert.equal(layoutFor(w, h, ['detail', 'system'], []).mode, 'dock', `${w}x${h}: the two cards stay side by side`)
+  }
+  // The card is placed before the timeline: 320 px wide beside the message pill left the timeline under its 280 px
+  const pill = obstacleSets(1280, 720)[1].rects[0]
+  const l = layoutFor(1280, 720, ['detail', 'files', 'timeline'], [pill])
+  assert.equal(l.mode, 'dock', 'the card narrows so the timeline keeps its width')
+  assert.ok(l.rects.timeline!.w >= 280 && l.rects.detail && l.rects.files)
 })
 
 test('System is a full-width sheet on a narrow viewport', () => {

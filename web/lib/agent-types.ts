@@ -391,15 +391,6 @@ export const NODE = {
   radiusSub: 20,
 } as const
 
-export const CARD = {
-  detail: { width: 240, height: 200 },
-
-  chat: { width: 300, maxHeight: 360, messagesMinHeight: 100, messagesMaxHeight: 240 },
-  margin: 8,
-  offsetX: 40,     // horizontal offset from agent to detail card
-  offsetY: -80,    // vertical offset from agent to detail card
-} as const
-
 export const Z = {
   info: 10,
   /** The top bar: above the canvas controls (z-10, later in the page), so an unfolded bar is never covered by the Legend (#497) */
@@ -465,15 +456,6 @@ export const BEAM = {
   idleAlpha: 0.08,
   activeAlpha: 0.3,
   wobble: { amp: 3, freq: 10, timeFreq: 3, trailOffset: 0.15 },
-} as const
-
-export const TETHER = {
-  alpha: 0.7,
-  strokeAlpha: '80',
-  lineWidth: 1,
-  dash: [6, 4] as number[],
-  dotRadius: 3,
-  curveOffset: 20,
 } as const
 
 // ─── Popup Dimensions ───────────────────────────────────────────────────────
