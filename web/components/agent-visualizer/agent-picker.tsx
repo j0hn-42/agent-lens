@@ -17,7 +17,7 @@ import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { useLocale } from '@/lib/locale'
 import type { Locale } from '@/lib/messages'
 import { stateText } from '@/lib/card-text'
-import { DATA_EN, t as tr, pluralCountText, formatCount, messageCountText, teamChipTexts } from '@/lib/panel-text'
+import { DATA_EN, t as tr, pluralCountText, formatCount, messageCountText } from '@/lib/panel-text'
 import { ChevronIcon } from './feed-icons'
 
 export interface AgentPickerProps {
@@ -46,8 +46,9 @@ function groupLabel(locale: Locale, g: PickerGroup): string {
   if (g.kind === 'done') return tr(locale, 'conv.picker.group.done', { n })
   if (g.kind === 'active') return tr(locale, 'conv.picker.group.active', { n })
   if (g.kind === 'session') return tr(locale, 'conv.picker.group.session', { label: g.name, n })
-  const { heading } = teamChipTexts(locale, { kind: g.kind, name: g.name, items: g.ids, sessionHint: g.sessionHint })
-  return tr(locale, 'conv.picker.group.team', { heading, n })
+  // The team or workflow name, then the start of the lead session id when two groups share a name (as the Teams block says it)
+  const name = g.sessionHint ? `${g.name} ${tr(locale, 'conv.team.sessionHint', { id: g.sessionHint })}` : g.name
+  return tr(locale, g.kind === 'workflow' ? 'conv.picker.group.workflow' : 'conv.picker.group.team', { name, n })
 }
 
 const ROW = `min-h-7 ${TOUCH_TARGET}`
