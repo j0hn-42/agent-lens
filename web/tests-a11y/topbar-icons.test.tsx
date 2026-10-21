@@ -370,3 +370,32 @@ test('under 768 px Commands is in More and keeps the focus when the window narro
   assert.equal(document.activeElement?.id, 'topbar-commands')
   assert.ok(view.container.querySelector('[data-topbar-menu]')!.contains(document.activeElement))
 })
+
+// PR #631 review: "Notifications blocked" was drawn in the bar from 1024 px before the one-line bar; it is behind More now,
+// so More signals it: the warning triangle (a shape, not a colour alone) and a description that names the blocked
+// notifications. The accessible name of More still contains its visible text (2.5.3).
+const describedText = (el: HTMLElement) =>
+  (el.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+test('blocked notifications are signalled on More: warning mark and description, at every width, in both languages', () => {
+  for (const [label, mobile] of [['1440 px', false], ['375 px', true]] as const) {
+    setMobileView(mobile)
+    const view = render(<TopBar {...base} notifyState="denied" />)
+    const more = document.getElementById(TOPBAR_MORE_ID)!
+    assert.equal(view.container.querySelector('[data-more-mark]')?.getAttribute('data-more-mark'), 'alert', `${label}: warning triangle`)
+    assert.match(describedText(more), /Notifications blocked/, `${label}: ${describedText(more)}`)
+    const name = more.getAttribute('aria-label') ?? ''
+    // Visible text: what is not aria-hidden, and not hidden under 768 px (max-md:hidden) at 375 px
+    const visible = [...more.querySelectorAll('span')]
+      .filter(s => !s.closest('[aria-hidden="true"]') && !(mobile && s.classList.contains('max-md:hidden')))
+      .map(s => s.textContent).join('').trim()
+    assert.ok(name.includes(visible), `${label}: name "${name}" contains the visible text "${visible}"`)
+    view.unmount()
+  }
+  setMobileView(false)
+  const off = render(<TopBar {...base} notifyState="off" />)
+  assert.equal(off.container.querySelector('[data-more-mark]'), null, 'notifications not blocked: no mark')
+  off.unmount()
+  setLocaleChoice('fr')
+  render(<TopBar {...base} notifyState="denied" />)
+  assert.match(describedText(document.getElementById(TOPBAR_MORE_ID)!), /Notifications bloquées/)
+})
