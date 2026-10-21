@@ -2,18 +2,56 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
 import { remoteStartupError } from './remote-access'
 import { REMOTE_PAIR_MAX_SESSIONS, REMOTE_PAIR_SESSION_TTL_MS, PAIR_COOKIE } from './remote-pairing'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
-import { READING_GUIDE_DIR, READING_GUIDE_INDEX, readReadingGuide, readingGuideFiles } from './reading-guide'
+import { READING_GUIDE_DIR, READING_GUIDE_INDEX, readReadingGuide, readReadingGuideDomains, readingGuideFiles } from './reading-guide'
 
 const root = path.resolve(__dirname, '..')
+
+/**
+ * The files git tracks under `scope` (paths relative to `dir`). Outside a git checkout (a source archive, #613) every
+ * file present is a shipped file: the tree is walked instead, without node_modules and .git.
+ */
+function trackedFiles(dir: string, scope = ''): string[] {
+  try {
+    return execFileSync('git', ['ls-files', '-z', '--', scope || '.'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\0').filter(Boolean)
+  } catch {
+    const out: string[] = []
+    const walk = (rel: string) => {
+      for (const e of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === '.git') continue
+        const child = rel ? `${rel}/${e.name}` : e.name
+        if (e.isDirectory()) walk(child)
+        else out.push(child)
+      }
+    }
+    walk(scope)
+    return out
+  }
+}
+
+test('the tracked-file listing still works outside a git checkout, as in a source archive (#613)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'af-no-git-'))
+  try {
+    fs.mkdirSync(path.join(tmp, 'app-tray/native/trayproto/node_modules'), { recursive: true })
+    fs.writeFileSync(path.join(tmp, 'app-tray/native/go.mod'), 'module x\n')
+    fs.writeFileSync(path.join(tmp, 'app-tray/native/trayproto/p.go'), 'package p\n')
+    fs.writeFileSync(path.join(tmp, 'app-tray/native/trayproto/node_modules/x.js'), '')
+    fs.writeFileSync(path.join(tmp, 'README.md'), '')
+    assert.deepEqual(trackedFiles(tmp, 'app-tray/native').sort(), ['app-tray/native/go.mod', 'app-tray/native/trayproto/p.go'])
+    assert.ok(trackedFiles(tmp).includes('README.md'))
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
+})
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
-/** The reading guide is an index and one file per domain (#612): the tests read all of it, in the order of the index */
-const guideText = () => readReadingGuide()
+/** The reading guide is an index and one file per domain (#612): a test that looks for a term reads every domain file,
+ *  in the order of the index, and never the index itself (#613: a word of the index cannot satisfy it) */
+const guideText = () => readReadingGuideDomains()
 /** A doc as the tests read it: the whole reading guide for its index, the file itself otherwise */
 const docText = (f: string) => (f === READING_GUIDE_INDEX ? guideText() : read(f))
 
@@ -47,9 +85,11 @@ test('the reading guide is an index and one file per domain, each linked once, i
   for (const f of listed) assert.match(read(f), /^## \S/, `${f} opens with a "## " heading, so read alone it has a title and no level is skipped`)
   assert.doesNotMatch(index, /^## /m, 'the index has no section of its own: a section lives in the file of its domain')
   assert.ok(index.split('\n').length < 80, 'the index stays short')
-  // The tests that look for a term read the index too: the index must not be what satisfies them
-  for (const term of ['not observed', 'at least', 'estimated', 'unattributed', 'observations', 'compaction', 'settings']) {
-    assert.ok(!index.toLowerCase().includes(term), `the index says "${term}": write it in the file of its domain`)
+  // The tests that look for a term never read the index (#613: the 7 terms checked here before left every other one
+  // open): neither here (guideText) nor in the other test files (readReadingGuideDomains)
+  assert.ok(!guideText().includes(index.split('\n').find(l => l.startsWith('Principle'))!), 'a term search does not read the index')
+  for (const f of fs.readdirSync(path.join(root, 'scripts')).filter(n => n.endsWith('.test.ts') && n !== 'docs.test.ts')) {
+    assert.doesNotMatch(read(`scripts/${f}`), /readReadingGuide\(/, `scripts/${f} reads the index with readReadingGuide(): use readReadingGuideDomains()`)
   }
   // Read as one text, the guide starts with the index and follows its order
   const whole = readReadingGuide()
@@ -76,7 +116,10 @@ test('a translated surface is listed in the file of its domain, and language.md 
 })
 
 test('every link to a section of the reading guide lands on a heading of the file it names (#612)', () => {
-  const docs = ['README.md', ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => `docs/${f}`), READING_GUIDE_INDEX, ...readingGuideFiles()]
+  // Every Markdown file of the repository (#613: README, docs/ and the guide only before; CONTRIBUTING, CLAUDE.md, the
+  // PR template, the skills and agents link to the guide too)
+  const docs = trackedFiles(root).filter(f => f.endsWith('.md') && !f.includes('node_modules/'))
+  for (const f of ['README.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles()]) assert.ok(docs.includes(f), `${f} is checked`)
   const anchorsOf = new Map<string, Set<string>>()
   const anchors = (file: string) => {
     if (!anchorsOf.has(file)) anchorsOf.set(file, new Set([...read(file).matchAll(/^#{1,6} (.+)$/gm)].map(m => slug(m[1]))))
@@ -110,8 +153,7 @@ function guideSectionFiles(): Map<string, Set<string>> {
 
 test('a link to the reading guide that names a section in bold or in quotes points to the file of that section (#612)', () => {
   const sections = guideSectionFiles()
-  const docs = execFileSync('git', ['ls-files', '*.md', '.github/*.md', '.claude/*.md'], { cwd: root, encoding: 'utf8' })
-    .split('\n').filter(f => f && !f.includes('node_modules/'))
+  const docs = trackedFiles(root).filter(f => f.endsWith('.md') && !f.includes('node_modules/'))
   const isGuide = (t: string) => t === READING_GUIDE_INDEX || t.startsWith(`${READING_GUIDE_DIR}/`)
   let checked = 0
   const wrong: string[] = []
@@ -326,9 +368,8 @@ test('no old jobailla repository reference remains outside the CHANGELOG (#224)'
   // The repository was renamed j0hn-42/agent-lens: the old owner name only lives on through a GitHub redirect.
   // `publisher: "jobailla"` is a different identifier and is kept on purpose.
   const old = ['jobailla', 'agent-lens'].join('/')
-  const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
-    .split('\0')
-    .filter(f => f && !/(^|\/)CHANGELOG/i.test(f) && f !== 'pnpm-lock.yaml' && fs.existsSync(path.join(root, f)))
+  const files = trackedFiles(root)
+    .filter(f =>!/(^|\/)CHANGELOG/i.test(f) && f !== 'pnpm-lock.yaml' && fs.existsSync(path.join(root, f)))
   const offenders = files.filter(f => {
     const buf = fs.readFileSync(path.join(root, f))
     return !buf.includes(0) && buf.toString('utf8').includes(old)
@@ -588,7 +629,7 @@ test('the Go protocol module of the tray is checked in CI, listed in CONTRIBUTIN
   assert.ok(fs.existsSync(path.join(root, 'app-tray/native/go.mod')))
   // No compiled binary is committed: only Go sources and the module files. The files git tracks, not the working
   // tree: a local `go test -c`, `-coverprofile` or `.DS_Store` is not committed and must not fail the test (#613)
-  const files = execFileSync('git', ['ls-files', '-z', '--', 'app-tray/native'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
+  const files = trackedFiles(root, 'app-tray/native')
   assert.ok(files.includes('app-tray/native/go.mod'), 'app-tray/native is tracked by git')
   for (const f of files) assert.match(path.posix.basename(f), /^(go\.mod|go\.sum|.+\.go)$/, `unexpected file committed in app-tray/native: ${f}`)
 })

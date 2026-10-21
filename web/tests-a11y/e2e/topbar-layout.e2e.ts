@@ -268,8 +268,11 @@ test('320 px worst case in French: the More overlay fits in the window and scrol
     console.log(`#one-line 320px fr overlay: ${JSON.stringify(r)}`)
     assert.ok(r.left >= 0 && r.right <= 320 && r.bottom <= 800, JSON.stringify(r))
     assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no sideways page scroll with the overlay open')
-    // The 44 px targets hold in the overlay too
-    const small = await menu.locator('button, select').evaluateAll(els => els.filter(e => { const b = e.getBoundingClientRect(); return b.width > 1 && (b.width < 44 || b.height < 44) }).map(e => (e.getAttribute('aria-label') || e.textContent || '').trim()))
+    // The 44 px targets hold in the overlay too, for every focusable element a tap can reach: the quota gauges are focusable
+    // groups (their reset time shows on focus), not buttons, and measured 17 px high before #613
+    const focusable = menu.locator('button, select, [tabindex="0"]')
+    assert.ok(await menu.locator('[tabindex="0"][role="group"]').count() >= 1, 'precondition: the quota gauges are in the overlay')
+    const small = await focusable.evaluateAll(els => els.filter(e => { const b = e.getBoundingClientRect(); return b.width > 1 && (b.width < 44 || b.height < 44) }).map(e => `${(e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 40)} ${Math.round(e.getBoundingClientRect().width)}x${Math.round(e.getBoundingClientRect().height)}`))
     assert.deepEqual(small, [])
   } finally {
     await page.context().close()
@@ -445,8 +448,11 @@ for (const [w, locale] of [[1440, 'en'], [1280, 'en'], [1280, 'fr'], [1024, 'en'
         console.log(`#active-stroke ${w}px ${locale} ${what}: strokes ${JSON.stringify(m.runs)} px, shadow ${m.boxShadow}`)
         assert.equal(m.pressed, 'true', `${what}: aria-pressed`)
         assert.ok(Number(m.fontWeight) >= 700, `${what}: still bold`)
-        assert.ok(m.textDecoration.every(d => d === 'none'), `${what}: no text underline (${m.textDecoration.join(',')})`)
+        // The strokes are counted before the underline is checked (#613, review of #628), so a failing count is seen on its
+        // own. Measured: a text underline put back on the active Files icon adds no stroke there ([2]); only the
+        // textDecoration check below sees it, so both stay
         assert.equal(m.runs.length, 1, `${what}: ${m.runs.length} strokes (${m.runs.join(', ')} px), expected the bar alone`)
+        assert.ok(m.textDecoration.every(d => d === 'none'), `${what}: no text underline (${m.textDecoration.join(',')})`)
         assert.equal(m.runs[0], 2, `${what}: the stroke is 2 px thick`)
       }
     } finally {

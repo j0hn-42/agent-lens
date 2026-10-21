@@ -1,6 +1,7 @@
 // The domains of the message catalog (#612): one file per domain in this folder, each with its fr and en tables.
-// A new domain file is imported and listed here, then spread in both tables of web/lib/messages.ts;
-// scripts/messages.test.ts fails on a file that is not listed or not assembled.
+// A new domain file is imported and listed here, and only here: web/lib/messages.ts assembles every domain of this list
+// (#613). scripts/messages.test.ts fails on a file that is not listed, or whose keys do not start with the prefixes
+// its second line declares ("// Keys: <prefix>.*, ...").
 
 import * as common from './common'
 import * as topbar from './topbar'

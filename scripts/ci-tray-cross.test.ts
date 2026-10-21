@@ -40,11 +40,42 @@ test('the test job builds and vets the tray Go module for the three desktop targ
   assert.match(s, /set -eu/, 'the first failing target fails the step')
 })
 
+/** A Go command that writes a binary: `-o` in any spelling (`-o x`, `-o=x`, `-o\tx`, `-o"x"`), or `go install`. */
+const WRITES_BINARY = /(^|\s)-o(?![\w-])|\bgo install\b/m
+const WORKFLOWS = fs.readdirSync(path.join(ROOT, '.github/workflows')).filter(f => /\.ya?ml$/.test(f))
+  .map(f => ({ file: f, text: fs.readFileSync(path.join(ROOT, '.github/workflows', f), 'utf8') }))
+
+test('the binary-output detector catches every spelling of -o, which the old guard missed (#613)', () => {
+  for (const run of ['go build -o tray ./...', 'go build -o=tray ./...', 'go build -o\ttray ./...', 'go build -o"tray" ./...', 'go install ./...']) {
+    assert.ok(WRITES_BINARY.test(run), run)
+  }
+  for (const run of ['go build ./...', 'go vet ./...', 'go test -count=1 ./...', 'echo "-- done"']) {
+    assert.ok(!WRITES_BINARY.test(run), run)
+  }
+  // The guard before #613 (only the cross-build step, only "-o" followed by a space) let these through
+  assert.ok(!/upload-artifact|-o /.test('go build -o=tray ./...'))
+})
+
 test('the cross-build publishes nothing and runs after setup-go (#511, #512)', () => {
   const t = job('test')
   const s = step(t, STEP)
-  assert.ok(!/upload-artifact|-o /.test(s), 'no binary is written or published: artefacts and signing are #512')
+  assert.ok(!/upload-artifact/.test(s) && !WRITES_BINARY.test(s), 'no binary is written or published: artefacts and signing are #512')
   assert.ok(t.indexOf('actions/setup-go@') < t.indexOf(STEP), 'Go comes from app-tray/native/go.mod')
+})
+
+test('no workflow writes or publishes a tray binary: every step under app-tray/native, every upload (#613)', () => {
+  for (const { file, text } of WORKFLOWS) {
+    // Every step of every job: from one "- name:"/"- uses:" item to the next one at the same indent
+    const steps = text.split(/^(?=\s+- (?:name|uses|run):)/m)
+    for (const s of steps) {
+      if (/app-tray/.test(s) || /\bgo (build|install)\b/.test(s)) {
+        assert.ok(!WRITES_BINARY.test(s), `${file}: a step writes a Go binary:\n${s}`)
+      }
+      if (/upload-artifact/.test(s)) {
+        assert.ok(!/app-tray|native/.test(s), `${file}: an upload publishes from app-tray:\n${s}`)
+      }
+    }
+  }
 })
 
 test('the required checks keep their names (#511)', () => {

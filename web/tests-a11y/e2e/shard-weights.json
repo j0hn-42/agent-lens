@@ -1,8 +1,9 @@
 {
-  "_source": "Median seconds per file in the CI job e2e-a11y before sharding (#611): runs 39288291002, 39282843667, 39282324964, 39278745398, 39277430403, 39277338388 (develop, 2026-10-19). A file's time runs from the end of the previous file's last test to the end of its own last test, so it includes the node process and the demo server start. Only the balance between shards depends on it; a file missing here still runs. conversation-agent-picker.e2e.ts (60) is a local estimate (6 tests on the 83-agent demo), not yet a CI median.",
+  "_source": "Median seconds per file in the CI job e2e-a11y before sharding (#611): runs 39288291002, 39282843667, 39282324964, 39278745398, 39277430403, 39277338388 (develop, 2026-10-19). A file's time runs from the end of the previous file's last test to the end of its own last test, so it includes the node process and the demo server start. Only the balance between shards depends on it; a file missing here still runs. conversation-agent-picker.e2e.ts (60) is a local estimate (6 tests on the 83-agent demo), not yet a CI median. #613: topbar-layout (132), i18n-fr-panels-reflow (78), label-boxes (44) and context-panel-reflow (9) are local medians of 3 runs (2026-10-21, 24 cores, load < 2; settings-tabs read 51 there against 61 in CI), not yet CI medians.",
   "seconds": {
     "autoframe-grow.e2e.ts": 89,
     "canvas-controls-reflow.e2e.ts": 53,
+    "context-panel-reflow.e2e.ts": 9,
     "conversation-agent-picker.e2e.ts": 60,
     "demo.e2e.ts": 140,
     "dock-layout.e2e.ts": 48,
@@ -12,10 +13,10 @@
     "fit-bars.e2e.ts": 48,
     "guided.e2e.ts": 37,
     "hidden-names-reflow.e2e.ts": 170,
-    "i18n-fr-panels-reflow.e2e.ts": 23,
+    "i18n-fr-panels-reflow.e2e.ts": 78,
     "i18n-fr-reflow.e2e.ts": 28,
     "inspector.e2e.ts": 14,
-    "label-boxes.e2e.ts": 41,
+    "label-boxes.e2e.ts": 44,
     "mobile-chrome.e2e.ts": 44,
     "mobile-permission.e2e.ts": 31,
     "mobile-view.e2e.ts": 26,
@@ -28,7 +29,7 @@
     "settings-tabs.e2e.ts": 61,
     "theme-contrast.e2e.ts": 43,
     "themes.e2e.ts": 11,
-    "topbar-layout.e2e.ts": 51,
+    "topbar-layout.e2e.ts": 132,
     "tour-offer-permission.e2e.ts": 11,
     "truncation-dismiss.e2e.ts": 18,
     "truncation-stack.e2e.ts": 32

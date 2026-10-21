@@ -14,11 +14,11 @@
  */
 import type { AgentEvent } from './protocol'
 import { forwardToPanel } from './session-runtime'
-import { panelLoss } from './panel-loss'
+import { panelLoss, PANEL_LOSS_SESSION_ID_MAX } from './panel-loss'
 
 export const JSONL_COUNTED_SESSIONS_MAX = 10_000
-/** Longest session id counted: the page reads no longer key (MAX_KEY_LENGTH of web/lib/event-loss.ts) */
-export const JSONL_SESSION_ID_MAX = 256
+/** Longest session id kept in the connection's set: the ledger counts no longer id, for any source (panel-loss.ts) */
+export const JSONL_SESSION_ID_MAX = PANEL_LOSS_SESSION_ID_MAX
 
 export interface JsonlLikeSource {
   readonly onEvent: (listener: (event: AgentEvent) => void) => { dispose(): void }

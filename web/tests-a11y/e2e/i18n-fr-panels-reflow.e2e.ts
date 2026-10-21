@@ -2,8 +2,9 @@
 // the demo app (`pnpm --dir web run test:e2e`). The French labels of the header actions, the search, the pair filter and the
 // file rows are longer than the English ones: at 320 px and at 1280 px / 200 % (a 640 x 512 window) nothing may scroll
 // sideways, leave the window, be cut or sit on top of another button. The Context panel needs a relay (it is not available
-// in demo mode: the panel is unavailable by construction, the bridge decides it, so no network mock can render it), so its French states
-// are covered by the jsdom test of the message catalog. Its 320 px reflow (table Branche / Pull request / Vérifications) is NOT measured in a browser.
+// in demo mode: the panel is unavailable by construction, the bridge decides it, so no network mock can render it): its 320 px and
+// 640 x 512 reflow in French and English (table Branche / Pull request / Vérifications included) is measured in a browser by
+// context-panel-reflow.e2e.ts, on a harness that renders the panel outside the demo (context-panel.ts, #625).
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -22,11 +23,11 @@ after(async () => {
   await server?.stop()
 })
 
-async function open(w: number, h: number): Promise<Page> {
+async function open(w: number, h: number, query = ''): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h }, reducedMotion: 'reduce' })
   await context.addInitScript(() => { try { window.localStorage.setItem('agent-lens:locale', 'fr') } catch { /* blocked */ } })
   const page = await context.newPage()
-  await page.goto(server.url, { waitUntil: 'networkidle' })
+  await page.goto(`${server.url}/${query}`, { waitUntil: 'networkidle' })
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   await waitForStableLayout(page)
   return page
@@ -99,6 +100,30 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
 
   // #373: the French Timeline (header actions, legend, table view, message buttons). The demo has no link channel on opening, so the
   // Sequence button and the message list may be absent: said out loud below, not skipped silently.
+  // #613: the pair filter OPEN, in French. The default demo has no SEND / RETURN row (above), but the demo of 83 agents
+  // (?scenario=workflow83) shows the header button "Filtrer une paire" of the agent picker (#630), which opens the same filter.
+  test(`fr ${w}x${h}: the Conversation panel with the pair filter open fits (83 agents, #613)`, { timeout: 180_000 }, async () => {
+    const page = await open(w, h, '?scenario=workflow83')
+    try {
+      await page.locator('body').press('c')
+      const panel = page.locator('[data-dock-panel="conversation"]')
+      await panel.waitFor()
+      const pair = panel.getByRole('button', { name: 'Filtrer une paire', exact: true })
+      await pair.waitFor({ timeout: 60_000 })
+      await waitForStableLayout(page)
+      await pair.click()
+      // Both agents chosen: the two French selects and the chip "Filtre de paire : …" are drawn together
+      const first = panel.getByRole('combobox', { name: 'Premier agent' })
+      await first.selectOption({ index: 1 })
+      await panel.getByRole('combobox', { name: 'Second agent' }).selectOption({ index: 1 })
+      await panel.getByRole('group', { name: /^Filtre de paire/ }).waitFor()
+      await waitForStableLayout(page)
+      await expectFits(page, '[data-dock-panel="conversation"]', `${w}x${h} conversation, pair filter open (83 agents)`)
+    } finally {
+      await page.context().close()
+    }
+  })
+
   test(`fr ${w}x${h}: the Timeline panel (header, legend, table view) fits (#373)`, { timeout: 180_000 }, async () => {
     const page = await open(w, h)
     try {

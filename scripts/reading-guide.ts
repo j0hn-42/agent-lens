@@ -19,3 +19,11 @@ export function readingGuideFiles(root: string = REPO_ROOT): string[] {
 export function readReadingGuide(root: string = REPO_ROOT): string {
   return [READING_GUIDE_INDEX, ...readingGuideFiles(root)].map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n')
 }
+
+/**
+ * What the guide says, for a test that looks for a term: every domain file in the order of the index, WITHOUT the
+ * index, so that a word of the index (its intro, a link title) never satisfies such a test (#613).
+ */
+export function readReadingGuideDomains(root: string = REPO_ROOT): string {
+  return readingGuideFiles(root).map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n')
+}

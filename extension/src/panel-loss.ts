@@ -28,6 +28,8 @@ import type { AgentEvent } from './protocol'
 
 /** Sessions counted; the least recently touched beyond this are dropped from the figure (a lower bound) */
 export const PANEL_LOSS_MAX_SESSIONS = 200
+/** Longest session id counted: the page ignores a longer key (web/lib/event-loss.ts MAX_KEY_LENGTH), so it is not kept */
+export const PANEL_LOSS_SESSION_ID_MAX = 256
 
 export interface PanelLossSnapshot {
   /** Session id -> events of that session this page will never receive (positive counts only) */
@@ -76,7 +78,7 @@ export class PanelLossLedger {
    */
   note(event: AgentEvent | null | undefined, opts: { reread?: boolean } = {}): void {
     const sid = event?.sessionId
-    if (typeof sid !== 'string' || sid.length === 0) return
+    if (typeof sid !== 'string' || sid.length === 0 || sid.length > PANEL_LOSS_SESSION_ID_MAX) return
     if (this.replayed) { this.replayed.set(sid, (this.replayed.get(sid) ?? 0) + 1); return }
     const again = event?.replayed === true || opts.reread === true
     // A copy that reaches the open page stands for at most one event of that session it lacked (released or not)

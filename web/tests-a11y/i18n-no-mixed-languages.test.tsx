@@ -1158,6 +1158,33 @@ const CONV_AGENTS = new Map<string, Agent>([
   ['s1:e', convAgent('s1:e', 'explore', { state: 'complete', kind: 'subagent' })],
 ])
 
+/**
+ * WCAG 2.5.3 on the collapsed pill: each visible text (role, agent, preview), without the ellipsis a cut adds ("..." after
+ * the preview, "…" after an agent name cut by truncateName), must be in the accessible name the two hidden elements give.
+ */
+function pillLabelInName(pill: HTMLElement): { visible: string[]; missing: string[] } {
+  const ids = (pill.getAttribute('aria-labelledby') ?? '').split(' ')
+  const accessibleName = ids.map(id => document.getElementById(id)?.textContent ?? '').join(' ').toLowerCase()
+  const visible = Array.from(pill.querySelectorAll('span:not([hidden]):not([aria-hidden])')).map(e => (e.textContent ?? '').trim()).filter(Boolean)
+  return { visible, missing: visible.filter(v => !accessibleName.includes(v.replace(/(\.\.\.|…)$/, '').toLowerCase())) }
+}
+
+for (const locale of LOCALES) {
+  // #613 (review of #627): the agent names of the test above are 12 characters at most, so truncateName never cut one
+  test(`the collapsed pill with an agent name cut by truncateName keeps its visible text in its name (WCAG 2.5.3), in ${locale}`, () => {
+    setLocaleChoice(locale)
+    const name = 'performance-profiler-of-the-api'
+    const agents = new Map<string, Agent>([['s2:p', convAgent('s2:p', name, { isMain: true, state: 'thinking' })]])
+    const conversations = new Map<string, ConversationMessage[]>([['s2:p', [msgOf('p1', 'assistant', 1, 'profiling the hot path')]]])
+    const view = render(<ConversationHarness registry={createPanelRegistry()} selectedAgentId={null} conversations={conversations} agents={agents} links={new Map()} teams={new Map()} droppedMessages={new Map()} onAgentClick={noop} />)
+    const pill = view.getByRole('button', { name: new RegExp(escapeRe(translate(locale, 'conv.open', { name: panelName(locale, 'conversation') }))) })
+    const { visible, missing } = pillLabelInName(pill)
+    assert.ok(visible.some(v => v.endsWith('…') && name.startsWith(v.slice(0, -1))), `the agent name is shown cut (${visible.join(' | ')})`)
+    assert.deepEqual(missing, [], 'every visible text of the pill is in its accessible name')
+    view.unmount()
+  })
+}
+
 for (const locale of LOCALES) {
   test(`the Conversation panel (pill, tabs, search, pair filter, every message and tool row, copy feedback) speaks only ${locale}`, async () => {
     setLocaleChoice(locale)
@@ -1178,10 +1205,9 @@ for (const locale of LOCALES) {
     assert.ok(leadEl.hidden && previewEl.hidden, 'both are hidden: the name is read once, not twice')
     assert.doesNotMatch(leadEl.textContent ?? '', /please explore|build the thing/i, 'no message text in the sentence')
     // WCAG 2.5.3: the visible words are in the accessible name
-    const visible = Array.from(pill.querySelectorAll('span:not([hidden]):not([aria-hidden])')).map(e => (e.textContent ?? '').replace(/\.\.\.$/, '').trim()).filter(Boolean)
-    const accessibleName = `${leadEl.textContent} ${previewEl.textContent}`.toLowerCase()
+    const { visible, missing } = pillLabelInName(pill)
     assert.ok(visible.length >= 2, 'the pill shows a role, an agent and a preview')
-    for (const v of visible) assert.ok(accessibleName.includes(v.toLowerCase()) || /\.\.\.$/.test(v) || v.length === 0, `"${v}" is in the accessible name`)
+    assert.deepEqual(missing, [], 'every visible text of the pill is in its accessible name')
     strings.push(...surfaceStrings(view.container))
     fireEvent.click(pill)
     assert.equal(langOf(view.getByRole('log')), locale, 'the open panel declares its language')

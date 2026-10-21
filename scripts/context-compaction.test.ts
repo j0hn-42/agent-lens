@@ -2,7 +2,7 @@
 // Conversation panel that says only what the transcript proves (trigger, size before), and says so
 // when a value is not reported. The compaction cost has no source: it is always "not reported".
 import { test } from 'node:test'
-import { readReadingGuide } from './reading-guide'
+import { readReadingGuideDomains } from './reading-guide'
 import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks/simulation/types'
@@ -99,7 +99,7 @@ test('the bridge normalizer accepts context_compacted', () => {
 })
 
 test('docs/reading-the-ui.md explains the COMPACTED row and what it does not prove', async () => {
-  const doc = readReadingGuide()
+  const doc = readReadingGuideDomains()
   assert.match(doc, /## Context compactions/)
   assert.match(doc, /\*\*COMPACTED\*\*/)
   assert.match(doc, /Cost not reported/)

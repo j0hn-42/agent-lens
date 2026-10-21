@@ -105,9 +105,42 @@ const TEAM_NAMES = [
   'api-contract-checker', 'docs-writer', 'lint-fixer', 'performance-profiler',
 ]
 
-/** For each box, whether the page shows the canvas at its centre (no panel, bar or button of the page drawn over it). */
+/**
+ * For each box, whether the page shows the canvas at its centre (no panel, bar, button or toast of the page drawn over
+ * it). elementFromPoint skips the elements with `pointer-events: none` (the toast container, #613): those are looked
+ * for apart, and one counts as covering when it is visible at that point and paints something there (a background, an
+ * image or an SVG, or its own text). Plain JS string: tsx would inject a __name helper the page lacks.
+ */
+const UNCOVERED = `(bs) => {
+  const paints = (el, x, y) => {
+    const cs = getComputedStyle(el)
+    if (cs.visibility !== 'visible' || Number(cs.opacity) === 0) return false
+    const r = el.getBoundingClientRect()
+    if (x < r.left || x >= r.right || y < r.top || y >= r.bottom) return false
+    const bg = cs.backgroundColor.match(/[0-9.]+/g)
+    if (cs.backgroundImage !== 'none' || (bg && (bg.length < 4 || Number(bg[3]) > 0))) return true
+    if (/^(IMG|SVG|VIDEO|CANVAS)$/i.test(el.tagName)) return true
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !n.textContent.trim()) continue
+      const range = document.createRange(); range.selectNodeContents(n)
+      for (const t of range.getClientRects()) if (x >= t.left && x < t.right && y >= t.top && y < t.bottom) return true
+    }
+    return false
+  }
+  return bs.map(b => {
+    const x = b.x + b.w / 2, y = b.y + b.h / 2
+    const canvas = document.elementFromPoint(x, y)
+    if (canvas?.tagName !== 'CANVAS') return false
+    for (const el of document.body.querySelectorAll('*')) {
+      if (el === canvas || el.contains(canvas) || getComputedStyle(el).pointerEvents !== 'none') continue
+      if (paints(el, x, y)) return false
+    }
+    return true
+  })
+}`
+
 async function uncovered(page: Page, boxes: readonly TextBox[]): Promise<boolean[]> {
-  return page.evaluate(bs => bs.map(b => document.elementFromPoint(b.x + b.w / 2, b.y + b.h / 2)?.tagName === 'CANVAS'), boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })))
+  return page.evaluate(`(${UNCOVERED})(${JSON.stringify(boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })))})`) as Promise<boolean[]>
 }
 
 /** Strict overlap of two rectangles: boxes that only touch do not overlap. */
@@ -147,6 +180,31 @@ for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
     }
   })
 }
+
+test('control: a label under an element with pointer-events none (like the toast container) is not counted visible (#613)', async () => {
+  const { page, close } = await openTeam(1280, 800)
+  try {
+    const all = await fittedTexts(page)
+    const orchestrator = all.find(t => t.text === 'orchestrator' && t.alpha > 0.05)
+    assert.ok(orchestrator, 'the label of the orchestrator is painted')
+    assert.deepEqual(await uncovered(page, [orchestrator]), [true], 'precondition: nothing covers it')
+    const x = orchestrator.x + orchestrator.w / 2, y = orchestrator.y + orchestrator.h / 2
+    for (const [name, style, text] of [
+      ['a panel', 'background: rgb(20, 20, 20)', ''],
+      ['a text', 'background: transparent; font: 16px monospace; color: white', 'Undo'],
+    ] as const) {
+      await page.evaluate(`(() => { const d = document.createElement('div'); d.id = 'cover-613'; d.textContent = ${JSON.stringify(text)};
+        d.style.cssText = 'position: fixed; z-index: 99; pointer-events: none; left: ${x - 30}px; top: ${y - 10}px; width: 60px; height: 20px; line-height: 20px; ${style}';
+        document.body.appendChild(d) })()`)
+      // elementFromPoint alone (the check before #613) still sees the canvas there
+      assert.equal(await page.evaluate(`document.elementFromPoint(${x}, ${y})?.tagName`), 'CANVAS', `${name}: elementFromPoint skips it`)
+      assert.deepEqual(await uncovered(page, [orchestrator]), [false], `${name} with pointer-events none covers the label`)
+      await page.evaluate(`document.getElementById('cover-613').remove()`)
+    }
+  } finally {
+    await close()
+  }
+})
 
 // #594: "N names hidden" is the plan's count of the frame drawn. With the whole team framed between the bars, it must
 // equal the team names the canvas did not paint in that frame (recorded with the real font, as above).

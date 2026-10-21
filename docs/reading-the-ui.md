@@ -29,4 +29,4 @@ The guide is split by domain ([#612](https://github.com/j0hn-42/agent-lens/issue
 - [Language](reading-the-ui/language.md)
 - [What Claude can read, and further reading](reading-the-ui/claude-access-and-more.md)
 
-To document a change, add your bullet or paragraph to the file of its domain, next to the ones it belongs with. A newly translated surface is one bullet in the In your language section of the file of its domain, not in the Language file. A new domain file is linked here, in reading order. The tests read the whole guide: this index, then each file in the order of the list above (`scripts/reading-guide.ts`).
+To document a change, add your bullet or paragraph to the file of its domain, next to the ones it belongs with. A newly translated surface is one bullet in the In your language section of the file of its domain, not in the Language file. A new domain file is linked here, in reading order. The tests read the whole guide: each file in the order of the list above (`scripts/reading-guide.ts`); a test that looks for a term never reads this index.

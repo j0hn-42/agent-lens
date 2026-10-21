@@ -1,7 +1,8 @@
 package trayproto
 
 // #510: the Go side of the shared protocol contract (app-tray/protocol-fixtures.json). The Node side
-// (app-tray/src/protocol-contract.test.ts) reads the same file.
+// (app-tray/src/protocol-contract.test.ts) reads the same file. The refused lines (driverToBinaryRefused)
+// are checked here only: the driver has no parser for the lines it writes (#613).
 
 import (
 	"encoding/json"

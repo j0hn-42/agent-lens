@@ -121,6 +121,35 @@ test('no key is defined in two domain files (#612)', () => {
   }
 })
 
+test('a new domain is added in one place: messages.ts assembles every domain of domains.ts without naming them (#613)', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'web', 'lib', 'messages.ts'), 'utf8')
+  for (const name of Object.keys(MESSAGE_DOMAINS)) {
+    assert.ok(!source.includes(`MESSAGE_DOMAINS['${name}']`), `messages.ts names the domain ${name}: list it in domains.ts only`)
+  }
+})
+
+/** The key prefixes a domain file declares on its second line ("// Keys: tray.*, quota.*."), without the ".*" */
+function declaredPrefixes(name: string): string[] {
+  const line = fs.readFileSync(path.join(DOMAIN_DIR, `${name}.ts`), 'utf8').split('\n')[1] ?? ''
+  const m = line.match(/^\/\/ Keys: ((?:[\w-]+\.\*(?:, )?)+)\./)
+  assert.ok(m, `${name}.ts declares its key prefixes on its second line ("// Keys: <prefix>.*, ...")`)
+  return m[1].split(', ').map(p => p.replace(/\.\*$/, ''))
+}
+
+test('every key of a domain file starts with a prefix that domain declares, and no prefix has two owners (#613)', () => {
+  const owner = new Map<string, string>()
+  for (const [name, domain] of Object.entries(MESSAGE_DOMAINS)) {
+    const prefixes = declaredPrefixes(name)
+    for (const p of prefixes) {
+      assert.ok(!owner.has(p), `prefix ${p}.* is declared by ${owner.get(p)} and by ${name}`)
+      owner.set(p, name)
+    }
+    for (const k of Object.keys(domain.fr)) {
+      assert.ok(prefixes.some(p => k.startsWith(`${p}.`)), `${k} is in ${name}.ts, whose keys are ${prefixes.map(p => `${p}.*`).join(', ')}`)
+    }
+  }
+})
+
 test('the assembled catalog is exactly the union of the domain files, nothing lost or added (#612)', () => {
   for (const l of LOCALES) {
     const merged: Record<string, string> = {}

@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { useLocale, useT } from '@/lib/locale'
 import { translate, type Locale } from '@/lib/messages'
 import type { GaugeView, QuotaGaugeState } from '@/lib/quota'
@@ -98,7 +99,8 @@ function FocusTip({ labelId, description, tip, children }: { labelId: string; de
       aria-labelledby={labelId}
       aria-describedby={descId}
       tabIndex={0}
-      className={`relative inline-flex items-center rounded ${FOCUS_RING}`}
+      // A tap focuses it to show the reset time: a 44 px target under 768 px, like the buttons (#613, it was 17 px high)
+      className={`relative inline-flex items-center rounded ${TOUCH_TARGET} ${FOCUS_RING}`}
     >
       {children}
       <span id={descId} aria-hidden="true" className="sr-only">{description}</span>

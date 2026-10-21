@@ -1,7 +1,7 @@
 // #364: the "$" is the context size × a blended rate, not a bill. Every cost figure says it is an estimate
 // ("~" on screen, "context cost estimate" in words), even when the tokens are reported by the runtime (Codex).
 import { test } from 'node:test'
-import { readReadingGuide } from './reading-guide'
+import { readReadingGuideDomains } from './reading-guide'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -55,7 +55,7 @@ test('a halo announcement and the cost notification name the estimate', () => {
 })
 
 test('the guide explains the context cost estimate and the tokens in context', () => {
-  const guide = readReadingGuide()
+  const guide = readReadingGuideDomains()
   assert.match(guide, /context cost estimate/)
   assert.match(guide, /tokens in context/)
   assert.match(guide, /compaction/)

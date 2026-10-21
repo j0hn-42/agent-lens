@@ -145,11 +145,9 @@ func unsafeRune(r rune) bool {
 	return false
 }
 
-// text is str for a menu text: valid UTF-8 as written, and no unsafe character once decoded.
+// text is str for a menu text with no unsafe character once decoded. Invalid UTF-8 is refused by that
+// path alone: encoding/json decodes each invalid byte to U+FFFD, which unsafeRune refuses (#613).
 func text(raw json.RawMessage) (string, bool) {
-	if !utf8.Valid(raw) {
-		return "", false
-	}
 	s, ok := str(raw)
 	if !ok {
 		return "", false

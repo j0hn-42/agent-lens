@@ -14,47 +14,20 @@ export const DEFAULT_LOCALE: Locale = 'en'
 
 export const LOCALE_STORAGE_KEY = 'agent-lens:locale'
 
-const fr = {
-  ...MESSAGE_DOMAINS['common'].fr,
-  ...MESSAGE_DOMAINS['topbar'].fr,
-  ...MESSAGE_DOMAINS['canvas'].fr,
-  ...MESSAGE_DOMAINS['agent-card'].fr,
-  ...MESSAGE_DOMAINS['relay'].fr,
-  ...MESSAGE_DOMAINS['playback'].fr,
-  ...MESSAGE_DOMAINS['sessions'].fr,
-  ...MESSAGE_DOMAINS['conversation'].fr,
-  ...MESSAGE_DOMAINS['timeline'].fr,
-  ...MESSAGE_DOMAINS['files'].fr,
-  ...MESSAGE_DOMAINS['context'].fr,
-  ...MESSAGE_DOMAINS['operator'].fr,
-  ...MESSAGE_DOMAINS['settings'].fr,
-  ...MESSAGE_DOMAINS['announcements'].fr,
-  ...MESSAGE_DOMAINS['palette'].fr,
-  ...MESSAGE_DOMAINS['tour'].fr,
-  ...MESSAGE_DOMAINS['tray'].fr,
-} as const
+/** Every domain of domains.ts, as one type per language: a new domain is listed there only (#613) */
+type Domain = (typeof MESSAGE_DOMAINS)[keyof typeof MESSAGE_DOMAINS]
+type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never
+type FrTable = UnionToIntersection<Domain['fr']>
 
-export type MessageKey = keyof typeof fr
+export type MessageKey = keyof FrTable
 
-const en: Record<MessageKey, string> = {
-  ...MESSAGE_DOMAINS['common'].en,
-  ...MESSAGE_DOMAINS['topbar'].en,
-  ...MESSAGE_DOMAINS['canvas'].en,
-  ...MESSAGE_DOMAINS['agent-card'].en,
-  ...MESSAGE_DOMAINS['relay'].en,
-  ...MESSAGE_DOMAINS['playback'].en,
-  ...MESSAGE_DOMAINS['sessions'].en,
-  ...MESSAGE_DOMAINS['conversation'].en,
-  ...MESSAGE_DOMAINS['timeline'].en,
-  ...MESSAGE_DOMAINS['files'].en,
-  ...MESSAGE_DOMAINS['context'].en,
-  ...MESSAGE_DOMAINS['operator'].en,
-  ...MESSAGE_DOMAINS['settings'].en,
-  ...MESSAGE_DOMAINS['announcements'].en,
-  ...MESSAGE_DOMAINS['palette'].en,
-  ...MESSAGE_DOMAINS['tour'].en,
-  ...MESSAGE_DOMAINS['tray'].en,
+/** The domains merged in the order of domains.ts; scripts/messages.test.ts checks no key is in two of them. */
+function assemble(locale: Locale): Record<MessageKey, string> {
+  return Object.assign({}, ...Object.values(MESSAGE_DOMAINS).map(d => d[locale])) as Record<MessageKey, string>
 }
+
+const fr = assemble('fr')
+const en = assemble('en')
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })
 

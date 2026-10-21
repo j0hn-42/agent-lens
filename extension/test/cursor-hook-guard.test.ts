@@ -8,13 +8,14 @@
  * recorded on a real machine (step 0 of #472). Real HTTP over 127.0.0.1 on an ephemeral port.
  */
 import './helpers/alias-vscode'
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { isCursorHookPayload } from '../src/hook-guards'
+import { HOOK_RATE_IP_BURST } from '../src/constants'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-cursor-hook-home-'))
 process.env.HOME = fakeHome
@@ -162,8 +163,13 @@ describe('HookServer ignores Cursor payloads', () => {
 
   it('a Cursor flood is still held by the per-IP limiter (before the body is read); never by the malformed counters (#613)', async () => {
     const { server, port } = await start()
+    // The limiter refills from Date.now(): on a loaded machine the 800 requests could take longer than the refill of
+    // 600 tokens (6 s) and none would be refused (proven by advancing the clock 1 s per call: no 429). The clock is
+    // frozen during the flood, so exactly the burst gets through, whatever the load (#613)
+    const frozen = Date.now()
+    const clock = mock.method(Date, 'now', () => frozen)
     try {
-      // In batches of 25 connections: past the burst (200) far faster than the refill (100 per second)
+      // In batches of 25 connections, past the burst (200)
       const statuses: number[] = []
       for (let batch = 0; batch < 32; batch++) {
         statuses.push(...await Promise.all(Array.from({ length: 25 }, () => post(port, DOC_EXAMPLES.preToolUse).then(r => r.status))))
@@ -171,10 +177,11 @@ describe('HookServer ignores Cursor payloads', () => {
       const ok = statuses.filter(st => st === 200).length
       const limited = statuses.filter(st => st === 429).length
       assert.equal(ok + limited, statuses.length, `only 200 and 429 (got ${[...new Set(statuses)].join(', ')})`)
-      assert.ok(limited > 0, 'the per-IP limiter answers 429 past its burst')
+      assert.equal(ok, HOOK_RATE_IP_BURST, 'exactly the burst gets through')
+      assert.equal(limited, statuses.length - HOOK_RATE_IP_BURST, 'the per-IP limiter answers 429 past its burst')
       assert.deepEqual(server.getForeignHookStats(), { cursor: ok }, 'only the payloads that got through are counted')
       assert.equal(server.getNormalizationStats().malformed, 0)
-    } finally { server.dispose() }
+    } finally { clock.mock.restore(); server.dispose() }
   })
 
   it('still handles Claude Code payloads after Cursor ones', async () => {

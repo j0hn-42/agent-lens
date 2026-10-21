@@ -171,6 +171,65 @@ describe('historique des watchers non-Claude marqué replayed (#390)', () => {
     })
   }
 
+  // Comportement connu, documenté et non corrigé (#613, choix du propriétaire) : docs/relay-sources.md (« may overstate »).
+  // Un transcript Codex, Copilot ou Pi tronqué pendant le suivi est relu depuis l'octet 0 (fs-utils readNewFileLines)
+  // sans `replayed`. Les parseurs écartent les copies qu'ils reconnaissent (Pi et Copilot par id d'entrée, 5 000 au
+  // plus ; Codex par empreinte de message et id d'appel) ; le reste est réémis comme live et compté une deuxième fois
+  // par le chiffre de perte de l'extension. Ces tests échouent le jour où ce défaut est corrigé : mettre la doc à jour.
+  async function truncateAndRewrite(name: 'codex' | 'copilot' | 'pi', fill?: (file: string) => void) {
+    const { panelLoss } = await import('../src/panel-loss')
+    panelLoss.clear()
+    const h = harnesses[name]!()
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), `af-replayed-${name}-trunc-home-`))
+    const ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `af-replayed-${name}-trunc-ws-`)))
+    cleanups.push(() => { panelLoss.clear(); h.restore(); fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }) })
+    const file = h.setup(ws, home)
+    fill?.(file)
+    const watcher = h.make(ws)
+    cleanups.push(() => watcher.dispose())
+    const events: AgentEvent[] = []
+    watcher.onEvent(e => { events.push(e); panelLoss.note(e) })
+    watcher.start()
+    const sid = events.find(e => e.type === 'message')!.sessionId!
+    const counted = () => panelLoss.snapshotAfterReplay(() => {})?.evicted[sid] ?? 0
+    const atAttach = { count: counted(), events: events.length }
+    for (const e of events) assert.equal(e.replayed, true, 'précondition : tout l\'historique est replayed')
+    const content = fs.readFileSync(file)
+    const read = () => (watcher as unknown as { readNewLines(id: string): void }).readNewLines(sid)
+    // Synchronous: no fs.watch callback can run between these steps
+    fs.writeFileSync(file, '')
+    read()
+    fs.writeFileSync(file, content)
+    read()
+    return { atAttach, again: events.slice(atAttach.events), counted: counted() }
+  }
+
+  it('codex : un rollout tronqué puis réécrit à l\'identique réémet son context_update sans replayed, compté une deuxième fois (limite documentée, #613)', async () => {
+    const { atAttach, again, counted } = await truncateAndRewrite('codex')
+    assert.deepEqual(again.map(e => e.type), ['context_update'], 'le message est écarté (empreinte), pas le context_update de session_meta')
+    assert.notEqual(again[0]!.replayed, true)
+    assert.equal(counted, atAttach.count + 1, 'le chiffre dépasse de 1 les événements prouvés')
+  })
+
+  for (const name of ['copilot', 'pi'] as const) {
+    it(`${name} : réécrit à l'identique, les entrées à id ne sont pas réémises (limite documentée, #613)`, async () => {
+      const { atAttach, again, counted } = await truncateAndRewrite(name)
+      assert.deepEqual(again, [])
+      assert.equal(counted, atAttach.count)
+    })
+  }
+
+  it('pi : au-delà de 5 000 ids d\'entrée, la relecture après troncature réémet les plus anciennes sans replayed (limite documentée, #613)', async () => {
+    const msg = (i: number) => j({ type: 'message', id: `m${i}`, parentId: null, timestamp: '2026-10-12T09:00:01.000Z', message: { role: 'user', content: `m${i}`, timestamp: 1 } })
+    const { atAttach, again, counted } = await truncateAndRewrite('pi', (file) => {
+      fs.appendFileSync(file, Array.from({ length: 5000 }, (_, i) => msg(i)).join(''))
+    })
+    const messages = again.filter(e => e.type === 'message')
+    assert.ok(messages.length > 0, 'des messages déjà lus sont réémis')
+    for (const e of messages) assert.notEqual(e.replayed, true)
+    assert.ok(counted > atAttach.count, `compté au-dessus de la preuve (${counted} > ${atAttach.count})`)
+  })
+
   it('gemini : une réécriture par rename (nouvel inode) ne redit pas l\'ancien message et garde le nouveau live', async () => {
     const h = harnesses.gemini!()
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'af-replayed-gemini-rw-home-'))
