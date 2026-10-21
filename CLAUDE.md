@@ -11,7 +11,7 @@ Principle: never display a state or a number that cannot be proven ([docs/readin
 - `extension/`: VS Code extension (esbuild).
 - `app/`: standalone app build.
 - `scripts/`: the relay server (`relay.ts`), routes, telemetry and most unit tests (`scripts/*.test.ts`).
-- `docs/`: user documentation. `scripts/docs.test.ts` and `ui-glossary.test.ts` check parts of it.
+- `docs/`: user documentation. `scripts/docs.test.ts` and `ui-glossary.test.ts` check parts of it. The UI guide is an index, `docs/reading-the-ui.md`, and one file per domain in `docs/reading-the-ui/`: add your bullet in the file of your domain (tests read the whole guide through `scripts/reading-guide.ts`).
 
 ## Commands
 

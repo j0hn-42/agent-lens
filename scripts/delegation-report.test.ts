@@ -1,5 +1,6 @@
 // Delegation report (#233): per sub-agent tokens, files read, duration and result, each one proven or said unknown.
 import { test } from 'node:test'
+import { readReadingGuide } from './reading-guide'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -226,7 +227,7 @@ test('the inspector of the shell receives the report of the selected agent and c
 // ─── Documentation ───────────────────────────────────────────────────────────
 
 test('the reading guide documents the delegation report and what each column proves', () => {
-  const guide = fs.readFileSync(path.resolve(__dirname, '..', 'docs/reading-the-ui.md'), 'utf8')
+  const guide = readReadingGuide()
   assert.match(guide, /## Delegation report/)
   for (const term of ['not confirmed', 'no return observed', '(measured)', '(recorded)', 'not reported']) {
     assert.ok(guide.includes(term), `guide should explain "${term}"`)
