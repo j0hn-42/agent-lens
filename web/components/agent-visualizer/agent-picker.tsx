@@ -229,12 +229,15 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
           className={`flex-[1_1_9rem] min-w-0 inline-flex items-center gap-1 px-2 ${ROW} rounded-md text-xs font-mono text-left ${FOCUS_RING_INSET}`}
           style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
         >
-          <span className="shrink-0" style={{ color: COLORS.textMuted }}>{t('conv.picker.button')}</span>
-          {' '}
-          {activeName === null
-            ? <span className="truncate font-semibold">{t('conv.picker.all', { n: formatCount(locale, ids.length) })}</span>
-            : <span className="truncate font-semibold" {...DATA_EN}>{activeName}</span>}
-          {activeName !== null && <>{' '}<span className="shrink-0">(<span>{stateLabelOf(locale, activeAgent)}</span>)</span></>}
+          {/* Text that flows: a long agent name wraps onto a second line instead of being cut by an ellipsis */}
+          <span className="min-w-0 break-words">
+            <span style={{ color: COLORS.textMuted }}>{t('conv.picker.button')}</span>
+            {' '}
+            {activeName === null
+              ? <span className="font-semibold">{t('conv.picker.all', { n: formatCount(locale, ids.length) })}</span>
+              : <span className="font-semibold" {...DATA_EN}>{activeName}</span>}
+            {activeName !== null && <>{' '}<span>(<span>{stateLabelOf(locale, activeAgent)}</span>)</span></>}
+          </span>
           <span aria-hidden="true" className="ml-auto shrink-0" style={{ color: COLORS.textMuted }}><ChevronIcon direction={open ? 'up' : 'down'} size={10} /></span>
         </button>
         {unreadIds.length > 0 && (

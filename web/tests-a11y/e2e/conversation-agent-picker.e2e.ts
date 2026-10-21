@@ -122,6 +122,18 @@ for (const locale of ['fr', 'en'] as const) {
           await page.waitForTimeout(300)
           const text = await button.innerText()
           assert.doesNotMatch(text, new RegExp(TEXT[locale].all.replace(/[()]/g, '\\$&')), `the button shows the chosen agent (${text})`)
+          // the chosen name is shown whole: it wraps inside the button, never cut by an ellipsis or by the button edge
+          const clip = await button.evaluate(b => {
+            const name = b.querySelector('[lang="en"]')!
+            const br = b.getBoundingClientRect()
+            const rects = [...name.getClientRects()]
+            return {
+              overflow: b.scrollWidth - b.clientWidth,
+              inside: rects.length > 0 && rects.every(r => r.left >= br.left - 0.5 && r.right <= br.right + 0.5 && r.top >= br.top - 0.5 && r.bottom <= br.bottom + 0.5),
+              ellipsis: [...b.querySelectorAll('*')].some(e => getComputedStyle(e).textOverflow === 'ellipsis'),
+            }
+          })
+          assert.ok(clip.overflow <= 1 && clip.inside && !clip.ellipsis, `the chosen agent name is not cut (${JSON.stringify(clip)})`)
           await button.click()
           await search.waitFor()
           await waitForStableLayout(page)

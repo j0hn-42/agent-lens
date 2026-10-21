@@ -105,6 +105,18 @@ test('Up and Down move the active option, Enter chooses it, closes the list and 
   assert.equal(r.getByRole('log').getAttribute('aria-label'), 'Messages from builder-02')
 })
 
+test('the chosen agent name in the button wraps instead of being cut by an ellipsis (nothing of the choice disappears)', () => {
+  const r = panel({ selectedAgentId: 'b2' })
+  const button = pickerButton(r)
+  const name = button.querySelector('[lang="en"][data-i18n-exempt]')!
+  assert.equal(name.textContent, 'builder-02')
+  for (const el of [button, ...Array.from(button.querySelectorAll('*'))]) {
+    assert.ok(!/\btruncate\b/.test(el.getAttribute('class') ?? ''), `no ellipsis in the button: ${el.outerHTML.slice(0, 80)}`)
+  }
+  assert.ok(/\bbreak-words\b/.test(name.parentElement!.getAttribute('class') ?? ''), 'the text of the button flows and wraps')
+  assert.equal(button.textContent, 'Agent: builder-02 (Thinking)')
+})
+
 test('Escape closes the list and returns focus to the button without closing the panel', () => {
   const r = panel()
   const input = openPicker(r)
