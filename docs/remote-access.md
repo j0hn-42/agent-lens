@@ -88,5 +88,5 @@ The view comes from issue [#476](https://github.com/j0hn-42/agent-lens/issues/47
 ## See also
 
 - [Remote access: guards and pairing](relay-sources.md#remote-access-guards-and-pairing-241) in the event-source guide (the guards, the read-only surface and their limits)
-- [Reading the UI](reading-the-ui/small-screens.md) (the views, including the phone-width drawer)
+- [Reading the UI](reading-the-ui/small-screens.md) (the small-screen views, including the phone-width drawer)
 - `node app/dist/app.js --help` (the flags)
