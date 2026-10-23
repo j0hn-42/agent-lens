@@ -12,6 +12,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { clickInMore } from './topbar-more'
+import { waitFor } from './wait-for'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -93,7 +94,10 @@ async function mount(lost: Record<string, number> | null) {
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.cost)!) })
-  await wait(700)
+  // #440: the events reach the view with the simulation's throttled UI commit and the canvas draws them on a later frame:
+  // wait until the top bar counts the agent, the outline lists it and a frame has drawn it, not a fixed time a loaded runner overruns
+  drawn = []
+  await waitFor(() => /\b[1-9]\d* agents?\b/.test(spoken(r)) && !/No agents yet/.test(outline(r)) && drawn.some(t => /main/.test(t)))
   return r
 }
 const spoken = (r: ReturnType<typeof render>) => r.container.querySelector('[data-testid="topbar-spoken-totals"]')?.textContent ?? ''
@@ -142,7 +146,7 @@ test('usage that belongs to no agent of the view, in a session that lost events,
   await wait(100)
   // No agent_spawn: the only usage of the view is in the unattributed remainder
   await act(async () => { FakeES.last.send(ev('s1', 'context_update', { agent: 'ghost', tokens: 900_000, tokenSource: 'reported' }, 1)) })
-  await wait(700)
+  await waitFor(() => /900k/.test(spoken(r)))
   assert.match(spoken(r), /900k/, `precondition: the orphan usage is in the totals (${spoken(r)})`)
   assert.match(spoken(r), /\(incomplete\)/, `qualified: ${spoken(r)}`)
 })
