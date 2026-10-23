@@ -21,8 +21,7 @@ import {
 } from '@/lib/launch-client'
 import { GlassCard } from './glass-card'
 import { INSPECTOR_KEEP_ATTR } from './shared-ui'
-
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
+import { useModalDialog } from '@/hooks/use-modal-dialog'
 
 export interface LaunchDialogProps {
   repo: string
@@ -55,7 +54,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const [token, setToken] = useState('')
-  // Read by the native backdrop and Escape listeners (set up once)
+  // Read by the native backdrop listener (set up once)
   const tokenRef = useRef('')
   tokenRef.current = token
   // Stopping a process takes two steps (#374): "Arrêter" arms it, "Confirmer l'arrêt" sends it
@@ -87,50 +86,39 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
     }
   }, [confirmingStop, active?.id])
 
-  // Initial focus on "Annuler" (the safe choice); focus goes back to the trigger on close
+  // Initial focus on "Annuler" (the safe choice); focus goes back to the trigger on close. Escape cancels a pending stop
+  // confirmation (#374) instead of closing: an option of the hook (#507).
+  useModalDialog({
+    open: mounted,
+    dialogRef: ref,
+    onClose: () => onCloseRef.current(),
+    initialFocus: () => cancelRef.current,
+    onEscape: () => {
+      if (!stopConfirmingRef.current) return false
+      refocusStopRef.current = true
+      setArmedId(null)
+      return true
+    },
+    listen: 'dialog',
+  })
+
+  // The token is dropped on close
   useEffect(() => {
     if (!mounted) return
-    const previous = document.activeElement as HTMLElement | null
-    cancelRef.current?.focus({ preventScroll: true })
-    return () => {
-      setToken('')
-      if (previous && previous !== document.body && previous.isConnected) previous.focus({ preventScroll: true })
-    }
+    return () => { setToken('') }
   }, [mounted])
 
-  // Native listeners: the backdrop and the dialog container are not interactive elements (jsx-a11y)
+  // Native listener: the backdrop is not an interactive element (jsx-a11y)
   useEffect(() => {
     const backdrop = backdropRef.current
-    const dialog = ref.current
-    if (!mounted || !backdrop || !dialog) return
+    if (!mounted || !backdrop) return
     const onBackdropMouseDown = (e: MouseEvent) => {
       e.stopPropagation()
       // A pasted token is lost on close and has to be fetched from the relay console again: a stray click keeps it
       if (e.target === e.currentTarget && !tokenRef.current) onCloseRef.current()
     }
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        if (stopConfirmingRef.current) { refocusStopRef.current = true; setArmedId(null); return }
-        onCloseRef.current()
-        return
-      }
-      if (e.key !== 'Tab') return
-      const nodes = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
-      if (nodes.length === 0) { e.preventDefault(); return }
-      const first = nodes[0]
-      const last = nodes[nodes.length - 1]
-      const current = document.activeElement
-      if (e.shiftKey && (current === first || current === dialog)) { e.preventDefault(); last.focus() }
-      else if (!e.shiftKey && current === last) { e.preventDefault(); first.focus() }
-    }
     backdrop.addEventListener('mousedown', onBackdropMouseDown)
-    dialog.addEventListener('keydown', onKeyDown)
-    return () => {
-      backdrop.removeEventListener('mousedown', onBackdropMouseDown)
-      dialog.removeEventListener('keydown', onKeyDown)
-    }
+    return () => backdrop.removeEventListener('mousedown', onBackdropMouseDown)
   }, [mounted])
 
   const needToken = (): boolean => {

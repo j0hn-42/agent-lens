@@ -85,7 +85,7 @@ test('opening moves focus to the search field (combobox); groups carry a name; f
   assert.equal(r.queryByRole('option', { name: /^done-01/ }), null)
   assert.ok(r.getByText(`5 agents of ${TOTAL}`), 'the count says what is listed')
   fireEvent.click(toggle)
-  assert.ok(r.getByRole('option', { name: /^done-01 \(done\)/ }))
+  assert.ok(r.getByRole('option', { name: /^done-01 \(Done\)/ }))
   assert.ok(Array.from(listbox.querySelectorAll('[role="group"]')).some(g => g.getAttribute('aria-label') === 'Finished (7)'))
   assert.equal(r.getByRole('button', { name: 'Finished (7)' }).getAttribute('aria-expanded'), 'true')
 })
@@ -148,7 +148,7 @@ test('search: matches names (finished ones too), says how many match, and has it
 test('a selection made elsewhere (canvas, sessions list) is shown by the button, and its option is brought into view on opening', () => {
   const r = panel()
   r.retree({ selectedAgentId: 'd5' })
-  assert.equal(pickerButton(r).textContent, 'Agent: done-05 (done)')
+  assert.equal(pickerButton(r).textContent, 'Agent: done-05 (Done)')
   const input = openPicker(r)
   const option = activeOption(input)!
   assert.match(option.textContent ?? '', /^done-05/, 'its option is the active one, the finished group unfolded')

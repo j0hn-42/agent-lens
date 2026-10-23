@@ -8,7 +8,7 @@ The guide is split by domain ([#612](https://github.com/j0hn-42/agent-lens/issue
 - [Top bar](reading-the-ui/top-bar.md)
 - [Panels: Sessions, Context, System and the names of things](reading-the-ui/panels.md)
 - [Hide inactive and what it hides](reading-the-ui/filters.md)
-- [Gear dialog and preferences](reading-the-ui/preferences.md)
+- [Settings and preferences](reading-the-ui/preferences.md)
 - [Review and playback](reading-the-ui/playback.md)
 - [Live announcements](reading-the-ui/announcements.md)
 - [Narrow windows and phone width](reading-the-ui/small-screens.md)
