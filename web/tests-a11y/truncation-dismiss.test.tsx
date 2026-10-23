@@ -104,7 +104,7 @@ test('the banner comes back when more is lost in the same view', async () => {
   await dismiss(r)
   assert.equal(banner(r) === null, true)
   await act(async () => { post(ev('s1', 'normalization_stats', { ...STATS, ignoredEvents: 4 }, 2)) })
-  await wait(400)
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'one more event ignored: back')
 })
 
@@ -172,8 +172,9 @@ test('All then a session: dismissed in All, a session it counted stays closed at
   await selectRow(s2)
   assert.equal(banner(r) === null, true, 's2 lost nothing')
   await act(async () => { post(ev('s1', 'normalization_stats', { ...STATS, droppedByCap: 3 }, 2)) })
-  await wait(400)
   await selectRow(s1)
+  // #440: the stats reach the view with the throttled UI commit: wait for the banner, not for a fixed time
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'one more node dropped in s1: back')
 })
 
