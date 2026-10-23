@@ -14,6 +14,7 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { ANNOUNCE_LEVELS, type AnnounceLevel } from '@/lib/ui-preferences'
 import { ACTIVE_WINDOW_MINUTES, type ShowMode } from '@/lib/show-mode'
 import { DEFAULT_SETTINGS_TAB, SETTINGS_TAB_LABEL, visibleSettingsTabs, type SettingsTab } from '@/lib/settings-tabs'
+import { useModalDialog } from '@/hooks/use-modal-dialog'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -69,13 +70,6 @@ export interface SettingsDialogProps {
     rules: NotificationRules
     onRulesChange: (rules: NotificationRules) => void
   }
-}
-
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
-
-/** What Tab can reach: not the unselected tabs (tabindex -1) nor the controls of the hidden panels */
-function tabbable(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(n => n.tabIndex >= 0 && !n.closest('[hidden]'))
 }
 
 function SwitchRow({ label, help, extraHelp, checked, onChange }: {
@@ -363,56 +357,26 @@ export function SettingsDialog({
     presentation?.active, presentation?.options, announcements?.level, notifications?.state, notifications?.rules,
   ])
 
-  useEffect(() => {
-    if (!open) return
-    const previous = document.activeElement as HTMLElement | null
-    const selectedTab = ref.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
-    ;(selectedTab ?? ref.current)?.focus({ preventScroll: true })
-    return () => {
-      if (previous && previous !== document.body && previous.isConnected) previous.focus({ preventScroll: true })
-    }
-  }, [open])
+  // Focus on the selected tab when it opens (#533); Tab trapped, Escape closes, focus back to the trigger (#507)
+  useModalDialog({
+    open,
+    dialogRef: ref,
+    onClose: () => onCloseRef.current(),
+    initialFocus: () => ref.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]'),
+    listen: 'dialog',
+  })
 
-  // Native listeners rather than JSX handlers: the backdrop and the dialog container are not
-  // interactive elements, so jsx-a11y rejects onMouseDown/onKeyDown on them.
+  // Native listener rather than a JSX handler: the backdrop is not an interactive element, so jsx-a11y rejects
+  // onMouseDown on it.
   useEffect(() => {
     const backdrop = backdropRef.current
-    const dialog = ref.current
-    if (!open || !backdrop || !dialog) return
+    if (!open || !backdrop) return
     const onBackdropMouseDown = (e: MouseEvent) => {
       e.stopPropagation()
       if (e.target === e.currentTarget) onCloseRef.current()
     }
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        onCloseRef.current()
-        return
-      }
-      if (e.key !== 'Tab' || !dialog) return
-      const nodes = tabbable(dialog)
-      if (nodes.length === 0) {
-        e.preventDefault()
-        return
-      }
-      const first = nodes[0]
-      const last = nodes[nodes.length - 1]
-      const active = document.activeElement
-      if (e.shiftKey && (active === first || active === dialog)) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
     backdrop.addEventListener('mousedown', onBackdropMouseDown)
-    dialog.addEventListener('keydown', onKeyDown)
-    return () => {
-      backdrop.removeEventListener('mousedown', onBackdropMouseDown)
-      dialog.removeEventListener('keydown', onKeyDown)
-    }
+    return () => backdrop.removeEventListener('mousedown', onBackdropMouseDown)
   }, [open])
 
   if (!open) return null

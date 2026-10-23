@@ -63,8 +63,23 @@ test('the cross-build publishes nothing and runs after setup-go (#511, #512)', (
   assert.ok(t.indexOf('actions/setup-go@') < t.indexOf(STEP), 'Go comes from app-tray/native/go.mod')
 })
 
+/** The one job allowed to write a tray binary (#512): release.yml's tray-build, gated on the main package existing. */
+const TRAY_BUILD = /^  tray-build:\n(?:(?:    .*|\s*)\n)*/m
+
+test('only the release tray-build job writes a tray binary, and only when its main package exists (#512)', () => {
+  const release = WORKFLOWS.find(w => w.file === 'release.yml')!.text
+  const j = release.match(TRAY_BUILD)?.[0] ?? ''
+  assert.match(j, /^    if: github\.ref != 'refs\/heads\/develop' && needs\.tray-detect\.outputs\.present == 'true'$/m)
+  const writers = j.split(/^(?=\s+- (?:name|uses|run):)/m).filter(s => WRITES_BINARY.test(s))
+  assert.equal(writers.length, 1)
+  assert.match(writers[0], /- name: Build the tray binary\n/)
+  assert.ok(!/upload-artifact/.test(writers[0]), 'the raw build is not uploaded: sign-tray.mjs labels a copy first')
+  assert.ok(!/^  tray-build:/m.test(ci), 'ci.yml writes no tray binary')
+})
+
 test('no workflow writes or publishes a tray binary: every step under app-tray/native, every upload (#613)', () => {
-  for (const { file, text } of WORKFLOWS) {
+  for (const { file, text: raw } of WORKFLOWS) {
+    const text = file === 'release.yml' ? raw.replace(TRAY_BUILD, '') : raw
     // Every step of every job: from one "- name:"/"- uses:" item to the next one at the same indent
     const steps = text.split(/^(?=\s+- (?:name|uses|run):)/m)
     for (const s of steps) {

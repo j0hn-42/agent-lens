@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useId, useRef } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { SHORTCUTS, SHORTCUT_GROUPS } from '@/lib/shortcuts'
@@ -9,6 +9,7 @@ import { useLocale } from '@/lib/locale'
 import { translate } from '@/lib/messages'
 import { GlassCard } from './glass-card'
 import { CloseButton, stopPropagationHandlers } from './shared-ui'
+import { useModalDialog } from '@/hooks/use-modal-dialog'
 
 export interface ShortcutsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -19,8 +20,6 @@ export interface ShortcutsDialogProps {
   /** Persist the preference (the `updateSingleKeyShortcuts` callback from the visualizer) */
   onSingleKeyEnabledChange: (enabled: boolean) => void
 }
-
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
 
 /**
  * Modal "Keyboard shortcuts" dialog (opened with `?`). Focus is trapped while open,
@@ -35,41 +34,10 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
-  useEffect(() => {
-    if (!open) return
-    const previous = document.activeElement as HTMLElement | null
-    ref.current?.focus({ preventScroll: true })
-    return () => {
-      if (previous && previous !== document.body && previous.isConnected) previous.focus({ preventScroll: true })
-    }
-  }, [open])
+  // Focus on the dialog container itself when it opens; the trap and Escape are bound on the scrim below (#507)
+  const { onKeyDown } = useModalDialog({ open, dialogRef: ref, onClose: () => onCloseRef.current() })
 
   if (!open) return null
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      onCloseRef.current()
-      return
-    }
-    if (e.key !== 'Tab' || !ref.current) return
-    const nodes = Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE))
-    if (nodes.length === 0) {
-      e.preventDefault()
-      return
-    }
-    const first = nodes[0]
-    const last = nodes[nodes.length - 1]
-    const active = document.activeElement
-    if (e.shiftKey && (active === first || active === ref.current)) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }
 
   return (
     // Scrim: presentational click screen (a click on it closes) and key boundary of the modal

@@ -40,7 +40,10 @@ export interface AgentPickerProps {
 
 /** "(Thinking)" or "(done)": the state of an agent as the tabs say it */
 function stateLabelOf(locale: Locale, agent: Agent | undefined): string {
-  return isAgentDone(agent) ? tr(locale, 'conv.tab.done') : stateText(locale, agent?.state ?? 'idle')
+  // Capitalised like the other states (« Inactif », « Réflexion »): « conv.tab.done » is also a lower-case tab word (#613)
+  if (!isAgentDone(agent)) return stateText(locale, agent?.state ?? 'idle')
+  const done = tr(locale, 'conv.tab.done')
+  return done.charAt(0).toLocaleUpperCase(locale) + done.slice(1)
 }
 
 function groupLabel(locale: Locale, g: PickerGroup): string {

@@ -19,7 +19,7 @@ The Go module `app-tray/native/` (package `trayproto`, Go standard library only,
 
 What its tests prove, on Linux, without any GUI: `app-tray/protocol-fixtures.json` holds the lines both sides exchange (the menus are the ones `deriveMenu` really builds, in French and English); the Node tests check that the driver writes and accepts exactly those lines, the Go tests that the module parses and writes them. The lines the binary must refuse are checked by the Go tests only (the driver has no parser for the lines it writes). A Go test also runs the real driver (`app-tray/src/cli.ts`) with a Go program built on the module and a headless UI, and the test relay: the click on "quit" stops the relay over its IPC channel, and both the driver and the Go program exit `0` (the Go program writes its own exit code, which the test reads). CI runs `gofmt`, `go vet` and `go test` on it (see [CONTRIBUTING](../CONTRIBUTING.md)). It also cross-compiles it, in pure Go (`CGO_ENABLED=0`), for `linux/amd64`, `darwin/arm64` and `windows/amd64`: `go build` and `go vet` must pass for each target (#511). This only proves that the module compiles for these systems: the tests run on Linux only, the module has no `main` package, so no binary is produced or published.
 
-**The native menu binary, the part that draws the icon, is not part of this repository yet.** Without it the driver has nothing to draw the icon with. The GUI binding, the cross-compilation of the GUI binary in CI (only the module is cross-compiled today, see above), the signing of the binaries and the checks on Windows, macOS and Linux desktops are separate pieces of work, tracked apart from #335. Until then, use the [fallbacks without an icon](#without-an-icon).
+**The native menu binary, the part that draws the icon, is not part of this repository yet.** Without it the driver has nothing to draw the icon with. The GUI binding, the cross-compilation of the GUI binary in CI (only the module is cross-compiled today, see above) and the checks on Windows, macOS and Linux desktops are separate pieces of work, tracked apart from #335. The release workflow already knows how to build, sign and publish that binary once it exists ([Signing and release](#signing-and-release)), but it has never run on a real binary. Until then, use the [fallbacks without an icon](#without-an-icon).
 
 ## Running the driver
 
@@ -110,6 +110,38 @@ All native menus come from the system, so what a screen reader reads depends on 
 - **Windows.** The relay is stopped over the IPC channel rather than `SIGTERM`, whose handlers do not run on Windows ([Stopping the relay](#stopping-the-relay)). That channel is not tested on Windows yet. A relay started by hand (`--attach`) is never stopped by the driver.
 - **The clipboard on Linux** is best effort: with none of `wl-copy`, `xclip` or `xsel`, the driver logs the URL on stderr instead.
 - **No pairing item.** The only URL is the local one; a pairing item waits for the remote-access token ([#241](https://github.com/j0hn-42/agent-lens/issues/241)).
+
+## Signing and release
+
+The release workflow (`.github/workflows/release.yml`, on a `v*` tag or by hand, never on `develop`) builds the tray binary only when its main package `app-tray/native/cmd/agent-lens-tray` exists (job `tray-detect`). Today it does not: the tray jobs are skipped and a release carries the `.vsix` and its `SHA256SUMS` only. Once the package exists, the job `tray-build` runs after the full CI, on `ubuntu-latest` (`linux/amd64`), `macos-latest` (`darwin/arm64`) and `windows-latest` (`windows/amd64`), and hands each binary to `app-tray/release/sign-tray.mjs`.
+
+### What a binary becomes
+
+For each platform the script looks at its secrets (an empty secret counts as absent):
+
+- **None set**: the binary is published as `agent-lens-tray-<version>-<os>-<arch>-unsigned` (`.exe` on Windows). The release does not fail. Linux binaries are always `-unsigned`: there is no signing on Linux.
+- **Some set, not all**: the job fails and names the missing secrets (never a value). Nothing is published: a release with half a configuration is a mistake, not an unsigned release.
+- **All set**: the binary is signed, then verified. The name loses `-unsigned` only after every check below passed. If one fails, the job fails, the copy is deleted and the release is not created.
+
+| Platform | Secrets (repository secrets) | Signing | Checks that must pass |
+| --- | --- | --- | --- |
+| macOS | `MACOS_CERTIFICATE_P12_BASE64` (Developer ID Application certificate and key, `.p12` in base64), `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGNING_IDENTITY` (for example `Developer ID Application: Name (TEAMID)`), `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_TEAM_ID`, `MACOS_NOTARY_PASSWORD` (an app-specific password) | imported into a temporary keychain, deleted at the end; `codesign --sign` with the hardened runtime (`--options runtime`) and a secure timestamp | `codesign --verify --strict` exits `0`; `codesign --display` shows the `runtime` flag and `TeamIdentifier` equal to `MACOS_NOTARY_TEAM_ID`; `xcrun notarytool submit --wait` answers the status `Accepted` |
+| Windows | `WINDOWS_CERTIFICATE_PFX_BASE64` (code signing certificate and key, `.pfx` in base64), `WINDOWS_CERTIFICATE_PASSWORD` | `signtool sign` (Windows SDK) with SHA-256 and an RFC 3161 timestamp (`http://timestamp.digicert.com`) | `signtool verify /pa` exits `0` |
+
+Each signing step receives only the secrets of its own platform, as environment variables; no secret is expanded in a script, and the build step sees none. The decoded certificate is written to a `0600` file in the runner's temporary directory and removed. The output of the signing tools is printed only when a step fails, with every secret value replaced by `***` (Actions also masks registered secrets).
+
+### Checksums
+
+`sign-tray.mjs` writes a `<file>.sha256` next to each binary when it is built. The release job checks them with `sha256sum -c` after downloading the artefacts (a mismatch fails the release), then attaches a `SHA256SUMS` of every file it publishes, the `.vsix` included. Check a download with `sha256sum -c SHA256SUMS --ignore-missing`. A checksum proves that the file is the one the workflow built, not who built it: it is not a signature.
+
+### What is not verified
+
+- **None of this has run.** The tray jobs are skipped until the main package exists, so they have never run: the workflow has never built, signed or published a tray binary, on any runner. The build step (`go build -trimpath`) will likely need the dependencies of the GUI binding (a C toolchain, GTK or AppIndicator headers on Linux), which are unknown today.
+- **No real signature has been made.** No certificate is configured. The tests (`scripts/ci-tray-sign.test.ts`) run the script on Linux against fake `codesign`, `security`, `xcrun`, `ditto` and `signtool` (`app-tray/test/fake-signing-tool.mjs`): they prove what the script does with each answer (labels, failures, clean-up, no secret printed), not that Apple or Microsoft accept the signature. `scripts/ci-tray-release.test.ts` reads the structure of the workflow; nothing runs GitHub Actions.
+- **Gatekeeper is not assessed.** `spctl --assess` is not run: the binary is a bare executable, not an `.app`, and its result on such a file has not been checked here. The notarization ticket cannot be stapled to a bare binary, so it is not stapled: Gatekeeper looks it up online at first launch, and offline it cannot.
+- **SmartScreen is not checked.** SmartScreen trusts a file by the reputation of its certificate and its downloads, which no test can show; a newly signed binary can still be warned about. `signtool verify /pa` only proves that the Authenticode signature is valid and chains to a trusted root.
+- **The Windows signer is not compared** with an expected name: any certificate that `signtool verify /pa` accepts passes.
+- **A GitHub Release is not signed itself.** Its files are signed (when the secrets exist) and listed in `SHA256SUMS`; no provenance attestation is published.
 
 ## Without an icon
 
