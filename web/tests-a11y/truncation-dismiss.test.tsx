@@ -13,6 +13,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { inMore } from './topbar-more'
+import { waitFor } from './wait-for'
 
 /** The sessionStorage key the dismissals live under (lib/event-loss) */
 const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
@@ -66,7 +67,8 @@ async function mount(stats: Record<string, typeof STATS> = { s1: STATS }) {
       post(ev(id, 'normalization_stats', stats[id] ?? STATS, 1))
     }
   })
-  await wait(400)
+  // #440: the banner follows the throttled UI commit: wait for it, not for a fixed time
+  await waitFor(() => banner(r) !== null)
   return r
 }
 const banner = (r: ReturnType<typeof render>) => r.container.querySelector<HTMLElement>('[data-truncation-banner]')
@@ -415,7 +417,7 @@ test('leaving full screen does not take the focus back to Details after a reopen
   const enter = inMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   enter.focus()
   await act(async () => { fireEvent.click(enter) })
-  await wait(100)
+  await waitFor(() => banner(r) === null)
   assert.equal(banner(r) === null, true, 'no banner in full screen')
   // Every focus move while leaving: Details must not take it, even for a moment (a screen reader announces each move)
   const focused: string[] = []
@@ -423,7 +425,7 @@ test('leaving full screen does not take the focus back to Details after a reopen
   document.addEventListener('focusin', onFocusIn)
   try {
     await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Exit full screen' })) })
-    await wait(100)
+    await waitFor(() => banner(r) !== null)
   } finally { document.removeEventListener('focusin', onFocusIn) }
   assert.ok(banner(r), 'the banner is back after full screen')
   assert.equal(document.activeElement === r.getByRole('button', { name: 'Details' }), false, 'the focus is not on Details')
@@ -440,10 +442,10 @@ test('the banner coming back for another reason (its total fell to 0, then a los
   sessions.focus()
   // The session's counters drop to nothing (graph reloaded): no banner; then a loss again: the banner is back
   await act(async () => { post(ev('s1', 'normalization_stats', { ignoredEvents: 0, malformed: 0, droppedByCap: 0, clampedFields: 0, duplicateEvents: 0 }, 2)) })
-  await wait(400)
+  await waitFor(() => banner(r) === null)
   assert.equal(banner(r) === null, true, 'nothing lost: no banner')
   await act(async () => { post(ev('s1', 'normalization_stats', STATS, 3)) })
-  await wait(400)
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'a loss again: the banner shows')
   assert.equal(document.activeElement === sessions, true, 'the focus stays where the user left it')
 })
