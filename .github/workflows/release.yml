@@ -1,7 +1,9 @@
 name: Release
 
-# Construit le .vsix de l'extension. Aucune publication Marketplace / Open VSX :
-# aucun secret n'est utilisé. Déclenché par un tag vX.Y.Z ou à la main, jamais sur develop.
+# Construit le .vsix de l'extension et, quand son package main existe, le binaire de barre système (#512). Aucune
+# publication Marketplace / Open VSX. Seuls secrets lus : ceux, facultatifs, de signature macOS et Windows (voir
+# docs/tray.md) ; sans eux le binaire est publié avec « -unsigned » dans son nom. Déclenché par un tag vX.Y.Z ou à la
+# main, jamais sur develop.
 on:
   push:
     tags: ['v*']
@@ -56,10 +58,103 @@ jobs:
           path: extension/agent-lens.vsix
           if-no-files-found: error
 
+  # Le binaire avec interface n'existe pas encore (docs/tray.md) : sans son package main, rien n'est construit.
+  tray-detect:
+    if: github.ref != 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.detect.outputs.present }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect the native tray binary package
+        id: detect
+        run: |
+          if [ -f app-tray/native/cmd/agent-lens-tray/main.go ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No app-tray/native/cmd/agent-lens-tray package: no tray binary is built or released."
+          fi
+
+  # Un binaire par bureau, signé et vérifié quand tous les secrets de sa plateforme sont là, sinon nommé -unsigned.
+  # Chaque étape de signature ne reçoit que les secrets de sa plateforme, par env, jamais dans le script.
+  tray-build:
+    needs: [ci, tray-detect]
+    if: github.ref != 'refs/heads/develop' && needs.tray-detect.outputs.present == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: ubuntu-latest, goos: linux, goarch: amd64 }
+          - { os: macos-latest, goos: darwin, goarch: arm64 }
+          - { os: windows-latest, goos: windows, goarch: amd64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      TRAY_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: app-tray/native/go.mod
+          cache: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the tray binary
+        working-directory: app-tray/native
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/tray-build"
+          go build -trimpath -o "$RUNNER_TEMP/tray-build/agent-lens-tray" ./cmd/agent-lens-tray
+
+      - name: Sign, verify and notarize (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: >-
+          node app-tray/release/sign-tray.mjs --platform darwin --bin "$RUNNER_TEMP/tray-build/agent-lens-tray"
+          --out dist-tray --name "agent-lens-tray-${TRAY_VERSION#v}-darwin-arm64"
+
+      - name: Sign and verify (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE_PFX_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: >-
+          node app-tray/release/sign-tray.mjs --platform windows --bin "$RUNNER_TEMP/tray-build/agent-lens-tray"
+          --out dist-tray --name "agent-lens-tray-${TRAY_VERSION#v}-windows-amd64"
+
+      - name: Label unsigned (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: >-
+          node app-tray/release/sign-tray.mjs --platform linux --bin "$RUNNER_TEMP/tray-build/agent-lens-tray"
+          --out dist-tray --name "agent-lens-tray-${TRAY_VERSION#v}-linux-amd64"
+
+      - name: Upload the tray binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-lens-tray-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist-tray/
+          if-no-files-found: error
+
   github-release:
-    # Uniquement sur tag : joint le .vsix à une GitHub Release.
-    if: github.ref_type == 'tag'
-    needs: package
+    # Uniquement sur tag : joint le .vsix, les binaires de barre système quand ils existent et un SHA256SUMS.
+    # Évalué même quand tray-build est sauté, mais seulement s'il l'est faute de package main.
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.package.result == 'success' && needs.tray-detect.result == 'success' && (needs.tray-build.result == 'success' || (needs.tray-build.result == 'skipped' && needs.tray-detect.outputs.present != 'true')) }}
+    needs: [package, tray-detect, tray-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -67,11 +162,32 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: agent-lens-vsix
+          path: release
+
+      - name: Download the tray binaries
+        if: needs.tray-detect.outputs.present == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: agent-lens-tray-*
+          merge-multiple: true
+          path: release
+
+      # Les sommes écrites par sign-tray.mjs à la construction : l'artefact n'a pas changé en route.
+      - name: Check the tray binaries checksums
+        if: needs.tray-detect.outputs.present == 'true'
+        working-directory: release
+        run: |
+          set -eu
+          for sum in *.sha256; do sha256sum -c -- "$sum"; done
+          rm -f -- *.sha256
 
       - name: Create the GitHub Release
+        working-directory: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp agent-lens.vsix "agent-lens-${GITHUB_REF_NAME#v}.vsix"
-          gh release create "$GITHUB_REF_NAME" "agent-lens-${GITHUB_REF_NAME#v}.vsix" \
-            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          set -eu
+          mv agent-lens.vsix "agent-lens-${GITHUB_REF_NAME#v}.vsix"
+          sha256sum -- * > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --generate-notes -- *
