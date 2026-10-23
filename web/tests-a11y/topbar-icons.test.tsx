@@ -238,30 +238,47 @@ test('in VS Code the Context tooltip says why the panel is unavailable', () => {
 const tabStops = (root: HTMLElement) => Array.from(root.querySelectorAll<HTMLElement>('button, [tabindex="0"], select'))
   .map(el => el.getAttribute('aria-label') || el.textContent?.trim() || el.tagName)
 
-test('one DOM order on one line: Sessions, connection, attention, panels, Commands, More, then what More holds', () => {
+test('one DOM order on one line: Sessions, connection, attention, filters, panels, Commands, More, then what More holds', () => {
   const view = render(<TopBar {...base} />)
   const header = view.container.querySelector('header')!
   const closed = tabStops(header)
   const at = (stops: string[], re: RegExp) => { const i = stops.findIndex(s => re.test(s)); assert.ok(i >= 0, `${re} in ${stops.join(' | ')}`); return i }
-  const barOrder = [/^Sessions/, /needs you/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^Cost$/, /^Timeline$/, /^Stats$/, /^Commands$/, /^More/]
+  const barOrder = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /^Files & repeats$/, /^Conversation/, /^Context/, /^System/, /^Cost$/, /^Timeline$/, /^Stats$/, /^Commands$/, /^More/]
   const idx = barOrder.map(re => at(closed, re))
   assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${closed.join(' | ')}`)
   assert.match(closed.at(-1)!, /^More/, 'More closes the bar; nothing of it is a Tab stop while closed')
   // More open: its overlay comes right after it in the DOM (Tab goes from More into it)
   openMore()
   const open = tabStops(header)
-  const menuOrder = [/^More/, /^Notifications$/, /^Hide inactive: agents and sessions$/, /sound effects/, /full screen/, /^Settings$/, /^Keyboard shortcuts$/]
+  const menuOrder = [/^More/, /sound effects/, /full screen/, /^Settings$/, /^Keyboard shortcuts$/]
   const mIdx = menuOrder.map(re => at(open, re))
   assert.deepEqual([...mIdx].sort((a, b) => a - b), mIdx, `tab order with More open: ${open.join(' | ')}`)
   const menu = header.querySelector('[data-topbar-menu]')!
   assert.equal(menu.id, header.querySelector('#topbar-more')!.getAttribute('aria-controls'))
-  assert.deepEqual(Array.from(menu.querySelectorAll('[data-topbar-group]')).map(g => g.getAttribute('data-topbar-group')), ['filters', 'tools'])
+  assert.deepEqual(Array.from(menu.querySelectorAll('[data-topbar-group]')).map(g => g.getAttribute('data-topbar-group')), ['tools'])
   // #523: no counts drawn (they are in the Sessions panel header); the totals are read by screen readers
   assert.equal(header.querySelector('[data-testid="topbar-agent-counts"]'), null, 'no agent counts drawn in the bar')
   assert.ok(header.querySelector('[data-testid="topbar-spoken-totals"].sr-only'), 'the spoken totals stay in the bar')
   // No box of the bar clips a focus ring or the overlay
   assert.doesNotMatch(header.className, /overflow-/)
   for (const g of Array.from(header.querySelectorAll<HTMLElement>('[data-topbar-group]'))) assert.doesNotMatch(g.className, /overflow-/)
+})
+
+test('the filters are in the bar when it has room (jsdom measures none: every width but mobile), in More under 768 px', () => {
+  for (const [w, inBar] of [[1440, true], [1100, true], [900, true], [375, false]] as const) {
+    setViewportWidth(w)
+    const view = render(<TopBar {...base} />)
+    const header = view.container.querySelector('header')!
+    for (const id of ['topbar-notify', 'topbar-hide-inactive']) {
+      assert.equal(!!header.querySelector(`#${id}`), inBar, `${w} px: ${id} ${inBar ? 'in the bar' : 'not in the bar'}`)
+    }
+    openMore()
+    for (const id of ['topbar-notify', 'topbar-hide-inactive']) {
+      assert.equal(header.querySelectorAll(`[id="${id}"]`).length, 1, `${w} px: ${id} once, in the bar or in More`)
+    }
+    assert.equal(!!header.querySelector('[data-topbar-menu] [data-topbar-group="filters"]'), !inBar, `${w} px: the filters group of More`)
+    view.unmount()
+  }
 })
 
 test('fixed widths: what the bar draws at 1440, 1100, 900 and 375 px (the rest is in More)', () => {
@@ -377,7 +394,7 @@ test('under 768 px Commands is in More and keeps the focus when the window narro
 const describedText = (el: HTMLElement) =>
   (el.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
 test('blocked notifications are signalled on More: warning mark and description, at every width, in both languages', () => {
-  for (const [label, mobile] of [['1440 px', false], ['375 px', true]] as const) {
+  for (const [label, mobile] of [['375 px', true]] as const) {
     setMobileView(mobile)
     const view = render(<TopBar {...base} notifyState="denied" />)
     const more = document.getElementById(TOPBAR_MORE_ID)!
@@ -396,6 +413,13 @@ test('blocked notifications are signalled on More: warning mark and description,
   assert.equal(off.container.querySelector('[data-more-mark]'), null, 'notifications not blocked: no mark')
   off.unmount()
   setLocaleChoice('fr')
+  setMobileView(true)
   render(<TopBar {...base} notifyState="denied" />)
   assert.match(describedText(document.getElementById(TOPBAR_MORE_ID)!), /Notifications bloquées/)
+  cleanup()
+  setMobileView(false)
+  // While the filters are in the bar the blocked state is the label of its button: More holds nothing to signal
+  const wide = render(<TopBar {...base} notifyState="denied" />)
+  assert.equal(wide.container.querySelector('[data-more-mark]'), null)
+  assert.ok(wide.container.querySelector('header #topbar-notify'))
 })

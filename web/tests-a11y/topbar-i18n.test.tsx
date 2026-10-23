@@ -8,7 +8,7 @@ import { render, cleanup } from '@testing-library/react'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { setLocaleChoice } from '@/lib/locale'
-import { setMobileView } from './mobile-media'
+import { setMobileView, setViewportWidth } from './mobile-media'
 import { fireEvent } from '@testing-library/react'
 import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from '@/lib/messages'
 import { attentionAriaLabel, attentionCounterText, attentionTooltip } from '@/lib/top-bar-text'
@@ -186,7 +186,7 @@ for (const locale of LOCALES) {
 
   test(`More counts the Show filter only while it is on 'active', at every width (${locale})`, () => {
     setLocaleChoice(locale)
-    for (const mobile of [false, true]) {
+    for (const mobile of [true]) {
       setMobileView(mobile)
       const on = render(<TopBar {...base} showMode="active" />)
       const more = on.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
@@ -200,6 +200,12 @@ for (const locale of LOCALES) {
       assert.equal(plain.textContent, T(locale, 'topbar.more'), "'all' hides nothing: no filter is announced")
       off.unmount()
     }
+    // While the filter is a button of the bar, pressed, More has nothing to count
+    setMobileView(false)
+    const wide = render(<TopBar {...base} showMode="active" />)
+    assert.equal(wide.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) }).textContent, T(locale, 'topbar.more'))
+    assert.equal(wide.container.querySelector('header #topbar-hide-inactive')?.getAttribute('aria-pressed'), 'true')
+    wide.unmount()
   })
 
   test(`the toolbar, the side panels group and the totals read by screen readers speak ${locale}`, () => {

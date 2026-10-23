@@ -85,6 +85,8 @@ function GearIcon() {
   )
 }
 
+/** Width (px) the Sessions button keeps before the filters leave the bar for More */
+const FILTERS_MIN_SESSIONS_PX = 240
 /** DOM id of More (at every width since the bar holds on one line): the focus fallback of the panels whose button it holds (#476). */
 export const TOPBAR_MORE_ID = 'topbar-more'
 /** DOM id of the Commands button (in the bar or in More, by width) */
@@ -365,8 +367,50 @@ export const TopBar = memo(function TopBar({
   const panelsInBar = tier === 'wide' || tier === 'mid'
   const commandsInBar = tier === 'wide' || tier === 'fold'
   const connectionActionsInBar = tier === 'wide'
+  // The filters are in the bar while it has room for them, measured (they need ~ their own width); else behind More.
+  const [filtersFit, setFiltersFit] = useState(true)
+  const filtersWidth = useRef(0)
+  const filtersFitRef = useRef(true)
+  const filtersInBar = !mobile && filtersFit
   // Under 1440 px the attention counter is a number (lib/mobile-view.ts): spelled out it left no room for the selection
   const attentionShort = useSyncExternalStore(subscribeAttentionShort, getAttentionShort, () => false)
+  // Room for the filters: the Sessions button keeps at least FILTERS_MIN_SESSIONS_PX of width (its selection ends in an
+  // ellipsis, it gives way first). In the bar, they stay while the spacer has slack or Sessions is not squeezed below that;
+  // behind More they come back once the slack plus what Sessions can give covers their last measured width (+ a margin
+  // against flicker). jsdom measures 0 everywhere: there they always fit.
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || mobile) return
+    // A filter that moves is mounted anew: the focused control is remembered before, as for a change of tier
+    const apply = (fit: boolean) => {
+      if (fit === filtersFitRef.current) return
+      filtersFitRef.current = fit
+      const active = document.activeElement
+      if (active && active.id && active.id !== TOPBAR_MORE_ID && root.contains(active)) pendingFocus.current = active.id
+      setFiltersFit(fit)
+    }
+    const measure = () => {
+      const spacer = root.querySelector<HTMLElement>('[data-topbar-spacer]')
+      const sessions = document.getElementById(PANEL_BUTTON_IDS.sessions)
+      if (!spacer || !sessions) return
+      const label = sessions.querySelector<HTMLElement>('[data-sensitive]')
+      const squeezed = !!label && label.scrollWidth > label.clientWidth + 0.5
+      const group = root.querySelector<HTMLElement>('[data-topbar-group="filters"]')
+      if (group) {
+        filtersWidth.current = group.offsetWidth + 8
+        apply(spacer.offsetWidth > 0.5 || sessions.offsetWidth >= FILTERS_MIN_SESSIONS_PX || !squeezed)
+      } else {
+        apply(spacer.offsetWidth + Math.max(0, sessions.offsetWidth - FILTERS_MIN_SESSIONS_PX) >= filtersWidth.current + 16)
+      }
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(root)
+    const spacer = root.querySelector('[data-topbar-spacer]')
+    if (spacer) ro.observe(spacer)
+    return () => ro.disconnect()
+  })
   useLayoutEffect(() => {
     const id = pendingFocus.current
     if (!id) return
@@ -380,7 +424,7 @@ export const TopBar = memo(function TopBar({
       pendingFocus.current = null
       moreRef.current?.focus({ preventScroll: true })
     }
-  }, [tier, moreOpen])
+  }, [tier, moreOpen, filtersInBar])
   // More closes on Escape (the focus goes back to it, 2.4.3), on a click outside the bar, and when the focus leaves the bar
   useEffect(() => {
     if (!moreOpen) return
@@ -449,7 +493,7 @@ export const TopBar = memo(function TopBar({
   const activeFilters: { text: string; lang: string }[] = hidesInactive
     ? [{ text: hiddenFinished > 0 ? t('show.hideInactive.withCount', { n: hiddenFinished }) : hideInactiveLabel, lang: locale }]
     : []
-  const showFilterCount = activeFilters.length > 0
+  const showFilterCount = activeFilters.length > 0 && !filtersInBar
 
   // What More holds that the bar does not show is never hidden behind it without a sign (reading-the-ui.md): the
   // reconnect detail, blocked notifications, the scope and its discovery ceilings, the quota. More reads them in its
@@ -469,7 +513,7 @@ export const TopBar = memo(function TopBar({
   const quotaHeld = showQuota ? quotaSummary(quotaState, locale) : null
   // Before the one-line bar "Notifications blocked" was drawn in the bar from 1024 px; behind More it is signalled on More
   // (PR #631 review): no alert reaches the person while the browser blocks them
-  const notifyBlocked = notifyState === 'denied' && !!onToggleNotify
+  const notifyBlocked = notifyState === 'denied' && !!onToggleNotify && !filtersInBar
   const holdsAlert = !!connectionDetailShown || notifyBlocked || !!quotaHeld?.alert
     || (!!scopeText && (scopeText.notices.length > 0 || scopeText.relay.length > 0 || scopeText.losses.length > 0))
   const holdsAny = holdsAlert || !!quotaHeld || !!scopeText?.summary
@@ -529,6 +573,47 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
         )}
       </TopBarTooltip>
+    )
+  }
+
+  /** Notifications and 'Hide inactive': in the bar while it has room (measured), in More otherwise. */
+  const filtersGroup = (inMenu: boolean) => {
+    if (!((notifyState !== 'unsupported' && onToggleNotify) || onChangeShowMode)) return null
+    return (
+        <div role="group" aria-label={t('topbar.menu.filters')} data-topbar-group="filters" className={`flex items-center gap-2 ${inMenu ? 'flex-wrap' : 'shrink-0 flex-nowrap'}`}>
+          {notifyState !== 'unsupported' && onToggleNotify && (
+            <ToggleButton
+              id="topbar-notify"
+              active={notifyState === 'on'}
+              pressed={notifyState === 'on'}
+              onClick={onToggleNotify}
+              lang={locale}
+              title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
+            >
+              {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
+            </ToggleButton>
+          )}
+          {/* 'Show: active / all' (#372): one toggle, pressed = the inactive ones are hidden. Its short name starts with the
+              label (2.5.3) and names only what the view hides (sessions in All only); the rule is in the tooltip; in All the
+              number of finished sessions it hides is its description */}
+          {onChangeShowMode && (
+            <Fragment>
+              <ToggleButton
+                id="topbar-hide-inactive"
+                active={showMode === 'active'}
+                pressed={showMode === 'active'}
+                onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
+                ariaLabel={isAllMode ? t('show.hideInactive.name.all') : t('show.hideInactive.name.one')}
+                title={hideInactiveTitle}
+                describedBy={hideInactiveCount ? hiddenFinishedId : undefined}
+                lang={locale}
+              >
+                {hideInactiveLabel}
+              </ToggleButton>
+              {hideInactiveCount && <span id={hiddenFinishedId} lang={locale} className="sr-only">{hideInactiveCount}</span>}
+            </Fragment>
+          )}
+        </div>
     )
   }
 
@@ -676,6 +761,8 @@ export const TopBar = memo(function TopBar({
         </button>
       )}
 
+      {filtersInBar && filtersGroup(false)}
+
       {/* Spacer: the panels, Commands and More go to the right (under 768 px More alone, by its auto margin) */}
       <div data-topbar-spacer="" className="flex-1 max-md:hidden" />
 
@@ -780,42 +867,7 @@ export const TopBar = memo(function TopBar({
               </div>
             )}
             {scope && <ScopeSelector {...scope} announce={false} />}
-            {((notifyState !== 'unsupported' && onToggleNotify) || onChangeShowMode) && (
-              <div role="group" aria-label={t('topbar.menu.filters')} data-topbar-group="filters" className="flex flex-wrap items-center gap-2">
-                {notifyState !== 'unsupported' && onToggleNotify && (
-                  <ToggleButton
-                    id="topbar-notify"
-                    active={notifyState === 'on'}
-                    pressed={notifyState === 'on'}
-                    onClick={onToggleNotify}
-                    lang={locale}
-                    title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
-                  >
-                    {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
-                  </ToggleButton>
-                )}
-                {/* 'Show: active / all' (#372): one toggle, pressed = the inactive ones are hidden. Its short name starts with the
-                    label (2.5.3) and names only what the view hides (sessions in All only); the rule is in the tooltip; in All the
-                    number of finished sessions it hides is its description */}
-                {onChangeShowMode && (
-                  <Fragment>
-                    <ToggleButton
-                      id="topbar-hide-inactive"
-                      active={showMode === 'active'}
-                      pressed={showMode === 'active'}
-                      onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
-                      ariaLabel={isAllMode ? t('show.hideInactive.name.all') : t('show.hideInactive.name.one')}
-                      title={hideInactiveTitle}
-                      describedBy={hideInactiveCount ? hiddenFinishedId : undefined}
-                      lang={locale}
-                    >
-                      {hideInactiveLabel}
-                    </ToggleButton>
-                    {hideInactiveCount && <span id={hiddenFinishedId} lang={locale} className="sr-only">{hideInactiveCount}</span>}
-                  </Fragment>
-                )}
-              </div>
-            )}
+            {!filtersInBar && filtersGroup(true)}
             {showQuota && quotaState.kind !== 'hidden' && (
               <div data-topbar-group="status" className="flex flex-wrap items-center gap-2">
                 <QuotaGauges state={quotaState} />

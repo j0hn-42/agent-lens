@@ -210,7 +210,11 @@ for (const [variant, query] of [['DEMO + Exit demo', '?worst=1'], ['OFFLINE + Re
           assert.match(described, locale === 'fr' ? /Au moins 2/ : /At least 2/, 'the discovery ceilings are read on More')
           assert.match(described, locale === 'fr' ? /8 % restant/ : /8 % left/, 'the quota is read on More')
           // Blocked notifications were drawn in the bar from 1024 px before the one-line bar: More names them (review of PR 631)
-          assert.match(described, locale === 'fr' ? /Notifications bloquées/ : /Notifications blocked/, 'blocked notifications are read on More')
+          // While the bar has room for the filters they are its own buttons (the blocked state is the label of one): More names
+          // them only when it holds them
+          const filtersInBar = await header.locator(':scope > [data-topbar-group="filters"] #topbar-notify').count() === 1
+          if (filtersInBar) assert.equal(await header.locator('#topbar-notify').textContent(), locale === 'fr' ? 'Notifications bloquées' : 'Notifications blocked')
+          else assert.match(described, locale === 'fr' ? /Notifications bloquées/ : /Notifications blocked/, 'blocked notifications are read on More')
           if (variant.startsWith('OFFLINE')) assert.match(described, locale === 'fr' ? /tentative 12/ : /attempt 12/, 'the reconnect detail is read on More')
         } finally {
           await page.context().close()
@@ -235,8 +239,12 @@ test('1440 px worst case: More opens an overlay (no new row) with the scope, fil
     const after = await measure(page)
     assert.equal(after.barHeight, before.barHeight, 'the bar keeps its height: the overlay is drawn over the canvas')
     expectPublished(after, 'More open')
-    for (const name of ['Session scope', 'Hide inactive: agents', 'Notifications blocked', 'Mute sound effects', 'Enter full screen', 'Settings', 'Keyboard shortcuts']) {
+    for (const name of ['Session scope', 'Mute sound effects', 'Enter full screen', 'Settings', 'Keyboard shortcuts']) {
       assert.equal(await menu.getByRole(name === 'Session scope' ? 'combobox' : 'button', { name, exact: true }).count(), 1, `${name} is in More`)
+    }
+    // The filters are in the bar or in More, once, by the room the bar has
+    for (const name of ['Hide inactive: agents', 'Notifications blocked']) {
+      assert.equal(await header.getByRole('button', { name, exact: name !== 'Hide inactive: agents' }).count(), 1, `${name} once`)
     }
     assert.equal(await menu.getByRole('meter').count(), 2, 'the two quota gauges are in More')
     assert.ok(await menu.locator('[data-scope-notices]').isVisible(), 'the discovery ceilings are drawn in More')
