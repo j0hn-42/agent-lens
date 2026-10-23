@@ -127,7 +127,7 @@ test('macOS with every secret: signs with the hardened runtime, verifies, notari
   assert.ok(at('security import') < at('codesign --sign'))
   assert.ok(at('codesign --sign') < at('codesign --verify'))
   assert.ok(at('codesign --verify') < at('codesign --display'))
-  assert.ok(at('codesign --display') < at('xcrun notarytool'))
+  assert.ok(at('codesign --display') < at('xcrun submit'))
   assert.equal(order[order.length - 1], 'security delete-keychain', 'the temporary keychain is deleted last')
   const verify = r.log.find(l => l.tool === 'codesign' && l.args.includes('--verify'))!
   assert.ok(verify.args.includes('--strict'))
