@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, type RefObject } from 'react'
 const MODAL_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
 
 /** The Tab stops of a dialog, in document order: not the tabindex -1 ones (unselected tabs) nor the controls of hidden panels */
-export function modalTabStops(root: HTMLElement): HTMLElement[] {
+function modalTabStops(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE)).filter(n => n.tabIndex >= 0 && !n.closest('[hidden]'))
 }
 
