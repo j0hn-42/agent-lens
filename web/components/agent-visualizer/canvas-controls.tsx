@@ -86,7 +86,8 @@ function SlidersIcon() {
   )
 }
 
-const BUTTON_STYLE = buttonStyle('control')
+/** Rebuilt on each read: a value cached at module load would keep the default theme's colours */
+const controlBox = () => ({ ...buttonStyle('control') })
 
 /** A toggle of the View panel: a visible check mark (aria-hidden) says "on" besides the colour */
 function PanelToggle({ pressed, disabled, title, onClick, children }: {
@@ -317,7 +318,7 @@ export function CanvasControls({
           role="dialog"
           aria-label={t('controls.viewSettings')}
           className="flex max-w-full flex-col items-stretch gap-1 rounded-md p-2"
-          style={{ ...BUTTON_STYLE }}
+          style={controlBox()}
         >
           <PanelToggle
             pressed={animationsPaused || pausedBySystem}
@@ -329,7 +330,7 @@ export function CanvasControls({
           </PanelToggle>
           <MotionLayerControls locale={locale} calm={calmLayers} lock={pausedBySystem ? 'system' : animationsPaused ? 'pause' : null} onToggle={onToggleCalmLayer} />
           <PanelToggle pressed={neverHide} onClick={onToggleNeverHide}>{t('controls.keepCards')}</PanelToggle>
-          <label className={`${CONTROL_BUTTON_CLASS} flex-wrap justify-between gap-1`} style={BUTTON_STYLE}>
+          <label className={`${CONTROL_BUTTON_CLASS} flex-wrap justify-between gap-1`} style={controlBox()}>
             {t('controls.expireAfter')}
             <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
               {TOOL_EXPIRY_CHOICES_S.map(n => (
@@ -367,7 +368,7 @@ export function CanvasControls({
             role="group"
             aria-label={t('controls.canvasMenu')}
             className="absolute bottom-full right-0 mb-2 flex w-max max-w-full flex-wrap items-end gap-2 overflow-y-auto rounded-md p-2 scroll-p-2"
-            style={{ ...BUTTON_STYLE, maxHeight }}
+            style={{ ...controlBox(), maxHeight }}
           >
             {legend}
             {zoomAndView}

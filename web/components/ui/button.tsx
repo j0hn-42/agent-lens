@@ -26,17 +26,23 @@ const BASE_CLASS: Record<ButtonVariant, string> = {
   decision: `text-[11px] font-mono px-2 min-h-6 min-w-6 ${TOUCH_TARGET} rounded motion-safe:transition-colors ${FOCUS_RING}`,
 }
 
-const BASE_STYLE: Record<ButtonVariant, CSSProperties | undefined> = {
-  control: { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary },
-  tour: { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary },
-  bar: undefined,
-  decision: { color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, background: 'transparent' },
+/** Built when used: COLORS follows the theme, so a table made at module load would keep the default theme's colours. */
+function baseStyle(variant: ButtonVariant): CSSProperties | undefined {
+  switch (variant) {
+    case 'control':
+    case 'tour':
+      return { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
+    case 'decision':
+      return { color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, background: 'transparent' }
+    default:
+      return undefined
+  }
 }
 
 /** The class of a variant, for the rare element that must look like the button without being one (a label). */
 export const buttonClass = (variant: ButtonVariant) => BASE_CLASS[variant]
 /** The inline style of a variant (same use). */
-export const buttonStyle = (variant: ButtonVariant) => BASE_STYLE[variant]
+export const buttonStyle = (variant: ButtonVariant) => baseStyle(variant)
 
 interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'type'> {
   variant: ButtonVariant
@@ -46,7 +52,7 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'typ
 }
 
 export function Button({ variant, active, className, style, ref, ...rest }: ButtonProps) {
-  const base = BASE_STYLE[variant]
+  const base = baseStyle(variant)
   const merged: CSSProperties | undefined = base || style
     ? { ...base, ...(active && variant === 'control' ? { background: COLORS.toggleActive } : null), ...style }
     : undefined
