@@ -14,6 +14,7 @@ import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { dockStore, intersects, BANNER_MIN_TOP, type Rect } from '@/lib/panel-layout'
 import { pressInMore } from './topbar-more'
+import { waitFor } from './wait-for'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -75,7 +76,8 @@ async function mountWithBanner() {
     post(ev('s1', 'agent_spawn', { name: 'main', isMain: true }, 0))
     post(ev('s1', 'normalization_stats', STATS, 1))
   })
-  await wait(400)
+  // #440: the banner follows the throttled UI commit: wait for it, not for a fixed time
+  await waitFor(() => banner(r) !== null)
   return r
 }
 const banner = (r: ReturnType<typeof render>) => r.container.querySelector<HTMLElement>('[data-truncation-banner]')
@@ -127,11 +129,11 @@ test('full screen leaves the banner out; the live region is quiet there and spea
   assert.ok(banner(r))
   assert.ok(said(), 'announced when it appears')
   await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
-  await wait(100)
+  await waitFor(() => banner(r) === null)
   assert.equal(banner(r) === null, true, 'no banner in full screen')
   assert.equal(said(), false, 'no sentence pointing at a notice that is not drawn')
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Exit full screen' })) })
-  await wait(100)
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'back with the chrome')
   assert.ok(said(), 'the notice is drawn again, and said again')
 })

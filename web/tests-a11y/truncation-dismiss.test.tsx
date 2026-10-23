@@ -13,6 +13,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { inMore } from './topbar-more'
+import { waitFor } from './wait-for'
 
 /** The sessionStorage key the dismissals live under (lib/event-loss) */
 const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
@@ -51,7 +52,7 @@ const wait = (ms = 300) => act(async () => { await new Promise(r => setTimeout(r
 const STATS = { ignoredEvents: 3, malformed: 1, droppedByCap: 2, clampedFields: 12, duplicateEvents: 0 }
 
 /** The app with sessions whose normalizer discarded events (a real banner); `stats` per session id. */
-async function mount(stats: Record<string, typeof STATS> = { s1: STATS }) {
+async function mount(stats: Record<string, typeof STATS> = { s1: STATS }, expect: 'banner' | 'mark' | 'none' = 'banner') {
   const r = render(<AgentVisualizer />)
   const now = Date.now()
   const ids = Object.keys(stats).length > 1 ? Object.keys(stats) : ['s1']
@@ -66,7 +67,12 @@ async function mount(stats: Record<string, typeof STATS> = { s1: STATS }) {
       post(ev(id, 'normalization_stats', stats[id] ?? STATS, 1))
     }
   })
-  await wait(400)
+  // #440: the UI follows a throttled commit: wait for a positive signal, not for a fixed time. 'banner': the banner is
+  // due. 'mark': none is due (dismissed) but the loss mark on the Sessions button proves the figures were committed.
+  // 'none': no loss at all, so nothing is drawn to wait for: a short settle bounds this negative check.
+  if (expect === 'banner') assert.ok(await waitFor(() => banner(r) !== null), 'precondition: the banner is shown')
+  else if (expect === 'mark') assert.ok(await waitFor(() => sessionsMark() !== null), 'precondition: the loss mark is on the Sessions button')
+  else await wait(400)
   return r
 }
 const banner = (r: ReturnType<typeof render>) => r.container.querySelector<HTMLElement>('[data-truncation-banner]')
@@ -93,7 +99,7 @@ test('a dismissal lasts for the tab: a new page in the same tab (remount) keeps 
   const stored = window.sessionStorage.getItem(TRUNCATION_DISMISS_STORAGE_KEY)
   assert.ok(stored && /6/.test(stored), `the total dismissed at is stored for the tab (${stored})`)
   cleanup(); document.body.replaceChildren(); resetDefaultUiPreferencesStore()
-  const again = await mount()
+  const again = await mount(undefined, 'mark')
   assert.equal(banner(again) === null, true, 'still closed after the remount')
 })
 
@@ -102,7 +108,7 @@ test('the banner comes back when more is lost in the same view', async () => {
   await dismiss(r)
   assert.equal(banner(r) === null, true)
   await act(async () => { post(ev('s1', 'normalization_stats', { ...STATS, ignoredEvents: 4 }, 2)) })
-  await wait(400)
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'one more event ignored: back')
 })
 
@@ -128,7 +134,7 @@ test('after dismissal, the indicator stays in the Sessions panel header and reop
 })
 
 test('no indicator without a loss: adjustments alone (fields shortened) do not draw it', async () => {
-  await mount({ s1: { ignoredEvents: 0, malformed: 0, droppedByCap: 0, clampedFields: 12, duplicateEvents: 3 } })
+  await mount({ s1: { ignoredEvents: 0, malformed: 0, droppedByCap: 0, clampedFields: 12, duplicateEvents: 3 } }, 'none')
   await openSessions()
   assert.equal(indicator() === null, true)
 })
@@ -170,8 +176,9 @@ test('All then a session: dismissed in All, a session it counted stays closed at
   await selectRow(s2)
   assert.equal(banner(r) === null, true, 's2 lost nothing')
   await act(async () => { post(ev('s1', 'normalization_stats', { ...STATS, droppedByCap: 3 }, 2)) })
-  await wait(400)
   await selectRow(s1)
+  // #440: the stats reach the view with the throttled UI commit: wait for the banner, not for a fixed time
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'one more node dropped in s1: back')
 })
 
@@ -217,7 +224,7 @@ const sessionRow = (label: string) =>
 
 test('VS Code extension: a stored dismissal above the total keeps the notice closed; the mark on the Sessions button still names the loss', async () => {
   window.sessionStorage.setItem(TRUNCATION_DISMISS_STORAGE_KEY, JSON.stringify({ 'view:all': 100, 'sel:s1': 100 }))
-  const r = await mount()
+  const r = await mount(undefined, 'mark')
   assert.equal(banner(r) === null, true, '6 is not above 100: closed')
   assert.ok(sessionsMark(), 'the loss stays visible on the Sessions button')
   assert.deepEqual(stored(), { 'view:all': 100, 'sel:s1': 100 }, 'nothing rewritten')
@@ -348,7 +355,7 @@ test('remount with the figure at 0 for a moment: the dismissal stored for the ta
   assert.ok(key, `dismissed at 10 (${JSON.stringify(stored())})`)
   cleanup(); document.body.replaceChildren(); resetDefaultUiPreferencesStore()
   await figure({})
-  const again = await mount()
+  const again = await mount(undefined, 'mark')
   assert.equal(stored()[key!], 10, 'the 0 and the 6 of the remount did not rewrite it')
   await figure({ s1: 4 })
   assert.equal(banner(again) === null, true, 'back to 10: still dismissed')
@@ -415,7 +422,7 @@ test('leaving full screen does not take the focus back to Details after a reopen
   const enter = inMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   enter.focus()
   await act(async () => { fireEvent.click(enter) })
-  await wait(100)
+  await waitFor(() => banner(r) === null)
   assert.equal(banner(r) === null, true, 'no banner in full screen')
   // Every focus move while leaving: Details must not take it, even for a moment (a screen reader announces each move)
   const focused: string[] = []
@@ -423,7 +430,7 @@ test('leaving full screen does not take the focus back to Details after a reopen
   document.addEventListener('focusin', onFocusIn)
   try {
     await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Exit full screen' })) })
-    await wait(100)
+    await waitFor(() => banner(r) !== null)
   } finally { document.removeEventListener('focusin', onFocusIn) }
   assert.ok(banner(r), 'the banner is back after full screen')
   assert.equal(document.activeElement === r.getByRole('button', { name: 'Details' }), false, 'the focus is not on Details')
@@ -440,10 +447,10 @@ test('the banner coming back for another reason (its total fell to 0, then a los
   sessions.focus()
   // The session's counters drop to nothing (graph reloaded): no banner; then a loss again: the banner is back
   await act(async () => { post(ev('s1', 'normalization_stats', { ignoredEvents: 0, malformed: 0, droppedByCap: 0, clampedFields: 0, duplicateEvents: 0 }, 2)) })
-  await wait(400)
+  await waitFor(() => banner(r) === null)
   assert.equal(banner(r) === null, true, 'nothing lost: no banner')
   await act(async () => { post(ev('s1', 'normalization_stats', STATS, 3)) })
-  await wait(400)
+  await waitFor(() => banner(r) !== null)
   assert.ok(banner(r), 'a loss again: the banner shows')
   assert.equal(document.activeElement === sessions, true, 'the focus stays where the user left it')
 })

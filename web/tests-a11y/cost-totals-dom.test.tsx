@@ -15,6 +15,7 @@ import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { setLocaleChoice } from '@/lib/locale'
 import axe from 'axe-core'
 import { closeMore, pressInMore } from './topbar-more'
+import { waitFor } from './wait-for'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -112,7 +113,10 @@ async function mount(lost: Record<string, number> | null, openCost = true, { row
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
   if (openCost) await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.cost)!) })
-  await wait(700)
+  // #440: the events reach the view with the simulation's throttled UI commit and the canvas draws them on a later frame
+  // (setTimeout(0) here): wait until the top bar counts the agent and a frame has drawn it, not a fixed time a loaded runner overruns
+  drawn = []
+  await waitFor(() => /\b[1-9]\d* agents?\b/.test(spoken(r)) && drawn.some(t => /main/.test(t)))
   return r
 }
 const spoken = (r: ReturnType<typeof render>) => r.container.querySelector('[data-testid="topbar-spoken-totals"]')?.textContent ?? ''
