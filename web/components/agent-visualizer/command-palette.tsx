@@ -9,6 +9,7 @@ import { useLocale } from '@/lib/locale'
 import { translate } from '@/lib/messages'
 import { GlassCard } from './glass-card'
 import { stopPropagationHandlers } from './shared-ui'
+import { useModalDialog } from '@/hooks/use-modal-dialog'
 
 export interface CommandPaletteProps {
   /** Whether the palette is open; renders nothing when false */
@@ -29,6 +30,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [activeId, setActiveId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const skipRestoreRef = useRef(false)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -38,15 +40,21 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
 
   useEffect(() => {
     if (!open) return
-    const previous = document.activeElement as HTMLElement | null
     skipRestoreRef.current = false
     setQuery('')
     setActiveId(null)
-    inputRef.current?.focus({ preventScroll: true })
-    return () => {
-      if (!skipRestoreRef.current && previous && previous !== document.body && previous.isConnected) previous.focus({ preventScroll: true })
-    }
   }, [open])
+
+  // Focus in the search field on open, back where it was on close unless the command moved it itself. The search field is
+  // the only stop (the options are reached with the arrows): Tab is held, never wraps (#507).
+  const modal = useModalDialog({
+    open,
+    dialogRef,
+    onClose: () => onCloseRef.current(),
+    initialFocus: () => inputRef.current,
+    shouldRestoreFocus: () => !skipRestoreRef.current,
+    tab: 'hold',
+  })
 
   const sections = useMemo(() => (open ? searchPalette(items, query) : []), [open, items, query])
   const flat = useMemo(() => sections.flatMap(s => s.items), [sections])
@@ -74,14 +82,15 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k')) {
+    // Ctrl+K (Cmd+K) closes it as Escape does
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
       e.preventDefault()
       e.stopPropagation()
       onCloseRef.current()
       return
     }
-    // The search field is the only stop: Tab must not leave the dialog
-    if (e.key === 'Tab') { e.preventDefault(); return }
+    // Escape and Tab
+    if (modal.onKeyDown(e)) return
     if (e.key === 'ArrowDown') { e.preventDefault(); move(1) }
     else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
     else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -101,6 +110,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
       onKeyDown={onKeyDown}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
