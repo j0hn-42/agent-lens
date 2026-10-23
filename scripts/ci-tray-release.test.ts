@@ -120,3 +120,14 @@ test('the release checks every tray checksum, then attaches a SHA256SUMS of ever
   assert.ok(r.indexOf('SHA256SUMS') < r.indexOf('gh release create'), 'the sums are computed before the upload')
   assert.ok(j.indexOf('Check the tray binaries checksums') < j.indexOf('Create the GitHub Release'))
 })
+
+test('docs/tray.md names every signing secret and says what stays unproven without them (#512)', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs/tray.md'), 'utf8')
+  assert.ok(doc.includes('## Signing and release'), 'a Signing and release section')
+  const section = doc.slice(doc.indexOf('## Signing and release'))
+  for (const s of [...MAC_SECRETS, ...WIN_SECRETS]) assert.ok(section.includes(`\`${s}\``), s)
+  for (const needle of ['-unsigned', 'SHA256SUMS', 'sha256sum -c', PKG, 'never run', 'spctl', 'stapled', 'SmartScreen',
+    'codesign --verify', 'signtool verify', 'fake']) {
+    assert.ok(section.includes(needle), `the section mentions ${needle}`)
+  }
+})
