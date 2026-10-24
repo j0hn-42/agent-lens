@@ -39,6 +39,12 @@ describe('completeSessionHeader', () => {
     assert.equal(fresh.size, 0)
   })
 
+  it('a relative cwd is no cwd: it would resolve against the relay\'s own directory', () => {
+    const cwd = new Map<string, string>()
+    assert.equal(completeSessionHeader(SESSION, [line({ type: 'user', cwd: '.' }), line({ type: 'user', cwd: 'sub/dir' })], cwd, new Map()), false)
+    assert.equal(cwd.size, 0)
+  })
+
   it('a detached HEAD (no branch) learns the cwd and no branch', () => {
     const cwd = new Map<string, string>()
     const branch = new Map<string, string>()

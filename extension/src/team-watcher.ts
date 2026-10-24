@@ -52,6 +52,8 @@ export interface TeamConfig {
 
 function cleanCwd(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0 || value.length > 1024) return undefined
+  // A relative path would resolve against the reader's own directory: a project that cannot be proven
+  if (!path.isAbsolute(value) && !path.win32.isAbsolute(value)) return undefined
   return hasControlChars(value) ? undefined : value
 }
 
@@ -267,7 +269,8 @@ export function completeSessionHeader(
   sessionId: string, lines: Iterable<string>, cwd: Map<string, string>, branch: Map<string, string>,
 ): boolean {
   if (cwd.has(sessionId)) return false
-  const header = headerOfLines(lines)
+  // Only an entry naming a cwd can give it: the others (tool results of any size) are not parsed a second time
+  const header = headerOfLines(Array.from(lines).filter(l => l.includes('"cwd"')))
   if (!header.cwd) return false
   cwd.set(sessionId, header.cwd)
   if (header.branch && !branch.has(sessionId)) branch.set(sessionId, header.branch)
