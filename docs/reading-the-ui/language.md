@@ -2,7 +2,7 @@
 
 Settings > Appearance > **Language** (a native select, so it works with the keyboard and screen readers) offers *Automatic (browser language)*, *Français* and *English*. The choice applies at once, is kept in this browser only (local storage, never sent to the relay) and "Automatic" forgets it. Each language is written in its own language, and `lang` is set on the translated blocks so a screen reader pronounces them correctly.
 
-The interface is translated step by step. Each translated surface is one bullet under the **In your language** heading of the file of its domain, so translating one more surface touches only that file. For now the language covers only the surfaces listed there:
+The interface is translated step by step. Each translated surface is one bullet under the **In your language** heading of the file of its domain, so translating one more surface touches only that file. For now the language covers the surfaces listed there and those named in « Translated since #613 » at the end of this page (the Conversation pill, notifications, presentation badge, `ChromeAnnouncer`, toast and keyboard help, which have no bullet of their own yet):
 
 - [Views](views.md#in-your-language)
 - [Top bar](top-bar.md#in-your-language)
