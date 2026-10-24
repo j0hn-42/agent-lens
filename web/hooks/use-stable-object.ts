@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 
 /** True when both objects have the same keys with `Object.is` equal values. */
-export function shallowEqualFields<T extends object>(a: T, b: T): boolean {
+function shallowEqualFields<T extends object>(a: T, b: T): boolean {
   const keys = Object.keys(b) as (keyof T)[]
   return Object.keys(a).length === keys.length && keys.every(k => Object.is(a[k], b[k]))
 }
