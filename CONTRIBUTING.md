@@ -119,7 +119,9 @@ Four rules, enforced by `scripts/design-tokens.test.ts` (#509):
 
 ## Shared Button in the web UI
 
-The buttons of the canvas chrome (canvas controls, motion-layer toggles, guided tour card, control bar, permission requests) all use `Button` from `web/components/ui/button.tsx` (#508). A new button of the same kind uses it too, instead of spelling its classes by hand. `Button` takes a required `variant`, renders `type="button"`, and gives every variant the same guarantees: a 24 px minimum target (44 px below 768 px), the theme focus ring (`FOCUS_RING`) and colours from `COLORS` (theme tokens, read when the button renders so a theme change applies).
+The buttons of the canvas chrome (canvas controls, motion-layer toggles, guided tour card, control bar, permission requests) all use `Button` from `web/components/ui/button.tsx` (#508). A new button of the same kind uses it too, instead of spelling its classes by hand. `Button` takes a required `variant`, renders `type="button"`, and gives every variant the same guarantees: a 24 px minimum target, the theme focus ring (`FOCUS_RING`) and colours from `COLORS` (theme tokens, read when the button renders so a theme change applies). The 44 px target below 768 px (`TOUCH_TARGET`) is not shared by all four variants.
+
+- **Mobile target**: `control`, `bar` and `decision` grow to 44 px below 768 px; `tour` stays at 24 px (its class has no `TOUCH_TARGET`). Giving `tour` the 44 px target changes how the tour card renders, so it is a separate issue.
 
 | Variant | Used for |
 | --- | --- |

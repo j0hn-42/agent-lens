@@ -653,3 +653,18 @@ test('CONTRIBUTING documents the shared Button and its variants (#508)', () => {
   for (const file of ['web/tests-a11y/button-pins.test.tsx', 'web/tests-a11y/button-theme.test.tsx'])
     assert.ok(c.includes(file) && fs.existsSync(path.join(root, file)), `CONTRIBUTING cites ${file}`)
 })
+
+test('CONTRIBUTING states the 44 px mobile target only for the Button variants that carry TOUCH_TARGET (#508 review)', () => {
+  const c = read('CONTRIBUTING.md')
+  const src = read('web/components/ui/button.tsx')
+  const block = src.match(/const BASE_CLASS[^\n]*\{\n([\s\S]*?)\n\}/)?.[1] ?? ''
+  const entries = [...block.matchAll(/^ {2}(\w+):([\s\S]*?)(?=^ {2}\w+:|$(?![\s\S]))/gm)]
+  assert.ok(entries.length >= 4, 'BASE_CLASS entries are found')
+  const line = c.split('\n').find(l => l.includes('Mobile target')) ?? ''
+  assert.ok(line, 'CONTRIBUTING has a "Mobile target" line')
+  const yes = line.split(';')[0]
+  for (const [, name, body] of entries) {
+    if (body.includes('TOUCH_TARGET')) assert.ok(yes.includes(`\`${name}\``), `${name} has TOUCH_TARGET: listed as 44 px`)
+    else assert.ok(!yes.includes(`\`${name}\``) && line.includes(`\`${name}\` stays at 24 px`), `${name} lacks TOUCH_TARGET: named as the 24 px exception`)
+  }
+})

@@ -5,8 +5,9 @@ import { TOUCH_TARGET } from '@/lib/mobile-view'
 
 /**
  * The shared button of the canvas chrome (#508, #382). Each variant is one of the looks the five surfaces used to
- * spell by hand; none adds a look. Every variant carries the same three guarantees: a 24 px minimum target (44 px
- * below 768 px), the theme focus ring (FOCUS_RING) and `type="button"`. Colours come from COLORS (theme tokens).
+ * spell by hand; none adds a look. Every variant carries a 24 px minimum target, the theme focus ring (FOCUS_RING)
+ * and `type="button"`. The 44 px target below 768 px (TOUCH_TARGET) applies to control, bar and decision; tour stays
+ * at 24 px. Colours come from COLORS (theme tokens).
  *
  * - control: canvas controls and motion-layer toggles. `active` fills it with the toggle colour.
  * - tour: guided tour card. Disabled is `aria-disabled` there (a disabled button would drop the focus to <body>).
