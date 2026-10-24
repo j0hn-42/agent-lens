@@ -4,6 +4,7 @@
 // (see scripts/contrast.test.ts for the token-level contrast checks).
 import { JSDOM } from 'jsdom'
 import { act } from 'react'
+import { before } from 'node:test'
 
 const dom = new JSDOM('<!doctype html><html lang="en"><head><title>a11y</title></head><body></body></html>', {
   url: 'http://localhost/',
@@ -57,3 +58,18 @@ const noopCtx = new Proxy({}, {
 })
 window.HTMLCanvasElement.prototype.getContext = (() => noopCtx) as never
 window.HTMLElement.prototype.scrollIntoView = () => {}
+
+// #662: the app loads on demand the language it does not show, the dialogs, the legend panel and the tour. The tests
+// render components directly and check them at once, so these are loaded before the first test of each file (imported
+// here, after the globals above exist). The demo scenario is not: it reads the URL when it loads, which a test may set
+// first (guided-demo-gate); the bridge loads it at mount. lazy-component.test.tsx and scripts/lazy-bundle.test.ts
+// cover the on-demand path itself.
+before(async () => {
+  const [{ LOCALES, loadLocale }, panels] = await Promise.all([
+    import('@/lib/messages'), import('@/components/agent-visualizer/lazy-panels'),
+  ])
+  await Promise.all([
+    ...LOCALES.map(loadLocale),
+    ...[panels.SettingsDialog, panels.CommandPalette, panels.ShortcutsDialog, panels.LegendPanel, panels.GuidedTourCard, panels.TourHighlight].map(p => p.preload()),
+  ])
+})

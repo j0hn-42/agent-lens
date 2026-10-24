@@ -149,7 +149,15 @@ test('the demo scenario is empty until loaded, then the one mock-scenario.ts bui
 test('the scenario name and the stress levels are read without loading the scenarios (#662)', async () => {
   const demo = await import('../web/lib/demo-scenario')
   const { STRESS_SCENARIOS } = await import('../web/lib/stress-test-scenario')
-  assert.deepEqual([...demo.STRESS_LEVELS].sort(), Object.keys(STRESS_SCENARIOS).sort())
+  const g = globalThis as { window?: unknown }
+  const saved = g.window
+  try {
+    for (const level of [...Object.keys(STRESS_SCENARIOS), 'bogus']) {
+      g.window = { location: { search: `?stress=${level}&scenario=tour` } }
+      assert.equal(demo.getStressLevel(), level === 'bogus' ? null : level, `?stress=${level}`)
+      assert.equal(demo.getScenarioName(), 'tour')
+    }
+  } finally { g.window = saved }
   const src = fs.readFileSync(path.join(WEB, 'lib', 'demo-scenario.ts'), 'utf8')
   assert.ok(!/^import\s+(?!type)[^\n]*from '\.\/(mock|tour|guided|stress-test)-scenario'/m.test(src), 'demo-scenario.ts only imports the scenarios on demand')
 })
