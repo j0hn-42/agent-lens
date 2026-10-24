@@ -128,10 +128,20 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     const session = r.session(S1)
     let last = performance.now()
     let longest = 0
-    const probe = setInterval(() => { const now = performance.now(); longest = Math.max(longest, now - last); last = now }, 1)
+    let probeTicks = 0
+    const probe = setInterval(() => { const now = performance.now(); longest = Math.max(longest, now - last); last = now; probeTicks++ }, 1)
     last = performance.now()
+    const started = last
     await r.pipeline.attach(session)
+    const elapsed = performance.now() - started
+    // The probe only measures a block once it runs after it: a timer must fire before it stops, or a synchronous
+    // attach (no turn of the loop until it resolves) would measure 0
+    const ticks = probeTicks
+    while (probeTicks === ticks) await new Promise(resolve => setTimeout(resolve, 1))
     clearInterval(probe)
+    // A synchronous attach is one block as long as the whole attach; read in slices, no block comes near it.
+    // Relative, so a loaded CI machine slows both sides alike
+    assert.ok(longest < elapsed / 2, `longest block ${Math.round(longest)} ms of an attach of ${Math.round(elapsed)} ms`)
     // The target is < 50 ms (measured in the PR); the bound here leaves room for a loaded CI machine
     assert.ok(longest < 20 * PRESCAN_SLICE_MS, `longest block ${Math.round(longest)} ms`)
   })
