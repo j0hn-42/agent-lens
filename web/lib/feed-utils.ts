@@ -36,8 +36,15 @@ export function formatElapsed(seconds: number): { label: string; iso: string } {
   return { label: formatDuration(s), iso: `PT${s.toFixed(1)}S` }
 }
 
-/** Lists below this size are rendered in full (no windowing). */
-export const VIRTUALIZE_THRESHOLD = 200
+/** Lists below this size are rendered in full (no windowing). 50 rows keep a re-render near 9 ms (200 rows cost ~33 ms, #657). */
+export const VIRTUALIZE_THRESHOLD = 50
+
+/** Forget the measured heights of ids that left the list (the map would otherwise only grow). */
+export function pruneMeasuredHeights(heights: Map<string, number>, items: readonly { id: string }[]): void {
+  const live = new Set<string>()
+  for (const it of items) live.add(it.id)
+  for (const id of heights.keys()) if (!live.has(id)) heights.delete(id)
+}
 
 /**
  * Final render window for a list. Small lists render in full; larger ones use the
@@ -226,6 +233,19 @@ export function commDedupeKeys(m: Pick<ConversationMessage, 'type' | 'from' | 't
 }
 
 /**
+ * One FeedMessage object per (message, owner), kept across rebuilds so the memoized rows keep stable props
+ * while the list grows. Messages are immutable (an update replaces the object), so identity is a safe key (#657).
+ */
+const feedRows = new WeakMap<ConversationMessage, { agentId: string; row: FeedMessage }>()
+function feedRowOf(m: ConversationMessage, agentId: string): FeedMessage {
+  const hit = feedRows.get(m)
+  if (hit && hit.agentId === agentId) return hit.row
+  const row = { ...m, agentId }
+  feedRows.set(m, { agentId, row })
+  return row
+}
+
+/**
  * Every feed message of every agent (finished agents included), merged with the messages carried by
  * links, deduplicated and sorted by time. `agentId` is the conversation owner (the sender for
  * messages that only exist on a link).
@@ -263,7 +283,7 @@ export function buildFeedMessages(
       }
     }
     seenIds.add(m.id)
-    out.push({ ...m, agentId })
+    out.push(feedRowOf(m, agentId))
   }
   for (const [agentId, msgs] of conversations) for (const m of msgs) push(m, agentId, `conv:${agentId}`)
   if (links) for (const [linkId, link] of links) for (const m of link.messages) push(m, m.from ?? link.from, `link:${linkId}`)

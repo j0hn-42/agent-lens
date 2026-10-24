@@ -144,7 +144,7 @@ export function ConversationPanel({
   const {
     visibleItems, handleScroll, measureRef,
     isAtBottom, scrollToBottom, startIndex, listStyle, windowStyle, newCount,
-  } = useVirtualList(messages, logRef, { gap: MESSAGE_GAP, autoScroll: true })
+  } = useVirtualList(messages, logRef, { gap: MESSAGE_GAP, autoScroll: true, pruneAgainst: allMessages })
 
   // Track unread messages per agent tab: only agents whose message count increased
   useEffect(() => {
