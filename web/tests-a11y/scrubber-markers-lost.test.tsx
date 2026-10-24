@@ -25,6 +25,17 @@ test('the full sentence is visible text, not a title or a screen-reader copy: ke
   assert.equal(mark.getAttribute('title'), null)
 })
 
+test('the visible sentence can wrap: not shrink-0 in the flex-wrap bar, or it overflows at 320 px (WCAG 1.4.10, #613)', () => {
+  for (const locale of ['en', 'fr'] as const) {
+    setLocaleChoice(locale)
+    const { container } = bar(150)
+    const classes = container.querySelector('[data-markers-lost]')!.className.split(/\s+/)
+    assert.ok(!classes.includes('shrink-0'), `${locale}: shrink-0 keeps the sentence on one line`)
+    assert.ok(classes.includes('min-w-0'), `${locale}: min-w-0 lets the sentence break onto several lines`)
+    cleanup()
+  }
+})
+
 test('no lost marker: nothing is shown', () => {
   const { container } = bar(0)
   assert.equal(container.querySelector('[data-markers-lost]'), null)

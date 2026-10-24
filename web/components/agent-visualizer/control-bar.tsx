@@ -48,7 +48,7 @@ function MarkersLostMarker({ lost, locale }: { lost: number; locale: Locale }) {
     // a hidden sentence would leave those users without the meaning (#613)
     <span
       data-markers-lost=""
-      className="shrink-0 text-2xs font-mono rounded px-1"
+      className="min-w-0 text-2xs font-mono rounded px-1"
       style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
     >
       {text}
