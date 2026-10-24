@@ -1,7 +1,8 @@
 // #247: locale store. The choice is "auto" (browser language) or an explicit locale, kept in this browser only.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { applyLocaleChoice, getLocale, getLocaleChoice, setLocaleChoice, subscribeLocale } from '@/lib/locale'
+import { renderHook, act } from '@testing-library/react'
+import { applyLocaleChoice, getLocale, getLocaleChoice, setLocaleChoice, subscribeLocale, useLocale } from '@/lib/locale'
 import { LOCALE_STORAGE_KEY } from '@/lib/messages'
 
 function browserLanguages(langs: string[] | null) {
@@ -73,6 +74,16 @@ test('blocked storage: the choice still holds for this page, nothing throws', ()
   } finally {
     Object.assign(proto, { setItem, removeItem, getItem })
   }
+})
+
+test('useLocale re-renders with the new language when the choice changes (#613)', () => {
+  const { result } = renderHook(() => useLocale())
+  assert.equal(result.current.locale, 'en')
+  act(() => { result.current.setChoice('fr') })
+  assert.equal(result.current.locale, 'fr')
+  assert.equal(result.current.choice, 'fr')
+  act(() => { result.current.setChoice('en') })
+  assert.equal(result.current.locale, 'en')
 })
 
 // #613: the choice shown by the language select is the language the interface is in. When the table of the chosen
