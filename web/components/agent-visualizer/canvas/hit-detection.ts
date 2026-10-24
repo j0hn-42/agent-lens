@@ -243,7 +243,7 @@ export type HitTarget =
 
 /**
  * Single hit test with the same priority as the draw order (top first):
- * agent, tool card, discovery card, agent bubble, edge bubble, workspace header, cluster label, then communication links
+ * agent, tool card, discovery card, agent bubble, edge bubble, cluster label, workspace header, then communication links
  * (drawn under the nodes). An edge bubble reports its link.
  */
 export function hitTestAt(
@@ -267,10 +267,11 @@ export function hitTestAt(
   if (bubbleId) return { type: 'bubble', id: bubbleId }
   const edgeBubbleId = findEdgeBubbleAt(x, y, scale)
   if (edgeBubbleId) return { type: 'link', id: edgeBubbleId }
-  const workspaceId = findWorkspaceHeaderAt(x, y, scale)
-  if (workspaceId) return { type: 'workspace', id: workspaceId }
+  // A cluster label first: the plan keeps it off the headers, so they only meet through the enlarged targets
   const clusterId = findClusterLabelAt(x, y, scale)
   if (clusterId) return { type: 'cluster', id: clusterId }
+  const workspaceId = findWorkspaceHeaderAt(x, y, scale)
+  if (workspaceId) return { type: 'workspace', id: workspaceId }
   if (scene.links && scene.links.length > 0) {
     const linkId = findLinkAt(x, y, scene.links, scene.agents, scale, undefined, lodForZoom(scale).labels)
     if (linkId) return { type: 'link', id: linkId }

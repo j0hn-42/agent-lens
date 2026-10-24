@@ -13,4 +13,4 @@
 
 ### In your language
 
-- the context menu of the canvas and of an agent (#586): *Afficher les détails*, *Ajuster le zoom*, *Basculer les statistiques*, *Basculer la grille*, *Effacer l’historique* (then *Confirmer l’effacement de l’historique*), *Recharger les événements de la session*. The two-step confirmation and the check marks are unchanged.
+- the context menu of the canvas and of an agent (#586): *Afficher les détails*, *Ajuster le zoom*, *Basculer les statistiques*, *Basculer la grille*, *Replacer les workspaces automatiquement* (once a workspace was moved), *Effacer l’historique* (then *Confirmer l’effacement de l’historique*), *Recharger les événements de la session*. The two-step confirmation and the check marks are unchanged.

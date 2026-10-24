@@ -8,7 +8,7 @@ import { createForceLayout } from '../web/hooks/simulation/force-layout'
 import { layoutInfo, type SessionProjects } from '../web/hooks/simulation/fleet-layout'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import { hitTestAt } from '../web/components/agent-visualizer/canvas/hit-detection'
-import { workspaceHeaderHits } from '../web/components/agent-visualizer/canvas/overlay-state'
+import { overlayHits, workspaceHeaderHits } from '../web/components/agent-visualizer/canvas/overlay-state'
 
 type Ev = Pick<SimulationEvent, 'type' | 'payload'> & { sessionId?: string }
 const DT = 1 / 60
@@ -155,4 +155,14 @@ test('hit test: the header chip of a zone is its grip, the body of the zone is n
     workspaceHeaderHits.rects = new Map()
     assert.equal(hitTestAt(150, 110, scene, 0, 1), null, 'no zone drawn, no grip')
   } finally { workspaceHeaderHits.rects = new Map() }
+})
+
+test('hit test: a cluster label whose target meets a header keeps its click', () => {
+  const scene = { agents: new Map(), toolCalls: new Map(), discoveries: [] }
+  workspaceHeaderHits.rects = new Map([['A', { x: 100, y: 100, w: 200, h: 30 }]])
+  overlayHits.clusterLabels = new Map([['session:s1', { x: 120, y: 105, w: 60, h: 10 }]])
+  try {
+    assert.deepEqual(hitTestAt(150, 110, scene, 0, 1), { type: 'cluster', id: 'session:s1' })
+    assert.deepEqual(hitTestAt(260, 110, scene, 0, 1), { type: 'workspace', id: 'A' })
+  } finally { workspaceHeaderHits.rects = new Map(); overlayHits.clusterLabels = new Map() }
 })
