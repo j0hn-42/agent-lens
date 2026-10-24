@@ -32,7 +32,7 @@ import {
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
   RELAY_SCOPE_RATE_BURST, RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
-  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S,
+  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S, RELAY_REPLAY_BATCH_SIZE, RELAY_MAX_PACED_BACKLOG_BYTES,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -169,28 +169,66 @@ function remoteSseCount(): number {
 function dropClient(res: http.ServerResponse) {
   sseClients.delete(res)
   clientSessionFilter.delete(res)
-  replayHeld.delete(res)
+  outboxes.delete(res)
   try { res.destroy() } catch { /* already closed */ }
 }
 
 /**
- * Live messages held for a client whose initial replay is still being written (issue #203). The replay
- * waits for 'drain' between batches, so live events arriving meanwhile are queued and sent after it,
- * in order, instead of overtaking older replayed events. Bounded: a client that cannot absorb the
- * replay before the held backlog exceeds the slow-client limit is dropped.
+ * Messages written at the pace of a client's socket: its connect replay (issue #203), then the histories read while
+ * it is connected (#652). Each one waits for 'drain' before the next, so live messages broadcast meanwhile are queued
+ * behind them and sent after, in order, instead of overtaking older replayed events. Bounded: a client whose held live
+ * messages exceed the slow-client limit is dropped, and so is one whose paced backlog exceeds
+ * RELAY_MAX_PACED_BACKLOG_BYTES (it never reads).
  */
-const replayHeld = new WeakMap<http.ServerResponse, { payloads: string[]; bytes: number }>()
+interface Outbox { items: Array<{ payload: string; live: boolean }>; next: number; liveBytes: number; pacedBytes: number }
+const outboxes = new WeakMap<http.ServerResponse, Outbox>()
 
-/** Live write path (broadcasts): held during the client's replay, otherwise written with the slow-client check. */
+/** Live write path (broadcasts): queued behind the client's paced messages, otherwise written with the slow-client check. */
 function writeLive(res: http.ServerResponse, payload: string) {
-  const held = replayHeld.get(res)
-  if (!held) return writeToClient(res, payload)
-  held.payloads.push(payload)
-  held.bytes += payload.length
-  if (isBackedUp(held.bytes)) {
+  const box = outboxes.get(res)
+  if (!box) return writeToClient(res, payload)
+  box.items.push({ payload, live: true })
+  box.liveBytes += payload.length
+  if (isBackedUp(box.liveBytes)) {
     log('[sse] Dropping client: live backlog overflowed during replay')
     dropClient(res)
   }
+}
+
+/** Queue messages written as the client drains (see Outbox); the first ones are written now when nothing is queued. */
+function writePaced(res: http.ServerResponse, payloads: readonly string[]) {
+  if (payloads.length === 0) return
+  let box = outboxes.get(res)
+  const idle = box === undefined
+  if (!box) { box = { items: [], next: 0, liveBytes: 0, pacedBytes: 0 }; outboxes.set(res, box) }
+  for (const payload of payloads) { box.items.push({ payload, live: false }); box.pacedBytes += payload.length }
+  if (isBackedUp(box.pacedBytes, RELAY_MAX_PACED_BACKLOG_BYTES)) {
+    log('[sse] Dropping client: paced backlog overflowed')
+    dropClient(res)
+    return
+  }
+  if (idle) void pumpOutbox(res, box)
+}
+
+async function pumpOutbox(res: http.ServerResponse, box: Outbox) {
+  while (box.next < box.items.length) {
+    if (res.destroyed || outboxes.get(res) !== box) return
+    const item = box.items[box.next]
+    box.items[box.next++] = { payload: '', live: item.live }
+    if (item.live) box.liveBytes -= item.payload.length
+    else box.pacedBytes -= item.payload.length
+    writeToClient(res, item.payload)
+    if (res.writableNeedDrain && !res.destroyed) {
+      await new Promise<void>(resolve => {
+        const done = () => { res.off('drain', done); res.off('close', done); resolve() }
+        res.once('drain', done)
+        res.once('close', done)
+      })
+    }
+    // Written ones are let go of in bulk (amortised), not one shift per message
+    if (box.next > 1024 && box.next * 2 > box.items.length) { box.items.splice(0, box.next); box.next = 0 }
+  }
+  if (outboxes.get(res) === box) outboxes.delete(res)
 }
 
 /** Write one SSE message; drops the client when it is gone or too slow (res.writableLength backlog). */
@@ -213,6 +251,8 @@ function sendSSE(res: http.ServerResponse, data: unknown) {
 const clientSessionFilter = new WeakMap<http.ServerResponse, string>()
 
 function broadcast(data: string, sessionId?: string) {
+  // A history read before this message reaches the clients before it (#652)
+  flushHistory()
   for (const res of [...sseClients]) {
     const only = clientSessionFilter.get(res)
     if (only && sessionId && only !== sessionId) continue
@@ -222,6 +262,7 @@ function broadcast(data: string, sessionId?: string) {
 
 /** Local clients only: what a launch is doing is not for a tunnel Host (#241 keeps /launch off the remote surface). */
 function broadcastLocal(data: string) {
+  flushHistory()
   for (const res of [...sseClients]) if (!remoteSseClients.has(res)) writeLive(res, data)
 }
 
@@ -241,7 +282,77 @@ let eventSeq = 0
 const eventSeqs = new WeakMap<AgentEvent, number>()
 const evictionLog = createEvictionLog()
 const seqsOf = (events: readonly AgentEvent[]) => events.map(e => eventSeqs.get(e) ?? 0)
-const logBufferEviction = (sessionId: string, events: readonly AgentEvent[]) => logEvicted(evictionLog, sessionId, seqsOf(events))
+const logBufferEviction = (sessionId: string, events: readonly AgentEvent[]) => {
+  logEvicted(evictionLog, sessionId, seqsOf(events))
+  // Evicted before it was sent: no connected client got it (#652)
+  for (const e of events) if (historyPendingSet.has(e)) historyUnsent.set(sessionId, Math.min((historyUnsent.get(sessionId) ?? 0) + 1, Number.MAX_SAFE_INTEGER))
+}
+/**
+ * History read from transcripts (#652): the replayed events a history load delivered, not sent yet. They go to the
+ * clients once the load's synchronous run is over (or before anything broadcast after it), the buffer cap applied
+ * first: the ones still in the buffer, in `agent-event-batch` messages per session, written at each client's pace.
+ */
+const historyPending = new Map<string, AgentEvent[]>()
+const historyPendingSet = new Set<AgentEvent>()
+/** Of those, per session, the events the buffer let go of before they were sent: lost for every connected client */
+const historyUnsent = new Map<string, number>()
+let historyFlushQueued = false
+/** The loss figure each client was last given (event-loss), to which what it never received is added (#652) */
+const clientLoss = new WeakMap<http.ServerResponse, { evicted: Record<string, number>; otherEvents: number }>()
+
+function queueHistory(sessionId: string, event: AgentEvent) {
+  let list = historyPending.get(sessionId)
+  if (!list) { list = []; historyPending.set(sessionId, list) }
+  list.push(event)
+  historyPendingSet.add(event)
+  if (historyFlushQueued) return
+  historyFlushQueued = true
+  queueMicrotask(flushHistory)
+}
+
+/** Send the pending history (see historyPending): batches, then what the cap let go of (event-loss), then a cursor. */
+function flushHistory() {
+  historyFlushQueued = false
+  if (historyPending.size === 0 && historyUnsent.size === 0) return
+  const pending = [...historyPending]
+  const unsent = [...historyUnsent]
+  historyPending.clear()
+  historyPendingSet.clear()
+  historyUnsent.clear()
+  const batches = new Map<string, string[]>()
+  for (const [sid, events] of pending) {
+    const buf = eventBuffer.get(sid)
+    if (!buf) continue
+    // An activity replaced in place or a superseded reading is not sent, nor lost (see appendBounded)
+    const kept = new Set(buf)
+    const out = events.filter(e => kept.has(e))
+    const list: string[] = []
+    for (let i = 0; i < out.length; i += RELAY_REPLAY_BATCH_SIZE) {
+      list.push(JSON.stringify({ type: 'agent-event-batch', events: out.slice(i, i + RELAY_REPLAY_BATCH_SIZE) }))
+    }
+    if (list.length > 0) batches.set(sid, list)
+  }
+  // Every event numbered up to here is now sent (above or before) or counted lost (below)
+  const cursor = JSON.stringify({ type: 'relay-cursor', instance: relayInstance, seq: eventSeq })
+  for (const res of [...sseClients]) {
+    const only = clientSessionFilter.get(res)
+    const items: string[] = []
+    for (const [sid, list] of batches) if (!only || only === sid) items.push(...list)
+    const gap: Record<string, number> = {}
+    for (const [sid, n] of unsent) if (n > 0 && (!only || only === sid)) gap[sid] = n
+    if (Object.keys(gap).length > 0) {
+      // The figure of a first connection (replaced by the page) and the gap of a reconnected one (added by it)
+      const figure = clientLoss.get(res) ?? { evicted: {}, otherEvents: 0 }
+      const evicted = { ...figure.evicted }
+      for (const [sid, n] of Object.entries(gap)) evicted[sid] = Math.min((evicted[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER)
+      clientLoss.set(res, { evicted, otherEvents: figure.otherEvents })
+      items.push(JSON.stringify({ type: 'event-loss', evicted, ...(figure.otherEvents > 0 ? { otherEvents: figure.otherEvents } : {}), gap }))
+    }
+    if (items.length === 0) continue
+    items.push(cursor)
+    writePaced(res, items)
+  }
+}
 /** Agent states for /observations: fed on every event, not subject to the replay buffer's eviction */
 const agentTracker = new AgentStateTracker()
 
@@ -275,7 +386,9 @@ function deliverEvent(delivered: AgentEvent) {
     agentTracker.ingest(event)
   }
 
-  broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
+  // History (#652): sent in batches once the load is over, after the buffer cap; live events one by one, after it
+  if (event.sessionId && event.replayed === true) queueHistory(event.sessionId, event)
+  else broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
 
   // Webhooks: a replayed history or an imported session is not something that just happened
   if (webhooks && historyDepth === 0 && !event.imported && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
@@ -955,7 +1068,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // comments from the page, so the beat is a data frame the web client reads as proof of life and discards.
   const heartbeatTicker = new SharedTicker(() => {
     // A client still receiving its replay gets data anyway, and a held beat would only arrive late
-    for (const res of [...sseClients]) if (!replayHeld.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
+    for (const res of [...sseClients]) if (!outboxes.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
   }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
   // System panel (#357): one shared sampler for the LOCAL clients; nothing runs without one, and nothing
   // machine-related goes through broadcast() (a tunnel Host never receives it, #241).
@@ -1377,6 +1490,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
       // session list and the replay below, and not a second time as a live broadcast (issue #53).
       scanNow?.()
+      // The history that scan read goes to the clients already there; this one gets it in its replay (#652)
+      flushHistory()
       sseClients.add(res)
       log(`[sse] Client connected (${sseClients.size} total)`)
       // First client starts the shared scan timer; the last one leaving stops it
@@ -1398,7 +1513,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         releaseHeartbeat()
         sseClients.delete(res)
         clientSessionFilter.delete(res)
-        replayHeld.delete(res)
+        outboxes.delete(res)
         log(`[sse] Client disconnected (${sseClients.size} total)`)
       }
       req.on('close', onGone)
@@ -1466,6 +1581,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const [sid, n] of replayDropped) loss[sid] = (loss[sid] ?? 0) + n
       const otherEvents = sessionParam ? 0 : evictedCounts.other
       const hasGap = Object.keys(gap).length > 0
+      clientLoss.set(res, { evicted: { ...loss }, otherEvents })
       if (Object.keys(loss).length > 0 || otherEvents > 0 || hasGap) {
         sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}), ...(hasGap ? { gap } : {}) })
       }
@@ -1474,30 +1590,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // (below): a client cut during its replay gets no cursor and comes back with its previous one, so the events it
       // missed are still numbered after its `since`.
       const cursor = { type: 'relay-cursor', instance: relayInstance, seq: eventSeq }
-      // The replay can exceed the slow-client backlog limit in one go (issue #203), so wait for the
-      // socket to drain between batches instead of dropping a healthy client mid-replay. Live messages
-      // arriving meanwhile are held (writeLive) and flushed after the replay, keeping arrival order.
-      const held = { payloads: [] as string[], bytes: 0 }
-      replayHeld.set(res, held)
-      void (async () => {
-        for (const batch of replay) {
-          if (res.destroyed || closed || !replayHeld.has(res)) return
-          sendSSE(res, batch)
-          if (res.writableNeedDrain && !res.destroyed) {
-            await new Promise<void>(resolve => {
-              const done = () => { res.off('drain', done); res.off('close', done); resolve() }
-              res.once('drain', done)
-              res.once('close', done)
-            })
-          }
-        }
-        if (res.destroyed || closed || !replayHeld.has(res)) return
-        replayHeld.delete(res)
-        // The whole replay is written: the client may resume from here. The held live events are numbered after it
-        sendSSE(res, cursor)
-        // Back on the live path: from here the slow-client limit applies to every write
-        for (const payload of held.payloads) writeToClient(res, payload)
-      })()
+      // The replay can exceed the slow-client backlog limit in one go (issue #203), so it is written as the socket
+      // drains instead of dropping a healthy client mid-replay. Live messages arriving meanwhile wait behind it
+      // (writeLive), keeping arrival order. The cursor follows the whole replay: the client may resume from there.
+      writePaced(res, [...replay.map(batch => JSON.stringify(batch)), JSON.stringify(cursor)])
     },
 
     debugState: () => ({
@@ -1565,6 +1661,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const client of [...sseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) dropSession(id)
       eventBuffer.clear()
+      historyPending.clear()
+      historyPendingSet.clear()
+      historyUnsent.clear()
       evictedCounts.bySession.clear()
       evictedCounts.other = 0
       evictionLog.bySession.clear()
