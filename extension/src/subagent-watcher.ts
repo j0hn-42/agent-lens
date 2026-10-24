@@ -357,13 +357,16 @@ function armSubagentWatcher(
  * Close the fs.watch of the subagents that are no longer active (#654): nothing written for
  * SUBAGENT_WATCH_IDLE_MS and no open dispatch. The state stays (offset, dedup ids); the poll keeps reading
  * the file, so a subagent resumed later is still seen, and its first new line re-arms the watcher.
- * Teammates and workflow agents keep theirs (their activity is judged by their tracker).
+ * Teammates and workflow agents follow the same rule once their tracker no longer reports them working
+ * (the workflow ones are the bulk of the watchers of a loaded session).
  */
 function releaseIdleSubagentWatchers(parser: TranscriptParser, session: WatchedSession, sessionId: string, now = Date.now()): void {
   const registry = parser.getSubagentRegistry(sessionId)
   for (const state of session.subagentWatchers.values()) {
-    if (!state.watcher || state.teammate || state.lastWriteMs === undefined) continue
+    if (!state.watcher || state.lastWriteMs === undefined) continue
     if (now - state.lastWriteMs < SUBAGENT_WATCH_IDLE_MS) continue
+    // Teammates and workflow agents are judged by their tracker: working (open tool, recent write) keeps the watcher
+    if (state.teammate && state.teammate.tracker.activity(now) === 'working') continue
     const record = state.agentId ? registry.getByFileKey(state.agentId) : undefined
     if (record?.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) continue
     try { state.watcher.close() } catch { /* already closed */ }
@@ -440,11 +443,8 @@ function startTeammate(
   }
   emitTeammateActivity(delegate, state, sessionId)
 
-  try {
-    state.watcher = safeWatch(filePath, () => {
-      readSubagentNewLines(delegate, parser, filePath, sessionId)
-    })
-  } catch (err) { log.debug('Teammate file watch failed:', err) }
+  state.lastWriteMs = mtimeMs
+  armSubagentWatcher(delegate, parser, state, filePath, sessionId)
 }
 
 /** Emit agent_activity when a teammate's activity changed since the last emission. */
@@ -549,7 +549,7 @@ export function readSubagentNewLines(
   }
   // New bytes: the subagent is active, a watcher closed while it was idle is armed again
   state.lastWriteMs = Date.now()
-  if (!state.watcher && !state.teammate) armSubagentWatcher(delegate, parser, state, filePath, sessionId)
+  if (!state.watcher) armSubagentWatcher(delegate, parser, state, filePath, sessionId)
   if (state.teammate) {
     let mtime = Date.now()
     try { mtime = fs.statSync(filePath).mtimeMs } catch { /* vanished */ }

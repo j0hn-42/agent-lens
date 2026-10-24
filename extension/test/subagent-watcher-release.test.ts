@@ -7,10 +7,11 @@ import './helpers/alias-vscode'
 import { describe, it, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { scanSubagentsDir, readSubagentNewLines } from '../src/subagent-watcher'
 import { SUBAGENT_WATCH_IDLE_MS } from '../src/constants'
 import {
-  tmpDir, makeSession, makeHarness, ofType, userText, assistantText, assistantToolUse, toolResult, writeTeammate,
+  tmpDir, makeSession, writeJsonl, makeHarness, ofType, userText, assistantText, assistantToolUse, toolResult, writeTeammate,
 } from './helpers/teams-fixtures'
 
 const jl = (o: unknown) => JSON.stringify(o) + '\n'
@@ -85,6 +86,43 @@ describe('subagent file watchers are held by active subagents only (#654)', () =
     scanSubagentsDir(h.delegate, h.parser, 's1')
     try {
       assert.equal(live(session), 1)
+    } finally { h.closeWatchers() }
+  })
+
+  it('finished workflow agents and finished teammates release their watcher, the working ones keep it (#654)', () => {
+    dir = tmpDir('agent-lens-wfrel-')
+    const sub = path.join(dir, 'sess', 'subagents')
+    const wfDir = path.join(sub, 'workflows', 'wf_a')
+    fs.mkdirSync(wfDir, { recursive: true })
+    const journal: unknown[] = []
+    for (let i = 0; i < 40; i++) {
+      const id = `w${String(i).padStart(3, '0')}`
+      const file = path.join(wfDir, `agent-${id}.jsonl`)
+      writeJsonl(file, [userText('task'), assistantText('done')], OLD())
+      fs.writeFileSync(path.join(wfDir, `agent-${id}.meta.json`), JSON.stringify({
+        agentType: 'workflow-subagent', description: `impl:${id}`, workflowPhase: 'Implement', spawnDepth: 1, requestShape: 'foreground',
+      }))
+      journal.push({ type: 'started', key: `v2:${id}`, agentId: id, label: `impl:${id}`, phase: 'Implement' })
+      journal.push({ type: 'result', key: `v2:${id}`, agentId: id, result: { summary: 'ok' } })
+    }
+    // One workflow agent still working: open tool call, recent write
+    const liveFile = path.join(wfDir, 'agent-live01.jsonl')
+    writeJsonl(liveFile, [userText('task'), assistantToolUse('lv', 'Bash', { command: 'sleep 1' })])
+    fs.writeFileSync(path.join(wfDir, 'agent-live01.meta.json'), JSON.stringify({
+      agentType: 'workflow-subagent', description: 'impl:live01', workflowPhase: 'Implement', spawnDepth: 1, requestShape: 'foreground',
+    }))
+    fs.writeFileSync(path.join(wfDir, 'journal.jsonl'), journal.map(e => JSON.stringify(e)).join('\n') + '\n')
+    // A finished plain teammate
+    writeTeammate(sub, { agentId: 'tm001', mtimeMs: OLD(), entries: [userText('x'), assistantText('done')] })
+
+    const session = makeSession({ subagentsDir: sub })
+    const h = makeHarness(session)
+    scanSubagentsDir(h.delegate, h.parser, 's1')
+    scanSubagentsDir(h.delegate, h.parser, 's1')
+    try {
+      assert.equal(session.subagentWatchers.size, 42, 'every file stays tracked')
+      assert.equal(live(session), 1, 'only the working workflow agent holds a watcher')
+      assert.notEqual(session.subagentWatchers.get(liveFile)?.watcher, null)
     } finally { h.closeWatchers() }
   })
 })
