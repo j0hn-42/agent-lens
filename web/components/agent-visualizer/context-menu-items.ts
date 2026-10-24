@@ -12,6 +12,8 @@ export interface ContextMenuActions {
   clearHistory: () => void
   /** Only offered on a real session */
   reloadSessionEvents: (() => void) | null
+  /** Offered once a workspace was moved by hand: every workspace goes back to its automatic place */
+  arrangeWorkspaces?: (() => void) | null
   /** Agent menu only: open the right-clicked agent's detail card (#377) */
   showAgentDetails?: (() => void) | null
 }
@@ -28,6 +30,7 @@ export function contextMenuItems(onAgent: boolean, a: ContextMenuActions, locale
     { icon: '🔍', label: t('menu.zoomFit'), onClick: a.zoomToFit },
     { icon: '📊', label: t('menu.toggleStats'), checked: a.showStats, onClick: a.toggleStats },
     { icon: '⬡', label: t('menu.toggleGrid'), checked: a.showGrid, onClick: a.toggleGrid },
+    ...(a.arrangeWorkspaces ? [{ icon: '▦', label: t('menu.arrangeWorkspaces'), onClick: a.arrangeWorkspaces }] : []),
     { label: '', onClick: () => {}, separator: true },
     { icon: '⟲', label: t('menu.clear'), confirmLabel: t('menu.clear.confirm'), onClick: a.clearHistory },
     ...(a.reloadSessionEvents ? [{ icon: '↻', label: t('menu.reload'), onClick: a.reloadSessionEvents }] : []),

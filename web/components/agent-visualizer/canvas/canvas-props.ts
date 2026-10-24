@@ -20,6 +20,10 @@ export interface CanvasProps {
   onAgentClick: (agentId: string | null, modifiers?: { shiftKey: boolean }) => void
   onAgentHover: (agentId: string | null) => void
   onAgentDrag: (agentId: string, x: number, y: number) => void
+  /** A workspace zone is dragged by its header: put its centre at (x, y), world coordinates. Absent = zones do not move */
+  onWorkspaceDrag?: (projectId: string, x: number, y: number) => void
+  /** Centre of a workspace zone as laid out now (where its drag starts from) */
+  getWorkspaceCentre?: (projectId: string) => { x: number; y: number } | undefined
   onContextMenu: (e: React.MouseEvent, type: 'agent' | 'edge' | 'canvas', id?: string) => void
   onToolCallClick?: (toolCallId: string | null) => void
   selectedToolCallId?: string | null
