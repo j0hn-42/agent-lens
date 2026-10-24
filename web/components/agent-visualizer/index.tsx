@@ -215,9 +215,16 @@ export function AgentVisualizer() {
 
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
 
+  const toggleSessions = useCallback(() => setShowSessions(prev => !prev), [setShowSessions])
+  const toggleStats = useCallback(() => setShowStats(prev => !prev), [setShowStats])
+  const toggleTimeline = useCallback(() => setShowTimeline(prev => !prev), [setShowTimeline])
+  const togglePanel = useCallback(
+    (panel: Parameters<typeof toggleExclusivePanel>[0] | 'system') => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel)),
+    [setShowSystem, toggleExclusivePanel],
+  )
   const menuActions = {
     showStats, showGrid: showHexGrid,
-    toggleStats: () => setShowStats(prev => !prev),
+    toggleStats,
     zoomToFit,
     toggleGrid: () => setShowHexGrid(prev => !prev),
     clearHistory: handleClearHistory,
@@ -228,9 +235,10 @@ export function AgentVisualizer() {
 
   const sessionActions = useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef })
 
+  const { bridgeOpenFile } = bridge
   const openFile = useCallback((filePath: string, line?: number) => {
-    bridge.bridgeOpenFile(filePath, line)
-  }, [bridge])
+    bridgeOpenFile(filePath, line)
+  }, [bridgeOpenFile])
 
   const {
     activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
@@ -273,18 +281,30 @@ export function AgentVisualizer() {
     setTruncationDismissed(next)
     setTruncationReopened(null)
   }
-  const reopenTruncationBanner = () => {
+  const reopenTruncationBanner = useCallback(() => {
     const next = new Map(truncationDismissed)
     next.delete(truncationKey)
     writeTruncationDismissals(tabStorage(), next)
     setTruncationDismissed(next)
     setTruncationReopened(prev => ({ key: truncationKey, n: (prev?.key === truncationKey ? prev.n : 0) + 1, focus: true }))
-  }
+  }, [truncationDismissed, truncationKey])
+  // A prop of the memoized dock (#658): the same element while its three inputs are the same
+  const lossIndicator = useMemo(
+    () => <TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} onShow={reopenTruncationBanner} />,
+    [truncationStats, bridge.replayLost, reopenTruncationBanner],
+  )
   // The banner took the focus the user asked for: a later mount of it (leaving full screen, back after its total fell to 0)
   // keeps Details expanded but never moves the focus again (#569 review)
   const truncationFocusTaken = useCallback(() => setTruncationReopened(prev => (prev && prev.focus ? { ...prev, focus: false } : prev)), [])
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
+
+  // Props of the memoized dock (#658): the same objects while what they hold did not change
+  const dockSim = useMemo(() => ({ fileAttention, waste, agents, timelineEntries, currentTime }), [fileAttention, waste, agents, timelineEntries, currentTime])
+  const agentCounts = useMemo(
+    () => ({ active: activeAgentCount, done: doneAgentCount, stale: staleAgentCount, idle: idleAgentCount, error: errorAgentCount }),
+    [activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount],
+  )
 
   const scopeProps = useScopeControls(bridge, uiPrefs)
 
@@ -342,7 +362,7 @@ export function AgentVisualizer() {
         lossMarked={truncation.total > 0 && !truncation.show}
         showMode={showMode} onChangeShowMode={updateShowMode} finishedSessionCount={bridge.finishedSessionCount}
         selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}
-        showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
+        showSessions={showSessions} onToggleSessions={toggleSessions}
         isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
         connectionDetail={bridge.connectionDetail} onRetryConnection={bridge.relayOrigin !== null ? bridge.retryRelay : undefined} onExitDemo={bridge.exitDemo}
@@ -351,9 +371,7 @@ export function AgentVisualizer() {
         unattributedTokens={usage.summary.unattributedTokens} unattributedCost={usage.summary.unattributedCost} unattributedEstimated={unattributedEstimated}
         showFileAttention={showFileAttention} showConversation={showConversation} showContext={showContext} showSystem={showSystem}
         showCostOverlay={showCostOverlay} showTimeline={showTimeline} showStats={showStats} isMuted={isMuted}
-        onToggleStats={() => setShowStats(prev => !prev)}
-        onTogglePanel={panel => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel))}
-        onToggleTimeline={() => setShowTimeline(prev => !prev)}
+        onToggleStats={toggleStats} onTogglePanel={togglePanel} onToggleTimeline={toggleTimeline}
         onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings} onOpenPalette={openPalette}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
         quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota && quotaSourceActive}
@@ -481,10 +499,10 @@ export function AgentVisualizer() {
       />
 
       <PanelDock
-        panels={panels} sim={{ fileAttention, waste, agents, timelineEntries, currentTime }} bridge={bridge} selection={selection}
+        panels={panels} sim={dockSim} bridge={bridge} selection={selection}
         attention={attention} health={health} sessionActions={sessionActions} uiPrefs={uiPrefs} allSessionCount={allSessionCount}
-        agentCounts={{ active: activeAgentCount, done: doneAgentCount, stale: staleAgentCount, idle: idleAgentCount, error: errorAgentCount }}
-        lossIndicator={<TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} onShow={reopenTruncationBanner} />}
+        agentCounts={agentCounts}
+        lossIndicator={lossIndicator}
         replayLostBySession={replayLostBySession}
         listAgents={listAgents} agentLabel={agentLabel} openFile={openFile} fetchContext={fetchContext} contextOrigin={contextOrigin}
         tourShowsInactive={tourShowsInactive}

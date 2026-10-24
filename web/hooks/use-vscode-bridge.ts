@@ -1,5 +1,6 @@
 'use client'
 
+import { useStableObject } from '@/hooks/use-stable-object'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
@@ -788,7 +789,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     vscodeBridge?.openTerminal(sessionId)
   }, [])
 
-  return {
+  const result: BridgeHookResult = {
     isVSCode,
     connectionStatus,
     pendingEvents: pendingEventsRef.current,
@@ -843,6 +844,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     eventLossSource: (relayEnabled ? 'relay' : 'extension') as LossSource,
     viewSessionIds,
   }
+  // The same object while no field changed (#658): what depends on `bridge` (openFile, the memoized panels) is not
+  // invalidated by a render of the page that changes none of its fields
+  return useStableObject(result)
 }
 
 // ─── Operator decisions (#240) ───────────────────────────────────────────────

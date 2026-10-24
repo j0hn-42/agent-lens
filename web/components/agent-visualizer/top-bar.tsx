@@ -6,6 +6,7 @@ import { COLORS, themed } from "@/lib/colors"
 import type { UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
+import { chromeRenderProbe } from "@/lib/row-sync"
 import { observeTopbarHeight, viewCountsText, topBarContextText, unattributedRestText, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { sessionStatusHelp } from "@/lib/card-text"
@@ -329,6 +330,7 @@ export const TopBar = memo(function TopBar({
   attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
   quota = null, selectedRuntime, showQuota = true,
 }: TopBarProps) {
+  chromeRenderProbe.onRender?.('TopBar')
   const { locale } = useLocale()
   const t = (key: MessageKey, params?: Readonly<Record<string, string | number>>) => translate(locale, key, params)
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
