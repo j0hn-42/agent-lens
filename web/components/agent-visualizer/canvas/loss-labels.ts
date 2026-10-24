@@ -2,6 +2,7 @@
  * Texts drawn on the canvas that a replay loss qualifies (#366), shared by the drawing and the overlay plan so the
  * box the planner reserves is the box that is drawn. Pure (no canvas, no React).
  */
+import type { Agent } from '../../../lib/agent-types'
 import { STATS_OVERLAY } from '../../../lib/canvas-constants'
 import { agentCostUsage } from '../../../lib/cost'
 import { boundedCount, replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
@@ -10,6 +11,7 @@ import { formatTokensOfWindow } from '../../../lib/context-window'
 import { ROLLUP_INCOMPLETE_TEXT } from '../../../lib/cost-rollup'
 import { contextPercentLabel } from './overlay-metrics'
 import { formatDuration } from '../../../lib/utils'
+import { agentAge } from '../../../lib/agent-age'
 import { estimateTextWidth } from './edge-bubbles'
 
 type Lossy = { sessionId?: string }
@@ -71,10 +73,15 @@ function widthFor(text: string): number {
  * box widens to hold the qualified text, up to the maximum; the qualifier comes first and is never cut, a line that would
  * still be wider loses its duration instead.
  */
-export function statsLabel(agent: Lossy & { toolCalls: number; timeAlive: number }, lost: ReadonlyMap<string, number> | undefined): { text: string; width: number } {
+export function statsLabel(
+  agent: Lossy & { toolCalls: number } & Pick<Agent, 'state' | 'spawnTime' | 'completeTime'>,
+  lost: ReadonlyMap<string, number> | undefined,
+  /** Simulation time the line is drawn for: the age is read from it (#660) */
+  now: number,
+): { text: string; width: number } {
   const n = agentReplayLost(lost, agent)
   const tools = boundedCount(agent.toolCalls, n, 'tool')
-  const full = `${tools} \u00B7 ${formatDuration(agent.timeAlive)}`
+  const full = `${tools} \u00B7 ${formatDuration(agentAge(agent, now))}`
   if (!(n > 0)) return { text: full, width: STATS_OVERLAY.boxWidth }
   const text = widthFor(full) <= STATS_OVERLAY.maxBoxWidth ? full : tools
   return { text, width: Math.min(STATS_OVERLAY.maxBoxWidth, Math.max(STATS_OVERLAY.boxWidth, widthFor(text))) }
