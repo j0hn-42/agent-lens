@@ -57,6 +57,7 @@ function eagerGraph(entry: string): Set<string> {
 /** The modules #662 takes out of the first load */
 const ON_DEMAND = [
   'lib/messages/locales/fr.ts',
+  'lib/messages/locales/en.ts',
   'lib/mock-scenario.ts',
   'lib/tour-scenario.ts',
   'lib/guided-scenario.ts',
@@ -101,16 +102,34 @@ for (const entry of ['webview-entry.tsx', 'app-entry.tsx']) {
   })
 }
 
-test('the default locale is in the first load, the other one is not loaded until asked (#662)', async () => {
-  assert.equal(isLocaleLoaded(DEFAULT_LOCALE), true)
+test('no locale table is in the first load: each one is loaded when asked, English too (#662)', async () => {
+  const src = fs.readFileSync(path.join(WEB, 'lib', 'messages.ts'), 'utf8')
+  assert.ok(!/^import\s+(?!type)[^\n]*from '\.\/messages\/locales\//m.test(src), 'messages.ts imports no locale table statically')
+  for (const l of LOCALES) assert.equal(isLocaleLoaded(l), false, `${l} is not loaded until asked`)
+  // Nothing loaded yet: a clear error, never a key shown as text
+  assert.throws(() => translate(DEFAULT_LOCALE, 'tray.open'), /not loaded/)
+  // A French reader loads French only: the default table stays out, and every locale shows French meanwhile
   const other = LOCALES.find(l => l !== DEFAULT_LOCALE) as Locale
-  assert.equal(isLocaleLoaded(other), false)
-  // Not loaded: the default text, never a key and never a crash
-  assert.equal(translate(other, 'tray.open'), translate(DEFAULT_LOCALE, 'tray.open'))
   await loadLocale(other)
   assert.equal(isLocaleLoaded(other), true)
+  assert.equal(isLocaleLoaded(DEFAULT_LOCALE), false)
+  assert.equal(translate(DEFAULT_LOCALE, 'tray.open'), translate(other, 'tray.open'))
+  const { effectiveLocale } = await import('../web/lib/messages')
+  assert.equal(effectiveLocale(DEFAULT_LOCALE), other, 'the shown locale is one whose table is there')
+  await loadLocale(DEFAULT_LOCALE)
+  assert.equal(effectiveLocale(DEFAULT_LOCALE), DEFAULT_LOCALE)
   assert.notEqual(translate(other, 'tray.open'), translate(DEFAULT_LOCALE, 'tray.open'))
   await loadLocale(other) // idempotent
+})
+
+test('a locale whose table does not load falls back to the default one (#662)', async () => {
+  const { loadLocaleOrDefault } = await import('../web/lib/messages')
+  const asked: Locale[] = []
+  await loadLocaleOrDefault('fr', async l => { asked.push(l); if (l !== DEFAULT_LOCALE) throw new Error('chunk failed') })
+  assert.deepEqual(asked, ['fr', DEFAULT_LOCALE])
+  // The boot and the tray CLI go through it
+  assert.match(fs.readFileSync(path.join(WEB, 'lib', 'locale.ts'), 'utf8'), /loadLocaleOrDefault\(wantedLocale\(\)\)/)
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'app-tray', 'src', 'cli.ts'), 'utf8'), /loadLocaleOrDefault\(locale\)/)
 })
 
 test('each locale table is every domain of domains.ts, in that language only (#662)', async () => {
