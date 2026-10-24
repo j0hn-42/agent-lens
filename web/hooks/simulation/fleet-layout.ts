@@ -413,6 +413,8 @@ export interface ClusterNodeInfo {
   pull?: { x: number; y: number }
   radius: number
   role: 'lead' | 'member' | 'archived'
+  /** Workspace the cluster provably belongs to (see {@link clustersOf}) */
+  projectId?: string
 }
 
 /**
@@ -425,9 +427,14 @@ export function layoutInfo(
   teams?: ReadonlyMap<string, TeamSummary>,
   projects?: SessionProjects,
   hideInactive = false,
-): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
+  /** Workspaces moved by hand (see {@link computeClusterAnchors}) */
+  placements?: WorkspacePlacements,
+): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor>; centres: Map<string, { x: number; y: number }> } {
   const agents = visibleAgents(allAgents as Map<string, Agent>, hideInactive)
-  const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
+  const clusters = clustersOf(agents.values(), teams, projects)
+  const projectOf = new Map(clusters.filter(c => c.projectId).map(c => [c.key, c.projectId!]))
+  const laid = layoutClusters(clusters, placements)
+  const anchors = new Map(laid.anchors.map(a => [a.key, a]))
   const leads = new Map<string, string>()
   for (const a of agents.values()) {
     const key = keyOf(a, teams)
@@ -455,9 +462,10 @@ export function layoutInfo(
     if (!anchor) continue
     const role = leads.get(key) === a.id ? 'lead' : a.archived ? 'archived' : 'member'
     const pull = role === 'member' && a.phase && a.teamKind === 'workflow' ? phaseCentres.get(key)?.get(a.phase) : undefined
-    info.set(a.id, { key, anchor: { x: anchor.x, y: anchor.y }, radius: anchor.radius, role, ...(pull ? { pull } : {}) })
+    const projectId = projectOf.get(key)
+    info.set(a.id, { key, anchor: { x: anchor.x, y: anchor.y }, radius: anchor.radius, role, ...(pull ? { pull } : {}), ...(projectId ? { projectId } : {}) })
   }
-  return { info, anchors }
+  return { info, anchors, centres: laid.centres }
 }
 
 interface PosNode { id: string; x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null }
