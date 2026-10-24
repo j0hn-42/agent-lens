@@ -21,9 +21,16 @@ const toolStart = (id: string, src: string): AgentEvent =>
   ({ time: 1, type: 'tool_call_start', payload: { agent: 'main', tool: 'Bash', toolUseId: id, src }, sessionId: SESSION })
 
 type Internals = {
-  parser: { prescanExistingContent: (...a: unknown[]) => unknown }
+  parser: { prescanExistingContentAsync: (...a: unknown[]) => Promise<unknown> }
   emit: (event: AgentEvent, sessionId?: string) => void
   unwatchSession: (id: string) => void
+}
+
+/** The attach is queued and read over several ticks (#651): waits until `done` holds */
+async function until(done: () => boolean, ms = 10_000): Promise<void> {
+  // Bounded in time, not in turns: the reads go through the libuv pool, slower on a loaded machine
+  for (const deadline = Date.now() + ms; !done() && Date.now() < deadline;) await new Promise(resolve => setTimeout(resolve, 2))
+  assert.ok(done(), 'condition reached')
 }
 
 describe('SessionWatcher + EventReconciler', () => {
@@ -41,17 +48,18 @@ describe('SessionWatcher + EventReconciler', () => {
   })
   after(() => fs.rmSync(fakeHome, { recursive: true, force: true }))
 
-  it('holds hook events during the prescan and drops the ones the history already reported', () => {
+  it('holds hook events during the prescan and drops the ones the history already reported', async () => {
     const watcher = new SessionWatcher()
     const hookOut: AgentEvent[] = []
     watcher.onHookEvent(e => hookOut.push(e))
     const internals = watcher as unknown as Internals
-    const original = internals.parser.prescanExistingContent.bind(internals.parser)
+    const original = internals.parser.prescanExistingContentAsync.bind(internals.parser)
     let heldDuringLoad = -1
     let deliveredDuringLoad = -1
     let loadingDuringLoad = false
-    internals.parser.prescanExistingContent = (...args: unknown[]) => {
-      const result = original(...args)
+    let loaded = false
+    internals.parser.prescanExistingContentAsync = async (...args: unknown[]) => {
+      const result = await original(...args)
       // A live hook event arrives while the history is being read
       internals.emit(toolStart('in-history', 'jsonl'), SESSION)
       watcher.submitHookEvent(toolStart('in-history', 'hook')) // copy of what the history reported
@@ -59,10 +67,12 @@ describe('SessionWatcher + EventReconciler', () => {
       loadingDuringLoad = watcher.reconciler.isLoading
       heldDuringLoad = watcher.reconciler.heldCount
       deliveredDuringLoad = hookOut.length
+      loaded = true
       return result
     }
     watcher.start()
     try {
+      await until(() => loaded && !watcher.reconciler.isLoading)
       assert.equal(loadingDuringLoad, true, 'the prescan runs inside withHistory')
       assert.equal(heldDuringLoad, 3, 'everything is held while the history loads')
       assert.equal(deliveredDuringLoad, 0, 'nothing is delivered before the load ends')
@@ -71,11 +81,11 @@ describe('SessionWatcher + EventReconciler', () => {
     } finally { watcher.dispose() }
   })
 
-  it('forgets a session\'s delivered ids when it is unwatched, and everything on dispose', () => {
+  it('forgets a session\'s delivered ids when it is unwatched, and everything on dispose', async () => {
     const watcher = new SessionWatcher()
     watcher.start()
     const internals = watcher as unknown as Internals
-    assert.equal(watcher.reconciler.rememberedSessions, 1, 'precondition: the watched session is remembered')
+    await until(() => watcher.reconciler.rememberedSessions === 1)
     internals.unwatchSession(SESSION)
     assert.equal(watcher.reconciler.rememberedSessions, 0, 'unwatchSession forgets the session')
 

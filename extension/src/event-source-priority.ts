@@ -17,7 +17,9 @@
  *
  * HOW THE RECONCILER WORKS (EventReconciler)
  *  1. The live flow is subscribed BEFORE history is loaded.
- *  2. While history loads (`withHistory`), every event is held instead of delivered.
+ *  2. While history loads (`withHistory`), every event is held instead of delivered. A history read over
+ *     several ticks (`withSessionHistory`, a Claude attach, #651) holds only the events of its session: the
+ *     other sessions keep flowing meanwhile.
  *  3. When the load ends the held events are replayed in order; an event whose derived id
  *     (deriveEventId) matches an event of the OTHER source collapses with it, the winner being
  *     chosen by resolveConflict and placed at the position of the first one.
@@ -116,6 +118,8 @@ export class EventReconciler {
   /** > 0 while state already known is re-sent to a reconnecting client (asReplayed) */
   private replaying = 0
   private held: SourcedEvent[] = []
+  /** Sessions whose history is read over several ticks (withSessionHistory): their events only are held */
+  private readonly sessionLoads = new Map<string, { depth: number; held: SourcedEvent[]; forgotten: boolean }>()
   /** session -> (id -> source of the delivered copy), insertion-ordered for bounded eviction */
   private readonly delivered = new Map<string, Map<string, EventSource>>()
 
@@ -126,15 +130,25 @@ export class EventReconciler {
     this.maxHeld = opts.maxHeld ?? EVENT_HOLD_MAX
   }
 
-  /** Number of events currently held (history load in progress). */
-  get heldCount(): number { return this.held.length }
-  get isLoading(): boolean { return this.loading > 0 }
+  /** Number of events currently held (history loads in progress, of every session). */
+  get heldCount(): number {
+    let n = this.held.length
+    for (const slot of this.sessionLoads.values()) n += slot.held.length
+    return n
+  }
+  get isLoading(): boolean { return this.loading > 0 || this.sessionLoads.size > 0 }
   /** Number of sessions whose delivered ids are remembered (diagnostics and tests). */
   get rememberedSessions(): number { return this.delivered.size }
 
   /** Submit one event from a source. Delivered now, or held while history loads. */
   submit(event: AgentEvent, opts: SubmitOptions): void {
     const sourced: SourcedEvent = { event, source: opts.source }
+    const slot = event.sessionId !== undefined ? this.sessionLoads.get(event.sessionId) : undefined
+    if (slot) {
+      slot.held.push(sourced)
+      if (slot.held.length >= this.maxHeld) this.flushSession(slot)
+      return
+    }
     if (this.loading > 0) {
       this.held.push(sourced)
       if (this.held.length >= this.maxHeld) this.flush()
@@ -158,6 +172,30 @@ export class EventReconciler {
   }
 
   /**
+   * Run a history load that spans several ticks (#651). Only the events of `sessionId` are held meanwhile, and
+   * replayed, deduplicated, when the outermost load of that session ends, also when `load` rejects. A session
+   * forgotten meanwhile (unwatched) gets nothing delivered.
+   */
+  async withSessionHistory<T>(sessionId: string, load: () => Promise<T>): Promise<T> {
+    let slot = this.sessionLoads.get(sessionId)
+    // A forgotten one belongs to a load that is stopping: this new load gets its own
+    if (!slot || slot.forgotten) {
+      slot = { depth: 0, held: [], forgotten: false }
+      this.sessionLoads.set(sessionId, slot)
+    }
+    slot.depth++
+    try {
+      return await load()
+    } finally {
+      slot.depth--
+      if (slot.depth === 0) {
+        if (this.sessionLoads.get(sessionId) === slot) this.sessionLoads.delete(sessionId)
+        this.flushSession(slot)
+      }
+    }
+  }
+
+  /**
    * Re-send what is already known (a reopened webview, #361): the transcript events submitted meanwhile are
    * delivered at once, as usual, but marked `replayed`. Not a hold: nothing is deduplicated against history.
    */
@@ -167,9 +205,27 @@ export class EventReconciler {
   }
 
   /** Forget what was delivered for a session (it was unwatched). */
-  forgetSession(sessionId: string): void { this.delivered.delete(sessionId) }
+  forgetSession(sessionId: string): void {
+    this.delivered.delete(sessionId)
+    // A history still being read for it: what it holds is dropped, and so is what it emits until it stops
+    const slot = this.sessionLoads.get(sessionId)
+    if (slot) {
+      slot.forgotten = true
+      slot.held = []
+    }
+  }
 
-  clear(): void { this.held = []; this.delivered.clear() }
+  clear(): void {
+    this.held = []
+    this.delivered.clear()
+    for (const slot of this.sessionLoads.values()) slot.held = []
+  }
+
+  private flushSession(slot: { held: SourcedEvent[]; forgotten: boolean }): void {
+    const batch = slot.held
+    slot.held = []
+    if (!slot.forgotten) this.process(batch, true)
+  }
 
   private flush(): void {
     const batch = this.held

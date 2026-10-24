@@ -183,6 +183,79 @@ export function* readLinesChunked(
   }
 }
 
+/** Plus long moment qu'une lecture d'historique garde l'event loop avant de la rendre (#651). */
+export const PRESCAN_SLICE_MS = 10
+
+/** Le rattachement a été abandonné pendant une pause : la session n'est plus suivie (#651). */
+export class AttachCancelled extends Error {
+  constructor() {
+    super('attach cancelled')
+    this.name = 'AttachCancelled'
+  }
+}
+
+/**
+ * Découpage coopératif d'une longue lecture d'historique (#651). `due()` est vrai une fois PRESCAN_SLICE_MS
+ * écoulées depuis la dernière pause ; `pause()` rend l'event loop (setImmediate : timers, E/S, hooks et SSE
+ * passent) puis lève AttachCancelled si `cancelled()` est devenu vrai entre-temps.
+ */
+export class TimeSlice {
+  private started = performance.now()
+  /** Pauses faites (diagnostic et tests) */
+  pauses = 0
+
+  constructor(
+    private readonly cancelled: () => boolean = () => false,
+    private readonly budgetMs = PRESCAN_SLICE_MS,
+  ) {}
+
+  due(): boolean { return performance.now() - this.started >= this.budgetMs }
+
+  async pause(): Promise<void> {
+    await new Promise<void>(resolve => setImmediate(resolve))
+    this.pauses++
+    this.started = performance.now()
+    if (this.cancelled()) throw new AttachCancelled()
+  }
+}
+
+/**
+ * Variante asynchrone de readLinesChunked (#651) : mêmes bornes (les `size` premiers octets, par blocs de
+ * `chunkBytes`, sans le fragment après le dernier saut de ligne) et même placement de `tracked` à la fin, mais
+ * lue par l'API promises et rendue bloc par bloc (un tableau de lignes par bloc lu).
+ */
+export async function* readLineBatches(
+  filePath: string,
+  size: number,
+  chunkBytes = PRESCAN_CHUNK_BYTES,
+  tracked?: TailedFile,
+): AsyncGenerator<string[]> {
+  const fh = await fs.promises.open(filePath, 'r')
+  let offset = 0
+  let carry: Buffer = Buffer.alloc(0)
+  try {
+    while (offset < size) {
+      const len = Math.min(chunkBytes, size - offset)
+      const buf = Buffer.alloc(len)
+      const { bytesRead: n } = await fh.read(buf, 0, len, offset)
+      if (n <= 0) break
+      offset += n
+      let data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n)
+      const cut = data.lastIndexOf(0x0a)
+      if (cut < 0) { carry = Buffer.from(data); continue }
+      carry = Buffer.from(data.subarray(cut + 1))
+      data = data.subarray(0, cut)
+      yield data.toString('utf-8').split(/\r?\n/)
+    }
+  } finally {
+    await fh.close()
+  }
+  if (tracked) {
+    tracked.fileSize = offset
+    tracked.fileTail = carry.toString('latin1')
+  }
+}
+
 /** Case-fold a path string for comparison on Windows, where the filesystem is
  *  case-insensitive and tools disagree on drive-letter case (VS Code reports
  *  `c:\...`, Claude Code and most shells report `C:\...`). Identity elsewhere. */

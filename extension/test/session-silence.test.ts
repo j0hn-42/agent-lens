@@ -26,7 +26,7 @@ describe('ClaudeSessionPipeline: a silent session stays open (#360)', () => {
   let sessions: Map<string, WatchedSession>
   let pipeline: ClaudeSessionPipeline
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-silence-'))
     file = path.join(dir, `${SESSION}.jsonl`)
     fs.writeFileSync(file, line({ type: 'user', uuid: 'u1', timestamp: new Date().toISOString(), message: { role: 'user', content: 'Run the tests' } }))
@@ -42,7 +42,7 @@ describe('ClaudeSessionPipeline: a silent session stays open (#360)', () => {
     })
     const session = pipeline.newSession(SESSION, file)
     sessions.set(SESSION, session)
-    pipeline.attach(session)
+    await pipeline.attach(session)
   })
 
   afterEach(() => {
