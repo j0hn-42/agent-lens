@@ -475,6 +475,8 @@ export interface SubagentState {
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
   spawnEmitted: boolean
+  /** When the file was last written as far as we know (mtime at start, then the last read with new bytes): idle subagents lose their watcher (#654) */
+  lastWriteMs?: number
   /** Its dispatch was read from the history at attach and shows no end: its spawn is still owed (#446) */
   catchUpSpawn?: boolean
   /** agent_id parsed from the transcript file name (agent-<id>.jsonl) */

@@ -8,6 +8,7 @@ import {
   isValidSessionId, parseSessionParam, isBackedUp, capReplayBatches, appendBounded,
   isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan, isCrossOriginRequest, isDevWebOrigin,
 } from '../src/relay-guards'
+import { COLD_RESCAN_CYCLES } from '../src/constants'
 
 const ev = (n: number, sessionId = 's', type = 'message'): AgentEvent => ({ time: n, type, payload: { n }, sessionId }) as unknown as AgentEvent
 
@@ -253,5 +254,42 @@ describe('isDevWebOrigin (#201)', () => {
     const h = '127.0.0.1:3001'
     assert.equal(isCrossOriginRequest({ origin: 'http://localhost:3000' }, h), false)
     assert.equal(isCrossOriginRequest({ origin: 'http://localhost:4000' }, h), true)
+  })
+})
+
+describe('classement des dossiers de projet recalculé tous les COLD_RESCAN_CYCLES scans (#654)', () => {
+  let root: string
+  const at = (n: number) => new Date(1_700_000_000_000 + n * 1000)
+  const touch = (dir: string, n: number) => {
+    const f = path.join(root, dir, 's.jsonl')
+    fs.writeFileSync(f, '{}\n')
+    fs.utimesSync(f, at(n), at(n))
+  }
+  const top = (cold: ReturnType<typeof createColdScan>) =>
+    listProjectDirs(root, null, 2, undefined, cold).map(d => path.basename(d))
+  before(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'af-rank-'))
+    for (const [i, n] of ['a', 'b', 'c', 'd'].entries()) { fs.mkdirSync(path.join(root, n)); touch(n, i) }
+  })
+  after(() => fs.rmSync(root, { recursive: true, force: true }))
+
+  it('between two recomputations the order is kept, then a recomputation sees the newest transcript', () => {
+    const cold = createColdScan()
+    cold.cycle = 1
+    assert.deepEqual(top(cold), ['d', 'c'])
+    touch('a', 100) // a becomes the most recent folder
+    cold.cycle = 1 + COLD_RESCAN_CYCLES - 1
+    assert.deepEqual(top(cold), ['d', 'c'], 'no lstat of the transcripts before COLD_RESCAN_CYCLES scans')
+    cold.cycle = 1 + COLD_RESCAN_CYCLES
+    assert.deepEqual(top(cold), ['a', 'd'])
+  })
+
+  it('a folder that appeared since the last ranking is ranked at once', () => {
+    const cold = createColdScan()
+    cold.cycle = 1
+    top(cold)
+    fs.mkdirSync(path.join(root, 'e')); touch('e', 500)
+    cold.cycle = 2
+    assert.equal(top(cold)[0], 'e')
   })
 })

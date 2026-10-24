@@ -31,7 +31,25 @@ const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
 }
 
-export function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
+/**
+ * Webview assets kept in memory (#654): a request costs one stat, the disk is read again only when the file
+ * changed (rebuild). The ETag lets the browser revalidate (304) instead of downloading the bundle again.
+ */
+interface CachedAsset { mtimeMs: number; size: number; content: Buffer; etag: string }
+const assetCache = new Map<string, CachedAsset>()
+
+function loadAsset(filePath: string): CachedAsset {
+  const st = fs.statSync(filePath)
+  const hit = assetCache.get(filePath)
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit
+  const content = fs.readFileSync(filePath)
+  const etag = `"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`
+  const asset = { mtimeMs: st.mtimeMs, size: st.size, content, etag }
+  assetCache.set(filePath, asset)
+  return asset
+}
+
+export function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, webviewDir = WEBVIEW_DIR) {
   const url = (req.url || '/').split('?')[0]
 
   if (url === '/' || url === '/index.html') {
@@ -58,19 +76,26 @@ export function serveStatic(req: http.IncomingMessage, res: http.ServerResponse)
     return
   }
 
-  const filePath = path.join(WEBVIEW_DIR, basename)
+  const filePath = path.join(webviewDir, basename)
 
   // Prevent path traversal
-  if (!filePath.startsWith(WEBVIEW_DIR)) {
+  if (!filePath.startsWith(webviewDir)) {
     res.writeHead(403)
     res.end('Forbidden')
     return
   }
 
   try {
-    const content = fs.readFileSync(filePath)
-    res.writeHead(200, { 'Content-Type': mime })
-    res.end(content)
+    const asset = loadAsset(filePath)
+    // no-cache: the browser keeps a copy but asks again each time (ETag), so a rebuilt bundle is never stale
+    const headers = { 'Content-Type': mime, 'Cache-Control': 'no-cache', 'ETag': asset.etag }
+    if (req.headers['if-none-match'] === asset.etag) {
+      res.writeHead(304, headers)
+      res.end()
+      return
+    }
+    res.writeHead(200, headers)
+    res.end(asset.content)
   } catch {
     res.writeHead(404)
     res.end('Not found')

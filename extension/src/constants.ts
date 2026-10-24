@@ -238,6 +238,12 @@ export const SUBAGENT_ID_SUFFIX_LENGTH = 6
  */
 export const SUBAGENT_CATCH_UP_SPAWNS_MAX = 16
 
+/**
+ * A subagent file nobody wrote for this long, whose dispatch shows no open run, has its fs.watch closed (#654):
+ * the poll (POLL_FALLBACK_MS) keeps reading it and re-arms the watcher on its first new line.
+ */
+export const SUBAGENT_WATCH_IDLE_MS = 60_000
+
 /** Generate a consistent fallback name for a subagent when no explicit name is available.
  *  @param id  An identifier string (e.g. agent_id or a timestamp) — the last chars are used.
  *  @param index  A 1-based index for sequential numbering. */
@@ -591,3 +597,6 @@ export const SNAPSHOT_FUTURE_TOLERANCE_MS = 5_000
 export const OBSERVATIONS_MAX_SESSIONS = 25
 export const OBSERVATIONS_MAX_AGENTS_PER_SESSION = 50
 export const OBSERVATIONS_NAME_MAX = 64
+
+/** Cadence of the release pass of the non-Claude runtimes, independent of any client (#654): cheap, no I/O. */
+export const RUNTIME_RELEASE_INTERVAL_MS = 30_000

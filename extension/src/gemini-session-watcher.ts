@@ -204,7 +204,7 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     }
   }
 
-  start(): void {
+  start(options: { ownTimer?: boolean } = {}): void {
     if (this.workspace) {
       const roots = [this.workspace]
       try {
@@ -215,7 +215,8 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     }
 
     this.guardedScan()
-    this.scanInterval = setInterval(() => this.guardedScan(), SCAN_INTERVAL_MS)
+    // The relay drives the scans itself, through its shared ticker, and only while a client is connected (#654)
+    if (options.ownTimer !== false) this.scanInterval = setInterval(() => this.guardedScan(), SCAN_INTERVAL_MS)
 
     // A new project is a new directory under tmp/; the periodic scan covers a new chats/ below it.
     const root = geminiTmpRoot()
@@ -370,6 +371,9 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
   }
 
   /** Detach sessions ended for more than ACTIVE_SESSION_AGE_S. The scan reattaches them if their file resumes. */
+  /** Release pass alone, for a caller that owns the clock: a session silent past ACTIVE_SESSION_AGE_S is retired without a scan (#654). */
+  releaseIdle(): void { this.releaseEndedSessions() }
+
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
@@ -526,6 +530,9 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
       }
     }
   }
+
+  /** One discovery pass, for a caller that owns the timer (start with ownTimer: false, #654). */
+  scan(): void { this.guardedScan() }
 
   dispose(): void {
     if (this.scanInterval) { clearInterval(this.scanInterval) }
