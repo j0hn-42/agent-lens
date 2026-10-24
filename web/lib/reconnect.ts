@@ -3,7 +3,7 @@
  * session filter, replay dedupe, and the controller that wires them to an EventSource.
  *
  * Polling decision: the relay has no GET endpoint that returns the events (they only flow over
- * SSE, with a replay of its buffer on every connect). After POLL_AFTER_FAILURES consecutive
+ * SSE, with a replay of its buffer on a first connect, and only of what follows ?since= on a reconnect). After POLL_AFTER_FAILURES consecutive
  * failures the client therefore stops hammering /events and polls the cheap GET /status for
  * reachability every POLL_INTERVAL_MS; as soon as /status answers it tries SSE again. If that
  * SSE attempt fails, the client stays in polling mode (the failure counter is not reset until
@@ -265,7 +265,8 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       const reconnected = hasConnected
       hasConnected = true
       state = nextLinkState(state, 'open')
-      // The relay replays its buffer on every connect: remember what was delivered, drop repeats afterwards
+      // A relay that honours ?since= replays only what was missed; a relay of an older version, or a since it ignored
+      // (another instance, malformed), replays its whole buffer: remember what was delivered, drop repeats afterwards
       replayUntil = reconnected ? Date.now() + REPLAY_WINDOW_MS : 0
       armWatchdog(src)
       emit('connected')

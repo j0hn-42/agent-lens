@@ -1,7 +1,7 @@
 import { WATCH_SCAN_DEBOUNCE_MS } from '../extension/src/constants'
 
 /** Reaction of the relay to a `.jsonl` event of the project dir (#650). fs.watch fires on every line Claude
- *  writes, so: a transcript already tracked never triggers a scan (the tick covers it); an unknown file is
+ *  writes, so: a transcript already tracked never triggers a scan (it is attached and read by its own file watcher, and scanTranscripts skips tracked ids anyway); an unknown file is
  *  scanned at once (a new session is found as fast as before), then at most one more scan is armed
  *  WATCH_SCAN_DEBOUNCE_MS later for the events that came in between (no endless postponement). */
 export function createProjectWatchScan(opts: {
