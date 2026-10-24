@@ -1,6 +1,7 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { memo, type ReactNode } from "react"
+import { chromeRenderProbe } from "@/lib/row-sync"
 import type { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import type { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import type { useSelectionState } from "@/hooks/use-selection-state"
@@ -52,9 +53,10 @@ interface PanelDockProps {
 type ComponentPropsOf<T> = T extends (props: infer P) => unknown ? P : never
 
 /** The slide-in panels around the canvas: files, sessions, project context, system, timeline */
-export function PanelDock({
+export const PanelDock = memo(function PanelDock({
   panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, replayLostBySession, listAgents, agentLabel, openFile, fetchContext, contextOrigin, tourShowsInactive = false,
 }: PanelDockProps) {
+  chromeRenderProbe.onRender?.('PanelDock')
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
   return (
@@ -154,4 +156,4 @@ export function PanelDock({
       </div>
     </>
   )
-}
+})

@@ -6,7 +6,8 @@
 // It replaces the former message feed, session transcript and per-agent chat. The per-agent chat is a preset
 // of this panel: selecting an agent opens it with that agent's tab selected.
 
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId } from 'react'
+import { chromeRenderProbe } from '@/lib/row-sync'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId, memo } from 'react'
 import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
@@ -72,10 +73,11 @@ const PILL_MAX_WIDTH = 320
 
 // ─── Main component ─────────────────────────────────────────────────────────
 
-export function ConversationPanel({
+export const ConversationPanel = memo(function ConversationPanel({
   open, onOpen, onClose,
   conversations, agents, selectedAgentId, onAgentClick, links, droppedMessages, teams,
 }: ConversationPanelProps) {
+  chromeRenderProbe.onRender?.('ConversationPanel')
   const [activeTab, setActiveTab] = useState<string>(() => tabForSelection(selectedAgentId))
   const [unread, setUnread] = useState<Set<string>>(new Set())
   const [showTools, setShowTools] = useState(true)
@@ -721,7 +723,7 @@ export function ConversationPanel({
       </div>
     </SlidingPanel>
   )
-}
+})
 
 /** Role label of a conversation message: the assistant is named after the runtime of the agent that spoke. */
 function roleLabelOf(type: string, runtime?: Agent['runtime']): string {

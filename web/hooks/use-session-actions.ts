@@ -1,5 +1,6 @@
 'use client'
 
+import { useStableObject } from '@/hooks/use-stable-object'
 import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import type { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import type { UseUiPreferences } from '@/hooks/use-ui-preferences'
@@ -92,5 +93,5 @@ export function useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef 
     if (target !== null) selectSession(target)
   }, [selectSession])
 
-  return { handleCloseSession, canExportSession, handleExportSession, handleClusterSelect }
+  return useStableObject({ handleCloseSession, canExportSession, handleExportSession, handleClusterSelect })
 }
