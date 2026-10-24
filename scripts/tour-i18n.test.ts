@@ -1,5 +1,6 @@
 // #557: the guided tour (demo steps, live steps, card, offer, button) and the titles of the panels exist in every
 // locale, say the same thing (same ids, same numbers) and agree with the names of the palette and the top bar.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { GUIDED_STEPS, guidedSteps } from '../web/lib/guided-steps'

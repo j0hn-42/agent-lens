@@ -1,4 +1,5 @@
 // Agent picker of the Conversation panel: threshold, groups (team / workflow, session, finished), search and unread filter.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {

@@ -1,3 +1,4 @@
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'

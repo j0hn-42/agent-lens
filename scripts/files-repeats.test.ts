@@ -1,6 +1,7 @@
 // #518 (option B): the Files panel is named "Files & repeats" / "Fichiers et répétitions" everywhere it is named (one name per
 // language, WCAG 3.2.4), and the folded "Repeated reads and calls" section keeps a count in its summary that comes from the same
 // data as the list, with the same qualifiers under loss ("at least", "incomplete", calls not compared), never a bare 0.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { MESSAGES, LOCALES, type Locale } from '../web/lib/messages'

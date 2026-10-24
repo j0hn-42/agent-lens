@@ -4,7 +4,7 @@
  * The last tab opened is kept in memory for the page (use-dialogs-state), never in the preference blob, so
  * 'Reset preferences' has nothing to reset about it.
  */
-import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from './messages'
+import { LOCALES, MESSAGES, isLocaleLoaded, translate, type Locale, type MessageKey } from './messages'
 
 const SETTINGS_TABS = ['general', 'sessions', 'notifications', 'keyboard'] as const
 export type SettingsTab = (typeof SETTINGS_TABS)[number]
@@ -32,11 +32,12 @@ const SETTINGS_TAB_SECTIONS: Readonly<Record<SettingsTab, readonly MessageKey[]>
 /**
  * The palette command of a tab: named in the language of the interface, as the dialog is ("Settings: General",
  * "Réglages : Général"), and found by its name and the titles of its sections in every locale (the palette search ignores accents).
+ * A locale that is not loaded yet adds no word (#662): the palette loads them all when it opens and builds its list again.
  */
 export function settingsTabCommand(locale: Locale, tab: SettingsTab): { label: string; keywords: string[] } {
   const label = translate(locale, 'settings.tab.command', { tab: translate(locale, SETTINGS_TAB_LABEL[tab]) })
   const words = new Set<string>()
-  for (const l of LOCALES) {
+  for (const l of LOCALES.filter(isLocaleLoaded)) {
     for (const key of ['settings.title', 'settings.tab.alias', SETTINGS_TAB_LABEL[tab], ...SETTINGS_TAB_SECTIONS[tab]] as const) words.add(MESSAGES[l][key].toLowerCase())
   }
   return { label, keywords: Array.from(words) }
