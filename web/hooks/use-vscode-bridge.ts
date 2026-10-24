@@ -198,7 +198,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // The consumed cursor of the session being left, taken when the selection changes and kept until the state
   // swap is done: events received in between sit in the buffer but reach no queue
   const outgoingCursorRef = useRef<{ id: string; cursor: number } | null>(null)
-  const [, setEventVersion] = useState(0) // re-render after a reset or a flush, never per live event (#645)
+  const [, setEventVersion] = useState(0) // re-render after a flush (one per call, measured: tests-a11y/bridge-no-render-per-event), never per live event (#645)
 
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -658,7 +658,6 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       updateSessions, selectedSessionIdRef, setSelectedSessionId, sessionSwitchPendingRef, pendingEventsRef,
       sessionBuffersRef, allEventsRef, allBaseRef, lastEventAtRef, modelTrackerRef, teamTrackerRef, dismissedSessionsRef,
       setSessionModels, refreshTeamView, setSessionsWithActivity, pushNotice,
-      bumpEventVersion: () => setEventVersion(v => v + 1),
       now: Date.now,
     }
     const unsubSession = bridge.onSession((type, data) => {
