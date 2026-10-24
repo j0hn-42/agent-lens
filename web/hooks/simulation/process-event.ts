@@ -60,7 +60,7 @@ export function eventSessionId(event: Pick<SimulationEvent, 'sessionId'>): strin
 }
 
 /** Blocks kept per agent (#659): beyond it the oldest go in a batch and `droppedBlocks` counts them. */
-export const MAX_TIMELINE_BLOCKS = 2000
+const MAX_TIMELINE_BLOCKS = 2000
 const TIMELINE_BLOCKS_AFTER_TRIM = Math.floor(MAX_TIMELINE_BLOCKS * 0.9)
 
 /**

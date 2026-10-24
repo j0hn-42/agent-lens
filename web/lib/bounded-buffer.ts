@@ -7,7 +7,7 @@
  */
 
 /** Fraction of the cap the buffer may overshoot before it is trimmed back to the cap. */
-export const ALL_BUFFER_SLACK = 0.1
+const ALL_BUFFER_SLACK = 0.1
 
 /**
  * Drops the oldest elements of `buf` once it exceeds `cap` by more than `cap * slack`, bringing it back to `cap`.

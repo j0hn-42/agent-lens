@@ -1,12 +1,15 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { trimOldest, ALL_BUFFER_SLACK } from '../web/lib/bounded-buffer'
-import { processEvent, pushTimelineBlock, MAX_TIMELINE_BLOCKS, type ProcessEventContext } from '../web/hooks/simulation/process-event'
+import { trimOldest } from '../web/lib/bounded-buffer'
+import { processEvent, pushTimelineBlock, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState } from '../web/hooks/simulation/types'
 import { visibleRowRange } from '../web/lib/timeline-rows'
 import { olderBlocksText, totalDroppedBlocks } from '../web/lib/timeline-text'
 import { SCENE } from '../web/lib/colors'
 import type { TimelineEntry } from '../web/lib/agent-types'
+
+/** Cap per agent, as documented (2 000). */
+const MAX_TIMELINE_BLOCKS = 2000
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {}, findToolSlot: () => ({ x: 0, y: 0 }), getContextWindowSize: () => 200_000,
@@ -17,7 +20,7 @@ test('trimOldest: nothing happens below cap + slack, then one batch brings the b
   const buf: number[] = []
   let dropped = 0
   const cap = 1000
-  const slackLimit = cap + Math.floor(cap * ALL_BUFFER_SLACK)
+  const slackLimit = cap + Math.floor(cap * 0.1)
   for (let i = 0; i < slackLimit; i++) { buf.push(i); dropped += trimOldest(buf, cap) }
   assert.equal(dropped, 0)
   buf.push(slackLimit); dropped += trimOldest(buf, cap)
@@ -37,7 +40,7 @@ test('trimOldest: the number of moved elements is amortized O(1) per push (#659)
     const d = trimOldest(buf, cap)
     if (d > 0) moved += buf.length // splice moves the remaining elements once
   }
-  assert.ok(buf.length <= cap + cap * ALL_BUFFER_SLACK)
+  assert.ok(buf.length <= cap + cap * 0.1)
   assert.ok(moved / N < 15, `moved per push: ${moved / N}`) // the old per-push splice moved ~cap (10 000) per push
 })
 
