@@ -314,3 +314,17 @@ export function capMessageRows<T>(rows: readonly T[], max: number = MAX_ARROW_BU
   if (rows.length <= max) return { rows: rows.slice(), hidden: 0 }
   return { rows: rows.slice(rows.length - max), hidden: rows.length - max }
 }
+
+/**
+ * Rows of the swimlane canvas that intersect the scroll viewport, widened by `overscan` rows on each side (#659).
+ * The canvas keeps its full height (the scroll bar stays honest) but only these rows are drawn.
+ * Empty (`last < first`) when there is no row.
+ */
+export function visibleRowRange(
+  scrollTop: number, viewportHeight: number, rowCount: number, headerHeight: number, rowHeight: number, overscan = 2,
+): { first: number; last: number } {
+  if (rowCount <= 0) return { first: 0, last: -1 }
+  const first = Math.floor((scrollTop - headerHeight) / rowHeight) - overscan
+  const last = Math.ceil((scrollTop + viewportHeight - headerHeight) / rowHeight) + overscan
+  return { first: Math.max(0, first), last: Math.min(rowCount - 1, Math.max(last, 0)) }
+}
