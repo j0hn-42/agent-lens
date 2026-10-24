@@ -3,6 +3,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createMarkerTracker } from '../web/lib/timeline-markers'
+import { fr, en } from '../web/lib/messages/playback'
 import { appendConversation, MAX_CONVERSATION_MESSAGES, MAX_EVENT_LOG as MAX_MARKERS, type ConversationMessage } from '../web/hooks/simulation/types'
 
 type Conv = Map<string, ConversationMessage[]>
@@ -115,4 +116,60 @@ test('the marker list is capped, the oldest ones are counted as lost', () => {
   assert.equal(res.events.length, MAX_MARKERS)
   assert.equal(res.lost, 50)
   assert.equal(res.events[res.events.length - 1].timestamp, MAX_MARKERS + 49)
+})
+
+/** What seekToTime does: replay the same journal from zero, with fresh message ids */
+function replay(upTo: number, prefix: string): { conv: Conv; dropped: Map<string, number> } {
+  const conv: Conv = new Map(); const dropped = new Map<string, number>()
+  feed(conv, dropped, 'a', 0, upTo, prefix)
+  return { conv, dropped }
+}
+
+test('a replay with fresh ids and a full window does not duplicate markers', () => {
+  const tracker = createMarkerTracker()
+  const live = { conv: new Map() as Conv, dropped: new Map<string, number>() }
+  for (let i = 0; i < 300; i++) { feed(live.conv, live.dropped, 'a', i, i + 1, 'live'); tracker.update(live.conv, live.dropped) }
+  assert.equal(tracker.update(live.conv, live.dropped).events.length, 300)
+  const again = replay(300, 'replay')
+  const res = tracker.update(again.conv, again.dropped)
+  assert.equal(res.events.length, 300)
+  assert.equal(new Set(res.events.map(e => e.timestamp)).size, 300)
+  assert.equal(res.lost, 0)
+})
+
+test('seeking back then forward on a full window keeps one marker per message', () => {
+  const tracker = createMarkerTracker()
+  const live = { conv: new Map() as Conv, dropped: new Map<string, number>() }
+  for (let i = 0; i < 300; i++) { feed(live.conv, live.dropped, 'a', i, i + 1, 'live'); tracker.update(live.conv, live.dropped) }
+  const back = replay(250, 'back')
+  tracker.update(back.conv, back.dropped)
+  const fwd = replay(300, 'fwd')
+  const res = tracker.update(fwd.conv, fwd.dropped)
+  assert.equal(new Set(res.events.map(e => e.timestamp)).size, res.events.length)
+  assert.equal(res.events[res.events.length - 1].timestamp, 299)
+  assert.equal(res.events.length + res.lost, 300)
+})
+
+test('another session with a full window and the same total is a replacement', () => {
+  const tracker = createMarkerTracker()
+  const one = replay(300, 'one')
+  tracker.update(one.conv, one.dropped)
+  const conv: Conv = new Map(); const dropped = new Map<string, number>()
+  feed(conv, dropped, 'a', 1000, 1300, 'two')
+  const res = tracker.update(conv, dropped)
+  assert.equal(res.events.length, 200)
+  assert.equal(res.events[0].timestamp, 1100)
+  assert.equal(res.lost, 100)
+})
+
+test('lost that comes only from the marker cap is not blamed on messages cut before being seen', () => {
+  const conv: Conv = new Map(); const dropped = new Map<string, number>()
+  const tracker = createMarkerTracker()
+  let res = tracker.update(conv, dropped)
+  for (let i = 0; i < MAX_MARKERS + 3; i++) { feed(conv, dropped, 'a', i, i + 1); res = tracker.update(conv, dropped) }
+  assert.equal(res.lost, 3)
+  for (const table of [fr, en]) {
+    assert.doesNotMatch(table['bar.markersLost.one'], /coupé|cut/)
+    assert.doesNotMatch(table['bar.markersLost.other'], /coupés|cut/)
+  }
 })

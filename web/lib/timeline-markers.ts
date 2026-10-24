@@ -1,6 +1,6 @@
 import type { TimelineEvent } from './agent-types'
 import type { ConversationMessage } from '../hooks/simulation/types'
-import { MAX_CONVERSATION_MESSAGES, MAX_EVENT_LOG } from '../hooks/simulation/types'
+import { MAX_EVENT_LOG } from '../hooks/simulation/types'
 
 /** Max scrubber markers kept (oldest are dropped and counted in `lost`), same bound as the event log */
 const MAX_MARKERS = MAX_EVENT_LOG
@@ -8,13 +8,13 @@ const MAX_MARKERS = MAX_EVENT_LOG
 export interface MarkerResult {
   /** Markers sorted by time; a new array whenever something changed */
   events: TimelineEvent[]
-  /** Markers that exist (or existed) but are not in `events`: dropped by the conversation cap before they were seen, or by MAX_MARKERS */
+  /** Markers that exist (or existed) but are not in `events`: dropped by the conversation cap before they were seen, or by MAX_MARKERS (these were seen, then dropped) */
   lost: number
 }
 
 interface AgentSeen {
-  /** id of the last message turned into a marker */
-  lastId: string
+  /** Fingerprint of the last message turned into a marker (survives a replay, which gives new ids) */
+  lastSig: string
   /** Messages ever appended for this agent as of the last update: dropped + kept */
   total: number
   /** Messages cut by the conversation cap before they could become markers */
@@ -22,10 +22,12 @@ interface AgentSeen {
 }
 
 /**
- * Incremental scrubber markers. Each agent is followed by the id of the last message seen, not by the length of
- * its history: appendConversation caps a conversation, so its length stops moving while new messages keep coming.
- * An agent whose history shrank, or whose last seen message is gone while the window is not full, is a
- * cleared or replaced one: its markers are dropped. Messages that were cut before they could be seen are
+ * Incremental scrubber markers. Each agent is followed by an absolute position (messages dropped by the cap +
+ * index in the window), not by the length of its history: appendConversation caps a conversation, so its length
+ * stops moving while new messages keep coming. Ids are not used: a replay (seek, resume live) rebuilds the same
+ * conversation with new ids. The position is stable across a replay; a fingerprint of the last seen message
+ * (type, time, content) detects another conversation. An agent whose total shrank, or whose message at the last
+ * seen position differs, is a cleared or replaced one: its markers are dropped. Messages that were cut before they could be seen are
  * counted in `lost` (total ever appended minus markers made), so the UI can say so.
  */
 export function createMarkerTracker() {
@@ -57,16 +59,18 @@ export function createMarkerTracker() {
         continue
       }
       const lastMsg = msgs[msgs.length - 1]
-      if (prev && prev.lastId === lastMsg.id && prev.total === total) continue
+      const lastSig = signature(lastMsg)
+      if (prev && prev.total === total && prev.lastSig === lastSig) continue
 
       let start = 0
       let base = prev
       if (prev) {
-        const k = findLastIndex(msgs, prev.lastId)
-        if (k >= 0 && total >= prev.total) {
-          start = k + 1
-        } else if (total < prev.total || msgs.length < MAX_CONVERSATION_MESSAGES) {
-          // cleared or replaced: the window is not full, so the last seen message cannot have slid out of it
+        // index in the window of the last message seen, if it is still readable
+        const k = prev.total - 1 - dropped
+        const sameConversation = total >= prev.total && (k < 0 || (k < msgs.length && signature(msgs[k]) === prev.lastSig))
+        if (sameConversation) {
+          start = Math.max(0, k + 1)
+        } else {
           removed.add(agentId)
           base = undefined
         }
@@ -83,7 +87,7 @@ export function createMarkerTracker() {
         })
       }
       const lostNow = Math.max(0, total - already - (msgs.length - start))
-      seen.set(agentId, { lastId: lastMsg.id, total, lost: (base ? base.lost : 0) + lostNow })
+      seen.set(agentId, { lastSig, total, lost: (base ? base.lost : 0) + lostNow })
       changed = true
     }
 
@@ -113,9 +117,8 @@ export function createMarkerTracker() {
   return { update }
 }
 
-function findLastIndex(msgs: ConversationMessage[], id: string): number {
-  for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].id === id) return i
-  return -1
+function signature(msg: ConversationMessage): string {
+  return `${msg.type}|${msg.timestamp}|${msg.content}`
 }
 
 /** Stable merge of two time-sorted lists into a new array (equal timestamps keep `a` before `b`) */
