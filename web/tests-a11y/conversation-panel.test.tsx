@@ -182,6 +182,8 @@ test('tabs: tablist semantics, roving tabindex, arrow keys, full-name titles', (
   const r = panel({ initialOpen: true })
   assert.equal(r.queryByRole('button', { name: /^Agent: / }), null, 'no agent picker below the threshold')
   assert.ok(r.getByRole('tablist').className.includes('flex-wrap'), 'the tabs wrap instead of scrolling sideways')
+  // At most four agents here (the picker takes over from five): a height cap would hide a tab behind a scroll without a sign (#613)
+  assert.doesNotMatch(r.getByRole('tablist').className, /max-h-|max-md:max-h-|overflow-y/, 'no cap and no vertical scroll: every tab is shown')
   const list = r.getByRole('tablist', { name: 'Filter messages by agent' })
   const tabs = r.getAllByRole('tab')
   assert.deepEqual(tabs.map(t => t.getAttribute('aria-selected')), ['true', 'false', 'false', 'false'])

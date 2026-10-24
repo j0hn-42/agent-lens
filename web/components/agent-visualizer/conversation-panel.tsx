@@ -594,10 +594,9 @@ export const ConversationPanel = memo(function ConversationPanel({
               // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
               tabIndex={-1}
               onKeyDown={onTabKeyDown}
-              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 128 px high (four rows), 192 px under 768 px
-              // (44 px tabs), then a vertical scroll
-              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-32 max-md:max-h-48 overflow-y-auto outline-none"
-              style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
+              // Takes the row (Filter pair wraps below it when the panel is narrow). No height cap and no scroll: there are at most
+              // four agents here (the picker takes over from five), so every tab is shown; a cap hid one without any signal (#613)
+              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] outline-none"
             >
               {tabKeys.map((key, i) => {
                 const agent = key === 'all' ? undefined : agents.get(key)
