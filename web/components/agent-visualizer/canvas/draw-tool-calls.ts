@@ -11,7 +11,7 @@ import { USAGE_LABELS } from '@/lib/usage'
 import { boxInView } from './view-cull'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 /** Glow and error halo around a card (world units) */
 const TOOL_CULL_SLACK = 24

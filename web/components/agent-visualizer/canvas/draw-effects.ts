@@ -2,7 +2,7 @@ import { SCENE } from '@/lib/colors'
 import { SPAWN_FX, COMPLETE_FX, MCP_DRAW } from '@/lib/canvas-constants'
 import { drawHexagon } from './draw-misc'
 import { alphaHex } from '@/lib/utils'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 export interface VisualEffect {
   type: 'spawn' | 'complete' | 'shatter' | 'mcp'

@@ -8,7 +8,7 @@ import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
 export function drawMessageBubblesWorld(

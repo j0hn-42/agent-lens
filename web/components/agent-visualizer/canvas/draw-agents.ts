@@ -21,7 +21,7 @@ import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
   isTeammate, isOrchestrator, orchestratorInfo, ellipsize, drawnStatusText, type OrchestratorInfo,
 } from './team-style'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 let _claudeSparkPath: Path2D | null = null
 export function getClaudeSparkPath() {

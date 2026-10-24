@@ -6,7 +6,7 @@ import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-co
 import { truncateText } from './draw-misc'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, discoveryCardScale } from './draw-options'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, theme?: ThemeId) {
   const scene = scenePalette(theme)

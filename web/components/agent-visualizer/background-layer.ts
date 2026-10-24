@@ -2,7 +2,7 @@ import { DepthParticle } from '@/lib/agent-types'
 import { scenePalette } from '@/lib/scene-state-colors'
 import type { ThemeId } from '@/lib/theme-tokens'
 import { alphaHex } from '@/lib/utils'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../lib/color-alpha'
 
 const NUM_PARTICLES = 80
 const HEX_GRID_SIZE = 60

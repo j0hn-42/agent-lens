@@ -8,7 +8,7 @@ import { type WorkspaceZone, zoneHeaderText, workspaceHeaderRect } from './works
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
 import type { SessionLinkSegment } from './session-link-model'
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 const HALO_LABEL_FONT = 12
 

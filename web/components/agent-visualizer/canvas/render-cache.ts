@@ -1,4 +1,4 @@
-import { withHexAlpha } from '@/lib/color-alpha'
+import { withHexAlpha } from '../../../lib/color-alpha'
 // ─── Glow sprite cache ─────────────────────────────────────────────────────
 // Pre-renders radial gradient glows to off-screen canvases.
 // Avoids creating CanvasGradient objects every frame.
