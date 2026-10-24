@@ -10,10 +10,10 @@ export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './
 import { parseEventLoss, acceptEventLoss, type EventLoss } from './event-loss'
 export { ALL_SESSIONS_ID } from './bridge-types'
 export type { PermissionRequestMessage, PermissionDecision } from './bridge-types'
-import type { AgentEvent, SessionInfo, ConnectionStatus, PermissionRequestMessage, PermissionDecision } from './bridge-types'
+import type { AgentEvent, SessionInfo, SessionUpdate, ConnectionStatus, PermissionRequestMessage, PermissionDecision } from './bridge-types'
 import {
   isAgentEvent, isSessionInfo, isConnectionStatus, sanitizeSessionInfo,
-  parsePermissionRequest, parsePermissionClosed, parsePermissionResult,
+  parsePermissionRequest, parseSessionUpdate, parsePermissionClosed, parsePermissionResult,
 } from './bridge-types'
 
 /** Operator decisions (#240): what the extension says about waiting PermissionRequests, validated */
@@ -31,7 +31,7 @@ type ConfigCallback = (config: Partial<{ mode: string; autoPlay: boolean; showMo
 type RelayScopeCallback = (allWorkspaces: boolean) => void
 /** What the extension says the page lacks (#592), validated; null after a reset */
 type EventLossCallback = (loss: EventLoss | null) => void
-type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | { sessionId: string; label: string }) => void
+type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | SessionUpdate) => void
 
 class VSCodeBridge {
   private _isVSCode = false
@@ -163,12 +163,14 @@ class VSCodeBridge {
         for (const cb of this.relayScopeListeners) cb(data.allWorkspaces)
         break
 
-      case 'session-updated':
-        if (typeof data.sessionId !== 'string' || typeof data.label !== 'string') break
+      case 'session-updated': {
+        const update = parseSessionUpdate(data)
+        if (!update) break
         for (const cb of this.sessionListeners) {
-          cb('updated', { sessionId: data.sessionId, label: data.label })
+          cb('updated', update)
         }
         break
+      }
 
       // Operator decisions (#240): only the extension sends these, never the relay (VS Code only)
       case 'permission-request': {
