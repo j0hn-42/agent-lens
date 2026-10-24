@@ -6,6 +6,7 @@ import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { PanelHeader, DetailPopup } from './shared-ui'
 import { listedFileText } from '@/lib/ui-glossary'
 import type { Discovery } from '@/lib/agent-types'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 interface DiscoveryDetailPopupProps {
   /** Display name of the discovering agent; falls back to the raw id */
@@ -37,7 +38,7 @@ export function DiscoveryDetailPopup({ discovery, agentName, position, onClose }
       <PanelHeader onClose={onClose} titleId={titleId}>
         <span
           className="text-2xs font-mono font-bold px-1.5 py-0.5 rounded"
-          style={{ background: typeColor + '20', color: typeColor, border: `1px solid ${typeColor}30` }}
+          style={{ background: withHexAlpha(typeColor, '20'), color: typeColor, border: `1px solid ${withHexAlpha(typeColor, '30')}` }}
         >
           {typeLabel}
         </span>

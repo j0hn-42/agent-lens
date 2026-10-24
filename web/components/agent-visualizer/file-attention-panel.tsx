@@ -15,6 +15,7 @@ import { deriveFileConflicts, conflictPath, conflictPathSet } from '@/lib/file-c
 import type { Agent } from '@/lib/agent-types'
 import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
 import { WasteSection } from './waste-section'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 interface FileAttentionPanelProps {
   visible: boolean
@@ -134,7 +135,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 {conflicts.map(c => {
                   const who = conflictEditorsText(locale, c, label)
                   return (
-                    <li key={c.path} className="rounded px-2 py-1.5 text-2xs font-mono" style={{ background: COLORS.fileCardBg, border: `1px solid ${COLORS.error}40` }}>
+                    <li key={c.path} className="rounded px-2 py-1.5 text-2xs font-mono" style={{ background: COLORS.fileCardBg, border: `1px solid ${withHexAlpha(COLORS.error, '40')}` }}>
                       {onOpenFile ? (
                         <button
                           type="button"
@@ -196,7 +197,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 className="rounded px-2 py-1.5 motion-safe:transition-colors"
                 style={{
                   background: COLORS.fileCardBg,
-                  border: `1px solid ${canOpen ? heatColor + '30' : heatColor + '15'}`,
+                  border: `1px solid ${canOpen ? withHexAlpha(heatColor, '30') : withHexAlpha(heatColor, '15')}`,
                 }}
               >
                 {/* Filename */}

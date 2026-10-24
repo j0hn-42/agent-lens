@@ -8,6 +8,7 @@ import { truncatePath } from '@/lib/utils'
 import { wasteSummary, repeatsDisclosure, type WasteLedger } from '@/lib/waste'
 import { useLocale } from '@/lib/locale'
 import { DATA_EN, t as tr, pluralText, lostSentence, wasteDescribeText, wasteTokensText, wasteDisclosureText } from '@/lib/panel-text'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 /** Rows drawn at once; the rest is counted, never silently dropped. */
 export const WASTE_ROWS_SHOWN = 20
@@ -68,7 +69,7 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0, defaul
                   <li
                     key={`${item.agentId}\0${item.kind}\0${item.toolName}\0${item.target}`}
                     className="rounded px-2 py-1.5"
-                    style={{ background: COLORS.fileCardBg, border: `1px solid ${COLORS.tool}30` }}
+                    style={{ background: COLORS.fileCardBg, border: `1px solid ${withHexAlpha(COLORS.tool, '30')}` }}
                   >
                     {canOpen ? (
                       <button

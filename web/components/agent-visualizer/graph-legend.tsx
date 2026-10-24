@@ -14,6 +14,7 @@ import { useTourBridge, GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 import { useTheme } from '@/lib/theme'
 import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -207,7 +208,7 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
             <Row id="team-working" icon={<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 6 A6 6 0 1 1 6 12" fill="none" stroke={SCENE.holoBase} strokeWidth="2" /></svg>}>{t('legend.team-working')}</Row>
             <Row id="team-done" icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill={SCENE.holoBase} /></svg>}>{t('legend.team-done')}</Row>
             <Row id="team-archived" icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(9, 12, 12)} fill="none" stroke={SCENE.holoBase} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" /></svg>}>{t('legend.team-archived')}</Row>
-            <Row id="team-halo" icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${SCENE.teamDefault}1a`} stroke={SCENE.teamDefault} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>{t('legend.team-halo')}</Row>
+            <Row id="team-halo" icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${withHexAlpha(SCENE.teamDefault, '1a')}`} stroke={SCENE.teamDefault} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>{t('legend.team-halo')}</Row>
             <Row id="session-halo" icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke={SCENE.holoBase} strokeWidth="1.5" strokeDasharray="1 4" strokeLinecap="round" /></svg>}>{t('legend.session-halo')}</Row>
             <Row id="orchestrator" icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={SCENE.holoBase} strokeWidth="1.5" /><path d="M16 3 L16 7 L21 7 L21 3 L19.5 5 L18.5 2.5 L17.5 5 Z" fill={SCENE.crownAccent} /></svg>}>{t('legend.orchestrator')}</Row>
             {teams.map(team => (

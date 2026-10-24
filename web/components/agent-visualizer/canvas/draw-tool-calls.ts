@@ -11,6 +11,7 @@ import { USAGE_LABELS } from '@/lib/usage'
 import { boxInView } from './view-cull'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 /** Glow and error halo around a card (world units) */
 const TOOL_CULL_SLACK = 24
@@ -73,8 +74,8 @@ export function drawToolCalls(
       : isSelected ? withAlpha(SCENE.toolCardSelectedBase, 0.15 * pulse) : withAlpha(SCENE.toolCardBase, 0.7 * pulse)
     ctx.fill()
     ctx.strokeStyle = isError
-      ? SCENE.error + '90'
-      : isSelected ? SCENE.holoBase + 'aa' : isRunning ? accent + '90' : mcp ? SCENE.mcp + '60' : SCENE.return + '40'
+      ? withHexAlpha(SCENE.error, '90')
+      : isSelected ? withHexAlpha(SCENE.holoBase, 'aa') : isRunning ? withHexAlpha(accent, '90') : mcp ? withHexAlpha(SCENE.mcp, '60') : withHexAlpha(SCENE.return, '40')
     ctx.lineWidth = isError ? 2 : isSelected ? 1.5 : mcp ? 1.5 : 1
     if (isUnresolved) ctx.setLineDash([4, 3])
     ctx.stroke()
@@ -87,7 +88,7 @@ export function drawToolCalls(
     if (isRunning && reducedMotion && !showText) {
       ctx.beginPath()
       ctx.arc(tool.x, tool.y, cardW / 2 + TOOL_DRAW.spinRingPadding, -Math.PI / 2, Math.PI / 2)
-      ctx.strokeStyle = accent + '90'
+      ctx.strokeStyle = withHexAlpha(accent, '90')
       ctx.lineWidth = iconStroke
       ctx.stroke()
     }
@@ -107,7 +108,7 @@ export function drawToolCalls(
         // Spinning ring
         ctx.beginPath()
         ctx.arc(tool.x, tool.y, ringR, time * TOOL_DRAW.spinSpeed, time * TOOL_DRAW.spinSpeed + TOOL_DRAW.spinArc)
-        ctx.strokeStyle = SCENE.tool + '50'
+        ctx.strokeStyle = withHexAlpha(SCENE.tool, '50')
         ctx.lineWidth = 1.5
         ctx.stroke()
       }
@@ -124,7 +125,7 @@ export function drawToolCalls(
       ctx.roundRect(badgeX, badgeY, badgeW, MCP_DRAW.badgeHeight, MCP_DRAW.badgeHeight / 2)
       ctx.fillStyle = withAlpha(SCENE.toolCardBase, 0.9)
       ctx.fill()
-      ctx.strokeStyle = SCENE.mcp + 'cc'
+      ctx.strokeStyle = withHexAlpha(SCENE.mcp, 'cc')
       ctx.lineWidth = 1
       ctx.stroke()
       ctx.fillStyle = SCENE.mcp
@@ -136,7 +137,7 @@ export function drawToolCalls(
     // Crack lines for errors
     if (isError) {
       ctx.save()
-      ctx.strokeStyle = SCENE.error + '40'
+      ctx.strokeStyle = withHexAlpha(SCENE.error, '40')
       ctx.lineWidth = 0.8
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * Math.PI * 2 + 0.5
@@ -199,7 +200,7 @@ export function drawToolCalls(
       ctx.fillStyle = SCENE.error
       ctx.fillText(truncateText(ctx, `${displayName}: FAILED`, cardW - 8 - slot), textX, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
-      ctx.fillStyle = SCENE.error + 'aa'
+      ctx.fillStyle = withHexAlpha(SCENE.error, 'aa')
       ctx.fillText(truncateText(ctx, opts.maskText ? maskText(tool.errorMessage || tool.result || '') : (tool.errorMessage || tool.result || ''), cardW - 8 - slot), textX, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else if (isUnresolved) {
       ctx.fillStyle = SCENE.textMuted
@@ -213,7 +214,7 @@ export function drawToolCalls(
       ctx.fillText(truncatedLabel, textX, tool.y - TOOL_DRAW.twoLineOffset)
       if (tool.tokenCost) {
         // Token cost as dim text below; an estimate is tagged, never shown as an exact figure
-        ctx.fillStyle = SCENE.tool + '90'
+        ctx.fillStyle = withHexAlpha(SCENE.tool, '90')
         ctx.font = `${TOOL_DRAW.tokenFontSize}px monospace`
         const tag = tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''
         ctx.fillText(`${tool.tokenCost} tok${tag}`, textX, tool.y + TOOL_DRAW.twoLineOffset + 2)

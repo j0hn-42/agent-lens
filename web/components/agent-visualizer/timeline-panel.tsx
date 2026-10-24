@@ -32,6 +32,7 @@ import { PairFilterChip } from './pair-filter-chip'
 import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete } from '@/lib/pair-filter'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -92,7 +93,7 @@ function legendSwatchBackground(state: TimelineStateKey, color: string): string 
     case 'horizontal': return `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 3px)`
     case 'cross': return `repeating-linear-gradient(45deg, ${line} 0 1px, transparent 1px 3px), repeating-linear-gradient(-45deg, ${line} 0 1px, transparent 1px 3px)`
     case 'dots': return `radial-gradient(${line} 1px, transparent 1.2px) 0 0 / 4px 4px`
-    default: return `${line}66`
+    default: return `${withHexAlpha(line, '66')}`
   }
 }
 

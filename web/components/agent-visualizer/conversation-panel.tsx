@@ -42,6 +42,7 @@ import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-messa
 import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from './top-bar'
 import { truncateName } from '@/lib/truncate-name'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 export interface ConversationPanelProps {
   /** Whether the open panel (true) or the collapsed pill (false) is shown */
@@ -773,7 +774,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       onClick={onClick}
       className={`px-2 min-h-7 ${TOUCH_TARGET} max-w-full rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
       style={{
-        background: active ? color + '26' : COLORS.holoBg05,
+        background: active ? withHexAlpha(color, '26') : COLORS.holoBg05,
         color: active ? color : COLORS.textMuted,
         ...tabBorderStyle({ active, color, accent, done }),
       }}

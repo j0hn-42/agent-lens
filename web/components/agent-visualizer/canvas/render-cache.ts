@@ -1,3 +1,4 @@
+import { withHexAlpha } from '@/lib/color-alpha'
 // ─── Glow sprite cache ─────────────────────────────────────────────────────
 // Pre-renders radial gradient glows to off-screen canvases.
 // Avoids creating CanvasGradient objects every frame.
@@ -45,7 +46,7 @@ export function getAgentGlowSprite(
   const ctx = sprite.getContext('2d')!
   const glow = ctx.createRadialGradient(oR, oR, iR, oR, oR, oR)
   glow.addColorStop(0, color + glowAlphaHex)
-  glow.addColorStop(1, color + '00')
+  glow.addColorStop(1, withHexAlpha(color, '00'))
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, size, size)
 

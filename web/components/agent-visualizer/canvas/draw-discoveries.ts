@@ -6,6 +6,7 @@ import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-co
 import { truncateText } from './draw-misc'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, discoveryCardScale } from './draw-options'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, theme?: ThemeId) {
   const scene = scenePalette(theme)
@@ -15,7 +16,7 @@ export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discover
 
     ctx.save()
     // Faint by design; in High contrast it reaches 3:1 while the card is shown (#381)
-    const line = sceneInk(theme, 'mark', scene.holoBase + '30', disc.opacity * 0.3)
+    const line = sceneInk(theme, 'mark', withHexAlpha(scene.holoBase, '30'), disc.opacity * 0.3)
     ctx.globalAlpha = line.alpha
     ctx.strokeStyle = line.color
     ctx.lineWidth = 0.5

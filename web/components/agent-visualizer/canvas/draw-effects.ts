@@ -2,6 +2,7 @@ import { SCENE } from '@/lib/colors'
 import { SPAWN_FX, COMPLETE_FX, MCP_DRAW } from '@/lib/canvas-constants'
 import { drawHexagon } from './draw-misc'
 import { alphaHex } from '@/lib/utils'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 export interface VisualEffect {
   type: 'spawn' | 'complete' | 'shatter' | 'mcp'
@@ -66,7 +67,7 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
           const flashAlpha = (1 - progress / COMPLETE_FX.flashThreshold) * COMPLETE_FX.flashAlpha
           const grad = ctx.createRadialGradient(fx.x, fx.y, 0, fx.x, fx.y, COMPLETE_FX.flashRadius)
           grad.addColorStop(0, SCENE.holoHot + alphaHex(flashAlpha))
-          grad.addColorStop(1, SCENE.holoHot + '00')
+          grad.addColorStop(1, withHexAlpha(SCENE.holoHot, '00'))
           ctx.fillStyle = grad
           ctx.fillRect(fx.x - COMPLETE_FX.flashRadius, fx.y - COMPLETE_FX.flashRadius, COMPLETE_FX.flashRadius * 2, COMPLETE_FX.flashRadius * 2)
         }
@@ -81,9 +82,9 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
 
         // Glow behind ring
         const grad = ctx.createRadialGradient(fx.x, fx.y, ringRadius - COMPLETE_FX.glowInner, fx.x, fx.y, ringRadius + COMPLETE_FX.glowOuter)
-        grad.addColorStop(0, fx.color + '00')
+        grad.addColorStop(0, withHexAlpha(fx.color, '00'))
         grad.addColorStop(0.5, fx.color + alphaHex(alpha * (100 / 255)))
-        grad.addColorStop(1, fx.color + '00')
+        grad.addColorStop(1, withHexAlpha(fx.color, '00'))
         ctx.fillStyle = grad
         ctx.beginPath()
         ctx.arc(fx.x, fx.y, ringRadius + COMPLETE_FX.glowOuter, 0, Math.PI * 2)
@@ -126,8 +127,8 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
           // Tiny glow on each particle
           ctx.beginPath()
           const glow = ctx.createRadialGradient(px, py, 0, px, py, size * 3)
-          glow.addColorStop(0, fx.color + '40')
-          glow.addColorStop(1, fx.color + '00')
+          glow.addColorStop(0, withHexAlpha(fx.color, '40'))
+          glow.addColorStop(1, withHexAlpha(fx.color, '00'))
           ctx.fillStyle = glow
           ctx.arc(px, py, size * 3, 0, Math.PI * 2)
           ctx.fill()

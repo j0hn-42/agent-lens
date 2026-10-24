@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { withAlpha } from '../web/lib/color-alpha'
+import { withHexAlpha } from '../web/lib/color-alpha'
 import { Z } from '../web/lib/agent-types'
 
 const WEB = join(__dirname, '..', 'web')
@@ -35,18 +35,18 @@ test('the 11 px step is the text-2xs token, rendered at 11 px', () => {
   assert.deepEqual(offenders(/text-\[11px\]/), [])
 })
 
-test('withAlpha appends a two-digit hex alpha to a #rrggbb colour, exactly like the concatenation it replaces', () => {
-  assert.equal(withAlpha('#ff8800', '80'), '#ff880080')
-  assert.equal(withAlpha('#FF8800', '00'), '#FF880000')
+test('withHexAlpha appends a two-digit hex alpha to a #rrggbb colour, exactly like the concatenation it replaces', () => {
+  assert.equal(withHexAlpha('#ff8800', '80'), '#ff880080')
+  assert.equal(withHexAlpha('#FF8800', '00'), '#FF880000')
 })
 
-test('withAlpha leaves a colour it cannot extend untouched (an invalid string would throw in addColorStop)', () => {
-  assert.equal(withAlpha('rgba(1, 2, 3, 0.5)', '80'), 'rgba(1, 2, 3, 0.5)')
-  assert.equal(withAlpha('var(--x)', '80'), 'var(--x)')
-  assert.equal(withAlpha('#abc', '80'), '#abc')
+test('withHexAlpha leaves a colour it cannot extend untouched (an invalid string would throw in addColorStop)', () => {
+  assert.equal(withHexAlpha('rgba(1, 2, 3, 0.5)', '80'), 'rgba(1, 2, 3, 0.5)')
+  assert.equal(withHexAlpha('var(--x)', '80'), 'var(--x)')
+  assert.equal(withHexAlpha('#abc', '80'), '#abc')
 })
 
-test('no hex alpha is glued to a colour by hand: withAlpha is the one place', () => {
+test('no hex alpha is glued to a colour by hand: withHexAlpha is the one place', () => {
   assert.deepEqual(offenders(/\+ ?['"][0-9a-fA-F]{2}['"]/, ['lib/color-alpha.ts']), [])
   assert.deepEqual(offenders(/\$\{[^}]+\}[0-9a-fA-F]{2}[`']/, ['lib/color-alpha.ts']), [])
 })

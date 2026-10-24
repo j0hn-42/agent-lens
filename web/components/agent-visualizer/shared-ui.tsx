@@ -14,6 +14,7 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { DRAWER_COMPANIONS, DRAWER_FOCUSABLE, PERMISSION_HEIGHT_VAR, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
 import { useMobileView } from '@/hooks/use-mobile-view'
 import { GlassCard } from './glass-card'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
 // Prevents canvas drag/click events from firing when interacting with panels
@@ -563,7 +564,7 @@ export function ProgressBar({ percent, color, trackColor = COLORS.holoBg10, labe
         style={{
           width: `${clamped}%`,
           background: color,
-          boxShadow: `0 0 6px ${color}40`,
+          boxShadow: `0 0 6px ${withHexAlpha(color, '40')}`,
         }}
       />
     </div>

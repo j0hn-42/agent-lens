@@ -8,6 +8,7 @@ import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
 export function drawMessageBubblesWorld(
@@ -111,7 +112,7 @@ export function drawMessageBubblesWorld(
           ctx.fillText(opts.maskText ? maskText(lines[i]) : lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
         }
         if (truncated) {
-          ctx.fillStyle = textColor + 'c0'
+          ctx.fillStyle = withHexAlpha(textColor, 'c0')
           ctx.fillText('...', anchorX + style.padding, cursorY + style.headerH + lines.length * style.lineH)
         }
       }
