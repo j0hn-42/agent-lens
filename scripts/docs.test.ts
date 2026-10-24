@@ -641,3 +641,15 @@ test('relay-sources documents how Cursor hook payloads are ignored, with the doc
     assert.ok(doc.includes(term), `docs/relay-sources.md should mention "${term}"`)
   }
 })
+
+test('CONTRIBUTING documents the shared Button and its variants (#508)', () => {
+  const c = read('CONTRIBUTING.md')
+  const src = read('web/components/ui/button.tsx')
+  assert.ok(c.includes('## Shared Button in the web UI'), 'has its section')
+  assert.ok(c.includes('web/components/ui/button.tsx'), 'names the component file')
+  const variants = src.match(/export type ButtonVariant = ([^\n]+)/)?.[1].match(/'(\w+)'/g)?.map(v => v.replace(/'/g, '')) ?? []
+  assert.ok(variants.length >= 4, 'the component declares its variants')
+  for (const v of variants) assert.ok(c.includes(`\`${v}\``), `CONTRIBUTING documents the variant ${v}`)
+  for (const file of ['web/tests-a11y/button-pins.test.tsx', 'web/tests-a11y/button-theme.test.tsx'])
+    assert.ok(c.includes(file) && fs.existsSync(path.join(root, file)), `CONTRIBUTING cites ${file}`)
+})
