@@ -92,6 +92,22 @@ const HEX_OFFSETS = Array.from({ length: 6 }, (_, i) => {
   return { cos: Math.cos(angle), sin: Math.sin(angle) }
 })
 
+/** Screen pitch (px) between two hexagon centres under which the grid is thinned (#646): a hexagon of
+ *  24 world units is about 8 px wide there, no longer a readable shape. */
+const HEX_MIN_PITCH_PX = 15
+
+/**
+ * Level of detail of the hex grid (#646): draw one hexagon out of `stride` per axis, `stride` being a
+ * power of two (1 = every hexagon). Without it the count grows as 1/scale² (142 000 at the minimum zoom).
+ * The stride is 1 from a 15 px pitch up, so the default zoom is unchanged, and the count never exceeds
+ * about 10 000 whatever the zoom.
+ */
+export function hexGridStride(scale: number): number {
+  const pitch = HEX_GRID_SIZE * 1.5 * scale
+  if (!(pitch > 0) || pitch >= HEX_MIN_PITCH_PX) return 1
+  return 2 ** Math.ceil(Math.log2(HEX_MIN_PITCH_PX / pitch))
+}
+
 function drawHexGrid(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -118,12 +134,21 @@ function drawHexGrid(
   ctx.lineWidth = 0.5
 
   // Quantize alpha into buckets to batch hexagons into fewer draw calls
-  const buckets = new Map<number, Array<[number, number]>>()
+  // (flat [cx, cy, cx, cy, ...] arrays: no tuple allocated per hexagon)
+  const buckets = new Map<number, number[]>()
   const timeSin = time * 0.5
 
-  for (let x = startX; x < endX; x += size * 1.5) {
-    for (let y = startY; y < endY; y += hexHeight) {
-      const offsetY = ((x - startX) / (size * 1.5)) % 2 === 0 ? 0 : hexHeight / 2
+  // Thinned grid (#646): the steps are multiples of the stride and anchored on the world origin, so the
+  // kept hexagons do not shift while panning.
+  const stride = hexGridStride(transform.scale)
+  const stepX = size * 1.5 * stride
+  const stepY = hexHeight * stride
+  const gridX = stride === 1 ? startX : Math.floor(startX / stepX) * stepX
+  const gridY = stride === 1 ? startY : Math.floor(startY / stepY) * stepY
+
+  for (let x = gridX; x < endX; x += stepX) {
+    for (let y = gridY; y < endY; y += stepY) {
+      const offsetY = stride === 1 && ((x - startX) / (size * 1.5)) % 2 !== 0 ? hexHeight / 2 : 0
       const cx = x
       const cy = y + offsetY
       const dist = Math.sqrt(cx * cx + cy * cy)
@@ -132,7 +157,7 @@ function drawHexGrid(
       const alpha = Math.round(0.15 * pulse * 40) / 40
       let bucket = buckets.get(alpha)
       if (!bucket) { bucket = []; buckets.set(alpha, bucket) }
-      bucket.push([cx, cy])
+      bucket.push(cx, cy)
     }
   }
 
@@ -140,7 +165,9 @@ function drawHexGrid(
   for (const [alpha, hexes] of buckets) {
     ctx.globalAlpha = alpha
     ctx.beginPath()
-    for (const [cx, cy] of hexes) {
+    for (let h = 0; h < hexes.length; h += 2) {
+      const cx = hexes[h]
+      const cy = hexes[h + 1]
       ctx.moveTo(cx + r * HEX_OFFSETS[0].cos, cy + r * HEX_OFFSETS[0].sin)
       for (let i = 1; i < 6; i++) {
         ctx.lineTo(cx + r * HEX_OFFSETS[i].cos, cy + r * HEX_OFFSETS[i].sin)
