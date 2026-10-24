@@ -152,8 +152,13 @@ jobs:
       # The apt packages are NOT downloaded on every run any more (#440): `--with-deps` fetched ~25 MB each time,
       # even on a cache hit, and a slow mirror (24-64 kB/s on 2026-10-23) ate the 15 min of the job. The browser
       # alone is installed (a no-op on a cache hit), then ldd on its binaries decides whether a system library is
-      # really missing; only then `install-deps` runs. The step has its own budget and exactly one new attempt,
-      # and it logs what it did, so a slow mirror reads as an install failure, not as cancelled tests.
+      # really missing; only then `install-deps` runs. ldd only checks the linked libraries: it cannot see the
+      # fonts (fonts-freefont-ttf, fonts-ipafont-gothic, fonts-tlwg-loma-otf, fonts-unifont, fonts-wqy-zenhei,
+      # xfonts-*) nor xvfb that `--with-deps` also installed, and those are no longer installed. No e2e file compares a
+      # reference capture or types CJK, Thai or Cyrillic text (git grep of web/tests-a11y/e2e on 2026-10-24), but a
+      # missing font could still change a text width: that effect is not proven either way.
+      # The step has its own budget (the limits below add up to less than its timeout-minutes) and exactly one new
+      # attempt, and it logs what it did, so a slow mirror reads as an install failure, not as cancelled tests.
       - name: Install Chromium for Playwright
         id: playwright-install
         timeout-minutes: 4
@@ -163,8 +168,8 @@ jobs:
           echo "cache-hit=${{ steps.playwright-cache.outputs.cache-hit }}"
           installed=false
           for attempt in 1 2; do
-            echo "attempt $attempt/2: playwright install chromium (limit 100 s, t=${SECONDS}s)"
-            if timeout 100 pnpm --dir web exec playwright install chromium; then
+            echo "attempt $attempt/2: playwright install chromium (limit 60 s, t=${SECONDS}s)"
+            if timeout 60 pnpm --dir web exec playwright install chromium; then
               installed=true
               break
             fi
@@ -175,10 +180,15 @@ jobs:
             exit 1
           fi
           missing=0
+          ldd_failed=0
           checked=0
           while IFS= read -r bin; do
             checked=$((checked + 1))
-            if out=$(ldd "$bin" 2>&1 | grep 'not found'); then
+            if ! ldd_out=$(ldd "$bin" 2>&1); then
+              # not a dynamic executable or unreadable: nothing was verified, so do not report "no missing library"
+              echo "ldd failed for $bin (nothing verified): $ldd_out"
+              ldd_failed=1
+            elif out=$(printf '%s\n' "$ldd_out" | grep 'not found'); then
               echo "missing libraries for $bin:"
               echo "$out"
               missing=1
@@ -190,11 +200,11 @@ jobs:
             echo "::error::no Chromium binary found under ~/.cache/ms-playwright after the install"
             exit 1
           fi
-          if [ "$missing" = 1 ]; then
-            echo "decision: missing libraries, running 'playwright install-deps chromium' (apt)"
-            timeout 120 pnpm --dir web exec playwright install-deps chromium || { echo "::error::install-deps failed or timed out after ${SECONDS}s"; exit 1; }
+          if [ "$missing" = 1 ] || [ "$ldd_failed" = 1 ]; then
+            echo "decision: missing libraries or ldd failed, running 'playwright install-deps chromium' (apt)"
+            timeout 90 pnpm --dir web exec playwright install-deps chromium || { echo "::error::install-deps failed or timed out after ${SECONDS}s"; exit 1; }
           else
-            echo "decision: no missing library, apt skipped"
+            echo "decision: no missing library among the linked libraries, apt skipped (fonts and xvfb are not checked)"
           fi
           echo "Install step duration: ${SECONDS}s"
 
