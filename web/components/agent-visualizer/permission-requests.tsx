@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { Button } from '@/components/ui/button'
 import { CONTROL_ALL } from '@/lib/control-chars'
 import { visibleInput, type PermissionRequestMessage } from '@/lib/bridge-types'
 import { formatPermissionTime, inputSummary, remainingSeconds } from '@/lib/permission-requests'
@@ -11,7 +12,7 @@ import { useLocale, useT } from '@/lib/locale'
 import type { MessageKey } from '@/lib/messages'
 import type { PermissionAction } from '@/lib/bridge-types'
 import { usePermissionRequests, type PermissionNotice, type PermissionRow } from '@/hooks/use-vscode-bridge'
-import { PERMISSION_HEIGHT_VAR, PERMISSION_OPEN_ATTR, TOUCH_TARGET } from '@/lib/mobile-view'
+import { PERMISSION_HEIGHT_VAR, PERMISSION_OPEN_ATTR } from '@/lib/mobile-view'
 import { RedirectDialog } from './permission-redirect-dialog'
 
 const CLOSED_KEYS: Record<string, MessageKey> = {
@@ -240,8 +241,6 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onF
   const name = (action: string) => summary
     ? t('permission.actionName', { action, tool: r.toolName, summary, session })
     : t('permission.actionNameShort', { action, tool: r.toolName, session })
-  const button = `text-[11px] font-mono px-2 min-h-6 min-w-6 ${TOUCH_TARGET} rounded motion-safe:transition-colors ${FOCUS_RING}`
-  const buttonStyle = { color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, background: 'transparent' }
   const sending = state === 'sending'
   const secondsLeft = useSecondsLeft(r.expiresAt)
   const countdown = secondsLeft > 0
@@ -284,15 +283,13 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onF
       {state === 'sent' ? (
         <div className="flex items-center gap-2 flex-wrap">
           <p className="m-0 flex-1">{sentText(row, t)}</p>
-          <button
-            type="button"
-            className={button}
-            style={buttonStyle}
+          <Button
+            variant="decision"
             aria-label={t('permission.dismissName', { tool: r.toolName, session })}
             onClick={() => onDismiss(r.nonce)}
           >
             {t('permission.dismiss')}
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="flex items-center gap-2 flex-wrap">
@@ -301,11 +298,11 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onF
             // Approve: solid border, check. Deny: dashed border, cross. Redirect: dotted border, arrow. Same text colour, so the cue is not colour
             const shape = { border: action === 'approve' ? `2px solid ${COLORS.controlBorder}` : `1px ${action === 'deny' ? 'dashed' : 'dotted'} ${COLORS.controlBorder}` }
             return (
-              <button
+              <Button
                 key={action}
-                type="button"
-                className={`${button} inline-flex items-center gap-1`}
-                style={sending ? { ...buttonStyle, ...shape, opacity: 0.6 } : { ...buttonStyle, ...shape }}
+                variant="decision"
+                className="inline-flex items-center gap-1"
+                style={sending ? { ...shape, opacity: 0.6 } : shape}
                 aria-label={name(visible)}
                 aria-disabled={sending || undefined}
                 aria-haspopup={action === 'redirect' ? 'dialog' : undefined}
@@ -317,7 +314,7 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onF
               >
                 <DecisionIcon action={action} />
                 {visible}
-              </button>
+              </Button>
             )
           })}
           {sending && <p className="m-0" style={{ color: COLORS.textMuted }}>{t('permission.sending')}</p>}

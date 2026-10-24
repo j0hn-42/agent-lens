@@ -7,8 +7,7 @@ import { CAMERA, TOOL_EXPIRY_CHOICES_S } from '@/lib/canvas-constants'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
-import { FOCUS_RING } from '@/lib/focus-ring'
-import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { Button, buttonClass, buttonStyle } from '@/components/ui/button'
 import { NO_HIDDEN_NAMES, type HiddenNamesDisplay } from '@/lib/hidden-names-display'
 import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
@@ -16,9 +15,8 @@ import { useDockSnapshot } from './shared-ui'
 import { canvasControlsFit, useCanvasControlsSlot } from './canvas-controls-slot'
 import { useTourBridge, CANVAS_CONTROLS_MENU_ID } from './guided-tour-context'
 
-const CONTROL_BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
-  + `${TOUCH_TARGET} ${FOCUS_RING} disabled:opacity-60`
+/** The look of the control buttons, for the one label that must match them */
+const CONTROL_BUTTON_CLASS = buttonClass('control')
 
 interface CanvasControlsProps {
   /** Teams of the accessible model (legend) */
@@ -88,25 +86,26 @@ function SlidersIcon() {
   )
 }
 
-const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
+/** Rebuilt on each read: a value cached at module load would keep the default theme's colours */
+const controlBox = () => ({ ...buttonStyle('control') })
 
 /** A toggle of the View panel: a visible check mark (aria-hidden) says "on" besides the colour */
 function PanelToggle({ pressed, disabled, title, onClick, children }: {
   pressed: boolean; disabled?: boolean; title?: string; onClick: () => void; children: ReactNode
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="control"
+      active={pressed}
       aria-pressed={pressed}
       disabled={disabled}
       title={title}
       onClick={onClick}
-      className={`${CONTROL_BUTTON_CLASS} justify-start gap-1`}
-      style={{ ...BUTTON_STYLE, background: pressed ? COLORS.toggleActive : COLORS.panelBg }}
+      className="justify-start gap-1"
     >
       <span aria-hidden="true" className="inline-block w-3">{pressed ? '\u2713' : ''}</span>
       {children}
-    </button>
+    </Button>
   )
 }
 
@@ -250,18 +249,16 @@ export function CanvasControls({
   const hiddenNamesButton = showHiddenNames && (
     // Its text is its name (2.5.3); no live region: the count follows the zoom and must not chatter (issue 594). With no
     // stable count to show (it is changing), the neutral label names the list it opens: never a stale number
-    <button
-      type="button"
+    <Button
+      variant="control"
       data-hidden-names={hiddenNames.count ?? ''}
       title={t('controls.hiddenNames.title', { panel: agentListKey ? `${t('sessions.title')} (${agentListKey})` : t('sessions.title') })}
       onClick={onShowAgentList}
-      className={CONTROL_BUTTON_CLASS}
-      style={BUTTON_STYLE}
     >
       {hiddenNames.count === null
         ? t('sessions.title')
         : t(new Intl.PluralRules(locale).select(hiddenNames.count) === 'one' ? 'controls.hiddenNames.one' : 'controls.hiddenNames.other', { n: hiddenNames.count })}
-    </button>
+    </Button>
   )
   const zoomAndView = (
     <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
@@ -275,49 +272,42 @@ export function CanvasControls({
         {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378). Folded, the bar holds it */}
         <div data-canvas-inset={folded ? undefined : 'bottom'} className="flex flex-wrap items-center justify-end gap-2">
           <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
-            <button
-              type="button"
+            <Button
+              variant="control"
               aria-label={t('controls.zoomIn')}
               title={`${t('controls.zoomIn')} (+)`}
               onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
-              className={CONTROL_BUTTON_CLASS}
-              style={BUTTON_STYLE}
             >
               <MagnifierIcon sign="plus" />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="control"
               aria-label={t('controls.zoomOut')}
               title={`${t('controls.zoomOut')} (-)`}
               onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
-              className={CONTROL_BUTTON_CLASS}
-              style={BUTTON_STYLE}
             >
               <MagnifierIcon sign="minus" />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="control"
               aria-label={t('controls.fit')}
               title={`${t('controls.fit')} (0)`}
               onClick={doZoomToFit}
-              className={CONTROL_BUTTON_CLASS}
-              style={BUTTON_STYLE}
             >
               <FitIcon />
-            </button>
+            </Button>
           </div>
-          <button
+          <Button
             ref={viewRef}
-            type="button"
+            variant="control"
+            active={open}
             aria-haspopup="dialog"
             aria-expanded={open}
             aria-controls={open ? panelId : undefined}
             onClick={() => setOpen(o => !o)}
-            className={CONTROL_BUTTON_CLASS}
-            style={{ ...BUTTON_STYLE, background: open ? COLORS.toggleActive : COLORS.panelBg }}
           >
             {t('controls.view')}
-          </button>
+          </Button>
         </div>
         {folded && hiddenNamesButton}
       </div>
@@ -328,7 +318,7 @@ export function CanvasControls({
           role="dialog"
           aria-label={t('controls.viewSettings')}
           className="flex max-w-full flex-col items-stretch gap-1 rounded-md p-2"
-          style={{ ...BUTTON_STYLE }}
+          style={controlBox()}
         >
           <PanelToggle
             pressed={animationsPaused || pausedBySystem}
@@ -340,7 +330,7 @@ export function CanvasControls({
           </PanelToggle>
           <MotionLayerControls locale={locale} calm={calmLayers} lock={pausedBySystem ? 'system' : animationsPaused ? 'pause' : null} onToggle={onToggleCalmLayer} />
           <PanelToggle pressed={neverHide} onClick={onToggleNeverHide}>{t('controls.keepCards')}</PanelToggle>
-          <label className={`${CONTROL_BUTTON_CLASS} flex-wrap justify-between gap-1`} style={BUTTON_STYLE}>
+          <label className={`${CONTROL_BUTTON_CLASS} flex-wrap justify-between gap-1`} style={controlBox()}>
             {t('controls.expireAfter')}
             <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
               {TOOL_EXPIRY_CHOICES_S.map(n => (
@@ -359,27 +349,26 @@ export function CanvasControls({
     const maxHeight = Math.max(0, env.viewport.h - CONTROL_BAR_BOTTOM - controlBarH - 2 * DOCK_GAP)
     return createPortal(
       <div ref={menuRef} lang={locale} className="ml-auto shrink-0">
-        <button
+        <Button
           ref={menuButtonRef}
           id={CANVAS_CONTROLS_MENU_ID}
-          type="button"
+          variant="control"
+          active={menuShown}
           aria-label={t('controls.canvasMenu')}
           title={t('controls.canvasMenu')}
           aria-expanded={menuShown}
           aria-controls={menuShown ? menuId : undefined}
           onClick={() => { if (menuShown) closeMenu(); else setMenuOpen(true) }}
-          className={CONTROL_BUTTON_CLASS}
-          style={{ ...BUTTON_STYLE, background: menuShown ? COLORS.toggleActive : COLORS.panelBg }}
         >
           <SlidersIcon />
-        </button>
+        </Button>
         {menuShown && (
           <div
             id={menuId}
             role="group"
             aria-label={t('controls.canvasMenu')}
             className="absolute bottom-full right-0 mb-2 flex w-max max-w-full flex-wrap items-end gap-2 overflow-y-auto rounded-md p-2 scroll-p-2"
-            style={{ ...BUTTON_STYLE, maxHeight }}
+            style={{ ...controlBox(), maxHeight }}
           >
             {legend}
             {zoomAndView}

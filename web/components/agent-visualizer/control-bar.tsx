@@ -10,6 +10,7 @@ import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import type { ConnectionStatus } from '@/lib/bridge-types'
 import { blurFlagAction, formatEventCount, formatSpeed, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { Button } from '@/components/ui/button'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { canvasControlsSlotRef } from './canvas-controls-slot'
 
@@ -118,7 +119,6 @@ function useScrubberEvents(timelineEvents: TimelineEvent[], totalDuration: numbe
  *  (COLORS.scrubberFill starts at 30% alpha, which fails that ratio at the left end). */
 const scrubberFill = () => `linear-gradient(90deg, ${COLORS.accent}, ${COLORS.focus})`
 
-const BTN_BASE = `min-h-6 min-w-6 ${TOUCH_TARGET} rounded font-mono text-[11px] ${FOCUS_RING}`
 const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
 /** Same box as controlBarRect() in lib/panel-layout (which the docks keep clear of). */
 const BAR_STYLE: import("react").CSSProperties = { pointerEvents: 'auto', maxWidth: `min(${POPUP.controlBarMaxWidth}px, calc(100vw - 32px))`, zIndex: Z.controlBar }
@@ -233,15 +233,15 @@ function LiveControlBar({
         {noEvents && <span id={reviewReasonId} className="sr-only">{t('bar.review.empty')}</span>}
 
         {/* Review button */}
-        <button
-          type="button"
+        <Button
+          variant="bar"
           onClick={onEnterReview}
           data-primary-control=""
           aria-disabled={noEvents || undefined}
           aria-describedby={noEvents ? reviewReasonId : undefined}
           aria-label={t('bar.review.name')}
           aria-keyshortcuts="Space"
-          className={`${BTN_BASE} px-2.5 py-1 transition-all ${noEvents ? 'opacity-60 cursor-not-allowed' : 'motion-safe:hover:scale-105'}`}
+          className={`px-2.5 py-1 transition-all ${noEvents ? 'opacity-60 cursor-not-allowed' : 'motion-safe:hover:scale-105'}`}
           style={{
             background: COLORS.holoBg10,
             border: `1px solid ${COLORS.controlBorder}`,
@@ -249,7 +249,7 @@ function LiveControlBar({
           }}
         >
           <span aria-hidden="true">⏸ </span>{t('bar.review')}
-        </button>
+        </Button>
         <div ref={canvasControlsSlotRef} data-canvas-controls-slot="" className="contents" />
       </div>
     </div>
@@ -324,13 +324,13 @@ function ReviewControlBar({
     >
       <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* Play/Pause */}
-        <button
-          type="button"
+        <Button
+          variant="bar"
           onClick={onPlayPause}
           data-primary-control=""
           aria-label={isPlaying ? t('bar.pause') : t('bar.play')}
           aria-keyshortcuts="Space"
-          className={`${BTN_BASE} w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 motion-safe:hover:scale-110`}
+          className="w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 motion-safe:hover:scale-110"
           style={{
             background: isPlaying ? COLORS.playBtnActiveBg : COLORS.playBtnBg,
             border: `1.5px solid ${COLORS.controlBorder}`,
@@ -340,7 +340,7 @@ function ReviewControlBar({
           <span aria-hidden="true" style={{ color: COLORS.textPrimary, fontSize: 14, marginLeft: isPlaying ? 0 : 2 }}>
             {isPlaying ? '⏸' : '▶'}
           </span>
-        </button>
+        </Button>
 
         {/* Time */}
         <span className="text-xs font-mono shrink-0" style={{ color: COLORS.textPrimary, minWidth: 42 }}>
@@ -421,30 +421,30 @@ function ReviewControlBar({
         {/* Speed controls */}
         <div role="group" aria-label={t('bar.speed.group')} className="flex items-center gap-0.5 shrink-0">
           {SPEEDS.map((s) => (
-            <button
-              type="button"
+            <Button
+              variant="bar"
               key={s}
               onClick={() => onSpeedChange(s)}
               aria-pressed={speed === s}
               aria-label={translate(locale, 'bar.speed', { s: formatSpeed(s, locale) })}
-              className={`${BTN_BASE} px-2 py-1 transition-all ${speed === s ? 'font-bold underline underline-offset-4' : ''}`}
+              className={`px-2 py-1 transition-all ${speed === s ? 'font-bold underline underline-offset-4' : ''}`}
               style={{
                 background: speed === s ? COLORS.playBtnActiveBg : 'transparent',
                 color: speed === s ? COLORS.textPrimary : COLORS.textMuted,
               }}
             >
               {formatSpeed(s, locale)}x
-            </button>
+            </Button>
           ))}
         </div>
 
         {/* Resume Live */}
         {isReviewing && (
-          <button
-            type="button"
+          <Button
+            variant="bar"
             onClick={onResumeLive}
             aria-label={t('bar.resumeLive')}
-            className={`${BTN_BASE} px-2.5 py-1 font-semibold transition-all motion-safe:hover:scale-105 shrink-0`}
+            className="px-2.5 py-1 font-semibold transition-all motion-safe:hover:scale-105 shrink-0"
             style={{
               // An action, like Review: the live red belongs to the badge that says the flux is live
               background: COLORS.holoBg10,
@@ -453,7 +453,7 @@ function ReviewControlBar({
             }}
           >
             <span aria-hidden="true">▶ </span>{t('topbar.connection.watching')}
-          </button>
+          </Button>
         )}
 
         {/* Clear history (destructive: two-step confirmation) */}
@@ -471,37 +471,37 @@ function ReviewControlBar({
             aria-label={t('bar.confirmGroup')}
             className="flex items-center gap-1 shrink-0"
           >
-            <button
+            <Button
+              variant="bar"
               ref={confirmBtnRef}
-              type="button"
               onClick={() => { setConfirmingClear(false); onRestart() }}
-              className={`${BTN_BASE} px-2 py-1 font-semibold`}
+              className="px-2 py-1 font-semibold"
               style={{ background: COLORS.liveResumeBg, border: `1px solid ${COLORS.liveResumeBorder}`, color: COLORS.liveText }}
             >
               {t('bar.confirmClear')}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="bar"
               onClick={cancelClear}
-              className={`${BTN_BASE} px-2 py-1`}
+              className="px-2 py-1"
               style={{ color: COLORS.textMuted }}
             >
               {t('bar.cancel')}
-            </button>
+            </Button>
           </span>
           </span>
         ) : (
-          <button
+          <Button
+            variant="bar"
             ref={clearBtnRef}
-            type="button"
             onClick={() => setConfirmingClear(true)}
             aria-label={t('bar.clear')}
             title={t('bar.clear.title')}
-            className={`${BTN_BASE} px-2 py-1 transition-all motion-safe:hover:scale-105 shrink-0`}
+            className="px-2 py-1 transition-all motion-safe:hover:scale-105 shrink-0"
             style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
           >
             <span aria-hidden="true">⟲ </span>{t('bar.clear')}
-          </button>
+          </Button>
         ))}
         <div ref={canvasControlsSlotRef} data-canvas-controls-slot="" className="contents" />
       </div>
