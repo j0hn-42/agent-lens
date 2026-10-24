@@ -2,7 +2,7 @@
 // timers. Covers relayEnabled, status mapping, relay-down / relay-up / parse-error notices, the detail
 // fields, the relaySessionId option and the offline fallback. The VS Code case runs last: the bridge
 // singleton cannot leave VS Code mode once it entered it.
-import { test, afterEach, beforeEach, mock } from 'node:test'
+import { test, afterEach, before, beforeEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, cleanup, act } from '@testing-library/react'
 import { vscodeBridge } from '@/lib/vscode-bridge'
@@ -11,6 +11,10 @@ import { useVSCodeBridge, PARSE_NOTICE_INTERVAL_MS } from '@/hooks/use-vscode-br
 import { resetDefaultUiPreferencesStore, useUiPreferences } from '@/hooks/use-ui-preferences'
 import { BACKOFF_BASE_MS, POLL_INTERVAL_MS } from '@/lib/reconnect'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
+import { loadMockScenario } from '@/lib/demo-scenario'
+
+// The demo is on at start once its scenario chunk is loaded, as the entries do before their first render (#662)
+before(() => loadMockScenario())
 
 class FakeES {
   static all: FakeES[] = []

@@ -1,10 +1,15 @@
-import { test, afterEach } from 'node:test'
+import { test, afterEach, before } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { GuidedTourCard } from '@/components/agent-visualizer/guided-tour-card'
-import { GUIDED_STEPS } from '@/lib/guided-steps'
+import { guidedSteps, type GuidedStep } from '@/lib/guided-steps'
 import { GUIDED_TOUR_BUTTON_ID, CANVAS_CONTROLS_MENU_ID } from '@/components/agent-visualizer/guided-tour-context'
+import { loadLocale } from '@/lib/messages'
+
+/** The demo tour in English, written once its table is loaded (#662: no table is loaded at import) */
+let GUIDED_STEPS: readonly GuidedStep[] = []
+before(async () => { await loadLocale('en'); GUIDED_STEPS = guidedSteps('en') })
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 const frames = () => act(async () => { await new Promise(r => setTimeout(r, 80)) })

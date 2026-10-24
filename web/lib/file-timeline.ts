@@ -35,8 +35,9 @@ export interface FileTimeline {
   omitted: number
 }
 
-/** Steps kept per file; the older ones are counted, not listed. */
-export const FILE_TIMELINE_MAX_STEPS = 50
+/** Steps kept per file (list-limits.ts); the older ones are counted, not listed. */
+import { FILE_TIMELINE_MAX_STEPS } from './list-limits'
+export { FILE_TIMELINE_MAX_STEPS }
 
 /** The kind of step a tool makes on its file, or null when the tool makes none. */
 export function fileStepKind(toolName: string): FileStepKind | null {

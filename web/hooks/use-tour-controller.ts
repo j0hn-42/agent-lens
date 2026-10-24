@@ -3,7 +3,7 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { useGuidedTour } from '@/hooks/use-guided-tour'
 import type { useAgentSimulation } from '@/hooks/use-agent-simulation'
-import { GUIDED_STEPS, guidedSteps } from '@/lib/guided-steps'
+import { guidedSteps } from '@/lib/guided-steps'
 import { buildLiveTourSteps } from '@/lib/live-tour'
 import { EMPTY_PRESENCE, type LegendPresence } from '@/lib/legend-presence'
 import { useLocale } from '@/lib/locale'
@@ -30,8 +30,8 @@ export function useTourController({ seek, play, isGuidedDemo, frameRef, setTourS
   // The live tour keeps the proof it was built from, not its words: the steps are written again if the language changes
   const [livePresence, setLivePresence] = useState<LegendPresence | null>(null)
   const liveSteps = useMemo(() => (livePresence ? buildLiveTourSteps(livePresence, locale) : null), [livePresence, locale])
-  // English is built once (GUIDED_STEPS); another language is written from the catalog
-  const demoSteps = useMemo(() => (locale === 'en' ? GUIDED_STEPS : guidedSteps(locale)), [locale])
+  // Written from the catalog in the language shown: no table is read before the entries loaded one (#662)
+  const demoSteps = useMemo(() => guidedSteps(locale), [locale])
   const tour = useGuidedTour({
     steps: liveSteps ?? demoSteps,
     seek: liveSteps ? () => {} : seek,

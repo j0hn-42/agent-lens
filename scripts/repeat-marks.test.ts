@@ -1,6 +1,7 @@
 // Loop and repeat marks on the agent nodes (#377). A node is marked only when the simulation proves it:
 // a loop verdict (lib/loop-detection, existing thresholds) or a repeated read / call in the ledger (lib/waste).
 // The loop wins (one mark per node); nothing is said for an agent with no proof, never a bare "healthy".
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import './canvas-recorder'
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'

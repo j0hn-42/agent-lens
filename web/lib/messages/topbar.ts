@@ -2,7 +2,7 @@
 // Keys: topbar.*, show.*, quota.*, usage.*, tok.*, rollup.*, cost.*. Add a key here with its two languages, fr and en; web/lib/messages.ts assembles the domains.
 
 import { COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, TOP_BAR_LABELS, USAGE_LABELS } from '../ui-glossary'
-import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from '../cost-rollup'
+import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from '../cost-rollup-labels'
 import { FILES_PANEL_FR } from './shared'
 
 export const fr = {

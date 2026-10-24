@@ -1,7 +1,8 @@
 // The domains of the message catalog (#612): one file per domain in this folder, each with its fr and en tables.
-// A new domain file is imported and listed here, and only here: web/lib/messages.ts assembles every domain of this list
-// (#613). scripts/messages.test.ts fails on a file that is not listed, or whose keys do not start with the prefixes
-// its second line declares ("// Keys: <prefix>.*, ...").
+// A new domain file is imported and listed here (#613), and in locales/fr.ts and locales/en.ts, which build the table
+// of each language with `?locale=<l>` so that a language not shown stays out of the first load (#662).
+// scripts/messages.test.ts fails on a file that is not listed, or whose keys do not start with the prefixes its second
+// line declares ("// Keys: <prefix>.*, ..."); scripts/lazy-bundle.test.ts fails on a domain missing from a locale file.
 
 import * as common from './common'
 import * as topbar from './topbar'

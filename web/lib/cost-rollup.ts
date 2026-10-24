@@ -17,15 +17,12 @@ export const ROLLUP_MAX_DEPTH = 64
 /** Walk budget (agents) for one total; beyond it the total is flagged incomplete. */
 export const ROLLUP_MAX_AGENTS = 20_000
 
-export const ROLLUP_UNKNOWN_TEXT = 'unknown'
-export const ROLLUP_INCOMPLETE_TEXT = '(incomplete)'
+import { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT } from './cost-rollup-labels'
+export { ROLLUP_INCOMPLETE_HELP, ROLLUP_INCOMPLETE_TEXT, ROLLUP_UNKNOWN_TEXT }
 
 /** The three words of a total (#501): English here, the interface language through card-text.rollupText. */
 export interface RollupWords { unknown: string; incomplete: string; estimated: string }
 const ROLLUP_WORDS_EN: RollupWords = { unknown: ROLLUP_UNKNOWN_TEXT, incomplete: ROLLUP_INCOMPLETE_TEXT, estimated: USAGE_LABELS.estimated }
-/** Accessible explanation of the incomplete badge. */
-export const ROLLUP_INCOMPLETE_HELP =
-  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay (or the VS Code extension) could not replay events of a session this total counts, so the real figure may differ.'
 
 export interface RollupTotal {
   tokens: number
