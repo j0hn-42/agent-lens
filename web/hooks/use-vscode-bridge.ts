@@ -19,7 +19,7 @@ import type { PermissionAction } from '@/lib/bridge-types'
 import { carriesRefusal, redirectMessage, refusalProbe } from '@/lib/permission-requests'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
-import { HAS_MOCK_SESSIONS, mockSessions } from '@/lib/mock-scenario'
+import { HAS_MOCK_SESSIONS, isMockScenarioLoaded, loadMockScenario, mockSessions } from '@/lib/demo-scenario'
 import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, runtimeRecheckKey, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
@@ -174,9 +174,20 @@ const MAX_ALL_BUFFER = 50_000
 export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookResult {
   const [isVSCode, setIsVSCode] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
+  // The demo is on once its scenario chunk is there (#662): the entries load it before the first render, showDemo otherwise
   const [useMockData, setUseMockData] = useState(
-    process.env.NEXT_PUBLIC_DEMO !== '0'
+    () => process.env.NEXT_PUBLIC_DEMO !== '0' && isMockScenarioLoaded()
   )
+  /** Bumped by every demo on/off request: a load that resolves after a newer request does not turn the demo back on */
+  const demoRequestRef = useRef(0)
+  const showDemo = useCallback((on: boolean) => {
+    const request = ++demoRequestRef.current
+    if (!on) { setUseMockData(false); return }
+    loadMockScenario().then(
+      () => { if (demoRequestRef.current === request) setUseMockData(true) },
+      () => { /* chunk not loaded: the demo stays off, nothing is shown that was not loaded */ },
+    )
+  }, [])
   const [disable1MContext, setDisable1MContext] = useState(false)
   const [hooksConfigured, setHooksConfigured] = useState<boolean | undefined>(undefined)
   const pendingEventsRef = useRef<SimulationEvent[]>([])
@@ -229,6 +240,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   }, [])
   /** A real source took over: drop the sessions (and the All selection) that only the demo declared */
   const leaveDemo = useCallback(() => {
+    demoRequestRef.current++
     setUseMockData(false)
     if (!demoSessionsRef.current) return
     demoSessionsRef.current = false
@@ -238,12 +250,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   }, [updateSessions])
   // Seeded after mount: the scenario is read from the URL, which the server render cannot know
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_DEMO === '0' || !HAS_MOCK_SESSIONS || sessionsRef.current.length > 0) return
+    if (process.env.NEXT_PUBLIC_DEMO === '0') return
+    // Not loaded at mount (an entry that did not wait for it): turn the demo on once it is
+    if (!isMockScenarioLoaded()) { showDemo(true); return }
+    if (!HAS_MOCK_SESSIONS || sessionsRef.current.length > 0) return
     demoSessionsRef.current = true
     updateSessions(() => mockSessions())
     selectedSessionIdRef.current = ALL_SESSIONS_ID
     setSelectedSessionId(ALL_SESSIONS_ID)
-  }, [updateSessions])
+  }, [updateSessions, showDemo])
   // 'All' shows only the active sessions unless the Show mode is 'all' (#372). The choice lives in the preference blob:
   // Settings, the top bar, another tab and 'Reset preferences' all write the same field.
   const { prefs: uiPrefs } = useUiPreferences()
@@ -631,7 +646,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     })
 
     const unsubConfig = bridge.onConfig((config) => {
-      if (config.showMockData !== undefined) { setUseMockData(config.showMockData) }
+      if (config.showMockData !== undefined) { showDemo(config.showMockData) }
       if (config.disable1MContext !== undefined) { setDisable1MContext(config.disable1MContext) }
       if (typeof config.hooksConfigured === 'boolean') { setHooksConfigured(config.hooksConfigured) }
     })
@@ -776,7 +791,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return true
   }, [updateSessions])
 
-  const loadDemo = useCallback(() => { setUseMockData(true) }, [])
+  const loadDemo = useCallback(() => { showDemo(true) }, [showDemo])
 
   const bridgeOpenFile = useCallback((filePath: string, line?: number) => {
     vscodeBridge?.openFile(filePath, line)

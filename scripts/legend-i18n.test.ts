@@ -1,5 +1,6 @@
 // #503: the legend and the palette say in French what they say in English, nothing more. The English catalog values stay
 // the very words of the constants they replaced; the French ones keep every figure and every qualifier.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { MESSAGES, type MessageKey } from '../web/lib/messages'

@@ -1,4 +1,5 @@
 // Rendering-side contract of unverified parent -> child edges (#54): classification, wording, DOM mirror.
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { buildA11yModel } from '../web/components/agent-visualizer/canvas/a11y-model'

@@ -7,22 +7,8 @@ import type { TimelineEntry, TimelineBlock } from './agent-types'
 import { SCENE } from './colors'
 import { formatDuration } from './utils'
 
-export type TimelineStateKey =
-  | 'idle'
-  | 'thinking'
-  | 'tool_call'
-  | 'waiting_permission'
-  | 'error'
-  | 'complete'
-
-export const TIMELINE_STATE_LABELS: Record<TimelineStateKey, string> = {
-  idle: 'Idle',
-  thinking: 'Thinking',
-  tool_call: 'Tool Call',
-  waiting_permission: 'Waiting for permission',
-  error: 'Error',
-  complete: 'Complete',
-}
+import { TIMELINE_STATE_LABELS, type TimelineStateKey } from './timeline-state-labels'
+export { TIMELINE_STATE_LABELS, type TimelineStateKey }
 
 export interface TimelineRow {
   agentId: string

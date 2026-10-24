@@ -3,6 +3,7 @@
 // tool cards fall back to their icon and message bubbles to their count chip, instead of an empty or
 // unreadable shape. Thresholds come from LOD (web/lib/canvas-constants.ts) and do not blink when the
 // zoom hovers at them. The assistive outline keeps everything the canvas hides.
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import './canvas-recorder'
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'

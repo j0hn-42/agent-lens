@@ -1,4 +1,5 @@
 // #247: message catalog, French first. Pure logic, node:test.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
