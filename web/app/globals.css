@@ -8,9 +8,13 @@
 
 :root {
   --radius: 0.625rem;
+  /* Same value as Z.info (lib/agent-types.ts), for the z-(--z-info) classes; scripts/design-tokens.test.ts checks it */
+  --z-info: 10;
 }
 
 @theme inline {
+  /* The 11 px step of the interface (text-2xs), in px like the text-[11px] it replaces: same size, same zoom behaviour (#509) */
+  --text-2xs: 11px;
   --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --color-background: var(--background);
