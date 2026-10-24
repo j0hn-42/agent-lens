@@ -212,6 +212,29 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     await Promise.all([p1, p2])
     const ofS2 = r.delivered.filter(e => e.sessionId === S2).map(e => e.type)
     assert.ok(ofS2.includes('agent_spawn') && ofS2.includes('agent_idle'), 'both come out once its history is loaded')
+    assert.ok(ofS2.indexOf('agent_spawn') < ofS2.indexOf('agent_idle'), `the history comes before the held hook: ${ofS2.join(', ')}`)
+  })
+
+  it('a release during the prescan of a multi-chunk transcript leaves no parser state behind (#613)', async () => {
+    r = rig()
+    // Agent calls: each one (re)creates the subagent registry of the session, also after release() (#613)
+    let agents = ''
+    for (let size = 0, i = 0; size < 3 * PRESCAN_CHUNK_BYTES; i++) { const c = call(`ag-${i}`, 'Agent') + result(`ag-${i}`); agents += c; size += c.length }
+    r.transcript(S1, prompt('Audit') + agents)
+    const session = r.session(S1)
+    // Released in the middle of a slice: the lines left in it still run and recreate the registry
+    const parserAny = r.pipeline.parser as unknown as { setSessionTitle: (...args: unknown[]) => unknown }
+    const realTitle = parserAny.setSessionTitle.bind(parserAny)
+    let lines = 0
+    const title = mock.method(parserAny, 'setSessionTitle', (...args: unknown[]) => {
+      if (++lines === 10) { r!.pipeline.release(session); r!.sessions.delete(S1) }
+      return realTitle(...args)
+    })
+    try { await r.pipeline.attach(session) } finally { title.mock.restore() }
+    const parser = r.pipeline.parser as unknown as { normalizers: Map<string, unknown>; registries: Map<string, unknown> }
+    assert.equal(parser.normalizers.has(S1), false, 'no normalizer')
+    assert.equal(parser.registries.has(S1), false, 'no subagent registry')
+    assert.deepEqual(r.lifecycle, [])
   })
 
   it('an empty transcript released during the stat is never announced (#613)', async () => {
