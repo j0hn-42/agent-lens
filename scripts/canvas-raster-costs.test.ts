@@ -58,3 +58,32 @@ test('drawAgents: the scanline gradient is cached by colour, not created per age
   const gradients = rec.ops.filter(o => o.name === 'createLinearGradient').length
   assert.ok(gradients <= 2, `${gradients} gradients created for 60 agent draws of one colour`)
 })
+
+/** Canvases created while `run` draws: the size of the sprites that were painted */
+function spriteWidths(run: () => void): number[] {
+  const doc = (globalThis as any).document
+  const made: any[] = []
+  const original = doc.createElement
+  doc.createElement = (...a: unknown[]) => { const c = original(...a); made.push(c); return c }
+  try { run() } finally { doc.createElement = original }
+  return made.map(c => c.width)
+}
+
+test('drawAgents: no depth-shadow sprite is painted below the detail zoom, whatever its size would be (#661)', () => {
+  const widths = spriteWidths(() => {
+    for (const zoom of [0.04, 0.1, 0.3]) {
+      const { ctx } = watched()
+      drawAgents(ctx, map([agent(0, { scale: 0.77 }), agent(1, { scale: 0.41 })]), null, null, false, 0, opts(zoom))
+    }
+  })
+  assert.ok(Math.max(0, ...widths) < 200, `a sprite of ${Math.max(0, ...widths)} px was painted under the detail zoom`)
+})
+
+test('drawAgents: the depth shadow sprite stays small from the detail zoom up (#661)', () => {
+  const widths = spriteWidths(() => {
+    const { ctx } = watched()
+    drawAgents(ctx, map([agent(0, { scale: 0.63 })]), null, null, false, 0, opts(0.6))
+  })
+  const widest = Math.max(0, ...widths)
+  assert.ok(widest > 0 && widest < 300, `sprite width ${widest}`)
+})

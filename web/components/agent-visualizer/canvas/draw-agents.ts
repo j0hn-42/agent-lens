@@ -306,7 +306,8 @@ export function drawContextRing(
  * Depth shadow as a pre-rendered sprite (#661): a shadowBlur per agent per frame is the costliest raster of the
  * canvas at 100+ agents. shadowBlur and its offsets are in screen px (they do not follow the transform), so the
  * sprite is painted with blur and offsets divided by the zoom, held in half-octave steps: the shadow keeps its
- * on-screen size within ~20 %, and the sprite is reused while the zoom moves inside a step.
+ * on-screen size within ~20 %, and the sprite is reused while the zoom moves inside a step. Only called from the
+ * detail zoom (LOD.detailMinZoom), which bounds the sprite: it would grow as 1/zoom without that gate.
  */
 function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette, zoom: number) {
   const step = 2 ** (Math.round(Math.log2(zoom > 0 ? zoom : 1) * 2) / 2)
@@ -869,7 +870,8 @@ export function drawAgents(
     const nodeAlpha = stale ? baseAlpha * FRESHNESS_DRAW.staleAlpha : baseAlpha
     ctx.globalAlpha = nodeAlpha
 
-    drawDepthShadow(ctx, agent, r, scene, opts.zoom)
+    // Under the detail zoom the shadow is not drawn: its sprite grows as 1/zoom (966 px at the minimum zoom, #661)
+    if (lod.details) drawDepthShadow(ctx, agent, r, scene, opts.zoom)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting, sceneTheme)
     if (!reducedMotion && live) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion, sceneTheme)
