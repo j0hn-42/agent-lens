@@ -8,6 +8,8 @@ interface UseVirtualListOptions {
   gap: number
   initialViewportHeight?: number
   autoScroll?: boolean
+  /** Full history the list is a view of (tab, pair, search): heights are dropped only for ids that left it. Defaults to `items`. */
+  pruneAgainst?: readonly { id: string }[]
 }
 
 /**
@@ -22,7 +24,7 @@ export function useVirtualList<T extends { id: string }>(
   containerRef: React.RefObject<HTMLDivElement | null>,
   options: UseVirtualListOptions,
 ) {
-  const { gap, initialViewportHeight = 300, autoScroll = false } = options
+  const { gap, initialViewportHeight = 300, autoScroll = false, pruneAgainst } = options
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(initialViewportHeight)
   const [measureTick, setMeasureTick] = useState(0)
@@ -68,8 +70,9 @@ export function useVirtualList<T extends { id: string }>(
     scrollFrameRef.current = null
   }, [])
 
-  // Measured heights of messages that left the list (trimmed history, other tab) are dropped
-  useEffect(() => { pruneMeasuredHeights(heightsRef.current, items) }, [items])
+  // Measured heights of messages that left the history (trimmed) are dropped; a filtered-out message keeps its height
+  const pruneSource = pruneAgainst ?? items
+  useEffect(() => { pruneMeasuredHeights(heightsRef.current, pruneSource) }, [pruneSource])
 
   useEffect(() => {
     const el = containerRef.current

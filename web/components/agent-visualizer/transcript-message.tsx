@@ -11,6 +11,7 @@ import { extraVars } from '@/lib/theme-tokens'
 import { currentThemeId } from '@/lib/theme-dom'
 import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
 import { useLocale } from '@/lib/locale'
+import { useThemeVersion } from '@/lib/theme'
 import { DATA_EN, t as tr } from '@/lib/panel-text'
 import type { Locale } from '@/lib/messages'
 
@@ -95,6 +96,7 @@ export const TranscriptMessage = memo(function TranscriptMessage({ message, sear
   message: ConversationMessage
   searchQuery?: string
 }) {
+  useThemeVersion() // memoized row: repaint on a theme switch (COLORS is mutated in place)
   const { locale } = useLocale()
   switch (message.type) {
     case 'tool_call':
