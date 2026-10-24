@@ -30,6 +30,12 @@ export function setOverlayHits(next: OverlayHitState): void {
  */
 export const frameLevel: { lod: LevelOfDetail | undefined } = { lod: undefined }
 
+/**
+ * Header chip of every workspace zone of the last drawn frame (projectId -> world rect): grabbing it moves the
+ * workspace. Written once per frame by the canvas, empty when no zone is drawn.
+ */
+export const workspaceHeaderHits: { rects: Map<string, Rect> } = { rects: new Map() }
+
 export function clearOverlayHits(): void {
   overlayHits.clusterLabels = new Map()
   overlayHits.edgeBubbles = new Map()

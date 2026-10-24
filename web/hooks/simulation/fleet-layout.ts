@@ -238,11 +238,7 @@ export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>, pla
   return out
 }
 
-/** Centre of every workspace zone (projectId -> world point), as moved or as laid out; empty with fewer than two projects (no zone). */
-export function workspaceCentres(clusters: ReadonlyArray<ClusterInput>, placements?: WorkspacePlacements): Map<string, { x: number; y: number }> {
-  return layoutClusters(clusters, placements).centres
-}
-
+/** Anchors, and the centre of every workspace zone (projectId -> world point): empty with fewer than two projects (no zone). */
 function layoutClusters(clusters: ReadonlyArray<ClusterInput>, placements?: WorkspacePlacements): { anchors: ClusterAnchor[]; centres: Map<string, { x: number; y: number }> } {
   const seen = new Set<string>()
   const unique: ClusterInput[] = []

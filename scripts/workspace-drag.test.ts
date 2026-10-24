@@ -7,6 +7,8 @@ import { computeNextFrame } from '../web/hooks/simulation/animate'
 import { createForceLayout } from '../web/hooks/simulation/force-layout'
 import { layoutInfo, type SessionProjects } from '../web/hooks/simulation/fleet-layout'
 import type { SimulationEvent } from '../web/lib/agent-types'
+import { hitTestAt } from '../web/components/agent-visualizer/canvas/hit-detection'
+import { workspaceHeaderHits } from '../web/components/agent-visualizer/canvas/overlay-state'
 
 type Ev = Pick<SimulationEvent, 'type' | 'payload'> & { sessionId?: string }
 const DT = 1 / 60
@@ -140,4 +142,17 @@ test('resetWorkspaces: every workspace goes back to its automatic place', async 
 test('workspaceCentre: none for an unknown project', async () => {
   const rig = await settledRig()
   try { assert.equal(rig.layout.workspaceCentre('Z'), undefined) } finally { rig.layout.destroy() }
+})
+
+// ─── Grip of the zone and menu entry ─────────────────────────────────────────
+
+test('hit test: the header chip of a zone is its grip, the body of the zone is not', () => {
+  const scene = { agents: new Map(), toolCalls: new Map(), discoveries: [] }
+  workspaceHeaderHits.rects = new Map([['A', { x: 100, y: 100, w: 200, h: 30 }]])
+  try {
+    assert.deepEqual(hitTestAt(150, 110, scene, 0, 1), { type: 'workspace', id: 'A' })
+    assert.equal(hitTestAt(150, 300, scene, 0, 1), null, 'the body of the zone pans the canvas')
+    workspaceHeaderHits.rects = new Map()
+    assert.equal(hitTestAt(150, 110, scene, 0, 1), null, 'no zone drawn, no grip')
+  } finally { workspaceHeaderHits.rects = new Map() }
 })

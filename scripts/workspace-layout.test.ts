@@ -1,7 +1,7 @@
 // One block per workspace in the fleet layout when several projects are on screen.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { computeClusterAnchors, workspaceCentres, type ClusterInput } from '../web/hooks/simulation/fleet-layout'
+import { computeClusterAnchors, type ClusterInput } from '../web/hooks/simulation/fleet-layout'
 import { WORKSPACE_ZONE } from '../web/lib/canvas-constants'
 
 const rectOf = (ids: string[], anchors: ReturnType<typeof computeClusterAnchors>) => {
@@ -119,13 +119,4 @@ test('placed workspace: ignored with a single project (no zone is drawn) and for
 test('placed workspace: deterministic', () => {
   const placed = new Map([['C', { x: 40, y: -20 }], ['A', { x: 0, y: 0 }]])
   assert.deepEqual(computeClusterAnchors(THREE, placed), computeClusterAnchors(THREE, placed))
-})
-
-test('workspaceCentres: the centre of each zone, as placed or as laid out', () => {
-  const placed = new Map([['A', { x: 5000, y: -3000 }]])
-  const anchors = computeClusterAnchors(THREE, placed)
-  const centres = workspaceCentres(THREE, placed)
-  assert.deepEqual([...centres.keys()].sort(), ['A', 'B', 'C'])
-  for (const p of ['A', 'B', 'C']) assert.ok(near(centres.get(p)!, centreOf(boxOf(p, THREE, anchors))), `centre of ${p}`)
-  assert.equal(workspaceCentres(THREE.slice(0, 2)).size, 0, 'a single project has no zone')
 })

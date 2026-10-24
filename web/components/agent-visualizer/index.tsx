@@ -114,6 +114,7 @@ export function AgentVisualizer() {
     frameRef, agents, toolCalls, edges, discoveries, fileAttention, waste, timelineEntries, currentTime, isPlaying, speed, maxTimeReached,
     conversations, droppedEvents, droppedMessages, normalizationStats, unattributed, foreignAttention, catchUp, links, teams,
     play, pause, restart, setSpeed, seekToTime, updateAgentPosition, setLayoutKeepIds, saveSnapshot, restoreSnapshot,
+    moveWorkspace, workspaceCentre, resetWorkspaces, hasMovedWorkspaces,
   } = useVisualizerSimulation(bridge, isReviewing, hideInactiveShown)
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -221,6 +222,8 @@ export function AgentVisualizer() {
     toggleGrid: () => setShowHexGrid(prev => !prev),
     clearHistory: handleClearHistory,
     reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? handleReloadSessionEvents : null,
+    // Read when the menu opens (the open menu re-renders): a workspace moved by hand can be put back
+    arrangeWorkspaces: hasMovedWorkspaces() ? resetWorkspaces : null,
   }
 
   const sessionActions = useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef })
@@ -419,6 +422,8 @@ export function AgentVisualizer() {
         onAgentClick={handleCanvasAgentClick}
         onAgentHover={selection.setHoveredAgentId}
         onAgentDrag={updateAgentPosition}
+        onWorkspaceDrag={moveWorkspace}
+        getWorkspaceCentre={workspaceCentre}
         onContextMenu={selection.handleContextMenu}
         onToolCallClick={selection.handleToolCallClick}
         selectedToolCallId={selection.selectedToolCallId}

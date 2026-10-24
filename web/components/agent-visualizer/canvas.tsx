@@ -119,7 +119,7 @@ export function AgentCanvas(props: CanvasProps) {
 
   // ─── Interaction ────────────────────────────────────────────────────────
   const {
-    isDragging, overInteractive, handlers, keyHandlers, updateDragLerp, focusNode,
+    isDragging, overInteractive, overMovable, handlers, keyHandlers, updateDragLerp, focusNode,
   } = useCanvasInteraction({
     drawPropsRef, transformRef, userHasNavigatedRef, panVelocityRef,
     simTimeRef, screenToCanvas, doZoomToFit, mainCanvasRef,
@@ -193,7 +193,7 @@ export function AgentCanvas(props: CanvasProps) {
     if (first) focusNode(first)
   }, [focusNode, drawPropsRef])
 
-  const rootCursor = isDragging ? 'grabbing' : overInteractive ? 'pointer' : 'grab'
+  const rootCursor = isDragging ? 'grabbing' : overMovable ? 'move' : overInteractive ? 'pointer' : 'grab'
 
   return (
     // Root: a presentational focus observer (has focus within: focus tooltip, keyboard focus entry); it is
