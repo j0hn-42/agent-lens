@@ -161,9 +161,9 @@ test('unread: a pill "n unread" beside the button opens the list on the unread a
   more.set('b3', [...base.get('b3')!, msg('b3-2', 'assistant', 50, 'late news')])
   r.retree({ selectedAgentId: 'b1', conversations: more })
   // The pill counts agents, not messages: it says so (b3 got one message, but « 1 unread » read as one unread message)
-  const pill = r.getByRole('button', { name: '1 agent with unread messages' })
+  const pill = r.getByRole('button', { name: '1 agent unread' })
   assert.equal(pill.getAttribute('aria-label'), null)
-  assert.equal(pill.textContent, '1 agent with unread messages')
+  assert.equal(pill.textContent, '1 agent unread')
   fireEvent.click(pill)
   const only = r.getByRole('button', { name: 'Unread only' })
   assert.equal(only.getAttribute('aria-pressed'), 'true')
@@ -240,14 +240,14 @@ test('below the threshold the tabs stay, wrap instead of scrolling sideways, and
   assert.ok(r.getAllByRole('tab').every(t => t.className.includes('max-md:min-h-11')), '44 px targets under 768 px')
 })
 
-test('French: the pill says « agents avec des messages non lus », the option keeps its total apart from « non lus »', () => {
+test('French: the pill says « agents non lus », the option keeps its total apart from « non lus »', () => {
   setLocaleChoice('fr')
   const r = panel({ selectedAgentId: 'b1' })
   const more = new Map(base)
   more.set('b3', [...base.get('b3')!, msg('b3-2', 'assistant', 50, 'late news')])
   more.set('b4', [...base.get('b4')!, msg('b4-2', 'assistant', 51, 'later news')])
   r.retree({ selectedAgentId: 'b1', conversations: more })
-  const pill = r.getByRole('button', { name: '2 agents avec des messages non lus' })
+  const pill = r.getByRole('button', { name: '2 agents non lus' })
   fireEvent.click(pill)
   const option = r.getByRole('option', { name: /^builder-03 / })
   assert.match(option.textContent ?? '', /^builder-03 \(.+\) 2 messages, dont des non lus$/)
