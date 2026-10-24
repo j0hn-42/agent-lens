@@ -786,14 +786,14 @@ export function hasContextPercent(agent: Agent): boolean {
   return hasContextPercentFor(agent)
 }
 
-function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined, replayLost?: ReadonlyMap<string, number>) {
+function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined, replayLost: ReadonlyMap<string, number> | undefined, simTime: number) {
   const scene = scenePalette(theme)
   const sy = agent.y - r - statsTop
   // Held at LOD.minTextPx on screen: the stack above the node (stats, cost) is enlarged as a whole around the
   // top of the node, so the box and the pill keep their order without overlapping, as the overlay plan reserves them
   scaleAbout(ctx, agent.x, agent.y - r, textScale)
   // A tool count that is a lower bound says so (#366): the box widens to hold it, the plan reserves the same width
-  const { text, width: boxW } = statsLabel(agent, replayLost)
+  const { text, width: boxW } = statsLabel(agent, replayLost, simTime)
   ctx.fillStyle = scene.cardBgDark
   ctx.beginPath()
   ctx.roundRect(agent.x - boxW / 2, sy, boxW, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
@@ -907,7 +907,7 @@ export function drawAgents(
       if (layout.statsTop != null && place.visible) {
         ctx.save()
         ctx.translate(place.dx, place.dy)
-        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom), sceneTheme, opts.replayLost)
+        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom), sceneTheme, opts.replayLost, opts.simTime ?? 0)
         ctx.restore()
       }
     }

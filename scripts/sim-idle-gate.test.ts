@@ -10,6 +10,7 @@ import { computeNextFrame, type AnimateOptions } from '../web/hooks/simulation/a
 import { createForceLayout } from '../web/hooks/simulation/force-layout'
 import { isSimulationIdle, idleFrame, type IdleGateInput } from '../web/hooks/simulation/idle-gate'
 import { agentAge } from '../web/lib/agent-age'
+import { ARCHIVED_OPACITY } from '../web/hooks/simulation/archive'
 import { formatDuration } from '../web/lib/utils'
 import { statsLabel } from '../web/components/agent-visualizer/canvas/loss-labels'
 import { expiryHold, BUBBLE_VISIBLE_S, TOOL_MIN_DISPLAY_S, MOCK_END_BUFFER_S } from '../web/lib/canvas-constants'
@@ -58,8 +59,8 @@ test('the age of an agent is read from the clock, exact to the second (#660)', (
   assert.equal(formatDuration(agentAge(a, 12.37)), '0:02')
   assert.equal(agentAge(a, 5), 0, 'never negative (clock restarted by Clear history)')
   const done = { ...a, state: 'complete' as const, completeTime: 70.37 }
-  assert.equal(agentAge(done, 700), 60, 'a complete agent keeps its lifetime')
-  assert.equal(agentAge(done, 40.37), 30, 'a seek before its end shows its age then')
+  assert.equal(formatDuration(agentAge(done, 700)), '1:00', 'a complete agent keeps its lifetime')
+  assert.equal(formatDuration(agentAge(done, 40.37)), '0:30', 'a seek before its end shows its age then')
 })
 
 test('the stats line shows the age at the time it is drawn for (#660)', () => {
@@ -112,8 +113,8 @@ test('a discovery at rest (in place, faded in, held) keeps its array; a moving o
 test('a discovery that reached its place to a hundredth of a pixel is snapped onto it, then stays put (#660)', () => {
   const s0 = restingScene()
   let s = { ...s0, discoveries: [discovery({ timestamp: s0.currentTime, x: 0, y: 0 })] }
-  for (let i = 0; i < 600; i++) s = step(s)
   expiryHold.neverHide = true
+  for (let i = 0; i < 600; i++) s = step(s)
   const d = s.discoveries[0]
   assert.equal(d.x, d.targetX)
   assert.equal(d.y, d.targetY)
@@ -168,7 +169,7 @@ test('particles, fades and pending removals are never skipped (#660)', () => {
   assert.equal(idle(withAgent({ scale: 0.6 })), false, 'agent growing')
   assert.equal(idle(withAgent({ state: 'complete', completeTime: s.currentTime })), false, 'finished sub-agent fading out')
   assert.equal(idle(withAgent({ state: 'complete', completeTime: 1, opacity: 0, scale: 0.8 })), false, 'faded sub-agent to remove')
-  assert.equal(idle(withAgent({ state: 'complete', completeTime: 1, archived: true, opacity: 0.3, scale: 0.8 })), true, 'archived agent at its floor')
+  assert.equal(idle(withAgent({ state: 'complete', completeTime: 1, archived: true, opacity: ARCHIVED_OPACITY, scale: 0.8 })), true, 'archived agent at its floor')
   assert.equal(idle({ ...s, edges: s.edges.map(e => ({ ...e, opacity: 0.5 })) }), false, 'edge fading in')
   assert.equal(idle({ ...s, discoveries: [discovery({ timestamp: s.currentTime, x: 0 })] }), false, 'discovery moving')
   assert.equal(idle({ ...s, discoveries: [discovery({ timestamp: s.currentTime })] }), true, 'discovery in place, in its hold')

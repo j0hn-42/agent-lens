@@ -7,6 +7,7 @@ import type { useInspector } from "@/hooks/use-inspector"
 import type { useAttentionSummary } from "@/hooks/use-attention-summary"
 import { detectLoops } from "@/lib/loop-detection"
 import { replayLostForSession } from "@/lib/event-loss"
+import { agentAge } from "@/lib/agent-age"
 import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
 import { contextMenuItems, type ContextMenuActions } from "./context-menu-items"
@@ -25,6 +26,8 @@ interface SelectionOverlaysProps {
   selection: Selection
   inspector: Inspector
   agents: Simulation['agents']
+  /** Simulation time of the state the card shows: the age of the agent is read from it (#660) */
+  currentTime: Simulation['currentTime']
   links: Simulation['links']
   droppedMessages: Simulation['droppedMessages']
   health: ReturnType<typeof useAttentionSummary>['health']
@@ -56,7 +59,7 @@ function agentMenuActions(selection: Selection, actions: ContextMenuActions): Co
 
 /** What opens over the canvas after a click: the agent card, the tool and discovery popups, the link panel, the context menu */
 export function SelectionOverlays({
-  selection, inspector, agents, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, menuActions,
+  selection, inspector, agents, currentTime, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, menuActions,
 }: SelectionOverlaysProps) {
   const { selectedAgent, selectedGone, goneName, delegation, toolWhy } = inspector
   const { locale } = useLocale()
@@ -67,7 +70,7 @@ export function SelectionOverlays({
         <div {...stopPropagationHandlers}>
           <AgentDetailCard
             key={selectedAgent.id}
-            agent={selectedAgent}
+            agent={{ ...selectedAgent, timeAlive: agentAge(selectedAgent, currentTime) }}
             toolErrors={selectedAgent.toolErrors}
             health={health.byAgent.get(selectedAgent.id) ?? detectLoops([], droppedMessages.get(selectedAgent.id) ?? 0)}
             sessionHealth={health.bySession.get(selectedAgent.sessionId)}

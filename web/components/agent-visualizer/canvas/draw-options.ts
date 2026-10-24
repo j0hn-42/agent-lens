@@ -36,6 +36,8 @@ export interface DrawOpts {
   theme?: ThemeId
   /** Events the relay could not replay, per session id (#366): an agent of such a session draws its tool count and cost as lower bounds */
   replayLost?: ReadonlyMap<string, number>
+  /** Simulation time of the frame: the age in the stats box is read from it (#660). Absent = 0 (the age reads 0:00) */
+  simTime?: number
   /** Loop / repeat mark per agent id (#377, lib/repeat-marks): a badge on the node. Absent = no badge */
   repeatMarks?: ReadonlyMap<string, { kind: 'loop' | 'repeated' }>
 }
