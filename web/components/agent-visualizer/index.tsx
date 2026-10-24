@@ -163,7 +163,7 @@ export function AgentVisualizer() {
   }, [pushToast])
   const sessionCacheRef = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
 
-  const timelineEvents = useTimelineEvents(conversations)
+  const { events: timelineEvents, lost: lostMarkers } = useTimelineEvents(conversations, droppedMessages)
 
   const zoomToFit = useCallback(() => setZoomToFitTrigger(n => n + 1), [])
   const {
@@ -465,7 +465,7 @@ export function AgentVisualizer() {
         onPlayPause={handlePlayPause} onRestart={handleClearHistory} onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData} connectionStatus={bridge.connectionStatus} onSeek={handleSeek}
         timelineEvents={timelineEvents} eventCount={timelineEvents.length} isReviewing={isReviewing}
-        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents}
+        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents} lostMarkers={lostMarkers}
       />
       </div>
 
