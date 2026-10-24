@@ -125,7 +125,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
       {...stopPropagationHandlers}
       {...{ [INSPECTOR_KEEP_ATTR]: '' }}
       className="fixed inset-0 flex items-center justify-center p-3"
-      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
     >
       <div
         ref={dialogRef}

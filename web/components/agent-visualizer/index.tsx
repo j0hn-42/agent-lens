@@ -388,7 +388,7 @@ export function AgentVisualizer() {
           title="Exit full screen (Z)"
           className={`fixed top-2 right-2 rounded-md p-2 ${FOCUS_RING}`}
           // Drawn on the scene ground, so scene colours (>= 3:1 for the icon and the outline) whatever the theme
-          style={{ zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
+          style={{ zIndex: Z.notice, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
         >
           <FullscreenIcon exit />
         </button>

@@ -105,7 +105,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
       role="presentation"
       lang={locale}
       className="fixed inset-0 flex items-start justify-center p-3 pt-[12vh]"
-      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
       onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
       onKeyDown={onKeyDown}
     >

@@ -383,7 +383,7 @@ export function CanvasControls({
     <div
       ref={rootRef}
       lang={locale}
-      className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
+      className="pointer-events-none absolute inset-x-3 z-(--z-info) flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
       style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
     >
       {legend}

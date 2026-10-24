@@ -46,7 +46,7 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
       role="presentation"
       {...stopPropagationHandlers}
       className="fixed inset-0 flex items-center justify-center p-3"
-      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
       onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
       onKeyDown={onKeyDown}
     >

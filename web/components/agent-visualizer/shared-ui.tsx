@@ -328,7 +328,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
   const step = dockResizerStep(min, max)
 
   return (
-    <div data-dock-resizer className={`absolute inset-y-0 z-10 w-0 ${onRight ? 'right-0' : 'left-0'}`}>
+    <div data-dock-resizer className={`absolute inset-y-0 z-(--z-info) w-0 ${onRight ? 'right-0' : 'left-0'}`}>
       <input
         type="range"
         aria-label={label}

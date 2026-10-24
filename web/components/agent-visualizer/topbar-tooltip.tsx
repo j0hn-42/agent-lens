@@ -112,7 +112,7 @@ export function TopBarTooltip({ text, lang, onOpen, children, sensitive = false,
         hidden={!open}
         lang={lang}
         {...(sensitive ? { 'data-sensitive': '' } : {})}
-        className="fixed z-10 w-max max-w-[min(20rem,calc(100vw-16px))] whitespace-normal rounded px-2 py-1 text-2xs font-normal leading-snug"
+        className="fixed z-(--z-info) w-max max-w-[min(20rem,calc(100vw-16px))] whitespace-normal rounded px-2 py-1 text-2xs font-normal leading-snug"
         style={{
           background: COLORS[TOPBAR_TOOLTIP.ground],
           color: COLORS[TOPBAR_TOOLTIP.text],

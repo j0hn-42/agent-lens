@@ -106,7 +106,7 @@ function FocusTip({ labelId, description, tip, children }: { labelId: string; de
       <span id={descId} aria-hidden="true" className="sr-only">{description}</span>
       {open && (
         // The padding, not a margin, spaces the box from the gauge: the pointer never leaves the hover area on its way there
-        <span ref={tipRef} role="tooltip" className="absolute left-0 top-full z-10 w-max max-w-[min(16rem,calc(100vw-1rem))] whitespace-normal pt-1 text-2xs">
+        <span ref={tipRef} role="tooltip" className="absolute left-0 top-full z-(--z-info) w-max max-w-[min(16rem,calc(100vw-1rem))] whitespace-normal pt-1 text-2xs">
           <span className="block rounded px-2 py-1" style={{ background: COLORS.surface, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}>
             {tip}
           </span>

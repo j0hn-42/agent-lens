@@ -160,7 +160,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
       {...stopPropagationHandlers}
       {...{ [INSPECTOR_KEEP_ATTR]: '' }}
       className="fixed inset-0 flex items-center justify-center p-3"
-      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
     >
       <div
         ref={ref}

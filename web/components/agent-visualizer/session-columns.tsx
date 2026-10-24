@@ -147,7 +147,7 @@ export function ColumnHeader() {
     <div
       aria-hidden="true"
       data-testid="session-columns-header"
-      className={`sticky top-0 z-10 pl-11 pr-8 pb-0.5 text-2xs tracking-wider uppercase @max-[440px]:hidden ${ROW_GRID}`}
+      className={`sticky top-0 z-(--z-info) pl-11 pr-8 pb-0.5 text-2xs tracking-wider uppercase @max-[440px]:hidden ${ROW_GRID}`}
       style={{ background: COLORS.void, color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.controlBorder}` }}
     >
       <span>{L('name')}</span>
