@@ -1,4 +1,5 @@
 // #335, increment 2: the driver, tested with a fake relay and a fake native binary (no real binary, no GUI).
+import '../../scripts/all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { afterEach, describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

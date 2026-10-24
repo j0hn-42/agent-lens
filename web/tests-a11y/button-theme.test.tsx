@@ -12,11 +12,16 @@ import { applyThemeToDocument } from '@/lib/theme-dom'
 import { DEFAULT_THEME } from '@/lib/theme-tokens'
 import { paletteFor } from '@/lib/theme-palette'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
-import { GUIDED_STEPS } from '@/lib/guided-steps'
+import { guidedSteps, type GuidedStep } from '@/lib/guided-steps'
 import { Button, buttonStyle } from '@/components/ui/button'
 import { MotionLayerControls } from '@/components/agent-visualizer/motion-layer-controls'
 import { GuidedTourCard } from '@/components/agent-visualizer/guided-tour-card'
 import { PermissionRequests } from '@/components/agent-visualizer/permission-requests'
+import { loadLocale } from '@/lib/messages'
+
+/** The demo tour in English, written once its table is loaded (#662: no table is loaded at import) */
+let GUIDED_STEPS: readonly GuidedStep[] = []
+before(async () => { await loadLocale('en'); GUIDED_STEPS = guidedSteps('en') })
 
 const noop = () => {}
 const OTHER = 'contrast' as const

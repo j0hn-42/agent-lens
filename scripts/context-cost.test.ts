@@ -1,5 +1,6 @@
 // #364: the "$" is the context size × a blended rate, not a bill. Every cost figure says it is an estimate
 // ("~" on screen, "context cost estimate" in words), even when the tokens are reported by the runtime (Codex).
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { readReadingGuideDomains } from './reading-guide'
 import { strict as assert } from 'node:assert'

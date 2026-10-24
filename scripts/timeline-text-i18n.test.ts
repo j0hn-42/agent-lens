@@ -1,4 +1,5 @@
 // #373: the words of the Timeline panel in each language. The English output must stay the one of timeline-rows.ts.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as T from '../web/lib/timeline-text'
