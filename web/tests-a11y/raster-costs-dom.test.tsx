@@ -25,6 +25,30 @@ test('syncBubbleButtons: an unchanged frame writes nothing to the buttons (#661)
   mo.disconnect()
 })
 
+test('syncBubbleButtons: a focused bubble that is no longer placed is not rewritten every frame (#613)', () => {
+  const root = document.createElement('div')
+  document.body.appendChild(root)
+  syncBubbleButtons(root, [spec('a'), spec('b', { x: 40 })])
+  const a = root.querySelector('[data-key="a"]') as HTMLButtonElement
+  a.focus()
+  assert.equal(document.activeElement, a)
+  syncBubbleButtons(root, [spec('b', { x: 40 })])
+  assert.equal(a.dataset.unplaced, 'true')
+  assert.equal(a.getAttribute('aria-hidden'), 'true')
+  assert.equal(a.tabIndex, -1)
+  const mo = new MutationObserver(() => {})
+  mo.observe(root, { attributes: true, subtree: true, childList: true })
+  for (let i = 0; i < 5; i++) syncBubbleButtons(root, [spec('b', { x: 40 })])
+  assert.equal(mo.takeRecords().length, 0, 'nothing written for the unplaced focused button')
+  // placed again: the button is usable again
+  syncBubbleButtons(root, [spec('a'), spec('b', { x: 40 })])
+  assert.equal(a.dataset.unplaced, undefined)
+  assert.equal(a.hasAttribute('aria-hidden'), false)
+  assert.equal(a.tabIndex, 0)
+  mo.disconnect()
+  root.remove()
+})
+
 test('positionTooltip: the size is read once, then kept by a ResizeObserver (#661)', () => {
   const g = globalThis as unknown as { ResizeObserver?: unknown }
   const had = g.ResizeObserver
