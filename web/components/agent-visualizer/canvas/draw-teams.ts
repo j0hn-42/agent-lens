@@ -8,6 +8,7 @@ import { type WorkspaceZone, zoneHeaderText, workspaceHeaderRect } from './works
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
 import type { SessionLinkSegment } from './session-link-model'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 const HALO_LABEL_FONT = 12
 
@@ -41,7 +42,7 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
     ctx.save()
     ctx.beginPath()
     ctx.arc(h.cx, h.cy, h.r, 0, Math.PI * 2)
-    ctx.fillStyle = h.color + '14'
+    ctx.fillStyle = withHexAlpha(h.color, '14')
     ctx.fill()
     // Dashed outline: the halo is also recognisable without its colour
     ctx.setLineDash([10, 6])
@@ -88,7 +89,7 @@ export function drawWorkspaceZones(ctx: CanvasRenderingContext2D, zones: Readonl
     ctx.save()
     ctx.beginPath()
     ctx.roundRect(z.x, z.y, z.w, z.h, WORKSPACE_ZONE.cornerRadius)
-    ctx.fillStyle = tone + '0a'
+    ctx.fillStyle = withHexAlpha(tone, '0a')
     ctx.fill()
     ctx.strokeStyle = sceneColor(opts.theme, 'mark', tone, '77')
     ctx.lineWidth = 2 * k

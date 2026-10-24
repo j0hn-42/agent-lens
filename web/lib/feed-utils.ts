@@ -11,6 +11,7 @@ import { formatDuration } from './utils'
 import { teamOfAgent, keyOfTeam } from '../hooks/simulation/team-key'
 import { findTeam } from '../hooks/simulation/team-key'
 import { emptyState, emptyMatch, groupHeading, memberNoun, normalizeGroupKind, type GroupKind } from './ui-glossary'
+import { withHexAlpha } from './color-alpha'
 
 /** Single empty-state wording used by every message list (see ui-glossary.ts). */
 export const EMPTY_MESSAGES = emptyState('messages')
@@ -91,7 +92,7 @@ export const FEED_TOP = 'calc(var(--topbar-h, 48px) + 8px)'
  * members a 2px accent underline, finished agents a dashed frame.
  */
 export function tabBorderStyle(opts: { active: boolean; color: string; accent?: string; done?: boolean }): Record<string, string> {
-  const frame = opts.active ? `${opts.color}30` : 'transparent'
+  const frame = opts.active ? `${withHexAlpha(opts.color, '30')}` : 'transparent'
   const bottom = opts.accent ?? frame
   const style = opts.done ? 'dashed' : 'solid'
   return {

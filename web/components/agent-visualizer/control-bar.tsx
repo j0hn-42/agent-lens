@@ -44,7 +44,7 @@ function TruncationMarker({ dropped, locale }: { dropped: number; locale: Locale
   return (
     <span
       title={text}
-      className="shrink-0 text-[11px] font-mono rounded px-1"
+      className="shrink-0 text-2xs font-mono rounded px-1"
       style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
     >
       <span aria-hidden="true">… </span>
@@ -203,7 +203,7 @@ function LiveControlBar({
               boxShadow: badge.live ? 'var(--lens-live-halo)' : undefined,
             }}
           />
-          <span className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: badgeColor }}>
+          <span className="text-2xs font-mono font-semibold tracking-wider" style={{ color: badgeColor }}>
             {badge.label}
           </span>
         </div>
@@ -227,7 +227,7 @@ function LiveControlBar({
         </div>
 
         {/* Event count */}
-        <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
+        <span className="text-2xs font-mono shrink-0" style={{ color: COLORS.textMuted }}>
           {formatEventCount(eventCount, locale)}
         </span>
         {noEvents && <span id={reviewReasonId} className="sr-only">{t('bar.review.empty')}</span>}
@@ -414,7 +414,7 @@ function ReviewControlBar({
         </div>
 
         {/* Duration */}
-        <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
+        <span className="text-2xs font-mono shrink-0" style={{ color: COLORS.textMuted }}>
           <span className="sr-only">{t('bar.duration')} </span>{formatDuration(totalDuration)}
         </span>
 

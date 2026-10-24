@@ -238,7 +238,7 @@ export function AgentCanvas(props: CanvasProps) {
         <div
           aria-hidden="true"
           data-aux-focus={auxFocus.kind}
-          className="pointer-events-none absolute left-1/2 top-3 z-10 max-w-[min(32rem,calc(100vw-24px))] -translate-x-1/2 truncate rounded-md px-3 py-1 font-mono text-xs"
+          className="pointer-events-none absolute left-1/2 top-3 z-(--z-info) max-w-[min(32rem,calc(100vw-24px))] -translate-x-1/2 truncate rounded-md px-3 py-1 font-mono text-xs"
           style={{ background: COLORS.panelBg, color: COLORS.textPrimary, border: `2px solid ${COLORS.textPrimary}` }}
         >
           {auxFocus.label}
@@ -269,7 +269,7 @@ export function AgentCanvas(props: CanvasProps) {
         ref={tooltipRef}
         aria-hidden="true"
         data-sensitive=""
-        className="pointer-events-none absolute left-0 top-0 z-10 max-w-[min(20rem,calc(100vw-24px))] rounded-md px-2 py-1 font-mono text-xs"
+        className="pointer-events-none absolute left-0 top-0 z-(--z-info) max-w-[min(20rem,calc(100vw-24px))] rounded-md px-2 py-1 font-mono text-xs"
         style={{
           visibility: 'hidden',
           background: COLORS.panelBg,

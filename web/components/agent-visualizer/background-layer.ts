@@ -2,6 +2,7 @@ import { DepthParticle } from '@/lib/agent-types'
 import { scenePalette } from '@/lib/scene-state-colors'
 import type { ThemeId } from '@/lib/theme-tokens'
 import { alphaHex } from '@/lib/utils'
+import { withHexAlpha } from '../../lib/color-alpha'
 
 const NUM_PARTICLES = 80
 const HEX_GRID_SIZE = 60
@@ -60,7 +61,7 @@ export function drawBackground(
     const screenX = activeAgentPos.x * transform.scale + transform.x
     const screenY = activeAgentPos.y * transform.scale + transform.y
     const gradient = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, 300)
-    gradient.addColorStop(0, activeAgentPos.color + '08')
+    gradient.addColorStop(0, withHexAlpha(activeAgentPos.color, '08'))
     gradient.addColorStop(1, 'transparent')
     ctx.fillStyle = gradient
     ctx.fillRect(0, 0, width, height)

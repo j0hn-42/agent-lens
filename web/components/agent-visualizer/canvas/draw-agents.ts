@@ -21,6 +21,7 @@ import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
   isTeammate, isOrchestrator, orchestratorInfo, ellipsize, drawnStatusText, type OrchestratorInfo,
 } from './team-style'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 let _claudeSparkPath: Path2D | null = null
 export function getClaudeSparkPath() {
@@ -341,9 +342,9 @@ function drawScanline(ctx: CanvasRenderingContext2D, agent: Agent, r: number, co
   ctx.clip()
   const scanGrad = ctx.createLinearGradient(agent.x, scanY - AGENT_DRAW.scanlineHalfH, agent.x, scanY + AGENT_DRAW.scanlineHalfH)
   const scanAlpha = isHovered ? '35' : '20'
-  scanGrad.addColorStop(0, color + '00')
+  scanGrad.addColorStop(0, withHexAlpha(color, '00'))
   scanGrad.addColorStop(0.5, color + scanAlpha)
-  scanGrad.addColorStop(1, color + '00')
+  scanGrad.addColorStop(1, withHexAlpha(color, '00'))
   ctx.fillStyle = scanGrad
   ctx.fillRect(agent.x - r, scanY - AGENT_DRAW.scanlineHalfH, r * 2, AGENT_DRAW.scanlineWidth)
   ctx.restore()

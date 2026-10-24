@@ -55,7 +55,7 @@ export function UnderTopbarStack({ contextOpen = false, banner }: { contextOpen?
         <div
           data-banner-slot=""
           className="relative flex justify-center"
-          style={{ marginTop: noticeShown ? TOPBAR_STACK_GAP : BANNER_MIN_TOP - TOPBAR_STACK_TOP, zIndex: Z.controlBar + 5 }}
+          style={{ marginTop: noticeShown ? TOPBAR_STACK_GAP : BANNER_MIN_TOP - TOPBAR_STACK_TOP, zIndex: Z.toast }}
         >
           <div className="pointer-events-auto max-w-full">{banner}</div>
         </div>
