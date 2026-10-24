@@ -75,12 +75,14 @@ describe('Claude session-watcher context_update tokenSource', () => {
   })
   after(() => fs.rmSync(fakeHome, { recursive: true, force: true }))
 
-  it('the figure computed from the transcript is flagged estimated', () => {
+  it('the figure computed from the transcript is flagged estimated', async () => {
     const watcher = new SessionWatcher()
     const out: AgentEvent[] = []
     watcher.onEvent(e => out.push(e))
     watcher.start()
     try {
+      // The attach is queued and read over several ticks (#651)
+      for (const deadline = Date.now() + 10_000; !out.some(e => e.type === 'context_update' && e.sessionId === SESSION) && Date.now() < deadline;) await new Promise(resolve => setTimeout(resolve, 2))
       const updates = out.filter(e => e.type === 'context_update' && e.sessionId === SESSION)
       assert.ok(updates.length > 0, `the session was detected and announced a context_update (${out.map(e => e.type).join(',')})`)
       for (const u of updates) assert.equal(u.payload.tokenSource, 'estimated')

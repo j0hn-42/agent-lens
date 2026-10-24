@@ -156,6 +156,10 @@ function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): b
 // ─── SSE client management ──────────────────────────────────────────────────
 
 const sseClients = new Set<http.ServerResponse>()
+/** SSE clients accepted and waiting for the attaches in progress to end before they join (#651): they count toward the cap */
+let pendingSseClients = 0
+/** Of those, the ones that came through an allowed tunnel Host (#241): they count toward the remote cap too */
+let pendingRemoteSseClients = 0
 /** Clients that came through an allowed tunnel Host (#241): counted among sseClients, capped separately. */
 const remoteSseClients = new WeakSet<http.ServerResponse>()
 
@@ -394,8 +398,9 @@ function deliverEvent(delivered: AgentEvent) {
   if (!live) queueHistory(event.sessionId!, event)
   else broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
 
-  // Webhooks: a replayed history or an imported session is not something that just happened
-  if (webhooks && historyDepth === 0 && !event.imported && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
+  // Webhooks: a replayed history or an imported session is not something that just happened. During a Claude attach
+  // (#651) only the history copies are `replayed`: a hook pushed meanwhile for that session is live and notified
+  if (webhooks && historyDepth === 0 && !event.imported && !event.replayed && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
 }
 
 /** Untrusted text shown as a session tag: single line, no controls, capped. */
@@ -521,6 +526,9 @@ const pipeline = new ClaudeSessionPipeline({
   submit: (event) => broadcastEvent(event),
   fireLifecycle: broadcastSessionLifecycle,
   withHistory,
+  // A history read over several ticks (a Claude attach, #651) holds only its session's events; its transcript
+  // copies come out marked `replayed`, which keeps them away from the webhooks (deliverEvent)
+  withSessionHistory: (sessionId, load) => reconciler.withSessionHistory(sessionId, load),
   // An imported transcript is not live: no activity is inferred from reading it, and no end either
   isLive: (sessionId) => !importedSessions.has(sessionId),
   // An exception here would reach uncaughtException and stop the relay for every client (#206)
@@ -652,7 +660,12 @@ function trackSession(sessionId: string, filePath: string) {
   sessions.set(sessionId, session)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
   if (header.branch) sessionBranch.set(sessionId, header.branch)
-  pipeline.attach(session)
+  // Queued and read over several ticks (#651): the relay keeps answering hooks, SSE and /status meanwhile.
+  // A transcript that cannot be read is no longer watched, as when the attach was synchronous.
+  pipeline.attach(session).catch((e) => {
+    if (sessions.get(sessionId) === session) dropSession(sessionId)
+    log('[session] Failed to watch', sessionId, e)
+  })
 }
 
 // ─── Session scanner ────────────────────────────────────────────────────────
@@ -847,8 +860,8 @@ export interface Relay {
   readonly remotePairing: RemotePairing | null
   /** Clean up all resources */
   dispose: () => void
-  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
+  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers, an attach in progress */
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
@@ -1151,7 +1164,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         onSessionTags,
       },
     })
-    teamWatcher.start()
+    // Its first pass reads the sessions found at start once they are attached (queued, over several ticks, #651),
+    // as when they were attached synchronously before it: a team is first reported with its whole roster
+    const startTeams = () => teamWatcher?.start()
+    const startupAttaches = pipeline.whenAttached()
+    if (startupAttaches) void startupAttaches.then(startTeams)
+    else startTeams()
 
     const resolved = (() => { try { return fs.realpathSync(workspace) } catch { return workspace } })()
     const projectDir = encodeProjectDirName(resolved).length > PROJECT_DIR_NAME_MAX
@@ -1475,7 +1493,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Invalid session parameter')
         return
       }
-      if (sseClients.size >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
+      if (sseClients.size + pendingSseClients >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() + pendingRemoteSseClients >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
         res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '5' })
         res.end('Too many clients')
         return
@@ -1494,118 +1512,147 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
       // session list and the replay below, and not a second time as a live broadcast (issue #53).
       scanNow?.()
-      // The history that scan read goes to the clients already there; this one gets it in its replay (#652)
-      flushHistory()
-      sseClients.add(res)
-      log(`[sse] Client connected (${sseClients.size} total)`)
-      // First client starts the shared scan timer; the last one leaving stops it
-      const releaseTicker = scanTicker?.acquire()
-      const releaseSystem = hostClass !== 'allowed' ? systemTicker.acquire() : undefined
-      const releaseHeartbeat = heartbeatTicker.acquire()
+      const join = () => {
+        // The history that scan read goes to the clients already there; this one gets it in its replay (#652)
+        flushHistory()
+        sseClients.add(res)
+        log(`[sse] Client connected (${sseClients.size} total)`)
+        // First client starts the shared scan timer; the last one leaving stops it
+        const releaseTicker = scanTicker?.acquire()
+        const releaseSystem = hostClass !== 'allowed' ? systemTicker.acquire() : undefined
+        const releaseHeartbeat = heartbeatTicker.acquire()
 
-      // Clean up on every way a connection can end; idempotent.
-      let closed = false
-      const onGone = () => {
-        if (closed) return
-        closed = true
-        releaseTicker?.()
-        if (releaseSystem) {
-          releaseSystem()
-          // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
-          if (!systemTicker.active) cpuCounters = null
+        // Clean up on every way a connection can end; idempotent.
+        let closed = false
+        const onGone = () => {
+          if (closed) return
+          closed = true
+          releaseTicker?.()
+          if (releaseSystem) {
+            releaseSystem()
+            // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
+            if (!systemTicker.active) cpuCounters = null
+          }
+          releaseHeartbeat()
+          sseClients.delete(res)
+          clientSessionFilter.delete(res)
+          outboxes.delete(res)
+          log(`[sse] Client disconnected (${sseClients.size} total)`)
         }
-        releaseHeartbeat()
-        sseClients.delete(res)
-        clientSessionFilter.delete(res)
-        outboxes.delete(res)
-        log(`[sse] Client disconnected (${sseClients.size} total)`)
-      }
-      req.on('close', onGone)
-      res.on('close', onGone)
-      res.on('error', onGone)
+        req.on('close', onGone)
+        res.on('close', onGone)
+        res.on('error', onGone)
 
-      // Send current session list (Claude + Codex)
-      let sessionList: SessionInfo[] = []
-      for (const session of sessions.values()) {
-        if (!session.sessionDetected) continue
-        sessionList.push(toSessionInfo(session))
-      }
-      if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
-      if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
-      if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
-      if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
-      if (openCodeWatcher) sessionList.push(...openCodeWatcher.getActiveSessions())
-      // Indexed sessions complete the list; a session that is also watched live keeps its live entry
-      const indexed = readIndex()
-      if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
-      if (sessionList.length > 0) {
-        sendSSE(res, { type: 'session-list', sessions: sessionList })
-      }
+        // Send current session list (Claude + Codex)
+        let sessionList: SessionInfo[] = []
+        for (const session of sessions.values()) {
+          if (!session.sessionDetected) continue
+          sessionList.push(toSessionInfo(session))
+        }
+        if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
+        if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
+        if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
+        if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
+        if (openCodeWatcher) sessionList.push(...openCodeWatcher.getActiveSessions())
+        // Indexed sessions complete the list; a session that is also watched live keeps its live entry
+        const indexed = readIndex()
+        if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
+        if (sessionList.length > 0) {
+          sendSSE(res, { type: 'session-list', sessions: sessionList })
+        }
 
-      // Local clients learn the launches in progress (a tunnel Host never does)
-      if (launchSnapshot && hostClass !== 'allowed') {
-        const launches = launchSnapshot()
-        if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
+        // Local clients learn the launches in progress (a tunnel Host never does)
+        if (launchSnapshot && hostClass !== 'allowed') {
+          const launches = launchSnapshot()
+          if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
+        }
+
+        // Local clients get the last subscription quota (#467); a tunnel Host never does
+        const quota = quotaStore.current()
+        if (quota && hostClass !== 'allowed') sendSSE(res, { type: 'quota', quota: { ...quota } })
+
+        // Replay buffered events: only the requested session with ?session=<id>,
+        // otherwise every session's buffer (most recent active session last).
+        const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
+          const aActive = a.status === 'active' ? 1 : 0
+          const bActive = b.status === 'active' ? 1 : 0
+          if (aActive !== bActive) return bActive - aActive
+          return b.lastActivityTime - a.lastActivityTime
+        })
+        // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
+        const replayDropped = new Map<string, number>()
+        // A client back from a cut link (#366): what it last received from THIS relay process, else nothing is counted
+        const since = parseSinceParam(req.url)
+        const sinceSeq = since && since.instance === relayInstance && since.seq <= eventSeq ? since.seq : null
+        // Served all the same; a client that keeps sending an unusable cursor shows up in the log (never its value)
+        if (sinceSeq === null && /[?&]since=/.test(req.url ?? '')) log('[sse] since ignored: malformed, repeated, ahead or from another relay instance')
+        const gap: Record<string, number> = {}
+        const addGap = (sid: string, n: number) => { if (n > 0) gap[sid] = Math.min((gap[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER) }
+        // The client keeps its graph across a reconnection (reconnect.ts): it already has what is numbered up to `since`
+        // (#653). Nothing is lost by leaving it out; what the cap or the buffer cannot give back is still counted below.
+        let buffers: ReadonlyMap<string, readonly AgentEvent[]> = eventBuffer
+        if (sinceSeq !== null) {
+          const after = new Map<string, readonly AgentEvent[]>()
+          for (const [sid, events] of eventBuffer) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
+          buffers = after
+        }
+        const replay = capReplayBatches(
+          buildReplayBatches(buffers, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped,
+          sinceSeq === null ? undefined : events => {
+            for (const e of events) if (typeof e.sessionId === 'string' && (eventSeqs.get(e) ?? 0) > sinceSeq) addGap(e.sessionId, 1)
+          },
+        )
+        if (sinceSeq !== null) {
+          for (const sid of evictionLog.bySession.keys()) if (!sessionParam || sid === sessionParam) addGap(sid, evictedAfter(evictionLog, sid, sinceSeq))
+        }
+        // Tell the client how many events of each session this replay cannot give back (#366), before the replay
+        // itself. Totals since the relay started, not per client: the client replaces its value on each connect.
+        const loss: Record<string, number> = {}
+        for (const [sid, n] of evictedCounts.bySession) if (n > 0 && (!sessionParam || sid === sessionParam)) loss[sid] = n
+        for (const [sid, n] of replayDropped) loss[sid] = (loss[sid] ?? 0) + n
+        const otherEvents = sessionParam ? 0 : evictedCounts.other
+        const hasGap = Object.keys(gap).length > 0
+        clientLoss.set(res, { evicted: { ...loss }, otherEvents })
+        if (Object.keys(loss).length > 0 || otherEvents > 0 || hasGap) {
+          sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}), ...(hasGap ? { gap } : {}) })
+        }
+        // Every buffered event numbered up to here is in the replay below or counted above (a first connection: evicted;
+        // a reconnection: gap). Events of no session are never buffered nor counted. Sent once the replay is written
+        // (below): a client cut during its replay gets no cursor and comes back with its previous one, so the events it
+        // missed are still numbered after its `since`.
+        const cursor = { type: 'relay-cursor', instance: relayInstance, seq: eventSeq }
+        // The replay can exceed the slow-client backlog limit in one go (issue #203), so it is written as the socket
+        // drains instead of dropping a healthy client mid-replay. Live messages arriving meanwhile wait behind it
+        // (writeLive), keeping arrival order. The cursor follows the whole replay: the client may resume from there.
+        writePaced(res, [...replay.map(batch => JSON.stringify(batch)), JSON.stringify(cursor)])
       }
-
-      // Local clients get the last subscription quota (#467); a tunnel Host never does
-      const quota = quotaStore.current()
-      if (quota && hostClass !== 'allowed') sendSSE(res, { type: 'quota', quota: { ...quota } })
-
-      // Replay buffered events: only the requested session with ?session=<id>,
-      // otherwise every session's buffer (most recent active session last).
-      const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
-        const aActive = a.status === 'active' ? 1 : 0
-        const bActive = b.status === 'active' ? 1 : 0
-        if (aActive !== bActive) return bActive - aActive
-        return b.lastActivityTime - a.lastActivityTime
+      // The sessions that scan (or the start) found are attached over several ticks (#651): the client joins once
+      // their attach ended, so they reach it once, through the list and the replay, as when attaching was synchronous.
+      // The event loop is free meanwhile; a client gone before that never joins.
+      const attaching = pipeline.whenAttached()
+      if (!attaching) { join(); return }
+      // Its slot is held from now: in the SSE cap and, through a tunnel, in the remote cap. Freed when it joins
+      // (it is then in sseClients) or when it leaves before, so a client that reconnects in a loop holds one slot only
+      const remote = hostClass === 'allowed'
+      pendingSseClients++
+      if (remote) pendingRemoteSseClients++
+      let waiting = true
+      const release = () => {
+        if (!waiting) return
+        waiting = false
+        pendingSseClients--
+        if (remote) pendingRemoteSseClients--
+        req.off('close', release)
+        res.off('close', release)
+      }
+      req.once('close', release)
+      res.once('close', release)
+      void attaching.then(() => {
+        const left = !waiting
+        release()
+        if (left || res.destroyed) { clientSessionFilter.delete(res); return }
+        join()
       })
-      // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
-      const replayDropped = new Map<string, number>()
-      // A client back from a cut link (#366): what it last received from THIS relay process, else nothing is counted
-      const since = parseSinceParam(req.url)
-      const sinceSeq = since && since.instance === relayInstance && since.seq <= eventSeq ? since.seq : null
-      // Served all the same; a client that keeps sending an unusable cursor shows up in the log (never its value)
-      if (sinceSeq === null && /[?&]since=/.test(req.url ?? '')) log('[sse] since ignored: malformed, repeated, ahead or from another relay instance')
-      const gap: Record<string, number> = {}
-      const addGap = (sid: string, n: number) => { if (n > 0) gap[sid] = Math.min((gap[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER) }
-      // The client keeps its graph across a reconnection (reconnect.ts): it already has what is numbered up to `since`
-      // (#653). Nothing is lost by leaving it out; what the cap or the buffer cannot give back is still counted below.
-      let buffers: ReadonlyMap<string, readonly AgentEvent[]> = eventBuffer
-      if (sinceSeq !== null) {
-        const after = new Map<string, readonly AgentEvent[]>()
-        for (const [sid, events] of eventBuffer) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
-        buffers = after
-      }
-      const replay = capReplayBatches(
-        buildReplayBatches(buffers, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped,
-        sinceSeq === null ? undefined : events => {
-          for (const e of events) if (typeof e.sessionId === 'string' && (eventSeqs.get(e) ?? 0) > sinceSeq) addGap(e.sessionId, 1)
-        },
-      )
-      if (sinceSeq !== null) {
-        for (const sid of evictionLog.bySession.keys()) if (!sessionParam || sid === sessionParam) addGap(sid, evictedAfter(evictionLog, sid, sinceSeq))
-      }
-      // Tell the client how many events of each session this replay cannot give back (#366), before the replay
-      // itself. Totals since the relay started, not per client: the client replaces its value on each connect.
-      const loss: Record<string, number> = {}
-      for (const [sid, n] of evictedCounts.bySession) if (n > 0 && (!sessionParam || sid === sessionParam)) loss[sid] = n
-      for (const [sid, n] of replayDropped) loss[sid] = (loss[sid] ?? 0) + n
-      const otherEvents = sessionParam ? 0 : evictedCounts.other
-      const hasGap = Object.keys(gap).length > 0
-      clientLoss.set(res, { evicted: { ...loss }, otherEvents })
-      if (Object.keys(loss).length > 0 || otherEvents > 0 || hasGap) {
-        sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}), ...(hasGap ? { gap } : {}) })
-      }
-      // Every buffered event numbered up to here is in the replay below or counted above (a first connection: evicted;
-      // a reconnection: gap). Events of no session are never buffered nor counted. Sent once the replay is written
-      // (below): a client cut during its replay gets no cursor and comes back with its previous one, so the events it
-      // missed are still numbered after its `since`.
-      const cursor = { type: 'relay-cursor', instance: relayInstance, seq: eventSeq }
-      // The replay can exceed the slow-client backlog limit in one go (issue #203), so it is written as the socket
-      // drains instead of dropping a healthy client mid-replay. Live messages arriving meanwhile wait behind it
-      // (writeLive), keeping arrival order. The cursor follows the whole replay: the client may resume from there.
-      writePaced(res, [...replay.map(batch => JSON.stringify(batch)), JSON.stringify(cursor)])
     },
 
     debugState: () => ({
@@ -1619,6 +1666,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       dedupSessions: reconciler.rememberedSessions,
       watchedSessions: sessions.size - importedSessions.size,
       wakeWatchers: projectDirWakeWatchers.size + subagentWakeWatchers.size,
+      // A Claude attach queued or running (#651)
+      attaching: pipeline.whenAttached() !== null,
     }),
 
     webhookStats: () => webhooks?.stats() ?? null,

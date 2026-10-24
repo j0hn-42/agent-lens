@@ -54,7 +54,7 @@ describe('completeSessionHeader', () => {
 })
 
 describe('ClaudeSessionPipeline: lines read live go to the host', () => {
-  it('hands every batch of new lines to onTranscriptLines', () => {
+  it('hands every batch of new lines to onTranscriptLines', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-late-cwd-'))
     const file = path.join(dir, `${SESSION}.jsonl`)
     fs.writeFileSync(file, META.join('\n') + '\n')
@@ -67,7 +67,7 @@ describe('ClaudeSessionPipeline: lines read live go to the host', () => {
     const session = pipeline.newSession(SESSION, file)
     sessions.set(SESSION, session)
     try {
-      pipeline.attach(session)
+      await pipeline.attach(session)
       const entry = line({ type: 'user', cwd: '/w/repo', message: { role: 'user', content: 'Hi' } })
       fs.appendFileSync(file, entry + '\n')
       pipeline.readNewLines(SESSION)
