@@ -50,7 +50,11 @@ export interface AgentNode<A extends AgentLike = AgentLike> {
  * whose parent is not part of the same session (the parent may be hidden or already pruned).
  * Siblings are ordered by spawn time, then id, so the order is stable between renders.
  */
-export function buildAgentForests<A extends AgentLike>(agents: Iterable<A>): Map<string, AgentNode<A>[]> {
+export function buildAgentForests<A extends AgentLike>(
+  agents: Iterable<A>,
+  /** The previous result (#658): a node whose agent is the same object and whose children are the same nodes is returned as it was */
+  prev?: Map<string, AgentNode<A>[]>,
+): Map<string, AgentNode<A>[]> {
   const nodes = new Map<string, AgentNode<A>>()
   for (const agent of agents) nodes.set(agent.id, { agent, children: [] })
   const forests = new Map<string, AgentNode<A>[]>()
@@ -68,6 +72,25 @@ export function buildAgentForests<A extends AgentLike>(agents: Iterable<A>): Map
     a.agent.spawnTime - b.agent.spawnTime || (a.agent.id < b.agent.id ? -1 : a.agent.id > b.agent.id ? 1 : 0)
   for (const node of nodes.values()) node.children.sort(order)
   for (const roots of forests.values()) roots.sort(order)
+  return prev ? reuseNodes(forests, prev) : forests
+}
+
+/** Replaces each node by its previous version when nothing under it changed, children first; same for the roots arrays. */
+function reuseNodes<A extends AgentLike>(forests: Map<string, AgentNode<A>[]>, prev: Map<string, AgentNode<A>[]>): Map<string, AgentNode<A>[]> {
+  const before = new Map<string, AgentNode<A>>()
+  const index = (list: AgentNode<A>[]) => { for (const n of list) { before.set(n.agent.id, n); index(n.children) } }
+  for (const roots of prev.values()) index(roots)
+  const same = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => x === b[i])
+  const reuse = (node: AgentNode<A>): AgentNode<A> => {
+    node.children = node.children.map(reuse)
+    const old = before.get(node.agent.id)
+    return old && old.agent === node.agent && same(old.children, node.children) ? old : node
+  }
+  for (const [sessionId, roots] of forests) {
+    const next = roots.map(reuse)
+    const old = prev.get(sessionId)
+    forests.set(sessionId, old && same(old, next) ? old : next)
+  }
   return forests
 }
 
