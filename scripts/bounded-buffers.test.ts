@@ -1,3 +1,4 @@
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { trimOldest } from '../web/lib/bounded-buffer'
