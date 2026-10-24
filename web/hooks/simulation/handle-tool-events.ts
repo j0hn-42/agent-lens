@@ -331,8 +331,11 @@ export function handleToolCallEnd(
       const idx = own >= 0 ? own : !stillRunning && last >= 0 && !blocks[last].endTime ? last : -1
       if (idx >= 0) {
         let block = blocks[idx]
+        // A call whose own block was trimmed (#659) names no block: the last one is closed below, never relabelled
+        // with this call's name and failure (#613)
+        const ownBlockGone = matchedCall !== undefined && own < 0
         // A cancelled call is not a failure: neutral color, never the error red
-        if (isError || isCancelled) block = { ...block, color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
+        if ((isError || isCancelled) && !ownBlockGone) block = { ...block, color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
         if (block.endTime === undefined) block = { ...block, endTime: currentTime }
         blocks[idx] = block
       }

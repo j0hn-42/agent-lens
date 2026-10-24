@@ -320,6 +320,23 @@ test('no timeline event mutates an entry or a block of the previous state (#214)
   assert.equal(state.timelineEntries.get(agentKeyOf('s1', 'child'))!.endTime, 10)
 })
 
+test('a failed call whose Timeline block was trimmed does not relabel another block (#613)', () => {
+  let state = step(createEmptyState(), { type: 'agent_spawn', payload: { name: 'a', isMain: true }, time: 1 })
+  state = step(state, { type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'x' }, time: 2 })
+  const key = agentKeyOf('s1', 'a')
+  const entry = state.timelineEntries.get(key)!
+  // The block of the call left with the oldest ones (#659); what remains is an unrelated open block
+  const other = { ...entry.blocks[entry.blocks.length - 1], id: 'other', type: 'idle' as const, label: 'Idle', startTime: 1.5, endTime: undefined }
+  const timelineEntries = new Map(state.timelineEntries)
+  timelineEntries.set(key, { ...entry, blocks: [other], droppedBlocks: entry.blocks.length })
+  state = { ...state, timelineEntries }
+  const next = step(state, { type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: 'boom', isError: true }, time: 3 })
+  const blocks = next.timelineEntries.get(key)!.blocks
+  assert.ok(!blocks.some(b => b.label.includes('FAILED')), `labels: ${blocks.map(b => b.label).join(' | ')}`)
+  assert.equal(blocks[0].label, 'Idle')
+  assert.equal(blocks[0].color, other.color, 'the colour of the other block is not the error colour')
+})
+
 test('normalization_stats is kept per session, last one wins, and parsed as untrusted (#366)', () => {
   const s = run([
     { sessionId: 's1', type: 'normalization_stats', payload: { ignoredEvents: 2, malformed: 1 } },
