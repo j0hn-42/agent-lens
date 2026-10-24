@@ -14,7 +14,8 @@ Why the canvas stays quiet when nothing moves, what it skips, and how to measure
 - **Viewport culling.** The agent, tool card, edge and particle passes skip what lies outside the visible area plus a margin (96 screen px, and a per-element extent for labels, glows and trails). Zoomed on one cluster of a large fleet, the other clusters cost nothing.
 - Nothing is drawn from an invented state: a skipped frame leaves the last drawn frame on screen, and the fingerprint covers what moves.
 
-Not covered: the simulation loop (`use-agent-simulation.ts`) still ticks every frame while playing.
+- **Idle simulation (#660).** The simulation loop (`use-agent-simulation.ts`) also skips the frames with nothing to do: no event received, queued or due, no particle, no agent, edge, card or discovery fading or moving, no bubble or tool call reaching its expiry, layout at rest. Such a frame only advances the clock; anything received or due makes the next frame run in full, so an event is never delayed.
+  - The age of an agent (detail card, stats box) is read from the clock where it is shown, to the second, instead of being written into every agent at every frame: an agent at rest keeps its identity, and so do the particle and discovery arrays when nothing moves.
 
 ## Measuring with ?perf
 
@@ -61,3 +62,22 @@ Real draw passes (agents, tool cards, edges, particles) on a recording context, 
 | zoomed on 1 cluster (zoom 0.9) | on | 943 | 0.41 |
 
 Zoomed in, culling removes 90% of the paint calls (each of them, in a real browser, may carry a `shadowBlur` or a gradient). In the overview everything is visible, so nothing is skipped and nothing is lost.
+
+### Simulation loop at rest (`perf-sim-loop.ts`)
+
+The `?perf` panel times the draw loop only; the simulation loop is measured by a script that runs one live frame of `useAgentSimulation` (event batch, `computeNextFrame`, layout step, or the idle gate) on a settled scene: agents faded in and laid out, spawned at fractional times like real sessions, no particle, no bubble, no tool card. 510 frames (8.5 s at 60 fps), mean of 3 runs, Node on the same machine.
+
+```bash
+pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts             # with the idle gate
+pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts --no-gate   # every frame computed
+```
+
+| loop | agents | frames computed | frames that copy the agents Map | JS per frame (µs) |
+|---|---|---|---|---|
+| before #660 | 200 | 510 | 510 | 47 |
+| before #660 | 10 | 510 | 510 | 7 |
+| #660, no gate | 200 | 510 | 0 | 28 |
+| #660, idle gate | 200 | 0 | 0 | 9 |
+| #660, idle gate | 10 | 0 | 0 | 1.6 |
+
+Before, the age written at every frame copied every live agent (about 12,000 objects a second with 200 agents) and handed the draw loop a new agents Map each time, so its caches keyed on it never hit. Now the Map is kept at rest and the frame does not run at all.

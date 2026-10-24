@@ -22,7 +22,10 @@ import {
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
   SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S, SUBAGENT_WATCH_IDLE_MS,
 } from './constants'
-import { safeWatch, readTrackedLines, readLinesChunked, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
+import {
+  safeWatch, readTrackedLines, readLinesChunked, readLineBatches, readJsonFileSafe, listSubagentTranscripts,
+  AttachCancelled, type TimeSlice,
+} from './fs-utils'
 import {
   parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
   type TeammateMeta,
@@ -227,14 +230,151 @@ function spawnFromRecord(
   })
 }
 
+/**
+ * The subagents directory of a session being attached (#651): the same work as scanSubagentsDir, over several
+ * ticks. The event loop is given back between files and inside a long read; a subagent file not written for
+ * ACTIVE_SESSION_AGE_S is read only by its end, as a teammate's. `session.subagentsDir` is set at the end only,
+ * so no live scan starts a file meanwhile; the last pass is the live scan itself (directory watcher, files that
+ * appeared during the attach, workflow groups). Rejects with AttachCancelled when the attach was abandoned.
+ */
+export async function scanSubagentsDirAtAttach(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  sessionId: string,
+  subDir: string,
+  slice: TimeSlice,
+): Promise<void> {
+  const session = delegate.getSession(sessionId)
+  if (!session) return
+  try {
+    if (fs.existsSync(subDir)) {
+      const selection = selectWorkflowTranscripts(listSubagentTranscripts(subDir), subDir)
+      const fresh = selection.files
+        .filter(filePath => !session.subagentWatchers.has(filePath))
+        .filter(filePath => !workflowIdOf(filePath) || isSafeTranscript(filePath, subDir))
+      // Parents before children, as scanSubagentsDir
+      const ranked: Array<{ filePath: string; rank: number }> = []
+      for (const filePath of fresh) {
+        ranked.push({ filePath, rank: fresh.length > 1 && resolveSubagentFileInfo(filePath, 0).parentAgentId ? 1 : 0 })
+        if (slice.due()) await slice.pause()
+      }
+      ranked.sort((x, y) => x.rank - y.rank)
+      for (const rank of [0, 1]) {
+        for (const { filePath } of ranked.filter(o => o.rank === rank)) {
+          if (!session.subagentWatchers.has(filePath)) await startWatchingSubagentFileAsync(delegate, parser, filePath, sessionId, slice)
+          if (slice.due()) await slice.pause()
+        }
+        emitCatchUpSpawns(delegate, parser, session, sessionId)
+      }
+    }
+  } catch (err) {
+    if (err instanceof AttachCancelled) throw err
+    log.debug('Subagent dir scan failed:', err)
+  }
+  session.subagentsDir = subDir
+  scanSubagentsDir(delegate, parser, sessionId)
+}
+
+/** One line of a subagent's history: its tool_use ids (dedup), and which calls are still unanswered. */
+function prescanSubagentLine(line: string, state: SubagentState, pendingToolUseIds: Set<string>): void {
+  if (!line.trim()) return
+  try {
+    const raw: unknown = JSON.parse(line)
+    const message = isObject(raw) ? raw.message : undefined
+    const content = isObject(message) ? message.content : undefined
+    if (!Array.isArray(content)) return
+    for (const block of content) {
+      if (!isObject(block)) continue
+      if (block.type === 'tool_use' && typeof block.id === 'string' && block.id) {
+        state.seenToolUseIds.add(block.id)
+        pendingToolUseIds.add(block.id)
+      } else if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+        pendingToolUseIds.delete(block.tool_use_id)
+      }
+    }
+  } catch { /* skip unparseable subagent transcript lines */ }
+}
+
+/** A subagent file being started: its identity is bound, its state registered; its history is still to read. */
+interface SubagentStart {
+  session: WatchedSession
+  state: SubagentState
+  record: SubagentRecord
+  info: SubagentFileInfo
+}
+
 function startWatchingSubagentFile(
   delegate: SubagentWatcherDelegate,
   parser: TranscriptParser,
   filePath: string,
   sessionId: string,
 ): void {
+  const start = beginSubagentFile(delegate, parser, filePath, sessionId)
+  if (!start) return
+  // Pre-scan existing content for dedup IDs and determine if the subagent
+  // is still active (has unmatched tool_use blocks = pending work).
+  // Bounded by the stat size (a tool_use written later must stay out of the dedup set, the tail
+  // emits it) and streamed in chunks; an unfinished last line is kept in fileTail.
+  const pendingToolUseIds = new Set<string>()
+  let mtimeMs: number | undefined
+  try {
+    const stat = fs.statSync(filePath)
+    mtimeMs = stat.mtimeMs
+    for (const line of readLinesChunked(filePath, stat.size, undefined, start.state)) prescanSubagentLine(line, start.state, pendingToolUseIds)
+  } catch (err) { log.debug('Subagent initial read failed:', err) }
+  finishSubagentFile(delegate, parser, start, filePath, sessionId, pendingToolUseIds, mtimeMs)
+}
+
+/**
+ * startWatchingSubagentFile at attach (#651). An idle file (not written for ACTIVE_SESSION_AGE_S) is read only by
+ * its end (readTranscriptTail, as a teammate's): the position is the end of its last complete line, so a line
+ * still being written and every later call are read by the tail, none is lost. An active one is read in full,
+ * in slices that give the event loop back.
+ */
+async function startWatchingSubagentFileAsync(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  filePath: string,
+  sessionId: string,
+  slice: TimeSlice,
+): Promise<void> {
+  const start = beginSubagentFile(delegate, parser, filePath, sessionId)
+  if (!start) return
+  const pendingToolUseIds = new Set<string>()
+  let mtimeMs: number | undefined
+  try {
+    const stat = await fs.promises.stat(filePath)
+    mtimeMs = stat.mtimeMs
+    if (Date.now() - stat.mtimeMs > ACTIVE_SESSION_AGE_S * 1000) {
+      const tail = readTranscriptTail(filePath)
+      start.state.fileSize = tail.size
+      start.state.fileTail = ''
+      for (const line of tail.lines) prescanSubagentLine(line, start.state, pendingToolUseIds)
+    } else {
+      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state)) {
+        for (const line of lines) {
+          prescanSubagentLine(line, start.state, pendingToolUseIds)
+          if (slice.due()) await slice.pause()
+        }
+        await slice.pause()
+      }
+    }
+  } catch (err) {
+    if (err instanceof AttachCancelled) throw err
+    log.debug('Subagent initial read failed:', err)
+  }
+  finishSubagentFile(delegate, parser, start, filePath, sessionId, pendingToolUseIds, mtimeMs)
+}
+
+/** Identity and registration of a new subagent file; a teammate or workflow agent is started whole here (null). */
+function beginSubagentFile(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  filePath: string,
+  sessionId: string,
+): SubagentStart | null {
   const session = delegate.getSession(sessionId)
-  if (!session) return
+  if (!session) return null
 
   // Resolve identity from the meta file / first entry, then bind to the dispatch
   // (tool_use_id) that spawned it so same-description subagents stay distinct.
@@ -276,41 +416,26 @@ function startWatchingSubagentFile(
       group.members.set(filePath, state)
       // The group name is unique within the session: members must carry it, not the raw script name
       startTeammate(delegate, parser, session, state, record, { ...info.teammate, teamName: group.name }, info, filePath, sessionId, group)
-      return
+      return null
     }
     startTeammate(delegate, parser, session, state, record, info.teammate, info, filePath, sessionId)
-    return
+    return null
   }
+  return { session, state, record, info }
+}
 
-  // Pre-scan existing content for dedup IDs and determine if the subagent
-  // is still active (has unmatched tool_use blocks = pending work).
-  // Bounded by the stat size (a tool_use written later must stay out of the dedup set, the tail
-  // emits it) and streamed in chunks; an unfinished last line is kept in fileTail.
-  const pendingToolUseIds = new Set<string>()
-  let mtimeMs: number | undefined
-  try {
-    const stat = fs.statSync(filePath)
-    mtimeMs = stat.mtimeMs
-    for (const line of readLinesChunked(filePath, stat.size, undefined, state)) {
-      if (!line.trim()) continue
-      try {
-        const raw: unknown = JSON.parse(line)
-        const message = isObject(raw) ? raw.message : undefined
-        const content = isObject(message) ? message.content : undefined
-        if (!Array.isArray(content)) continue
-        for (const block of content) {
-          if (!isObject(block)) continue
-          if (block.type === 'tool_use' && typeof block.id === 'string' && block.id) {
-            state.seenToolUseIds.add(block.id)
-            pendingToolUseIds.add(block.id)
-          } else if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
-            pendingToolUseIds.delete(block.tool_use_id)
-          }
-        }
-      } catch { /* skip unparseable subagent transcript lines */ }
-    }
-  } catch (err) { log.debug('Subagent initial read failed:', err) }
-
+/** After the history of a subagent file was read: its spawn at attach (or owed), then its watcher. */
+function finishSubagentFile(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  start: SubagentStart,
+  filePath: string,
+  sessionId: string,
+  pendingToolUseIds: ReadonlySet<string>,
+  mtimeMs: number | undefined,
+): void {
+  const { session, state, record, info } = start
+  const agentName = state.agentName
   // Only emit spawn for subagents that are still active (have pending work)
   // AND haven't already been spawned by the transcript parser.
   const alreadySpawned = record.spawned || session.spawnedSubagents.has(agentName)

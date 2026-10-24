@@ -331,6 +331,9 @@ export const RELAY_MAX_ALLOWED_HOSTS = 4
 export const RELAY_SSE_HEARTBEAT_MS = 15_000
 /** Drop an SSE client whose unsent backlog (res.writableLength) exceeds this many bytes */
 export const RELAY_MAX_CLIENT_BACKLOG_BYTES = 1024 * 1024
+/** Drop an SSE client whose paced backlog (its replay and the histories read meanwhile, written as it drains, #652)
+ *  exceeds this many bytes: a client that never reads. Far above one attach, whose history the buffer cap bounds. */
+export const RELAY_MAX_PACED_BACKLOG_BYTES = 32 * RELAY_MAX_CLIENT_BACKLOG_BYTES
 /** Max events replayed to a client per session, and in total, on connect */
 export const RELAY_MAX_REPLAY_PER_SESSION = 2000
 export const RELAY_MAX_REPLAY_TOTAL = 10000

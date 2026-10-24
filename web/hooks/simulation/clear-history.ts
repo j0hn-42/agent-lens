@@ -13,7 +13,7 @@ export function clearHistoryState(prev: SimulationState): SimulationState {
   // the session time, so the age stays measured from the real birth (0 until then)
   for (const [id, agent] of prev.agents) {
     if (agent.state !== 'complete') {
-      agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
+      agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [] })
     }
   }
 
@@ -24,7 +24,7 @@ export function clearHistoryState(prev: SimulationState): SimulationState {
   const timelineEntries = new Map<string, TimelineEntry>()
   for (const [id, entry] of prev.timelineEntries) {
     if (agents.has(id)) {
-      timelineEntries.set(id, { ...entry, blocks: [] })
+      timelineEntries.set(id, { ...entry, blocks: [], droppedBlocks: undefined })
     }
   }
 

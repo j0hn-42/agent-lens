@@ -1,5 +1,6 @@
 'use client'
 
+import { useStableObject } from '@/hooks/use-stable-object'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { UseUiPreferences } from '@/hooks/use-ui-preferences'
 import { createPanelRegistry } from '@/hooks/use-panel-registry'
@@ -123,11 +124,16 @@ export function usePanelsState(uiPrefs: UseUiPreferences, selectedAgentId: strin
     return true
   }, [panelRegistry, setShowFileAttention, setShowConversation, setShowCostOverlay, setShowTimeline, setShowStats])
 
-  return {
+  // The refs never change: one object for the life of the page (#658)
+  const panelRefs = useMemo(
+    () => ({ files: filesPanelRef, timeline: timelinePanelRef, sessions: sessionsPanelRef, context: contextPanelRef, system: systemPanelRef }),
+    [filesPanelRef, timelinePanelRef, sessionsPanelRef, contextPanelRef, systemPanelRef],
+  )
+  return useStableObject({
     showStats, setShowStats, showHexGrid, setShowHexGrid, showCostOverlay, showTimeline, setShowTimeline,
     showFileAttention, setShowFileAttention, showSessions, setShowSessions, showConversation,
     showContext, setShowContext, showSystem, setShowSystem,
     toggleExclusivePanel, openConversation, closeConversation, closeTopPanel, registerPanel,
-    panelRefs: { files: filesPanelRef, timeline: timelinePanelRef, sessions: sessionsPanelRef, context: contextPanelRef, system: systemPanelRef },
-  }
+    panelRefs,
+  })
 }

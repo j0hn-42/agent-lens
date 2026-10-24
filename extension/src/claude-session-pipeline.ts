@@ -3,9 +3,9 @@ import * as path from 'path'
 import type { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import { POLL_FALLBACK_MS, SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME } from './constants'
 import { TranscriptParser } from './transcript-parser'
-import { safeWatch, readTrackedLines } from './fs-utils'
+import { safeWatch, readTrackedLines, TimeSlice, AttachCancelled } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
-import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from './subagent-watcher'
+import { scanSubagentsDir, scanSubagentsDirAtAttach, readSubagentNewLines, markTeammatesDone } from './subagent-watcher'
 
 /**
  * Tracking of one Claude Code session transcript: attach (history catch-up), live reads, activity and end,
@@ -22,6 +22,11 @@ export interface ClaudeSessionHost {
   fireLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string): void
   /** Run a history load: events arriving meanwhile are held and deduplicated by the host's reconciler */
   withHistory<T>(load: () => T): T
+  /**
+   * The same over several ticks, holding only this session's events (a Claude attach, #651). Both hosts provide
+   * it; without it nothing is held (test hosts).
+   */
+  withSessionHistory?<T>(sessionId: string, load: () => Promise<T>): Promise<T>
   /** A session was announced (extension only) */
   onDetected?(sessionId: string): void
   /** False for a transcript that is read but not live (imported): no activity is inferred, no end is invented */
@@ -57,6 +62,13 @@ export class ClaudeSessionPipeline {
     getLastActivityTime(sessionId: string): number | undefined
     resetInactivityTimer(sessionId: string): void
   }
+
+  /** Sessions whose attach is queued or running (#651): nothing else reads them meanwhile */
+  private readonly attaching = new Map<string, WatchedSession>()
+  /** Attaches run one after the other (#651) */
+  private attachQueue: Promise<void> = Promise.resolve()
+  /** A SessionEnd observed while the session was being attached: applied once the attach ended (#651) */
+  private readonly endedWhileAttaching = new Set<string>()
 
   constructor(private readonly host: ClaudeSessionHost) {
     const emit = (event: AgentEvent, sessionId?: string) => this.emit(event, sessionId)
@@ -139,35 +151,44 @@ export class ClaudeSessionPipeline {
    * Start tracking a transcript: read its history (current turn only), announce the session, then follow
    * the file (fs.watch + poll fallback) and its subagents. The caller has registered
    * `session` in the host's `sessions`.
+   *
+   * Never in the caller's tick (#651): attaches are queued and run one after the other, each from its own turn
+   * of the event loop, and the history is read in slices that give the loop back (hooks, SSE and /status keep
+   * answering). Until it resolves, the session is read by nothing else (readNewLines, the subagent scans). A
+   * session released or replaced meanwhile is dropped at the next slice: never announced, never watched.
+   * Rejects when the transcript cannot be read (stat).
    */
-  attach(session: WatchedSession): void {
+  attach(session: WatchedSession): Promise<void> {
+    this.attaching.set(session.sessionId, session)
+    const run = this.attachQueue.then(() => this.attachNow(session))
+    this.attachQueue = run.catch(() => {})
+    return run
+  }
+
+  /** Settles once every attach queued so far has ended (resolved or failed); null when none is queued (#651) */
+  whenAttached(): Promise<void> | null {
+    return this.attaching.size > 0 ? this.attachQueue : null
+  }
+
+  private async attachNow(session: WatchedSession): Promise<void> {
     const { sessionId, filePath } = session
-    // The live flow (hooks) is already subscribed: events arriving while the history is read are held
-    // and replayed, deduplicated against the history, when the load ends (issue #53).
-    this.host.withHistory(() => {
-      const stat = fs.statSync(filePath)
-      // Pre-scan existing content for dedup IDs + collect recent entries for catch-up.
-      // It also starts the tail from the end of what it read (only NEW events go forward),
-      // keeping an unfinished last line in fileTail.
-      const catchUpEntries = this.parser.prescanExistingContent(filePath, stat.size, session)
-      this.parser.extractSessionLabel(catchUpEntries, session)
-
-      this.host.onDetected?.(sessionId)
-      this.host.fireLifecycle('started', sessionId, session.label)
-      this.spawnOrchestrator(session, 0)
-      session.sessionDetected = true
-
-      // Initial context breakdown from the prescan, so the clients show the accumulated tokens
-      this.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
-      // Content that was already in the file (e.g. the first user message): prescanned for dedup and
-      // tokens but never emitted, so emit it now for the clients to show the full history.
-      this.parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
-
-      // The subagent, teammate and workflow files already there are history too (#361): a teammate's
-      // replayed tail and a pending sub-agent's spawn were not seen live. Later scans (poll, tail) are live.
-      session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
-      scanSubagentsDir(this.delegate, this.parser, sessionId)
-    })
+    const alive = () => this.attaching.get(sessionId) === session && this.host.sessions.get(sessionId) === session
+    const slice = new TimeSlice(() => !alive())
+    const withSessionHistory = this.host.withSessionHistory ?? (<T>(_id: string, load: () => Promise<T>) => load())
+    try {
+      // One session per turn of the event loop; a session dropped while queued stops here
+      await slice.pause()
+      // The live flow (hooks) is already subscribed: the session's events arriving while the history is read
+      // are held and replayed, deduplicated against the history, when the load ends (issue #53)
+      await withSessionHistory(sessionId, () => this.loadHistory(session, slice))
+    } catch (err) {
+      if (err instanceof AttachCancelled) { this.endedWhileAttaching.delete(sessionId); return }
+      this.endedWhileAttaching.delete(sessionId)
+      if (this.attaching.get(sessionId) === session) this.attaching.delete(sessionId)
+      throw err
+    }
+    if (!alive()) { this.endedWhileAttaching.delete(sessionId); return }
+    this.attaching.delete(sessionId)
 
     const guard = (fn: () => void) => (this.host.guard ? this.host.guard(fn, sessionId) : fn())
     session.fileWatcher = safeWatch(filePath, (eventType) => {
@@ -183,11 +204,43 @@ export class ClaudeSessionPipeline {
 
     // Attaching is not activity: the last activity stays when the transcript was last written (#365)
     this.host.log?.(`Watching ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
+    // What was written while the history was read (over several ticks) is live: read it now
+    guard(() => this.readNewLines(sessionId))
+    if (this.endedWhileAttaching.delete(sessionId)) this.observeSessionEnd(sessionId)
+  }
+
+  /** The history part of an attach: everything already in the transcript and its subagent files. */
+  private async loadHistory(session: WatchedSession, slice: TimeSlice): Promise<void> {
+    const { sessionId, filePath } = session
+    const stat = await fs.promises.stat(filePath)
+    // Pre-scan existing content for dedup IDs + collect recent entries for catch-up.
+    // It also starts the tail from the end of what it read (only NEW events go forward),
+    // keeping an unfinished last line in fileTail.
+    const catchUpEntries = await this.parser.prescanExistingContentAsync(filePath, stat.size, session, slice)
+    this.parser.extractSessionLabel(catchUpEntries, session)
+
+    this.host.onDetected?.(sessionId)
+    this.host.fireLifecycle('started', sessionId, session.label)
+    this.spawnOrchestrator(session, 0)
+    session.sessionDetected = true
+
+    // Initial context breakdown from the prescan, so the clients show the accumulated tokens
+    this.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+    // Content that was already in the file (e.g. the first user message): prescanned for dedup and
+    // tokens but never emitted, so emit it now for the clients to show the full history.
+    this.parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
+
+    // The subagent, teammate and workflow files already there are history too (#361): a teammate's
+    // replayed tail and a pending sub-agent's spawn were not seen live. Later scans (poll, tail) are live.
+    // Read over several ticks too; `session.subagentsDir` is set when it is done (#651).
+    await scanSubagentsDirAtAttach(this.delegate, this.parser, sessionId, path.join(path.dirname(filePath), sessionId, 'subagents'), slice)
   }
 
   readNewLines(sessionId: string): void {
     const session = this.host.sessions.get(sessionId)
     if (!session) return
+    // Being attached: the history read owns the position, what is written meanwhile is read when it ends (#651)
+    if (this.attaching.has(sessionId)) return
 
     const lines = readTrackedLines(session.filePath, session)
     if (!lines) return
@@ -196,15 +249,17 @@ export class ClaudeSessionPipeline {
       this.host.onOversize?.(sessionId)
       return
     }
+    let conversation = false
     for (const line of lines) {
-      this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
+      const type = this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
+      if (type === 'user' || type === 'assistant') conversation = true
     }
     this.host.onTranscriptLines?.(sessionId, lines)
     // Permission-gated tool calls (Agent/Task are skipped: subagents are inherently slow)
     handlePermissionDetection(this.delegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
     scanSubagentsDir(this.delegate, this.parser, sessionId)
     // Only a new user or assistant entry is a resumed conversation: metadata written after the end never reopens it
-    this.resetInactivityTimer(sessionId, lines.some(isConversationLine))
+    this.resetInactivityTimer(sessionId, conversation)
   }
 
   /**
@@ -249,6 +304,8 @@ export class ClaudeSessionPipeline {
 
   /** Claude Code reported the end of the session (SessionEnd hook): the only way a live session completes */
   observeSessionEnd(sessionId: string): void {
+    // Being attached: the end is applied after the history, in the order it happened (#651)
+    if (this.attaching.has(sessionId)) { this.endedWhileAttaching.add(sessionId); return }
     const session = this.host.sessions.get(sessionId)
     if (!session || session.sessionCompleted || !session.sessionDetected) return
     if (this.host.isLive && !this.host.isLive(sessionId)) return
@@ -261,6 +318,8 @@ export class ClaudeSessionPipeline {
 
   /** Close every watcher and timer of a session and free its parser state. The caller forgets the session. */
   release(session: WatchedSession): void {
+    // An attach still queued or running for it stops at its next slice
+    if (this.attaching.get(session.sessionId) === session) this.attaching.delete(session.sessionId)
     session.fileWatcher?.close()
     session.subagentsDirWatcher?.close()
     if (session.pollTimer) clearInterval(session.pollTimer)
@@ -271,15 +330,5 @@ export class ClaudeSessionPipeline {
     }
     session.subagentWatchers.clear()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
-  }
-}
-
-/** A transcript line that records a conversation turn (user or assistant entry), not metadata */
-function isConversationLine(line: string): boolean {
-  try {
-    const type = (JSON.parse(line) as { type?: unknown } | null)?.type
-    return type === 'user' || type === 'assistant'
-  } catch {
-    return false
   }
 }

@@ -88,7 +88,6 @@ export interface Agent {
   toolCalls: number
   /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
   toolErrors?: number
-  timeAlive: number
   x: number
   y: number
   vx: number
@@ -262,6 +261,8 @@ export interface TimelineEntry {
   startTime: number
   endTime?: number
   blocks: TimelineBlock[]
+  /** Oldest blocks dropped to keep `blocks` bounded (#659); absent when none. Shown, never silent. */
+  droppedBlocks?: number
 }
 
 export interface TimelineBlock {

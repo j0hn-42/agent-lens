@@ -1,9 +1,11 @@
 'use client'
 
+import { useStableObject } from '@/hooks/use-stable-object'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
+import { trimOldest } from '@/lib/bounded-buffer'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
   activeSessionIds, finishedSessionIds, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject,
@@ -603,11 +605,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       }
       // ... and in arrival order for the 'All' tab
       allEventsRef.current.push(simEvent)
-      if (allEventsRef.current.length > MAX_ALL_BUFFER) {
-        const over = allEventsRef.current.length - MAX_ALL_BUFFER
-        allEventsRef.current.splice(0, over)
-        allBaseRef.current += over
-      }
+      // Trimmed in batches (10 % over the cap), not one splice per event: amortized O(1) (#659)
+      allBaseRef.current += trimOldest(allEventsRef.current, MAX_ALL_BUFFER)
 
       // Deliver to pending if session matches (ref is always current). The 'All' tab receives every event.
       // Skip if a session switch is pending — useLayoutEffect will flush
@@ -803,7 +802,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     vscodeBridge?.openTerminal(sessionId)
   }, [])
 
-  return {
+  const result: BridgeHookResult = {
     isVSCode,
     connectionStatus,
     pendingEvents: pendingEventsRef.current,
@@ -858,6 +857,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     eventLossSource: (relayEnabled ? 'relay' : 'extension') as LossSource,
     viewSessionIds,
   }
+  // The same object while no field changed (#658): what depends on `bridge` (openFile, the memoized panels) is not
+  // invalidated by a render of the page that changes none of its fields
+  return useStableObject(result)
 }
 
 // ─── Operator decisions (#240) ───────────────────────────────────────────────
