@@ -65,3 +65,34 @@ test('the browser cache is still saved only by shard 1 after a successful instal
   assert.match(save, /cache-hit != 'true'/)
   assert.match(install, /^\s+id: playwright-install$/m)
 })
+
+test('the step does not claim that ldd proves no apt package is needed: it only sees linked libraries (#440)', () => {
+  const contributing = fs.readFileSync(path.join(ROOT, 'CONTRIBUTING.md'), 'utf8')
+  const wrong = /ldd (proves|shows) that no (apt )?package|proves? (that )?no (apt )?package is needed|no system package is needed/i
+  assert.doesNotMatch(install, wrong)
+  assert.doesNotMatch(shard, wrong)
+  assert.doesNotMatch(contributing, wrong)
+  // what is true is said where the step is: only linked libraries are checked, fonts and xvfb are no longer installed
+  const comment = shard.slice(shard.indexOf('# The apt packages'), shard.indexOf('      - name: Install Chromium for Playwright'))
+  assert.match(comment, /only (checks|sees|verifies) the linked libraries/i, 'says what ldd covers')
+  assert.match(comment, /fonts/i, 'says the font packages are no longer installed')
+  assert.match(comment, /xvfb/i)
+  const line = contributing.split('\n').find(l => l.includes('ms-playwright'))
+  assert.ok(line, 'CONTRIBUTING describes the Playwright cache')
+  assert.match(line, /fonts/i)
+  assert.match(line, /xvfb/i)
+})
+
+test('the internal time limits add up to less than the timeout of the step, so the fallback error message is printed (#440)', () => {
+  const stepMinutes = Number(install.match(/^\s+timeout-minutes: (\d+)$/m)![1])
+  const limits = [...install.matchAll(/timeout (\d+) /g)].map(m => Number(m[1]))
+  assert.ok(limits.length >= 2, 'install and install-deps both have a limit')
+  // the install loop runs twice with the first limit; install-deps has the last one
+  const total = limits[0] * 2 + limits[limits.length - 1]
+  assert.ok(total < stepMinutes * 60, `${total} s of internal limits must stay under ${stepMinutes * 60} s of the step`)
+})
+
+test('a failing ldd is told apart from an absence of "not found" (#440)', () => {
+  assert.match(install, /ldd failed|ldd could not/i, 'a failure of ldd is reported')
+  assert.doesNotMatch(install, /ldd "\$bin" 2>&1 \| grep/, 'ldd output is not piped straight into grep (pipefail would hide its failure)')
+})
