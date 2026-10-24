@@ -59,6 +59,10 @@ export function eventSessionId(event: Pick<SimulationEvent, 'sessionId'>): strin
   return typeof event.sessionId === 'string' && event.sessionId ? event.sessionId : DEFAULT_SESSION_ID
 }
 
+/** Blocks kept per agent (#659): beyond it the oldest go in a batch and `droppedBlocks` counts them. */
+export const MAX_TIMELINE_BLOCKS = 2000
+const TIMELINE_BLOCKS_AFTER_TRIM = Math.floor(MAX_TIMELINE_BLOCKS * 0.9)
+
 /**
  * Copy of `entry` with its last open block closed and a new block appended.
  * Never mutates `entry`: it may belong to the previous state (#214).
@@ -80,6 +84,11 @@ export function pushTimelineBlock(
     label: block.label,
     color: block.color,
   })
+  // Bounded, in batches of 10 %: the copy above never grows past the cap, and what leaves is counted (#659)
+  if (blocks.length > MAX_TIMELINE_BLOCKS) {
+    const over = blocks.length - TIMELINE_BLOCKS_AFTER_TRIM
+    return { ...entry, blocks: blocks.slice(over), droppedBlocks: (entry.droppedBlocks ?? 0) + over }
+  }
   return { ...entry, blocks }
 }
 

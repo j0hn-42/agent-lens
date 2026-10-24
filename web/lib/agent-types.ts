@@ -262,6 +262,8 @@ export interface TimelineEntry {
   startTime: number
   endTime?: number
   blocks: TimelineBlock[]
+  /** Oldest blocks dropped to keep `blocks` bounded (#659); absent when none. Shown, never silent. */
+  droppedBlocks?: number
 }
 
 export interface TimelineBlock {

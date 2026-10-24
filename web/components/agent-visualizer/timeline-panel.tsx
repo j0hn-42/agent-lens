@@ -3,7 +3,7 @@
 import { useLocale } from '@/lib/locale'
 import { translate, type Locale } from '@/lib/messages'
 import { DATA_EN } from '@/lib/panel-text'
-import { stateLabelText, stateGlyphText, arrowKindText, arrowLabelText, timelineLabelText, earlierMessagesText, blockLabelParts, type LabelPart } from '@/lib/timeline-text'
+import { stateLabelText, stateGlyphText, arrowKindText, arrowLabelText, timelineLabelText, earlierMessagesText, olderBlocksText, totalDroppedBlocks, blockLabelParts, type LabelPart } from '@/lib/timeline-text'
 import { panelName } from '@/lib/command-palette'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
@@ -23,6 +23,7 @@ import {
   capMessageRows,
   orderEntriesBySequence,
   orderEntriesByStart,
+  visibleRowRange,
   type SwimlaneArrow,
   type TimelineStateKey,
 } from '@/lib/timeline-rows'
@@ -141,6 +142,8 @@ function drawTimeline(
   arrows: readonly SwimlaneArrow[] = [],
   hoveredArrowId?: string,
   locale: Locale = 'en',
+  /** Rows to draw (#659): the canvas keeps its full height, the rows out of the scroll viewport are skipped. */
+  rowRange?: { first: number; last: number },
 ) {
   ctx.clearRect(0, 0, width * dpr, height * dpr)
   ctx.save()
@@ -172,7 +175,9 @@ function drawTimeline(
   }
 
   // ── Agent rows ──
-  for (let i = 0; i < entries.length; i++) {
+  const firstRow = rowRange ? Math.max(0, rowRange.first) : 0
+  const lastRow = rowRange ? Math.min(entries.length - 1, rowRange.last) : entries.length - 1
+  for (let i = firstRow; i <= lastRow; i++) {
     const entry = entries[i]
     const y = HEADER_HEIGHT + i * ROW_HEIGHT
 
@@ -291,6 +296,8 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   const [hoveredName, setHoveredName] = useState<string | undefined>()
   const [sequence, setSequence] = useState(false)
   const [activeArrowId, setActiveArrowId] = useState<string | undefined>()
+  // Rows in view (#659): only they are drawn; updated on scroll, and only when the range changes
+  const [rowRange, setRowRange] = useState({ first: 0, last: 20 })
   const tableId = useId()
   const messagesTableId = useId()
 
@@ -319,10 +326,22 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   const ariaLabel = timelineLabelText(locale, sortedEntries, currentTime)
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
+  const droppedBlocks = useMemo(() => totalDroppedBlocks(sortedEntries), [sortedEntries])
+
 
   // Bottom dock: centred above the control bar, narrowed by the chat / link / card beside it
   const dock = useDockPanel('timeline', visible)
   const dockRect = dock.rect
+
+  const updateRowRange = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const next = visibleRowRange(el.scrollTop, el.clientHeight || 300, sortedEntries.length, HEADER_HEIGHT, ROW_HEIGHT)
+    setRowRange(prev => (prev.first === next.first && prev.last === next.last ? prev : next))
+  }
+  // Scroll, then a change in the number of rows (clientHeight is read there, not at render)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- updateRowRange only reads refs and sortedEntries.length
+  useEffect(() => { if (visible) updateRowRange() }, [visible, sortedEntries.length, dockRect?.h])
 
   // Focus moves into the panel on open and returns to the opener on close.
   // Escape is owned by the global LIFO handler (use-keyboard-shortcuts); no local listener.
@@ -351,9 +370,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     canvas.style.width = `${width}px`
     canvas.style.height = `${canvasHeight}px`
 
-    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId, locale)
+    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId, locale, rowRange)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- redraw on every prop change (component only re-renders on data/time updates)
-  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w, locale])
+  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w, locale, rowRange])
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -426,6 +445,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           aria-label={translate(locale, 'tl.scroll')}
           className={`min-h-0 overflow-auto ${FOCUS_RING}`}
           style={{ maxHeight: 300 }}
+          onScroll={updateRowRange}
         >
           {/* The image role sits on a wrapper: the canvas keeps its pointer handlers (hover names) without
               being turned into a non-interactive element. The table view is the full text alternative. */}
@@ -544,6 +564,13 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 </>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Blocks dropped to keep the timeline bounded (#659): counted, never lost silently */}
+        {droppedBlocks > 0 && (
+          <div className="px-3 py-1 text-2xs font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMutedOpaque }}>
+            {olderBlocksText(locale, droppedBlocks)}
           </div>
         )}
 
