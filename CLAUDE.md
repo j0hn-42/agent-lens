@@ -7,11 +7,11 @@ Principle: never display a state or a number that cannot be proven ([docs/readin
 ## Layout
 
 - `web/`: Next.js 16 / React 19 / Tailwind 4 app and the Vite webview bundle. Canvas, panels, themes (`web/lib/theme-tokens.json`).
-- `web/lib/messages/<domain>.ts`: the message catalog, one file per domain with its fr and en tables side by side. Add your key in the file of your domain, with its two languages; `web/lib/messages.ts` only assembles them (import from there).
+- `web/lib/messages/<domain>.ts`: the message catalog, one file per domain with its fr and en tables side by side. Add your key in the file of your domain, with its two languages; `web/lib/messages.ts` only assembles them (import from there); a new domain file is also declared in `messages/domains.ts` and in `messages/locales/fr.ts` and `en.ts`.
 - `extension/`: VS Code extension (esbuild).
 - `app/`: standalone app build.
 - `scripts/`: the relay server (`relay.ts`), routes, telemetry and most unit tests (`scripts/*.test.ts`).
-- `docs/`: user documentation. `scripts/docs.test.ts` and `ui-glossary.test.ts` check parts of it. The UI guide is an index, `docs/reading-the-ui.md`, and one file per domain in `docs/reading-the-ui/`: add your bullet in the file of your domain (tests read the whole guide through `scripts/reading-guide.ts`); a newly translated surface is one bullet under `### In your language` in the file of its domain, never in `language.md`, which only links those sections.
+- `docs/`: user documentation. `scripts/docs.test.ts` and `ui-glossary.test.ts` check parts of it. The UI guide is an index, `docs/reading-the-ui.md`, and one file per domain in `docs/reading-the-ui/`: add your bullet in the file of your domain (tests read the whole guide through `scripts/reading-guide.ts`); a newly translated surface is one bullet under `### In your language` in the file of its domain, never in `language.md`, which only links those sections (a surface that was still listed as English in `language.md`, in its « Still English for now » paragraph, is removed from there when you translate it; the first surface of a domain without that section adds one link in `language.md`).
 
 ## Commands
 
