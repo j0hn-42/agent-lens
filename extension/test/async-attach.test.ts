@@ -47,6 +47,14 @@ function loopTurns() {
   return { get turns() { return turns }, stop() { on = false } }
 }
 
+/** Until the attach of `session` is under way (its first slice was read), bounded in time */
+async function underway(session: WatchedSession): Promise<void> {
+  for (const deadline = Date.now() + 10_000; session.seenToolUseIds.size === 0 && Date.now() < deadline;) {
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  assert.ok(session.seenToolUseIds.size > 0, 'the attach is under way')
+}
+
 interface Rig {
   dir: string
   sessions: Map<string, WatchedSession>
@@ -137,7 +145,7 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     r.turns = loopTurns()
     const p1 = r.pipeline.attach(s1)
     const p2 = r.pipeline.attach(s2)
-    assert.deepEqual(r.lifecycle, [], 'nothing announced synchronously')
+    assert.equal(r.lifecycle.length, 0, 'nothing announced synchronously')
     assert.equal(s1.seenToolUseIds.size + s2.seenToolUseIds.size, 0, 'nothing read synchronously')
     await Promise.all([p1, p2])
     const started = r.lifecycle.filter(l => l.type === 'started')
@@ -145,20 +153,22 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     assert.ok(started[1].turn > started[0].turn, 'the second attach runs in a later turn of the loop')
   })
 
-  it('only the attaching session is held: another session keeps flowing, the held live event follows the history', async () => {
+  it('only the attaching session is held: another session keeps flowing, the held live event comes with the history', async () => {
     r = rig()
     r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
     const session = r.session(S1)
     const attached = r.pipeline.attach(session)
     // Wait until the attach is under way (the first slice was read)
-    while (session.seenToolUseIds.size === 0) await new Promise(res => setImmediate(res))
+    await underway(session)
     r.reconciler.submit({ time: 1, type: 'agent_idle', payload: { name: 'orchestrator' }, sessionId: S2 }, { source: 'hook' })
     r.reconciler.submit({ time: 1, type: 'agent_idle', payload: { name: 'orchestrator' }, sessionId: S1 }, { source: 'hook' })
     assert.deepEqual(r.delivered.map(e => e.sessionId), [S2], 'the other session is delivered at once')
+    await new Promise(res => setImmediate(res))
+    assert.deepEqual(r.delivered.map(e => e.sessionId), [S2], 'S1 is held while its history is read')
     await attached
     const ofS1 = r.delivered.filter(e => e.sessionId === S1).map(e => e.type)
-    assert.equal(ofS1[0], 'agent_spawn', 'the history of S1 comes first')
-    assert.ok(ofS1.includes('agent_idle'), 'the held live event is delivered after it')
+    assert.ok(ofS1.includes('agent_spawn'), 'the history of S1 is delivered when the attach ends')
+    assert.equal(ofS1.filter(t => t === 'agent_idle').length, 1, 'with the held live event, once')
   })
 
   it('a session released while it attaches is dropped: never announced, no watcher, nothing delivered', async () => {
@@ -166,15 +176,27 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     r.transcript(S1, prompt('Audit') + history(3 * PRESCAN_CHUNK_BYTES, 'm'))
     const session = r.session(S1)
     const attached = r.pipeline.attach(session)
-    while (session.seenToolUseIds.size === 0) await new Promise(res => setImmediate(res))
+    await underway(session)
     r.pipeline.release(session)
     r.sessions.delete(S1)
     r.reconciler.forgetSession(S1)
     await attached
-    assert.deepEqual(r.lifecycle, [], 'not announced')
+    assert.equal(r.lifecycle.length, 0, 'not announced')
     assert.equal(session.fileWatcher, null)
     assert.equal(session.pollTimer, null)
     assert.deepEqual(r.delivered, [], 'nothing of a dropped session is delivered')
+  })
+
+  it('a SessionEnd observed while the history is read ends the session once the attach ended', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
+    const session = r.session(S1)
+    const attached = r.pipeline.attach(session)
+    await underway(session)
+    r.pipeline.observeSessionEnd(S1)
+    await attached
+    assert.deepEqual(r.lifecycle.map(l => l.type), ['started', 'ended'], 'announced, then ended, in that order')
+    assert.equal(session.sessionCompleted, true)
   })
 
   it('lines written while the history is read are read right after the attach, once', async () => {
@@ -182,7 +204,7 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
     const session = r.session(S1)
     const attached = r.pipeline.attach(session)
-    while (session.seenToolUseIds.size === 0) await new Promise(res => setImmediate(res))
+    await underway(session)
     fs.appendFileSync(session.filePath, call('late', 'Bash'))
     // A watcher or poll callback arriving mid-attach reads nothing (the history owns the position)
     r.pipeline.readNewLines(S1)

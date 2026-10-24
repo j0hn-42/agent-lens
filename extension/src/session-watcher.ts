@@ -74,6 +74,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     submit: (event) => this.reconciler.submit(event, { source: 'jsonl' }),
     fireLifecycle: (type, sessionId, label) => this.fireLifecycle(type, sessionId, label),
     withHistory: (load) => this.reconciler.withHistory(load),
+    withSessionHistory: (sessionId, load) => this.reconciler.withSessionHistory(sessionId, load),
     onDetected: (sessionId) => this._onSessionDetected.fire(sessionId),
     // A session found before its first entry with a cwd: its project is learnt now and the panel told
     onTranscriptLines: (sessionId, lines) => {
@@ -301,7 +302,12 @@ export class SessionWatcher implements AgentSessionWatcher {
         },
       },
     })
-    this.teamWatcher.start()
+    // Its first pass reads the sessions found at start once they are attached (queued, over several ticks, #651),
+    // as when they were attached synchronously before it: a team is first reported with its whole roster
+    const startTeams = () => this.teamWatcher?.start()
+    const startupAttaches = this.pipeline.whenAttached()
+    if (startupAttaches) void startupAttaches.then(startTeams)
+    else startTeams()
   }
 
   /** Set up fs.watch on known project directories and the parent CLAUDE_DIR */
@@ -545,7 +551,8 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.sessions.set(sessionId, session)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
     if (header.branch) this.sessionBranch.set(sessionId, header.branch)
-    this.pipeline.attach(session)
+    // Queued, over several ticks (#651): a transcript that cannot be read is logged, as a scan error was
+    this.pipeline.attach(session).catch(err => log.error(`Failed to watch ${sessionId}:`, err))
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────

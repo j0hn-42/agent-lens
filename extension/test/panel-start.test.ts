@@ -43,6 +43,14 @@ class FakePanel {
 
 const losses = (p: FakePanel) => p.messages.filter((m): m is Extract<ExtensionToWebviewMessage, { type: 'event-loss' }> => m.type === 'event-loss')
 const flush = () => new Promise<void>(resolve => setImmediate(resolve))
+/** The attach is queued and read over several ticks (#651): waits until the session is announced and its history delivered */
+async function attached(watcher: unknown): Promise<void> {
+  const w = watcher as { sessions: Map<string, { sessionDetected: boolean }>; reconciler: { isLoading: boolean } }
+  const done = () => w.sessions.get(SESSION)?.sessionDetected === true && !w.reconciler.isLoading
+  // Bounded in time, not in turns: the reads go through the libuv pool, slower on a loaded machine
+  for (const deadline = Date.now() + 10_000; !done() && Date.now() < deadline;) await new Promise(resolve => setTimeout(resolve, 2))
+  assert.ok(done(), 'the session is attached')
+}
 
 describe('panel page start with a real SessionWatcher (#592)', () => {
   let m: Mods
@@ -94,10 +102,11 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     return { watcher, emitted, hooks, start, dispose }
   }
 
-  it('on ready: reset, config, session list, the replay, then event-loss = what was emitted before minus what the replay re-sent', () => {
+  it('on ready: reset, config, session list, the replay, then event-loss = what was emitted before minus what the replay re-sent', async () => {
     const h = harness()
     try {
       h.watcher.start()
+      await attached(h.watcher)
       h.watcher.submitHookEvent({ time: 2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Read', toolUseId: 'hook-only' }, sessionId: SESSION } as AgentEvent)
       const before = h.emitted.length + h.hooks.length
       assert.ok(h.emitted.length > 0 && h.hooks.length === 1, 'precondition: history and one surviving hook event, no panel')
@@ -135,6 +144,7 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     const h = harness()
     try {
       h.watcher.start()
+      await attached(h.watcher)
       const base = h.emitted.length
       const panel = new FakePanel()
       setPanel(panel)
@@ -146,6 +156,7 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
       internals.unwatchSession(SESSION)
       const n = h.emitted.length
       internals.watchSession(SESSION, transcript)
+      await attached(h.watcher)
       const reread = h.emitted.slice(n).filter(e => e.replayed === true).length
       assert.ok(reread > 0, 'precondition: the history is emitted again, marked replayed')
       await flush()
@@ -165,7 +176,7 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     } finally { h.dispose() }
   })
 
-  it('a team lead unwatched then rediscovered: its team_info is re-sent as replayed and the figure does not grow (#605 review)', () => {
+  it('a team lead unwatched then rediscovered: its team_info is re-sent as replayed and the figure does not grow (#605 review)', async () => {
     const teamDir = path.join(fakeHome, '.claude', 'teams', 'demo-team')
     fs.mkdirSync(path.join(teamDir, 'inboxes'), { recursive: true })
     fs.writeFileSync(path.join(teamDir, 'config.json'), JSON.stringify({
@@ -178,6 +189,7 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
     const h = harness()
     try {
       h.watcher.start()
+      await attached(h.watcher)
       const internals = h.watcher as unknown as Internals & { teamWatcher: { scan(): void } }
       internals.teamWatcher.scan()
       const infos = () => h.emitted.filter(e => e.type === 'team_info')
@@ -187,6 +199,7 @@ describe('panel page start with a real SessionWatcher (#592)', () => {
 
       internals.unwatchSession(SESSION)
       internals.watchSession(SESSION, transcript)
+      await attached(h.watcher)
       internals.teamWatcher.scan()
       assert.equal(infos().length, 2, 'precondition: the rediscovered lead gets its team_info again')
       assert.equal(infos()[1].replayed, true, 'a team_info already sent is re-sent as known state')
