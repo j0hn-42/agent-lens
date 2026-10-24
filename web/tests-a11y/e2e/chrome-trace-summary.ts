@@ -22,6 +22,7 @@ export interface TraceEvent {
 
 export interface Stat { mean: number | null; p50: number | null; p95: number | null }
 export interface Total { count: number; ms: number }
+export interface ForcedSource { kind: string; at: string; count: number }
 export interface TraceSummary {
   frames: number
   frameMs: Stat
@@ -38,13 +39,15 @@ export interface TraceSummary {
   script: Total
   /** Every task of the main threads (RunTask): what the page left of the main thread for input and rendering */
   mainBusy: Total
+  /** Where the forced events come from: top frame of their JS stack (needs the devtools.timeline.stack category) */
+  forcedSources: ForcedSource[]
   perFrameMs: { script: number | null; layout: number | null; forcedLayout: number | null; forcedStyleRecalc: number | null; paint: number | null; styleRecalc: number | null; raster: number | null }
 }
 
 const JS_TASKS = new Set(['FireAnimationFrame', 'FunctionCall', 'EventDispatch', 'TimerFire', 'EvaluateScript', 'RunMicrotasks'])
 const KEPT = new Set([...JS_TASKS, 'Layout', 'Paint', 'UpdateLayoutTree', 'RasterTask', 'RunTask'])
 
-interface Span { name: string; key: string; start: number; end: number }
+interface Span { name: string; key: string; start: number; end: number; args?: Record<string, unknown> }
 
 const round = (n: number) => Math.round(n * 1000) / 1000
 
@@ -62,7 +65,7 @@ function spans(events: TraceEvent[]): Span[] {
   for (const e of [...events].sort((a, b) => a.ts - b.ts)) {
     if (!KEPT.has(e.name)) continue
     const key = `${e.pid}:${e.tid}`
-    if (e.ph === 'X') out.push({ name: e.name, key, start: e.ts, end: e.ts + (e.dur ?? 0) })
+    if (e.ph === 'X') out.push({ name: e.name, key, start: e.ts, end: e.ts + (e.dur ?? 0), args: e.args })
     else if (e.ph === 'B') {
       const k = `${key}:${e.name}`
       open.set(k, [...(open.get(k) ?? []), e])
@@ -70,10 +73,28 @@ function spans(events: TraceEvent[]): Span[] {
       const k = `${key}:${e.name}`
       const stack = open.get(k)
       const b = stack?.pop()
-      if (b) out.push({ name: e.name, key, start: b.ts, end: e.ts })
+      if (b) out.push({ name: e.name, key, start: b.ts, end: e.ts, args: b.args })
     }
   }
   return out.sort((a, b) => a.start - b.start)
+}
+
+interface StackFrame { url?: string; lineNumber?: number; columnNumber?: number }
+
+/** Forced events grouped by the top frame of their stack (file name, line, column), most frequent first. */
+function forcedSources(forced: Span[]): ForcedSource[] {
+  const counts = new Map<string, ForcedSource>()
+  for (const s of forced) {
+    const data = (s.args?.beginData ?? s.args?.data) as { stackTrace?: StackFrame[] } | undefined
+    const top = data?.stackTrace?.[0]
+    if (!top) continue
+    const at = `${(top.url ?? '').split('/').pop()}:${top.lineNumber ?? 0}:${top.columnNumber ?? 0}`
+    const k = `${s.name} ${at}`
+    const c = counts.get(k) ?? { kind: s.name, at, count: 0 }
+    c.count++
+    counts.set(k, c)
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count)
 }
 
 export function summarizeTrace(events: TraceEvent[], window: { fromUs?: number; toUs?: number } = {}): TraceSummary {
@@ -119,6 +140,7 @@ export function summarizeTrace(events: TraceEvent[], window: { fromUs?: number; 
     raster: total(raster),
     script: total(frames),
     mainBusy: total(named('RunTask')),
+    forcedSources: forcedSources([...forced, ...forcedStyle]),
     perFrameMs: {
       script: per(ms(frames)),
       layout: per(ms(layouts)),

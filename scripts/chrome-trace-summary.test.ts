@@ -114,3 +114,20 @@ test('no frame: per-frame values are null, not zero', () => {
   assert.equal(s.frameMs.mean, null)
   assert.equal(s.perFrameMs.raster, null)
 })
+
+test('forced events are grouped by the top frame of their JS stack, most frequent first', () => {
+  const frame = (url: string, columnNumber: number) => ({ functionName: '', url, lineNumber: 1, columnNumber })
+  const s = summarizeTrace([
+    ...meta,
+    x('FireAnimationFrame', 0, 10_000),
+    { ...x('UpdateLayoutTree', 100, 10), args: { beginData: { stackTrace: [frame('https://h/_next/a.js', 200), frame('https://h/b.js', 1)] } } },
+    { ...x('UpdateLayoutTree', 200, 10), args: { beginData: { stackTrace: [frame('https://h/_next/a.js', 200)] } } },
+    { ...x('Layout', 300, 10), args: { beginData: { stackTrace: [frame('https://h/_next/c.js', 7)] } } },
+    // Not forced (outside any JS task): not listed even with a stack
+    { ...x('UpdateLayoutTree', 20_000, 10), args: { beginData: { stackTrace: [frame('https://h/_next/d.js', 1)] } } },
+  ])
+  assert.deepEqual(s.forcedSources, [
+    { kind: 'UpdateLayoutTree', at: 'a.js:1:200', count: 2 },
+    { kind: 'Layout', at: 'c.js:1:7', count: 1 },
+  ])
+})

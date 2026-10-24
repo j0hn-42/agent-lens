@@ -11,8 +11,14 @@
 // running tool, so all are active and drawn at full rate), left to settle, then a node is hovered (the pointer
 // moves 1 px back and forth over it, the tooltip stays shown) while a DevTools trace is recorded through CDP
 // (devtools.timeline categories) and Performance.getMetrics is read before and after. chrome-trace-summary.ts
-// turns the trace into numbers: frames, forced layouts ("Forced reflow"), Layout, Paint, RasterTask, style.
-// Medians over PROFILE_RUNS runs are printed; PROFILE_OUT=<dir> also keeps each trace and a JSON of every run.
+// turns the trace into numbers: frames, forced layouts and style recalcs ("Forced reflow"), Layout, Paint,
+// RasterTask, style, main-thread busy time. Two scenes per run: the whole fleet fitted (overview), then zoomed in
+// (Ctrl + wheel) so the agent details are drawn. Medians over PROFILE_RUNS runs are printed, then the JS source
+// (top stack frame and the minified code around it) of the forced events. PROFILE_OUT=<dir> also keeps each trace,
+// a screenshot of each scene and a JSON of every run.
+//
+// Headless Chromium draws the 2D canvas in software, on the renderer main thread: the canvas raster cost is inside
+// the requestAnimationFrame callback, not in RasterTask (which only rasterises the DOM layers).
 import fs from 'node:fs'
 import path from 'node:path'
 import { chromium, type Browser, type CDPSession, type Frame, type Page } from 'playwright'
@@ -30,7 +36,8 @@ const OUT = process.env.PROFILE_OUT
 const VIEWPORT = { width: 1280, height: 800 }
 const CATEGORIES = [
   'devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame',
-  'toplevel', 'v8.execute', 'blink.user_timing',
+  // .stack: the JS stack of each forced style recalculation or layout (what DevTools shows under "Forced reflow")
+  'disabled-by-default-devtools.timeline.stack', 'toplevel', 'v8.execute', 'blink.user_timing',
 ]
 const METRICS = ['LayoutCount', 'RecalcStyleCount', 'LayoutDuration', 'RecalcStyleDuration', 'ScriptDuration', 'TaskDuration'] as const
 
@@ -153,7 +160,6 @@ async function profileOnce(browser: Browser, target: string, base: string, dpr: 
     // The tour offer covers part of the canvas: declined when it shows (same in every build)
     const notNow = app.getByRole('button', { name: 'Not now' })
     if (await notNow.isVisible()) await notNow.click()
-    let node = null as Hovered | null
     for (const scene of ['overview', 'zoomed'] as const) {
       if (scene === 'zoomed') {
         // Ctrl + wheel zooms around the pointer (a plain wheel pans): the node stays under it
@@ -162,10 +168,8 @@ async function profileOnce(browser: Browser, target: string, base: string, dpr: 
         await host.keyboard.up('Control')
         await host.waitForTimeout(1500)
       }
-      // After the zoom the same node is kept when it is still under the pointer, else another one is looked for
-      const prev = node
-      const still: { shown: boolean; title: string } | null = prev ? await tooltipState(app) : null
-      node = prev && still?.shown ? { x: prev.x, y: prev.y, title: still.title } : await findNode(host, app)
+      // Looked for again after the zoom: the layout keeps moving the nodes, the one hovered before may be elsewhere
+      const node = await findNode(host, app)
       const file = OUT ? path.join(OUT, `trace-${target}-${scene}-dpr${dpr}-run${run}.json`) : null
       if (OUT) await host.screenshot({ path: path.join(OUT, `shot-${target}-${scene}-dpr${dpr}-run${run}.png`) })
       const r = await trace(host, app, node, file)
@@ -195,6 +199,35 @@ function table(runs: Run[], targets: string[]): string {
   return rows.join('\n')
 }
 
+/** The code around a `file.js:line:col` of a target's build (Next chunks), so a minified frame can be recognised. */
+async function snippet(base: string, at: string): Promise<string> {
+  const [file, line, col] = at.split(':')
+  try {
+    const res = await fetch(`${base}/_next/static/chunks/${file}`)
+    if (!res.ok) return ''
+    const text = (await res.text()).split('\n')[Number(line) - 1] ?? ''
+    return text.slice(Math.max(0, Number(col) - 90), Number(col) + 30).replace(/\|/g, '\\|').replace(/`/g, "'")
+  } catch { return '' }
+}
+
+/** Forced style recalcs and layouts by JS source, summed over every run and scene of each target. */
+async function sources(runs: Run[], targets: [string, string][]): Promise<string> {
+  const rows = ['| build | kind | at | forced events | frames | code around it (minified) |', '|---|---|---|---|---|---|']
+  for (const [label, base] of targets) {
+    const rs = runs.filter(r => r.target === label)
+    const frames = rs.reduce((n, r) => n + r.trace.frames, 0)
+    const sum = new Map<string, { kind: string; at: string; count: number }>()
+    for (const r of rs) for (const f of r.trace.forcedSources) {
+      const k = `${f.kind} ${f.at}`
+      sum.set(k, { kind: f.kind, at: f.at, count: (sum.get(k)?.count ?? 0) + f.count })
+    }
+    for (const f of [...sum.values()].sort((a, b) => b.count - a.count).slice(0, 5)) {
+      rows.push(`| ${label} | ${f.kind} | ${f.at} | ${f.count} | ${frames} | \`${await snippet(base, f.at)}\` |`)
+    }
+  }
+  return rows.join('\n')
+}
+
 async function main() {
   const spec = process.env.PROFILE_TARGETS
   const server = spec ? null : await startDemoServer()
@@ -205,6 +238,7 @@ async function main() {
   const browser = await chromium.launch()
   const version = browser.version()
   const runs: Run[] = []
+  let forced = ''
   try {
     for (let run = 0; run < RUNS; run++) for (const dpr of DPRS) {
       // Alternate the order so neither build always runs first (warm caches, thermal state)
@@ -216,6 +250,7 @@ async function main() {
         }
       }
     }
+    forced = await sources(runs, targets)
   } finally {
     await browser.close()
     await server?.stop()
@@ -223,6 +258,8 @@ async function main() {
   if (OUT) fs.writeFileSync(path.join(OUT, 'runs.json'), JSON.stringify(runs, null, 2))
   console.log(`Chromium ${version}, viewport ${VIEWPORT.width}x${VIEWPORT.height}, ${AGENTS} agents, ${RUNS} runs, ${SAMPLE_MS} ms traced while hovering; medians.`)
   console.log(table(runs, targets.map(t => t[0])))
+  console.log('')
+  console.log(forced)
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
