@@ -689,6 +689,8 @@ function watchProjectDirsForWake(dirs: string[]) {
     if (projectDirWakeWatchers.has(dir)) continue
     const w = safeWatch(dir, (_eventType, filename) => {
       if (!filename || !filename.endsWith('.jsonl')) return
+      // Left out for its size, so cold: waking it would scan again at every line of a long session, to leave it out again (#613)
+      if (skippedSessions.sizeLimit.has(filename.slice(0, -'.jsonl'.length))) return
       wakeAndRescan(wakeColdFile(coldScan, path.join(dir, filename)))
     }, undefined, () => projectDirWakeWatchers.delete(dir))
     if (w) projectDirWakeWatchers.set(dir, w)
@@ -861,7 +863,7 @@ export interface Relay {
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers, an attach in progress */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; runtimeScanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
+  debugState: () => { runtimeScanRuns: number; pendingSseClients: number; sseClients: number; remoteSseClients: number; scanTimerActive: boolean; runtimeScanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
@@ -1177,8 +1179,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       : path.join(CLAUDE_DIR, encodeProjectDirName(resolved))
     if (projectDir && fs.existsSync(projectDir)) {
       try {
-        // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650)
-        projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
+        // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650).
+        // One left out for its size is known too: the scan would skip it again, at every line a long session writes (#613).
+        projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) || skippedSessions.sizeLimit.has(id) })
         projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => projectWatchScan?.onEvent(filename))
       } catch {}
     }
@@ -1257,13 +1260,21 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   // The discovery scans of the other runtimes run on one shared interval, like the Claude scan: started by the
   // first SSE client, stopped by the last (#654). Without a client the Codex, Copilot, Pi and Gemini fs.watch still react; OpenCode (no fs.watch) is read at the next connection.
+  // Own ticker, not scanTicker.acquire(): scanTicker is built inside the Claude block and scans the Claude projects
+  // only, while this scan has to run for every runtime asked for (a codex-only relay has no scanTicker). In auto mode
+  // with a client that makes two one-second intervals, one per family of scans, on purpose.
+  // Through a coalescer like the Claude scan: connections arriving while a run is in flight share it, they do not
+  // each stat the five runtimes again (#613).
+  const runtimeScanCoalescer = new KeyedCoalescer<void>()
   const scanOtherRuntimes = () => {
-    for (const scan of [
-      () => codexWatcher?.scan(), () => copilotWatcher?.scan(), () => piWatcher?.scan(),
-      () => geminiWatcher?.scan(), () => openCodeWatcher?.scanNow(),
-    ]) {
-      try { scan() } catch (e) { log('[scan] Runtime scan failed:', e) }
-    }
+    void runtimeScanCoalescer.run('scan', () => {
+      for (const scan of [
+        () => codexWatcher?.scan(), () => copilotWatcher?.scan(), () => piWatcher?.scan(),
+        () => geminiWatcher?.scan(), () => openCodeWatcher?.scanNow(),
+      ]) {
+        try { scan() } catch (e) { log('[scan] Runtime scan failed:', e) }
+      }
+    })
   }
   // Release is not discovery: a session silent past ACTIVE_SESSION_AGE_S is retired (fs.watch, poll timer) even
   // with nobody connected, on a slow timer and before /status counts (#654)
@@ -1280,6 +1291,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const telemetry = options.telemetry
   const sessionStart = Date.now()
   let relayDisposed = false
+  /** Clients accepted and waiting for the attaches in progress (#651): dispose() closes them, they never join */
+  const pendingResponses = new Set<http.ServerResponse>()
   const relaySessionId = `relay-${process.pid}-${Math.floor(sessionStart / 1000)}`
   sessionEventCount = 0
 
@@ -1667,12 +1680,14 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Its slot is held from now: in the SSE cap and, through a tunnel, in the remote cap. Freed when it joins
       // (it is then in sseClients) or when it leaves before, so a client that reconnects in a loop holds one slot only
       const remote = hostClass === 'allowed'
+      pendingResponses.add(res)
       pendingSseClients++
       if (remote) pendingRemoteSseClients++
       let waiting = true
       const release = () => {
         if (!waiting) return
         waiting = false
+        pendingResponses.delete(res)
         pendingSseClients--
         if (remote) pendingRemoteSseClients--
         req.off('close', release)
@@ -1683,12 +1698,15 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       void attaching.then(() => {
         const left = !waiting
         release()
-        if (left || res.destroyed) { clientSessionFilter.delete(res); return }
+        // A relay disposed meanwhile joins nobody: join() would start the tickers and the timers again (#613)
+        if (left || res.destroyed) { clientSessionFilter.delete(res); if (relayDisposed) dropClient(res); return }
         join()
       })
     },
 
     debugState: () => ({
+      runtimeScanRuns: runtimeScanCoalescer.runs,
+      pendingSseClients,
       sseClients: sseClients.size,
       remoteSseClients: remoteSseCount(),
       scanTimerActive: scanTicker?.active ?? false,

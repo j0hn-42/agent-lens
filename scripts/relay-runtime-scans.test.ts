@@ -109,4 +109,33 @@ describe('scans of the other runtimes stop without a client (#654)', () => {
       assert.equal(await count(), 0, 'released: no scan ran, no client was there')
     } finally { mock.timers.reset() }
   })
+
+  it('a connection scans the other runtimes before joining: a session born meanwhile is in its first session list (#613)', async () => {
+    const d = new Date()
+    const day = path.join(process.env.CODEX_HOME!, 'sessions', String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'))
+    const ws = path.join(fakeHome, 'my-workspace')
+    fs.writeFileSync(path.join(day, 'rollout-2026-10-08T09-30-00-00000000-0000-4000-8000-000000000002.jsonl'),
+      JSON.stringify({ type: 'session_meta', payload: { cwd: ws } }) + '\n')
+    const runs = relay.debugState().runtimeScanRuns
+    const ids = await new Promise<string[]>((resolve, reject) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
+        res.setEncoding('utf8')
+        let buf = ''
+        res.on('data', (c: string) => {
+          buf += c
+          for (const block of buf.split('\n\n')) {
+            if (!block.startsWith('data: ')) continue
+            try {
+              const m = JSON.parse(block.slice(6))
+              if (m.type === 'session-list') { req.destroy(); resolve(m.sessions.map((x: { id: string }) => x.id)); return }
+            } catch { /* incomplete block */ }
+          }
+        })
+      })
+      req.on('error', e => { if ((e as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(e) })
+    })
+    assert.ok(ids.some(id => id.includes('000000000002')), `the new Codex session is listed (${ids.join(',')})`)
+    assert.ok(relay.debugState().runtimeScanRuns > runs, 'the connection ran the scan itself')
+    assert.ok(await waitFor(() => relay.debugState().sseClients === 0))
+  })
 })
