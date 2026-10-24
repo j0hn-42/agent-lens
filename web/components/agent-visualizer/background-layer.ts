@@ -102,7 +102,7 @@ const HEX_MIN_PITCH_PX = 15
  * The stride is 1 from a 15 px pitch up, so the default zoom is unchanged, and the count never exceeds
  * about 10 000 whatever the zoom.
  */
-export function hexGridStride(scale: number): number {
+function hexGridStride(scale: number): number {
   const pitch = HEX_GRID_SIZE * 1.5 * scale
   if (!(pitch > 0) || pitch >= HEX_MIN_PITCH_PX) return 1
   return 2 ** Math.ceil(Math.log2(HEX_MIN_PITCH_PX / pitch))

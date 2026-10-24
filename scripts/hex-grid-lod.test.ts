@@ -1,7 +1,7 @@
 import './canvas-recorder'
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { drawBackground, hexGridStride } from '../web/components/agent-visualizer/background-layer'
+import { drawBackground } from '../web/components/agent-visualizer/background-layer'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function countingCtx() {
@@ -27,21 +27,15 @@ function hexes(scale: number, reducedMotion = false): number {
   return c.closePath
 }
 
-test('hex grid: no decimation at and above the default zoom', () => {
-  assert.equal(hexGridStride(1), 1)
-  assert.equal(hexGridStride(0.5), 1)
-  assert.equal(hexGridStride(0.25), 1)
+test('hex grid: the default zoom and the zooms above the 15 px pitch are not thinned', () => {
+  // 1920x1080 at scale 1 and 0.25 keep the full grid (390 and 4140 hexagons before the change)
+  assert.equal(hexes(1), 390)
+  assert.equal(hexes(0.25), 4140)
 })
 
-test('hex grid: stride is a power of two that grows as the zoom falls', () => {
-  let prev = 1
-  for (const s of [0.2, 0.1, 0.07, 0.04]) {
-    const k = hexGridStride(s)
-    assert.ok(Number.isInteger(Math.log2(k)), `stride ${k} at ${s}`)
-    assert.ok(k >= prev)
-    prev = k
-  }
-  assert.ok(hexGridStride(0.04) > 1)
+test('hex grid: the count stops growing once the grid is thinned', () => {
+  assert.ok(hexes(0.04) < hexes(0.07) * 1.5)
+  assert.ok(hexes(0.04) < 5000)
 })
 
 test('hex grid: cost is bounded at every zoom (path operations at minimum zoom)', () => {
