@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  MOTION_LAYERS, DEFAULT_CALM_LAYERS, parseCalmLayers, serializeCalmLayers, toggleCalmLayer, layerIsCalm,
+  MOTION_LAYERS, DEFAULT_CALM_LAYERS, parseCalmLayers, toggleCalmLayer, layerIsCalm,
   allLayersCalm, MOTION_LAYERS_STORAGE_KEY,
 } from '../web/lib/motion-layers'
 
@@ -39,7 +39,7 @@ test('all four layers calm is the same as reduced motion', () => {
 
 test('stored value: round trip, garbage and hostile payloads fall back to the default', () => {
   const calm = toggleCalmLayer(DEFAULT_CALM_LAYERS, 'links')
-  assert.deepEqual(parseCalmLayers(serializeCalmLayers(calm)), calm)
+  assert.deepEqual(parseCalmLayers(JSON.stringify(calm)), calm, 'what the former key held (#372: now read once, as a migration)')
   for (const bad of [null, undefined, '', 'nope', '[]', '42', '{"links":"yes"}', '{"__proto__":{"links":true}}', 'x'.repeat(5000)]) {
     assert.deepEqual(parseCalmLayers(bad), DEFAULT_CALM_LAYERS, String(bad).slice(0, 20))
   }

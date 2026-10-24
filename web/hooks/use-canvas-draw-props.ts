@@ -26,7 +26,8 @@ function buildDrawProps(
   const {
     simulationRef, selectedAgentId, hoveredAgentId, showStats, showHexGrid, pauseAutoFit,
     onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick,
-    selectedDiscoveryId, showCostOverlay, hideInactive = false, onLinkClick, selectedLinkId,
+    selectedDiscoveryId, showCostOverlay, hideInactive = false, onLinkClick, selectedLinkId, health, replayLost,
+    onLayoutKeepIds,
   } = props
   const sim = simulationRef.current
   const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
@@ -40,12 +41,15 @@ function buildDrawProps(
       selectedAgentId, hoveredAgentId, showStats, showHexGrid,
       showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
       simTime: sim.currentTime, pauseAutoFit, dimensions,
+      // Loop verdicts of the view (#230): with the simulation's ledger of repeats, the badges of the nodes (#377)
+      health, replayLost,
       // Resolved by the draw loop each frame; carried over so a pointer event between a render and the
       // next frame still hit-tests against the links of the previous frame (never an empty list)
       links: prev?.links ?? ([] as ResolvedLink[]),
       onAgentDrag, onAgentClick, onAgentHover, onContextMenu,
       onToolCallClick, onDiscoveryClick, onLinkClick,
       onClusterClick,
+      onLayoutKeepIds,
       isDragging: prev?.isDragging ?? false,
     },
   }

@@ -27,6 +27,24 @@ export type AgentEventType =
   | 'normalization_stats'
   | 'context_compacted'
 
+/** The files a Glob's structured result proves it listed (#451), as `tool_call_end` carries them in `listing` */
+export interface SearchListingPayload {
+  /** The first files of the list, in the tool's order (at most SEARCH_LISTING_MAX_FILES) */
+  files: string[]
+  /** The number of files the tool returned, equal to the length of the list it returned */
+  count: number
+}
+
+/** Payload of `tool_call_end`: the fields below are optional and added only when proven (the rest is untyped) */
+export interface ToolCallEndPayload {
+  agent: string
+  tool: string
+  result: string
+  toolUseId?: string
+  /** Present only on a successful Glob whose structured result is whole and consistent (#451) */
+  listing?: SearchListingPayload
+}
+
 /** Payload of `context_compacted` (#232): only what the transcript proves; an unproven field is absent. */
 export interface ContextCompactedPayload {
   agent: string
@@ -128,6 +146,11 @@ export interface NormalizationStats {
   malformed: number
   /** Exact repeats of an already-seen event (harmless: they never truncate the graph) */
   duplicateEvents: number
+  /**
+   * Updates the source holds but the reader did not read (an OpenCode row changed after the reader
+   * stopped following it, #420): the graph may show an older state. A lower bound.
+   */
+  missedUpdates: number
 }
 
 export interface AgentEvent {
@@ -137,6 +160,8 @@ export interface AgentEvent {
   sessionId?: string
   /** Event of an imported transcript (#294): read from a file, never seen live */
   imported?: boolean
+  /** Event read from a transcript history (attach catch-up, import), not seen live: its wall-clock timing is unknown (#361) */
+  replayed?: boolean
 }
 
 export interface SessionInfo {
@@ -147,11 +172,15 @@ export interface SessionInfo {
   lastActivityTime: number
   /** True when lastActivityTime only stands for the start: usable to sort, never to display */
   lastActivityUnknown?: boolean
+  /** Start of the session as its transcript records it; `startTime` stays the origin of the event times */
+  recordedStartTime?: number
+  /** True when no start is recorded and `startTime` is only when watching began: a duration from it is a lower bound */
+  startTimeWatched?: boolean
   /** Agent Team the session belongs to (lead or tmux member), when known */
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */
   memberName?: string
-  /** 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' */
+  /** 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' */
   runtime?: string
   /** Workspace root the session was discovered for (untrusted, capped) */
   workspace?: string
@@ -181,9 +210,26 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'wa
 
 export type ExtensionToWebviewMessage =
   | { type: 'connection-status'; status: ConnectionStatus; source: string }
-  | { type: 'agent-event'; event: AgentEvent }
+  /** `seq` (relay only, #366): the number of the event for this relay process, see `relay-cursor` */
+  | { type: 'agent-event'; event: AgentEvent; seq?: number }
   | { type: 'agent-event-batch'; events: AgentEvent[] }
   | { type: 'reset'; reason: string }
+  /** Sent by the relay once per /events connection, before the replay (#366). `evicted`: per session, events the
+   *  relay can no longer replay (buffer or replay cap), totals since the relay started: REPLACE the previous value,
+   *  never add. It says what the replay lacks, not what this client missed: a client that stayed connected got them live.
+   *  `otherEvents`: the same count for sessions no longer listed individually. Absent when nothing was lost.
+   *  `gap`: only for a client back with `?since=` from this relay process, per session, the events numbered after
+   *  `since` that it will never receive (evicted, or left out by this replay's cap): a lower bound, to ADD to what the
+   *  client already knows it lacks.
+   *  The VS Code extension (no relay, #592) sends it after `reset` and the agents it re-sends: per session, the events
+   *  emitted before that page was ready that it will never receive (see panel-loss.ts); then again, lower (REPLACE),
+   *  while that page is open, each time a session's history read again reaches it. Never `otherEvents` (sessions past
+   *  its cap are dropped from the figure) and no `gap`: a page lives as long as its panel, there is no cut link to resume. */
+  | { type: 'event-loss'; evicted: Record<string, number>; otherEvents?: number; gap?: Record<string, number> }
+  /** Relay only, once per /events connection after `event-loss` and before the replay (#366): the relay process and
+   *  the number of the last event it delivered. A client sends it back as `?since=<instance>.<seq>` when it reconnects,
+   *  updated with the `seq` of each live `agent-event` it receives. */
+  | { type: 'relay-cursor'; instance: string; seq: number }
   | { type: 'config'; config: Partial<VisualizerConfig> }
   | { type: 'session-list'; sessions: SessionInfo[] }
   | { type: 'session-started'; session: SessionInfo }
@@ -272,6 +318,12 @@ export interface RelayStatus {
   allWorkspaces: boolean
   /** Discovery ceilings (#291): `projectDirsCapped` = more project folders exist than maxProjectDirs, the others are not scanned */
   discovery: { projectDirsCapped: boolean; maxProjectDirs: number; maxFilesPerDir: number }
+  /** Watched runtimes that cannot be read right now, with the reason (#420), e.g. the OpenCode database not found.
+   *  Present only when there is one; the message never carries a file path. */
+  runtimeProblems?: Array<{ runtime: string; message: string }>
+  /** Losses of a watched runtime that no followed session counts in its normalization_stats (#420): unreadable rows and
+   *  row changes not read, in sessions not followed at the time. Lower bounds. Present only when one is above 0. */
+  runtimeLosses?: Array<{ runtime: string; unreadableRows: number; missedUpdates: number }>
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
   /** Agent launches (#229): present only when the relay was started with --allow-launch, and never for a tunnel Host */
@@ -421,6 +473,8 @@ export interface SubagentState {
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
   spawnEmitted: boolean
+  /** Its dispatch was read from the history at attach and shows no end: its spawn is still owed (#446) */
+  catchUpSpawn?: boolean
   /** agent_id parsed from the transcript file name (agent-<id>.jsonl) */
   agentId?: string
   /** Set for in-process Agent Team teammates (see teammate.ts) */
@@ -436,17 +490,22 @@ export interface WatchedSession {
   fileSize: number
   /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
   fileTail: string
+  /** When watching began: the origin of the event times (`time`, seconds), not the start of the session */
   sessionStartTime: number
+  /** Start of the session as its transcript records it (first timestamped entry); absent when none is recorded */
+  recordedStartTime?: number
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>
   seenMessageHashes: Set<string>
   sessionDetected: boolean
+  /** The end of the session was observed (SessionEnd hook). A silence never sets it (#360) */
   sessionCompleted: boolean
   lastActivityTime: number
-  inactivityTimer: NodeJS.Timeout | null
   subagentWatchers: Map<string, SubagentState>
   /** Names of subagents already spawned (by transcript parser or file watcher) — prevents duplicate spawns */
   spawnedSubagents: Set<string>
+  /** agent_spawn emitted at attach for subagents launched in the history (#446), bounded by SUBAGENT_CATCH_UP_SPAWNS_MAX */
+  catchUpSpawns?: number
   /** Subagent names currently receiving inline progress events — file watcher skips these */
   inlineProgressAgents: Set<string>
   subagentsDirWatcher: import('fs').FSWatcher | null

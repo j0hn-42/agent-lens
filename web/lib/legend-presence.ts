@@ -34,6 +34,8 @@ export interface LegendPresenceInput {
   teamCount: number
   /** Session halos drawn (several sessions on one canvas) */
   sessionHaloCount: number
+  /** Loop / repeat badges drawn, by agent id (lib/repeat-marks); a mark of an agent not in `agents` proves nothing */
+  repeatMarks?: ReadonlyMap<string, { kind: 'loop' | 'repeated' }>
 }
 
 export interface LegendPresence {
@@ -81,13 +83,15 @@ export function deriveLegendPresence(input: LegendPresenceInput): LegendPresence
     if (agent.state === 'complete') addFor('shape-complete', agent)
     if (agent.archived) addFor('team-archived', agent)
     if (isOrchestrator(agent)) addFor('orchestrator', agent)
-    addFor(agent.runtime === 'codex' ? 'rt-codex' : agent.runtime === 'copilot' ? 'rt-copilot' : agent.runtime === 'pi' ? 'rt-pi' : agent.runtime === 'gemini' ? 'rt-gemini' : 'rt-claude', agent)
+    addFor(agent.runtime === 'codex' ? 'rt-codex' : agent.runtime === 'copilot' ? 'rt-copilot' : agent.runtime === 'pi' ? 'rt-pi' : agent.runtime === 'gemini' ? 'rt-gemini' : agent.runtime === 'opencode' ? 'rt-opencode' : 'rt-claude', agent)
     if (agent.kind === 'teammate') {
       addFor('team-ring', agent)
       const activity = teammateActivity({ kind: agent.kind, activity: agent.activity, state: agent.state })
       if (activity) addFor(TEAMMATE_ENTRY[activity], agent)
     }
     for (const [field, id] of CONTEXT_ENTRY) if (agent.contextBreakdown[field] > 0) addFor(id, agent)
+    const mark = input.repeatMarks?.get(agent.id)
+    if (mark) addFor(mark.kind === 'loop' ? 'mark-loop' : 'mark-repeated', agent)
   }
 
   if (input.toolCallCount > 0) { add('shape-tool'); add('edge-tool') }

@@ -22,6 +22,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 type AnyEvent = { type: string; payload: Record<string, unknown>; sessionId?: string }
 const received: AnyEvent[] = []
+const posted: Array<{ type: string; sessionId?: string }> = []
 let transcript = ''
 let hookPort = 0
 let runtime: { dispose(): void } | null = null
@@ -66,7 +67,7 @@ describe('startClaudeRuntime: hooks and transcript reconciled', () => {
       isReady: true,
       sendEvent: (e: AnyEvent) => { received.push(e) },
       setConnectionStatus: () => {},
-      postMessage: () => {},
+      postMessage: (m: { type: string; sessionId?: string }) => { posted.push(m) },
     }
     VisualizerPanel.getCurrent = () => panel
     const { startClaudeRuntime } = await import('../src/claude-runtime')
@@ -146,5 +147,24 @@ describe('startClaudeRuntime: hooks and transcript reconciled', () => {
       assert.equal(starts('tu-unwatched').length, 1, 'a hook-only session still reaches the panel')
       assert.equal(spy.calls.filter(e => e.sessionId === OTHER && e.type === 'tool_call_start').length, 1, 'went through watcher.submitHookEvent')
     } finally { spy.restore() }
+  })
+
+  // #360: a Stop is a turn end, never the end of the session, even for a session the watcher does not own
+  it('a Stop for an unwatched session reaches the panel as a turn end, not agent_complete', async () => {
+    const OTHER = '77777777-7777-4777-8777-777777777777'
+    assert.equal(await postHook({ session_id: OTHER, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tu-stop-other', tool_input: { command: 'ls' } }), 200)
+    assert.equal(await postHook({ session_id: OTHER, hook_event_name: 'Stop' }), 200)
+    await waitFor(() => received.some(e => e.sessionId === OTHER && e.type === 'agent_idle'))
+    assert.ok(received.some(e => e.sessionId === OTHER && e.type === 'agent_idle' && e.payload.turnEnd === true))
+    assert.ok(!received.some(e => e.sessionId === OTHER && e.type === 'agent_complete'))
+  })
+
+  // #360: the end of a watched session is the observed SessionEnd (last test: the session is over afterwards)
+  it('a SessionEnd hook ends the watched session: session-ended is posted, once', async () => {
+    assert.ok(!posted.some(m => m.type === 'session-ended' && m.sessionId === SESSION), 'precondition: not ended yet')
+    assert.equal(await postHook({ session_id: SESSION, hook_event_name: 'SessionEnd' }), 200)
+    await waitFor(() => posted.some(m => m.type === 'session-ended' && m.sessionId === SESSION))
+    assert.ok(received.some(e => e.sessionId === SESSION && e.type === 'agent_complete' && e.payload.sessionEnd === true))
+    assert.equal(posted.filter(m => m.type === 'session-ended' && m.sessionId === SESSION).length, 1)
   })
 })

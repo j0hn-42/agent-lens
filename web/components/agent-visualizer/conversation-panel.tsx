@@ -6,32 +6,42 @@
 // It replaces the former message feed, session transcript and per-agent chat. The per-agent chat is a preset
 // of this panel: selecting an agent opens it with that agent's tab selected.
 
-import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId } from 'react'
 import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 import { useVirtualList } from '@/hooks/use-virtual-list'
 import { usePanelRegistration } from '@/hooks/use-panel-registry'
 import {
-  stateLabel, truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState,
+  truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState,
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, EMPTY_SEARCH, FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair, filterBySearch, latestFeedMessage,
   droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
-  pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, type FeedMessage,
+  pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, usesAgentPicker, type FeedMessage,
 } from '@/lib/feed-utils'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { AgentPicker } from './agent-picker'
 import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { nextTabIndex } from '@/lib/tab-nav'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
-import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
+import { isPairComplete, isPairSet } from '@/lib/pair-filter'
 import { formatDroppedMessages } from '@/lib/chrome-utils'
-import { CONVERSATION_LABELS, HIERARCHY_TERMS } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import type { Locale } from '@/lib/messages'
+import { panelName } from '@/lib/command-palette'
+import { stateText } from '@/lib/card-text'
+import {
+  DATA_EN, t as tr, messageCountText, droppedText, newMessagesText, roleLabelText, commLabelText, hierarchyTermText, teamChipTexts,
+  copiedText, exportSavedText, pairEmptyTextT,
+} from '@/lib/panel-text'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
-import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { conversationExport, copyText, redactForCopy, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
 import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { PANEL_BUTTON_IDS } from './top-bar'
+import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from './top-bar'
+import { truncateName } from '@/lib/truncate-name'
 
 export interface ConversationPanelProps {
   /** Whether the open panel (true) or the collapsed pill (false) is shown */
@@ -74,16 +84,19 @@ export function ConversationPanel({
   const pair = usePairFilter()
   const [pickerOpen, setPickerOpen] = useState(false)
   const { message: feedback, notify } = useCopyFeedback()
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   const logRef = useRef<HTMLDivElement>(null)
   const unreadStateRef = useRef<UnreadState>(emptyUnreadState())
+  const unreadBaselineRef = useRef(false)
   const pillRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const searchToggleRef = useRef<HTMLButtonElement>(null)
-  const tabsRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
   const baseId = useId()
   const regionId = `${baseId}-region`
+  const pillLeadId = `${baseId}-pill-lead`
+  const pillPreviewId = `${baseId}-pill-preview`
   const listId = `${baseId}-list`
   const tabPanelId = `${baseId}-panel`
   const searchId = `${baseId}-search`
@@ -120,7 +133,10 @@ export function ConversationPanel({
   const messages = useMemo(() => filterBySearch(tabMessages, searchQuery), [tabMessages, searchQuery])
   // A pair is read from the conversations of its two agents: older messages dropped from either may be pair messages
   const pairDropped = pairActive ? (droppedMessages?.get(pair.a) ?? 0) + (droppedMessages?.get(pair.b) ?? 0) : 0
+  // English text for the Markdown export (a document written to disk); the panel shows the same count in its own language
   const droppedMarker = pairActive ? formatDroppedMessages(pairDropped) : droppedMarkerFor(droppedMessages, activeTab)
+  const droppedCount = pairActive ? pairDropped
+    : activeTab === 'all' ? [...(droppedMessages?.values() ?? [])].reduce((a, b) => a + b, 0) : (droppedMessages?.get(activeTab) ?? 0)
   const multiSession = hasMultipleSessions(agents)
 
   // Virtual list with auto-scroll
@@ -133,7 +149,11 @@ export function ConversationPanel({
   useEffect(() => {
     const { increased, next } = trackUnread(unreadStateRef.current, conversations, links, FEED_MESSAGE_TYPES)
     unreadStateRef.current = next
-    if (!open || activeTab === 'all') return
+    // The first pass is the baseline: messages that existed before the panel mounted are not "unread" (opened on an
+    // agent tab, every other agent was otherwise counted, which the agent picker shows as "n unread")
+    const baseline = !unreadBaselineRef.current
+    unreadBaselineRef.current = true
+    if (baseline || !open || activeTab === 'all') return
     if (increased.length === 0) return
     setUnread(prev => markUnread(prev, increased, activeTab))
   }, [conversations, links, open, activeTab])
@@ -185,7 +205,7 @@ export function ConversationPanel({
     // An open agent card (the panel was opened by selecting that agent) keeps focus: moving it to the pill or
     // the top bar button would close the card, so one Escape would close two things.
     const target = document.querySelector<HTMLElement>('[data-dock-panel="detail"]')
-      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation)
+      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation) ?? document.getElementById(TOPBAR_MORE_ID)
     target?.focus({ preventScroll: true })
   }, [open])
 
@@ -193,24 +213,9 @@ export function ConversationPanel({
     if (showSearch) searchRef.current?.focus()
   }, [showSearch])
 
-  const updateTabOverflow = useCallback(() => {
-    const el = tabsRef.current
-    if (!el) return
-    const left = el.scrollLeft > 1
-    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
-    setTabOverflow(prev => (prev.left === left && prev.right === right ? prev : { left, right }))
-  }, [])
-
-  useEffect(() => {
-    updateTabOverflow()
-    const el = tabsRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(updateTabOverflow)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [updateTabOverflow, agentsWithMessages, open])
-
-  const showTabs = agentsWithMessages.length > 1
+  // From AGENT_PICKER_MIN agents with messages one picker replaces the tabs (a row of 83 tabs scrolled sideways and showed 1 or 2)
+  const showPicker = usesAgentPicker(agentsWithMessages.length)
+  const showTabs = agentsWithMessages.length > 1 && !showPicker
   const tabKeys = ['all', ...agentsWithMessages]
   const activeTabIndex = activeTabIndexOf(tabKeys, activeTab)
 
@@ -237,6 +242,35 @@ export function ConversationPanel({
     tabRefs.current[next]?.focus()
   }
 
+  // The 5th agent that speaks swaps the tablist for the picker (and the other way when agents go): the focused element is
+  // removed with it and focus would fall to <body> (WCAG 2.4.3). Where focus was in the row that leaves, it moves to its
+  // counterpart: the picker button, or the active tab. Focus elsewhere is never taken. The refs follow focus in each row;
+  // a blur without a target (the element removed, or the window left) does not clear them.
+  const [agentListOpen, setAgentListOpen] = useState(false)
+  const focusInTabsRef = useRef(false)
+  const focusInPickerRef = useRef(false)
+  const pickerSlotRef = useRef<HTMLDivElement>(null)
+  const shownPickerRef = useRef(showPicker)
+  useLayoutEffect(() => {
+    const was = shownPickerRef.current
+    shownPickerRef.current = showPicker
+    if (was === showPicker) return
+    const fromTabs = focusInTabsRef.current
+    const fromPicker = focusInPickerRef.current
+    focusInTabsRef.current = false
+    focusInPickerRef.current = false
+    const focused = document.activeElement
+    if (focused && focused !== document.body) return
+    if (showPicker && fromTabs) pickerSlotRef.current?.querySelector<HTMLElement>('[data-agent-picker-button]')?.focus({ preventScroll: true })
+    else if (!showPicker && fromPicker) tabRefs.current[activeTabIndex]?.focus({ preventScroll: true })
+  }, [showPicker, activeTabIndex])
+  const trackFocus = (ref: React.MutableRefObject<boolean>) => ({
+    onFocus: () => { ref.current = true },
+    onBlur: (e: React.FocusEvent<HTMLElement>) => {
+      if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) ref.current = false
+    },
+  })
+
   const teamGroups = useMemo(
     () => (open && teams && teams.size > 0
       ? teamChipGroups([...agents.values()], teams)
@@ -255,8 +289,8 @@ export function ConversationPanel({
     const latestKind = commKindOf(latestMessage)
     const base = ROLE_COLORS[latestMessage.type] ?? ROLE_COLORS.assistant
     const role = latestKind
-      ? { ...COMM_STYLE[latestKind], label: COMM_LABELS[latestKind] }
-      : { ...base, label: roleLabelOf(latestMessage.type, agents.get(latestMessage.agentId)?.runtime) }
+      ? { ...COMM_STYLE[latestKind], label: commLabelText(locale, latestKind) }
+      : { ...base, label: roleLabelText(locale, latestMessage.type, agents.get(latestMessage.agentId)?.runtime) }
     const preview = latestMessage.content.replace(/\n/g, ' ').slice(0, PREVIEW_MAX)
 
     return (
@@ -264,6 +298,9 @@ export function ConversationPanel({
         // Companion of the agent card: an obstacle for the dock layout (the card is placed beside / below
         // it), and focus moving to the pill (focus return) must not close the card
         data-companion-panel=""
+        // Laid over the canvas without reserving an edge: the halo titles and other canvas texts move off it (#378)
+        data-canvas-cover=""
+        lang={locale}
         className="absolute"
         style={{ top: FEED_TOP, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       >
@@ -272,19 +309,24 @@ export function ConversationPanel({
           type="button"
           aria-expanded={false}
           aria-controls={regionId}
-          aria-label={`${CONVERSATION_LABELS.open}. Latest ${role.label.toLowerCase()} message from ${agentName}: ${preview}`}
+          // Named by two hidden elements, not by an aria-label: the sentence is in the interface language, the preview is a
+          // message of the conversation (data, "en") and an aria-label cannot declare a language (WCAG 3.1.2). The visible
+          // role, agent and preview are all in this name (WCAG 2.5.3); the button content is not read a second time.
+          aria-labelledby={`${pillLeadId} ${pillPreviewId}`}
           title={agentName}
           onClick={onOpen}
           className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING_INSET}`}
           style={{ maxWidth: PILL_MAX_WIDTH }}
         >
+          <span id={pillLeadId} hidden>{t('conv.pill.lead', { open: t('conv.open', { name: panelName(locale, 'conversation') }), role: role.label.toLowerCase(), agent: agentName })}</span>
+          <span id={pillPreviewId} hidden {...DATA_EN}>{preview}</span>
           <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: role.text }} />
           {/* Role as text too: colour alone must not carry it (WCAG 1.4.1) */}
           <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
           <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
-            {agentName.length > COLLAPSED_AGENT_NAME_MAX ? agentName.slice(0, COLLAPSED_AGENT_NAME_MAX) + '..' : agentName}
+            {truncateName(agentName, COLLAPSED_AGENT_NAME_MAX)}
           </span>
-          <span className="text-[11px] font-mono truncate" style={{ color: role.text }}>
+          <span {...DATA_EN} className="text-[11px] font-mono truncate" style={{ color: role.text }}>
             {preview}{latestMessage.content.length > PREVIEW_MAX ? '...' : ''}
           </span>
           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }}><ChevronIcon direction="down" /></span>
@@ -299,8 +341,9 @@ export function ConversationPanel({
   const searching = searchQuery.trim() !== ''
   const totalCount = tabMessages.length
 
-  const droppedNote = droppedMarker ? (
-    <p className="text-[11px] font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedMarker}</p>
+  const droppedLocal = droppedText(locale, droppedCount)
+  const droppedNote = droppedLocal ? (
+    <p className="text-[11px] font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedLocal}</p>
   ) : null
   const messageList = (
     <>
@@ -311,7 +354,7 @@ export function ConversationPanel({
       onScroll={handleScroll}
       role="log"
       aria-live="off"
-      aria-label={pairActive ? `Messages between ${agentNameOf(agents, pair.a)} and ${agentNameOf(agents, pair.b)}` : activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agentNameOf(agents, activeTab)}`}
+      aria-label={pairActive ? t('conv.log.pair', { a: agentNameOf(agents, pair.a), b: agentNameOf(agents, pair.b) }) : activeTab === 'all' ? t('conv.log.all') : t('conv.log.agent', { name: agentNameOf(agents, activeTab) })}
       tabIndex={0}
       className={`flex-1 min-h-32 overflow-y-auto px-2 pb-2 ${FOCUS_RING_INSET}`}
       style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
@@ -319,12 +362,12 @@ export function ConversationPanel({
       {messages.length === 0 ? (
         <div className="flex items-center justify-center py-6">
           <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
-            {searching ? EMPTY_SEARCH : pairActive ? pairEmptyText(pair, nameOfAgent) : EMPTY_MESSAGES}
+            {searching ? t('conv.emptySearch') : pairActive ? pairEmptyTextT(locale, pair, nameOfAgent) : t('conv.empty')}
           </span>
         </div>
       ) : (
         <div style={listStyle}>
-          <div role="list" aria-label="Messages" style={windowStyle}>
+          <div role="list" aria-label={t('conv.list')} style={windowStyle}>
             {visibleItems.map((msg, i) => (
               <div
                 key={msg.id}
@@ -378,23 +421,38 @@ export function ConversationPanel({
     content: m.content,
     truncatedChars: m.cutChars,
   })
+  const roleLabelLocal = (m: FeedMessage) => (commKindOf(m) ? commLabelText(locale, commKindOf(m)!) : roleLabelText(locale, m.type, agents.get(m.agentId)?.runtime)).toUpperCase()
   const copyMessage = async (m: FeedMessage) => {
     const e = entryOf(m)
-    const ok = await copyText(m.content)
-    const cut = e.truncatedChars ? ` (truncated: ${e.truncatedChars} characters were cut)` : ''
-    notify(ok ? `${e.label} copied${cut}` : 'Copy failed: select the text and copy it by hand')
+    const { text, redactions } = redactForCopy(m.content)
+    const ok = await copyText(text)
+    notify(ok ? copiedText(locale, roleLabelLocal(m), e.truncatedChars ?? 0, redactions) : t('conv.copyFailed'))
   }
   const exportConversation = () => {
     const title = `Conversation: ${exportScope}`
-    const md = conversationToMarkdown({
+    const { markdown: md, redactions } = conversationExport({
       title,
       entries: messages.map(entryOf),
       notes: exportNotes({ droppedText: droppedMarker, toolsHidden: !showTools, searchQuery }),
     })
-    notify(downloadText(exportFileName(title), md) ? 'Conversation exported as Markdown' : 'Export failed in this browser')
+    notify(downloadText(exportFileName(title), md) ? exportSavedText(locale, redactions) : t('conv.exportFailed'))
   }
 
-  const newMessagesText = `${newCount} new message${newCount === 1 ? '' : 's'}`
+  const newMessagesLabel = newMessagesText(locale, newCount)
+
+  // "Filter pair" toggle, on the row of the tabs or of the agent picker
+  const pairToggle = (
+    <button
+      type="button"
+      aria-expanded={pickerOpen}
+      title={t('conv.pair.title')}
+      onClick={() => setPickerOpen(v => !v)}
+      className={`shrink-0 min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+      style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+    >
+      {t('conv.pair.button')}
+    </button>
+  )
 
   return (
     <SlidingPanel
@@ -406,34 +464,36 @@ export function ConversationPanel({
       attrs={{ ...dockAttrs('conversation', 'right', dock), 'data-sensitive': '' }}
       style={{ height: rect?.h, display: dock.hidden ? 'none' : undefined }}
     >
-      <DockResizer label="Resize conversation panel" controls={dockPanelDomId('conversation')} />
+      <DockResizer label={t('conv.resize')} valueText={px => t('sessions.resize.value', { px })} controls={dockPanelDomId('conversation')} />
       <div
         id={regionId}
+        lang={locale}
         className="h-full flex flex-col"
         style={{ background: COLORS.panelBg, backdropFilter: 'blur(24px)', borderLeft: `1px solid ${COLORS.holoBorder10}` }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0 max-md:flex-wrap" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <h2 id={titleId} className="m-0 text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
-              {CONVERSATION_LABELS.title}
+              {panelName(locale, 'conversation')}
             </h2>
-            <span className="text-[11px] font-mono" style={{ color: COLORS.panelLabelDim }}>
-              {searching ? `${messages.length}/${totalCount}` : totalCount} messages
+            <span className="text-[11px] font-mono whitespace-nowrap shrink-0" style={{ color: COLORS.panelLabelDim }}>
+              {searching ? messageCountText(locale, totalCount, messages.length) : messageCountText(locale, totalCount)}
             </span>
             {presetAgent && presetColor && (
               <span className="text-[11px] font-mono inline-flex items-center gap-1 min-w-0" style={{ color: presetColor }}>
                 <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: presetColor, boxShadow: `0 0 6px ${presetColor}` }} />
                 <span className="truncate" title={presetAgent.name}>{presetAgent.name}</span>
-                <span>{stateLabel(presetAgent.state)}</span>
+                <span>{stateText(locale, presetAgent.state)}</span>
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Under 768 px the 44 px Close button must stay inside a 320 px drawer: the actions wrap (#476) */}
+          <div className="flex items-center gap-1 flex-shrink-0 max-md:flex-shrink max-md:min-w-0 max-md:flex-wrap max-md:justify-end">
             <button
               type="button"
               aria-pressed={showTools}
-              title="Show or hide tool calls and results"
+              title={t('conv.toolCalls.title')}
               onClick={() => setShowTools(v => !v)}
               className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
@@ -442,26 +502,26 @@ export function ConversationPanel({
                 border: `1px solid ${COLORS.controlBorder}`,
               }}
             >
-              Tool calls
+              {t('conv.toolCalls')}
             </button>
             <button
               type="button"
               disabled={messages.length === 0}
               onClick={exportConversation}
-              title="Download the messages listed below as a Markdown file"
+              title={t('conv.export.title')}
               className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
-              Export conversation
+              {t('conv.export')}
             </button>
             <button
               ref={searchToggleRef}
               type="button"
               onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery('') }}
-              aria-label={CONVERSATION_LABELS.search}
+              aria-label={t('conv.search')}
               aria-expanded={showSearch}
               aria-controls={searchId}
-              title={CONVERSATION_LABELS.search}
+              title={t('conv.search')}
               className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showSearch ? COLORS.toggleActive : 'transparent',
@@ -470,7 +530,7 @@ export function ConversationPanel({
             >
               <SearchIcon size={12} />
             </button>
-            <CloseButton onClick={onClose} className="px-1" />
+            <CloseButton onClick={onClose} className="px-1" label={t('common.close')} />
           </div>
         </div>
 
@@ -480,14 +540,14 @@ export function ConversationPanel({
             <input
               ref={searchRef}
               type="search"
-              aria-label={CONVERSATION_LABELS.search}
+              aria-label={t('conv.search')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(''); searchToggleRef.current?.focus() }
                 e.stopPropagation()
               }}
-              placeholder="Search messages..."
+              placeholder={t('conv.search.placeholder')}
               className={`w-full px-2 py-1 min-h-6 rounded text-xs font-mono placeholder:text-[color:var(--ph)] ${FOCUS_RING}`}
               style={{
                 background: COLORS.holoBg05,
@@ -499,25 +559,44 @@ export function ConversationPanel({
           </div>
         )}
 
-        {/* Agent tabs (hidden when only one agent speaks) */}
+        {/* Many agents: one picker button and a searchable, grouped list instead of the tabs */}
+        {showPicker && (
+          // display: contents keeps the picker a direct flex item of the panel (its 70 % cap); the wrapper only follows focus
+          <div ref={pickerSlotRef} className="contents" {...trackFocus(focusInPickerRef)}>
+          <AgentPicker
+            ids={agentsWithMessages}
+            agents={agents}
+            teams={teams}
+            activeKey={activeTab}
+            unread={unread}
+            messageCounts={messageCounts}
+            totalMessages={allMessages.length}
+            onPick={onTabClick}
+            onOpenChange={setAgentListOpen}
+          >
+            {pairToggle}
+          </AgentPicker>
+          </div>
+        )}
+
+        {/* Agent tabs (hidden when only one agent speaks): they wrap, never scroll sideways */}
         {showTabs && (
-          <div className="relative flex-shrink-0 pt-1.5 flex items-start pr-2" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
-            <div className="relative min-w-0 flex-1">
+          <div className="flex-shrink-0 pt-1.5 pb-1.5 px-2 flex flex-wrap items-start gap-1" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }} {...trackFocus(focusInTabsRef)}>
             <div
-              ref={tabsRef}
               role="tablist"
-              aria-label={CONVERSATION_LABELS.tablist}
+              aria-label={t('conv.tablist')}
               aria-orientation="horizontal"
               // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
               tabIndex={-1}
               onKeyDown={onTabKeyDown}
-              onScroll={updateTabOverflow}
-              className="flex gap-1 px-2 pb-1.5 overflow-x-auto outline-none"
+              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 128 px high (four rows), 192 px under 768 px
+              // (44 px tabs), then a vertical scroll
+              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-32 max-md:max-h-48 overflow-y-auto outline-none"
               style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
             >
               {tabKeys.map((key, i) => {
                 const agent = key === 'all' ? undefined : agents.get(key)
-                const name = key === 'all' ? 'All' : agentNameOf(agents, key)
+                const name = key === 'all' ? t('conv.tab.all') : agentNameOf(agents, key)
                 const color = key === 'all' ? COLORS.holoBase : (agent ? getStateColor(agent.state) : COLORS.idle)
                 const done = key !== 'all' && isAgentDone(agent)
                 return (
@@ -526,9 +605,9 @@ export function ConversationPanel({
                     id={tabId(i)}
                     panelId={tabPanelId}
                     buttonRef={(el) => { tabRefs.current[i] = el }}
-                    label={name.length > TAB_AGENT_NAME_MAX ? name.slice(0, TAB_AGENT_NAME_MAX) + '..' : name}
+                    label={truncateName(name, TAB_AGENT_NAME_MAX)}
                     fullName={name}
-                    stateText={key === 'all' ? undefined : (done ? 'done' : stateLabel(agent!.state))}
+                    stateText={key === 'all' ? undefined : (done ? t('conv.tab.done') : stateText(locale, agent!.state))}
                     done={done}
                     accent={teamColorOf(agent, teams)}
                     active={i === activeTabIndex}
@@ -542,52 +621,35 @@ export function ConversationPanel({
                 )
               })}
             </div>
-            {tabOverflow.left && (
-              <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1.5 bottom-1.5 w-4 flex items-center"
-                style={{ color: COLORS.textMuted, background: `linear-gradient(90deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="left" size={10} /></span>
-            )}
-            {tabOverflow.right && (
-              <span aria-hidden="true" className="pointer-events-none absolute right-0 top-1.5 bottom-1.5 w-4 flex items-center justify-end"
-                style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="right" size={10} /></span>
-            )}
-            </div>
-            <button
-              type="button"
-              aria-expanded={pickerOpen}
-              title="Filter on the messages exchanged between two agents (or Shift-click a second agent tab or message row)"
-              onClick={() => setPickerOpen(v => !v)}
-              className={`shrink-0 min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
-              style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
-            >
-              Filter pair
-            </button>
+            {pairToggle}
           </div>
         )}
 
         {/* Pair filter: the communications exchanged between two agents (toggle lives in the tab row) */}
         {(pickerOpen || isPairSet(pair)) && (
-          <div className="px-2 py-1 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 overflow-y-auto">
-            {!showTabs && (
+          <div className="px-2 py-1 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 max-md:max-h-32 overflow-y-auto">
+            {!showTabs && !showPicker && (
               <button
                 type="button"
                 aria-expanded={pickerOpen}
                 onClick={() => setPickerOpen(v => !v)}
-                className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                className={`min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
                 style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
               >
-                Filter pair
+                {t('conv.pair.button')}
               </button>
             )}
-            <PairFilterChip pair={pair} nameOf={nameOfAgent} count={messages.length} onClear={clearPair} />
+            <PairFilterChip pair={pair} nameOf={nameOfAgent} count={messages.length} onClear={clearPair} locale={locale} />
             {pickerOpen && (
-              <span className="inline-flex flex-wrap items-center gap-1">
-                {([['First agent', pair.a, (v: string) => setPair(v, pair.b)], ['Second agent', pair.b, (v: string) => setPair(pair.a, v)]] as const).map(([label, value, set]) => (
+              <span className="inline-flex flex-wrap items-center gap-1 max-w-full min-w-0">
+                {([[t('conv.pair.first'), pair.a, (v: string) => setPair(v, pair.b)], [t('conv.pair.second'), pair.b, (v: string) => setPair(pair.a, v)]] as const).map(([label, value, set]) => (
                   <select
                     key={label}
                     aria-label={label}
                     value={value}
                     onChange={e => set(e.target.value)}
-                    className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                    // No fixed width: a long agent name is no longer cut at 120 px; the panel width is the limit
+                    className={`min-h-6 ${TOUCH_TARGET} max-w-full min-w-0 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
                     style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
                   >
                     <option value="">{label}</option>
@@ -600,19 +662,20 @@ export function ConversationPanel({
         )}
 
         {/* Teammates grouped under their team heading */}
-        {teamGroups.length > 0 && (
-          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? 'Teams and workflows' : 'Teams'} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING_INSET}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
+        {/* Folded while the agent list is open: on a short panel it took the height the list needed (WCAG 1.4.10) */}
+        {teamGroups.length > 0 && !(showPicker && agentListOpen) && (
+          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? t('conv.teamsAndWorkflows') : t('conv.teams')} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING_INSET}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
             {teamGroups.map(g => (
-              <div key={g.key} role="group" aria-label={g.label}>
+              <div key={g.key} role="group" aria-label={teamChipTexts(locale, g).label}>
                 <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
-                  {g.heading}
+                  {teamChipTexts(locale, g).heading}
                 </h3>
                 <ul className="flex flex-wrap gap-x-2 gap-y-0.5 pb-1">
                   {g.items.map(a => (
                     <li key={a.id} className="text-[11px] font-mono flex items-center gap-1" style={{ color: COLORS.textMuted }}>
                       <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full" style={{ background: teamColorOf(a, teams) ?? COLORS.textMuted }} />
                       {a.name}
-                      <span className="sr-only">, {roleTermOf(a)}</span>
+                      <span className="sr-only">, {hierarchyTermText(locale, a)}</span>
                     </li>
                   ))}
                 </ul>
@@ -637,7 +700,7 @@ export function ConversationPanel({
 
         {/* Intentional: the log is not live (it would read every message). While pinned to the bottom the
             list is already in view; when scrolled up this polite status line announces only the unseen count. */}
-        <div role="status" className="sr-only">{!isAtBottom && newCount > 0 ? newMessagesText : ''}</div>
+        <div role="status" className="sr-only">{!isAtBottom && newCount > 0 ? newMessagesLabel : ''}</div>
         <p role="status" data-testid="copy-feedback" className={`m-0 px-3 text-[11px] font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {!isAtBottom && messages.length > 0 && (
@@ -650,7 +713,7 @@ export function ConversationPanel({
               style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.scrollBtnText }}
             >
               <ArrowDownIcon size={11} className="mr-1 align-[-1px]" />
-              {newCount > 0 ? newMessagesText : 'Jump to latest'}
+              {newCount > 0 ? newMessagesLabel : t('conv.jump')}
             </button>
           </div>
         )}
@@ -665,14 +728,8 @@ function roleLabelOf(type: string, runtime?: Agent['runtime']): string {
   if (type === 'assistant' && runtime === 'copilot') return 'COPILOT'
   if (type === 'assistant' && runtime === 'pi') return 'PI'
   if (type === 'assistant' && runtime === 'gemini') return 'GEMINI'
+  if (type === 'assistant' && runtime === 'opencode') return 'OPENCODE'
   return (ROLE_COLORS[type] ?? ROLE_COLORS.assistant).label
-}
-
-/** Hierarchy term of an agent (Main / Lead, Subagent, Teammate), from the fixed glossary. */
-function roleTermOf(agent: { kind?: string; isMain?: boolean }): string {
-  if (agent.kind === 'teammate') return HIERARCHY_TERMS.teammate
-  if (agent.kind === 'subagent') return HIERARCHY_TERMS.subagent
-  return agent.isMain ? HIERARCHY_TERMS.main : HIERARCHY_TERMS.agent
 }
 
 // ── Tab Button ──
@@ -699,7 +756,8 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
   /** The 'All' tab has no state dot */
   isAll?: boolean
 }) {
-  const accessibleName = [fullName, stateText ? `(${stateText})` : '', hasUnread ? ', unread messages' : '']
+  const { locale } = useLocale()
+  const accessibleName = [fullName, stateText ? `(${stateText})` : '', count !== undefined && count > 0 ? messageCountText(locale, count) : '', hasUnread ? tr(locale, 'conv.tab.unreadName') : '']
     .filter(Boolean).join(' ')
   return (
     <button
@@ -713,7 +771,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       tabIndex={active ? 0 : -1}
       title={fullName}
       onClick={onClick}
-      className={`px-2 min-h-7 rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
+      className={`px-2 min-h-7 ${TOUCH_TARGET} max-w-full rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
       style={{
         background: active ? color + '26' : COLORS.holoBg05,
         color: active ? color : COLORS.textMuted,
@@ -731,10 +789,10 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       {count !== undefined && count > 0 && (
         <span aria-hidden="true" className="text-[10px] tabular-nums px-1 rounded" style={{ background: COLORS.holoBg10, color: COLORS.textMuted }}>{count}</span>
       )}
-      {done && <span aria-hidden="true" className="text-[11px]">done</span>}
+      {done && <span aria-hidden="true" className="text-[11px]">{tr(locale, 'conv.tab.done')}</span>}
       {hasUnread && (
         <>
-          <span className="sr-only"> unread</span>
+          <span className="sr-only"> {tr(locale, 'conv.tab.unread')}</span>
           <span
             aria-hidden="true"
             className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
@@ -773,13 +831,15 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
   onCopy?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const { locale } = useLocale()
   const commKind = commKindOf(message)
   const role = commKind ? COMM_STYLE[commKind] : (ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant)
-  const roleLabel = commKind ? COMM_LABELS[commKind] : roleLabelOf(message.type, runtime)
+  const roleLabel = commKind ? commLabelText(locale, commKind) : roleLabelText(locale, message.type, runtime)
   // One truncation rule for every row: COLLAPSED_TEXT_MAX characters with a "Show all" toggle
   const truncated = truncateWithMarker(message.content, COLLAPSED_TEXT_MAX)
   const isLong = truncated.hidden > 0
-  const displayText = expanded || !isLong ? message.content : truncated.text + truncated.marker
+  const displayText = expanded || !isLong ? message.content : truncated.text
+  const markerText = expanded || !isLong ? '' : tr(locale, 'conv.marker', { n: truncated.hidden })
   const time = formatElapsed(message.timestamp)
   const from = fromName ?? agentName
   const to = toName ?? ''
@@ -798,7 +858,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
         type="button"
         aria-pressed={isSelected}
         onClick={onClick}
-        title={direction ? `${direction} - ${roleLabel}` : (showAgent ? `${agentName}: show this agent` : 'Show this agent')}
+        title={direction ? `${direction} - ${roleLabel}` : (showAgent ? tr(locale, 'conv.row.showAgentNamed', { name: agentName }) : tr(locale, 'conv.row.showAgent'))}
         className={`block w-full min-h-6 text-left rounded ${FOCUS_RING_INSET}`}
       >
         {/* Header row */}
@@ -806,7 +866,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           {direction ? (
             <>
               <span className="text-[11px] font-mono font-semibold break-all" style={{ color: role.text }}>
-                {from}<span aria-hidden="true"> {'→'} </span><span className="sr-only"> to </span>{to}
+                {from}<span aria-hidden="true"> {'→'} </span><span className="sr-only"> {tr(locale, 'conv.row.to')} </span>{to}
               </span>
               <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
                 <span aria-hidden="true">- </span><span className="sr-only">, </span>{roleLabel}
@@ -823,7 +883,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
             </span>
           )}
           {sessionChip && (
-            <span className="text-[11px] font-mono truncate max-w-[96px] px-1 rounded" title={`Session ${sessionChip}`}
+            <span className="text-[11px] font-mono truncate max-w-[96px] px-1 rounded" title={tr(locale, 'conv.row.sessionTitle', { id: sessionChip })}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}>
               {sessionChip}
             </span>
@@ -839,31 +899,31 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           className="block text-xs font-mono leading-relaxed whitespace-pre-wrap break-words"
           style={{ color: role.text }}
         >
-          <HighlightText text={displayText} query={searchQuery} />
+          <span {...DATA_EN}><HighlightText text={displayText} query={searchQuery} /></span>{markerText}
         </span>
       </button>
 
       {onFilterPair && (
         <button
           type="button"
-          aria-label={`Filter pair ${direction ?? ''}`.trim()}
+          aria-label={direction ? tr(locale, 'conv.pair.rowAria', { direction }) : tr(locale, 'conv.pair.button')}
           onClick={onFilterPair}
           className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
-          Filter pair
+          {tr(locale, 'conv.pair.button')}
         </button>
       )}
 
       {onCopy && (
         <button
           type="button"
-          aria-label={`Copy ${roleLabel.toLowerCase()}${direction ? `, ${direction}` : ''}`}
+          aria-label={direction ? tr(locale, 'conv.row.copyAriaDir', { role: roleLabel.toLowerCase(), direction }) : tr(locale, 'conv.row.copyAria', { role: roleLabel.toLowerCase() })}
           onClick={onCopy}
           className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
-          Copy
+          {tr(locale, 'conv.row.copy')}
         </button>
       )}
 
@@ -878,7 +938,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           onClick={() => setExpanded(prev => !prev)}
         >
           <ChevronIcon direction={expanded ? 'up' : 'down'} size={10} className="mr-1" />
-          {expanded ? 'Show less' : `Show all (+${truncated.hidden} chars)`}
+          {expanded ? tr(locale, 'conv.showLess') : tr(locale, 'conv.showAll', { n: truncated.hidden })}
         </button>
       )}
     </div>

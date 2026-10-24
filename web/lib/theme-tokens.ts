@@ -45,6 +45,7 @@ export function isThemeId(value: unknown): value is ThemeId {
 export const ROLES = [
   'void', 'surface', 'surface-raised', 'edge', 'control-border', 'ink', 'ink-muted',
   'accent', 'on-accent', 'focus', 'ok', 'warn', 'danger', 'delegate', 'info', 'context-system',
+  'system-warm', 'system-critical', 'quota-ok', 'quota-low', 'quota-critical', 'state-thinking', 'state-waiting',
 ] as const
 export type Role = (typeof ROLES)[number]
 export type ThemeTokens = Record<Role, string>
@@ -101,7 +102,7 @@ const ANSI_DARK = [
   '#9aa0b4', '#ff6b7a', '#5fdc8f', '#f0c24b', '#6fa8ff', '#d68cff', '#4fd8e0', '#d8dbe6',
   '#b0b6c8', '#ff8e9a', '#86efac', '#ffd866', '#93bfff', '#e3a9ff', '#7ae8ee', '#ffffff',
 ]
-/** Anthropic: warm neutral greys and the brand orange, blue and green, lightened where needed (see docs/reading-the-ui.md). */
+/** Anthropic: warm neutral greys and the brand orange, blue and green, lightened where needed (see docs/reading-the-ui/themes.md). */
 const ANSI_ANTHROPIC = [
   '#a8a59b', '#e8777f', '#9bb67f', '#e3b341', '#7fa9d3', '#c79bd0', '#7fb5a8', '#e8e6dc',
   '#bfbcb2', '#f08f96', '#b2cb98', '#efc968', '#9bc0e4', '#d9b3e0', '#9bcabd', '#faf9f5',
@@ -114,7 +115,7 @@ const ANSI_EMBER = [
  * Catppuccin: the official ANSI colours of the palette (normal 0-7, bright 8-15; palette.json 1.8.0), checked against the flavor's mantle
  * (our `surface`). The ones that fall under 4.5:1 once dimmed are lightened toward white, just enough: black and bright black (0 and 8:
  * surface1 / surface2 sit next to the background) on every flavor, bright red (9) on Macchiato, and on Frappe red (1), blue (4), bright
- * red (9) and bright blue (12). Listed in docs/reading-the-ui.md.
+ * red (9) and bright blue (12). Listed in docs/reading-the-ui/themes.md.
  */
 const ANSI_CATPPUCCIN: Record<'catppuccin-mocha' | 'catppuccin-macchiato' | 'catppuccin-frappe', string[]> = {
   'catppuccin-mocha': [

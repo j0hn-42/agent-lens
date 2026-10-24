@@ -1,5 +1,6 @@
 // Delegation report (#233): per sub-agent tokens, files read, duration and result, each one proven or said unknown.
 import { test } from 'node:test'
+import { readReadingGuideDomains } from './reading-guide'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -7,7 +8,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import {
-  deriveDelegationReport, durationText, resultText, filesReadText, tokensText,
+  deriveDelegationReport, durationText, resultText, filesReadText, tokensText, delegationCountText,
   REPORT_EXCERPT_LEN, FILES_LISTED,
 } from '../web/lib/delegation-report'
 
@@ -145,6 +146,24 @@ test('files read: none observed is said in words, never "0 files"', () => {
   assert.equal(filesReadText(report(s)[0]), 'none observed')
 })
 
+test('delegation under replay loss (#366): "at least", never a clean "none observed" or a final "no return"', () => {
+  const s = run([main, spawn('scout', 't1')])
+  const row = report(s)[0]
+  assert.equal(filesReadText(row, 4), 'none observed (incomplete)')
+  assert.equal(filesReadText({ filesReadCount: 2, readsNotConfirmed: 0 }, 4), 'at least 2 files')
+  assert.equal(filesReadText({ filesReadCount: 1, readsNotConfirmed: 2 }, 4), 'at least 1 file, at least 2 not confirmed')
+  assert.equal(filesReadText({ filesReadCount: 0, readsNotConfirmed: 2 }, 4), 'none confirmed (incomplete), at least 2 not confirmed')
+  assert.equal(filesReadText({ filesReadCount: 0, readsNotConfirmed: 2 }, 0), 'none confirmed, 2 not confirmed')
+  assert.equal(resultText({ kind: 'not-returned', finished: true }, 4), 'Finished, no return observed (incomplete)')
+  assert.equal(resultText({ kind: 'not-returned', finished: true }, 0), 'Finished, no return observed')
+  assert.equal(durationText(row.duration, 4), 'no return observed (incomplete)')
+  assert.equal(durationText({ kind: 'measured', seconds: 75 }, 4), '1:15 (measured)')
+  assert.equal(resultText(row.result, 0), 'No return observed yet')
+  assert.equal(resultText(row.result, 4), 'No return observed (incomplete)')
+  assert.equal(delegationCountText(3, 0), '3 sub-agents')
+  assert.equal(delegationCountText(3, 4), 'at least 3 sub-agents')
+})
+
 test('files read: the list is bounded and keeps the full count', () => {
   const evs: Ev[] = [main, spawn('scout', 't1')]
   for (let i = 0; i < FILES_LISTED + 5; i++) evs.push(read('scout', `/repo/f${String(i).padStart(3, '0')}.ts`), readEnd('scout'))
@@ -154,15 +173,23 @@ test('files read: the list is bounded and keeps the full count', () => {
   assert.equal(filesReadText(row), `${FILES_LISTED + 5} files`)
 })
 
-test('duration: reported by the runtime, else "not reported"; without a return it is not known', () => {
+test('duration: measured live (#365), else "not reported"; without a return it is not known', () => {
   const live = run([main, spawn('scout', 't1'), ret('scout', 't1', { durationS: 75 })])
-  assert.equal(durationText(report(live)[0].duration), '1:15 (reported)')
+  assert.equal(durationText(report(live)[0].duration), '1:15 (measured)')
   const noDuration = run([main, spawn('scout', 't1'), ret('scout', 't1')])
   assert.equal(durationText(report(noDuration)[0].duration), 'not reported')
   const replayed = run([main, spawn('scout', 't1'), { ...ret('scout', 't1', { durationS: 75 }), replayed: true }])
   assert.equal(durationText(report(replayed)[0].duration), 'not reported')
   const running = run([main, spawn('scout', 't1')])
   assert.equal(durationText(report(running)[0].duration), 'no return observed')
+})
+
+test('duration recorded by a background completion notice is said "recorded", not "measured" (#365)', () => {
+  const s = run([main, spawn('scout', 't1'), ret('scout', 't1', { durationS: 75, durationSource: 'recorded' })])
+  assert.deepEqual(report(s)[0].duration, { kind: 'recorded', seconds: 75 })
+  assert.equal(durationText(report(s)[0].duration), '1:15 (recorded)')
+  const replayed = run([main, spawn('scout', 't1'), { ...ret('scout', 't1', { durationS: 75, durationSource: 'recorded' }), replayed: true }])
+  assert.equal(durationText(report(replayed)[0].duration), 'not reported')
 })
 
 test('result: the report excerpt, an error said in words, or that no return was observed', () => {
@@ -188,19 +215,21 @@ test('a sub-agent whose parent link is not proven is flagged', () => {
 })
 
 test('the inspector of the shell receives the report of the selected agent and can select a sub-agent', () => {
-  const shell = fs.readFileSync(path.resolve(__dirname, '..', 'web/components/agent-visualizer/index.tsx'), 'utf8')
-  const card = shell.slice(shell.indexOf('<AgentDetailCard'), shell.indexOf('/>', shell.indexOf('<AgentDetailCard')))
+  // The card is mounted by the selection overlays; the report comes from the inspector hook
+  const overlays = fs.readFileSync(path.resolve(__dirname, '..', 'web/components/agent-visualizer/selection-overlays.tsx'), 'utf8')
+  const inspector = fs.readFileSync(path.resolve(__dirname, '..', 'web/hooks/use-inspector.ts'), 'utf8')
+  const card = overlays.slice(overlays.indexOf('<AgentDetailCard'), overlays.indexOf('/>', overlays.indexOf('<AgentDetailCard')))
   assert.match(card, /delegation=\{/)
   assert.match(card, /onSelectAgent=\{/)
-  assert.match(shell, /deriveDelegationReport\(/)
+  assert.match(inspector, /deriveDelegationReport\(/)
 })
 
 // ─── Documentation ───────────────────────────────────────────────────────────
 
 test('the reading guide documents the delegation report and what each column proves', () => {
-  const guide = fs.readFileSync(path.resolve(__dirname, '..', 'docs/reading-the-ui.md'), 'utf8')
+  const guide = readReadingGuideDomains()
   assert.match(guide, /## Delegation report/)
-  for (const term of ['not confirmed', 'no return observed', '(reported)', 'not reported']) {
+  for (const term of ['not confirmed', 'no return observed', '(measured)', '(recorded)', 'not reported']) {
     assert.ok(guide.includes(term), `guide should explain "${term}"`)
   }
 })

@@ -5,9 +5,8 @@
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
 
-/** How long to wait before declaring a session inactive (ms).
- *  Claude can think for several minutes with extended thinking,
- *  so this needs to be generous to avoid false "completed" state. */
+/** Former inactivity threshold (ms). A silence no longer ends anything (#360): no production code reads it,
+ *  the tests use it to prove that a silence this long changes no state. */
 export const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /** Interval between active-session directory scans (ms) */
@@ -24,6 +23,9 @@ export const COPILOT_MAX_WATCHED_SESSIONS = 25
 /** Plafond de sessions Pi suivies en même temps (même logique que Codex et Copilot, #238) */
 export const PI_MAX_WATCHED_SESSIONS = 25
 
+/** Sessions racines OpenCode suivies en même temps ; au-delà, les plus récemment mises à jour sont suivies et les autres ignorées. */
+export const OPENCODE_MAX_WATCHED_SESSIONS = 25
+
 /** Plafond de sessions Gemini CLI suivies en même temps (même logique que Pi, #238) */
 export const GEMINI_MAX_WATCHED_SESSIONS = 25
 
@@ -39,8 +41,7 @@ export const POLL_FALLBACK_MS = 3000
 export const PERMISSION_DETECT_MS = 5000
 
 /** JSONL files modified within this many seconds are considered active
- *  at discovery time. Must be longer than INACTIVITY_TIMEOUT_MS to avoid
- *  dropping sessions during long thinking pauses.
+ *  at discovery time. Long enough not to drop a session during a long thinking pause.
  *
  *  Filter is discovery-time only — stale sessions that receive new writes
  *  refresh their mtime and are picked up by the next scan tick
@@ -230,6 +231,12 @@ export const PATTERN_TOOLS = ['Glob', 'Grep'] as const
 
 /** Suffix length used when building subagent names from IDs */
 export const SUBAGENT_ID_SUFFIX_LENGTH = 6
+
+/**
+ * Subagents announced at once when attaching to a session whose history launched them and shows no end
+ * (#446). Beyond it, a subagent is announced on its first new transcript line instead (logged at attach).
+ */
+export const SUBAGENT_CATCH_UP_SPAWNS_MAX = 16
 
 /** Generate a consistent fallback name for a subagent when no explicit name is available.
  *  @param id  An identifier string (e.g. agent_id or a timestamp) — the last chars are used.
@@ -453,6 +460,11 @@ export const RELAY_SCOPE_RATE_BURST = 5
 export const RELAY_SCOPE_RATE_PER_S = 0.5
 export const RELAY_SCOPE_BODY_MAX_BYTES = 256
 export const RELAY_SCOPE_BODY_TIMEOUT_MS = 3000
+// POST /quota (#467): le script de barre d'état poste à chaque rafraîchissement ; corps minuscule, rafale courte
+export const RELAY_QUOTA_RATE_BURST = 5
+export const RELAY_QUOTA_RATE_PER_S = 1
+export const RELAY_QUOTA_BODY_MAX_BYTES = 1024
+export const RELAY_QUOTA_BODY_TIMEOUT_MS = 3000
 /** POST /launch (#229) starts a process: its own limiter (3 requests, then one every 10 s) and a tiny body ({repo, issue, role}) */
 export const RELAY_LAUNCH_RATE_BURST = 3
 export const RELAY_LAUNCH_RATE_PER_S = 0.1
@@ -494,7 +506,7 @@ export const EPHEMERAL_PORT = 0
 export const LOOPBACK_HOST = '127.0.0.1'
 /** HTTP methods the local servers accept (anything else gets 405) */
 export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
-/** The only path that also accepts POST (#291): the route behind it applies its own guards and strict body check */
+/** The paths that also accept POST (#291): the route behind each applies its own guards and strict body check */
 export const SERVER_POST_PATHS = ['/scope'] as const
 /** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
 export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"

@@ -95,7 +95,7 @@ button is rendered.
 With it, the inspector shows a button "Lancer un agent sur l'issue #N" ("Launch an agent on issue #N" in English) under each open issue of the agent's
 `agent:<role>` links. It opens a confirmation dialog (repository, issue, role, title, command, caps) where you paste
 the token printed on the relay's console; the token is never stored and is cleared when the dialog closes. The dialog
-announces each observed state, offers "Arrêter" while the launch runs, and shows the kept worktree path once it ended.
+announces each observed state, offers "Arrêter" (with a confirmation step) while the launch runs, and shows the kept worktree path once it ended.
 The button needs the page to be served by the relay itself (same origin): the dev server on :3000 and the VS Code
 webview do not offer it, because the relay answers no CORS preflight (a separate follow-up). Details in
 [launch-security.md](launch-security.md#use-it-from-the-inspector).
@@ -146,4 +146,4 @@ refused, never lowered silently), and the last 256 KB of output kept.
 
 ## Health: loop verdict (#230)
 
-The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui.md#loops-and-health-verdict).
+The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui/loops-and-health.md#loops-and-health-verdict).

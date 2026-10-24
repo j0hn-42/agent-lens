@@ -25,6 +25,7 @@ import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
+import { SettingsDialog } from '@/components/agent-visualizer/settings-dialog'
 import { CommandPalette } from '@/components/agent-visualizer/command-palette'
 import { buildPaletteItems } from '@/lib/command-palette'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -32,9 +33,10 @@ import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import type { AgentLink } from '@/hooks/simulation/types'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import type { Agent, FileAttention, TimelineEntry, TimelineEvent } from '@/lib/agent-types'
-import type { SessionInfo } from '@/lib/bridge-types'
+import type { SessionInfo, QuotaSnapshotView } from '@/lib/bridge-types'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { compareViolations, validateKnownViolations, type KnownViolation } from './axe-compare'
+import { openMore } from './topbar-more'
 
 const known: KnownViolation[] = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'known-violations.json'), 'utf8'),
@@ -81,6 +83,7 @@ const agent = {
 } as unknown as Agent
 const files = new Map<string, FileAttention>([
   ['src/a.ts', { path: 'src/a.ts', reads: 2, edits: 1, totalTokens: 500, lastAccessed: 1, agents: ['a1'] }],
+  ['/src/b.ts', { path: '/src/b.ts', reads: 1, edits: 0, totalTokens: 900, tokensEstimated: true, tokensPartial: true, lastAccessed: 2, agents: ['a1'] }],
 ])
 const timelineEntries = new Map<string, TimelineEntry>([
   ['a1', {
@@ -101,6 +104,7 @@ const topBarProps: TopBarProps = {
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 1000, totalCost: 0.12,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
+  onOpenPalette: noop,
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -141,7 +145,7 @@ test('shell: control bar in review mode (play button, scrubber, resume)', async 
   )
   // Guard against checking the wrong bar: these only exist in review mode.
   getByRole('button', { name: 'Play' })
-  getByRole('slider', { name: 'Timeline position' })
+  getByRole('slider', { name: 'Playback position' })
   await check('control-bar-review', container)
   const clear = getByRole('button', { name: 'Clear history' })
   await act(async () => { fireEvent.click(clear) })
@@ -232,9 +236,45 @@ test('shell: top bar with the attention counter and the notification option (#12
       attention={{ waiting: 2, errors: 1 }} onJumpToAttention={noop} notifyState="off" onToggleNotify={noop}
     />,
   )
-  getByRole('button', { name: /2 waiting \/ 1 error/ })
+  getByRole('button', { name: /2 agents waiting \/ 1 agent in error/ })
+  await check('top-bar-attention-closed', container)
+  // More open (one-line bar): its overlay holds the filters, the quota and the tools
+  openMore()
   getByRole('button', { name: 'Notifications' })
   await check('top-bar-attention', container)
+})
+
+// #467: the quota gauges of the top bar, in each state and with the reset tooltip open
+test('shell: top bar with the quota gauges (ok, low, critical, aged), tooltip open', async () => {
+  const resetsAt = Math.floor((Date.now() + 3_600_000) / 1000)
+  const quota = {
+    fiveHour: { remainingPercent: 38, resetsAt }, sevenDay: { remainingPercent: 4, resetsAt: resetsAt + 86_400 },
+    receivedAt: Date.now() - 12 * 60_000,
+  }
+  const { container, getAllByRole } = render(<><TopBar {...topBarProps} quota={quota} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  openMore() // the gauges are behind More, which carries their mark and reads them in its description
+  assert.equal(getAllByRole('meter').length, 2)
+  await check('top-bar-quota', container)
+  await act(async () => { fireEvent.focus(container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
+  // Scoped: the panel buttons have their own (hidden) tooltips since #523
+  assert.ok(container.querySelector('[data-testid="topbar-quota"] [role="tooltip"]'))
+  await check('top-bar-quota-tooltip', container)
+})
+
+test('shell: top bar with the quota unknown, not available and without subscription', async () => {
+  const expired: QuotaSnapshotView = { fiveHour: null, sevenDay: null, receivedAt: Date.now() - 31 * 60_000 }
+  const unknown = render(<><TopBar {...topBarProps} quota={expired} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  openMore()
+  await act(async () => { fireEvent.focus(unknown.container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
+  assert.ok(unknown.container.querySelector('[data-testid="topbar-quota"] [role="tooltip"]'))
+  await check('top-bar-quota-unknown', unknown.container)
+  unknown.unmount()
+  for (const runtime of ['copilot', 'opencode']) {
+    const { container, unmount } = render(<><TopBar {...topBarProps} selectedRuntime={runtime} /><main id="visualizer-main" /></>)
+    openMore()
+    await check(`top-bar-quota-${runtime}`, container)
+    unmount()
+  }
 })
 
 // The panel is controlled by its parent (open / pill): this wrapper plays the part of the shell.
@@ -309,6 +349,34 @@ test('dialog: keyboard shortcuts', async () => {
   )
   await check('shortcuts-dialog', container)
 })
+
+// Settings in tabs (#533): axe runs once per tab, with every optional section given, on the panel that tab shows
+for (const [tab, name] of [
+  ['general', 'General'], ['sessions', 'Sessions and presentation'], ['notifications', 'Notifications and announcements'], ['keyboard', 'Keyboard and preferences'],
+] as const) {
+  test(`dialog: settings, tab ${tab} (#379, #372, #533)`, async () => {
+    const { container } = render(
+      <SettingsDialog
+        open onClose={noop}
+        hexGrid onHexGridChange={noop}
+        muted={false} onToggleMute={noop}
+        showMode="active" onShowModeChange={noop}
+        singleKeyEnabled onSingleKeyEnabledChange={noop}
+        onOpenShortcuts={noop}
+        announcements={{ level: 'important', onLevelChange: noop }}
+        notifications={{ state: 'on', onToggle: noop, rules: { permission: true, error: true, complete: false, cost: true, costThresholdUsd: 5 }, onRulesChange: noop }}
+        presentation={{ active: false, onActiveChange: noop, options: { subtitles: true, mask: true, follow: true }, onOptionChange: noop }}
+        quota={{ show: true, onShowChange: noop }}
+        onResetPrefs={noop}
+      />,
+    )
+    fireEvent.click(within(container).getByRole('tab', { name }))
+    const panel = within(container).getByRole('tabpanel', { name })
+    if (tab === 'notifications') assert.ok(within(panel).getByRole('combobox', { name: 'Announcement level' }), 'the announcements section is rendered')
+    if (tab === 'keyboard') assert.ok(within(panel).getByRole('button', { name: 'Reset preferences' }), 'the reset section is rendered (#372)')
+    await check('settings-dialog', container)
+  })
+}
 
 test('dialog: command palette, with results and with none', async () => {
   const items = buildPaletteItems({

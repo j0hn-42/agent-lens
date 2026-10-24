@@ -5,6 +5,7 @@ import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
 import { CommandPalette } from '@/components/agent-visualizer/command-palette'
+import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { buildPaletteItems, type PaletteSource } from '@/lib/command-palette'
 import type { SessionInfo } from '@/lib/bridge-types'
@@ -195,7 +196,7 @@ test('Ctrl+K inside the palette closes it', async () => {
 
 test('the shortcut of an option is shown to sighted users and announced', () => {
   const r = render(<Host />)
-  const files = r.getByRole('option', { name: /Toggle Files panel/ })
+  const files = r.getByRole('option', { name: /Toggle Files & repeats panel/ })
   assert.match(files.textContent ?? '', /F$/)
   assert.match(files.getAttribute('aria-keyshortcuts') ?? '', /F/)
 })
@@ -215,7 +216,7 @@ function ShortcutHost({ singleKey }: { singleKey: boolean }) {
   const noop = () => {}
   useKeyboardShortcuts({
     togglePlayPause: noop, toggleFilePanel: noop, toggleSessionList: noop, toggleConversation: noop,
-    toggleTimeline: noop, toggleHexGrid: noop, toggleStats: noop, toggleContext: noop,
+    toggleTimeline: noop, toggleHexGrid: noop, toggleStats: noop, toggleContext: noop, toggleSystem: noop,
     toggleCostOverlay: noop, zoomToFit: noop, toggleFullscreen: noop, closeTopPanel: () => false,
     clearSelection: noop, toggleMute: noop, setSpeed: noop, openShortcuts: noop, undoLast: () => false,
     togglePresentation: noop, openPalette: rec('palette'), singleKeyEnabled: singleKey,
@@ -254,6 +255,36 @@ test('session and agent names carry data-sensitive, fixed commands do not (prese
   assert.match(sensitiveText(sessionOption), /payments-api/)
   assert.match(sensitiveText(sessionOption), /feat\/refund/)
   assert.match(sensitiveText(r.getByRole('option', { name: /^main-agent/ })), /main-agent/)
-  assert.equal(r.getByRole('option', { name: /Toggle Files panel/ }).querySelector('[data-sensitive]'), null)
+  assert.equal(r.getByRole('option', { name: /Toggle Files & repeats panel/ }).querySelector('[data-sensitive]'), null)
   assert.equal(r.getByRole('option', { name: /^All sessions/ }).querySelector('[data-sensitive]'), null)
+})
+
+// Visible entry (#377): the palette was reachable only by Ctrl+K, announced nowhere but in the "?" dialog
+
+const noopBar = () => {}
+function bar(extra: Partial<TopBarProps> = {}) {
+  return (
+    <TopBar
+      sessions={[]} selectedSessionId="__all__" sessionsWithActivity={new Set()} showSessions={false} onToggleSessions={noopBar}
+      isVSCode={false} connectionStatus="connected" activeAgentCount={0} doneAgentCount={0} totalTokens={0} totalCost={0}
+      showFileAttention={false} showConversation={false} showCostOverlay={false} showTimeline={false} showStats={false} isMuted={false}
+      onTogglePanel={noopBar} onToggleTimeline={noopBar} onToggleStats={noopBar} onToggleMute={noopBar} onOpenShortcuts={noopBar} {...extra}
+    />
+  )
+}
+
+test('top bar: a named Commands button opens the palette and announces its shortcut (#377)', () => {
+  let opened = 0
+  const { getByRole } = render(bar({ onOpenPalette: () => { opened++ } }))
+  const button = getByRole('button', { name: 'Commands' })
+  assert.equal(button.getAttribute('aria-haspopup'), 'dialog')
+  assert.equal(button.getAttribute('aria-keyshortcuts'), 'Control+K Meta+K')
+  assert.match(button.getAttribute('title') ?? '', /Ctrl\+K/)
+  fireEvent.click(button)
+  assert.equal(opened, 1)
+})
+
+test('top bar: no Commands button without a palette to open', () => {
+  const { queryByRole } = render(bar())
+  assert.equal(queryByRole('button', { name: 'Commands' }), null)
 })

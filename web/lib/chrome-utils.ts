@@ -2,33 +2,91 @@
  * Pure helpers for the visualizer chrome (top bar, session tabs, control bar,
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
-import { formatDuration, formatCost, pluralize } from './utils'
+import { formatCost, formatDuration, formatTokens, pluralize } from './utils'
+import { translate, type Locale, type MessageKey } from './messages'
+import { connectionText } from './top-bar-text'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
-import { formatCostUsage, type UsageTotal } from './usage'
+import { formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
-import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
+import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, SESSION_OFFLINE_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
+
+/**
+ * The token and cost totals of the view in words, read by screen readers after the agent counts of the top bar (#523:
+ * they are no longer drawn there; the Cost panel draws them on the canvas, which screen readers do not read). When the
+ * runtime reports nothing, each one names what is missing ("tokens not reported", "cost not reported") instead of two
+ * bare "not reported" in a row (#383).
+ */
+export function topBarContextText(tokens: UsageTotal, cost: UsageTotal, locale: Locale = 'en'): { tokens: string; spoken: string } {
+  const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
+  // The figure with its qualifier, as usage.qualify does ("at least 5k estimated"); the words follow the language
+  const qualified = (u: UsageTotal, v: string) => {
+    if (u.incomplete) return translate(locale, u.estimated ? 'usage.incompleteEstimated' : 'usage.incomplete', { v })
+    if (u.status === 'partial') return translate(locale, u.estimated ? 'usage.partialEstimated' : 'usage.partial', { v })
+    return u.estimated ? translate(locale, 'usage.estimated', { v }) : v
+  }
+  return {
+    tokens: missing(tokens)
+      ? translate(locale, 'topbar.context.tokensMissing')
+      // The qualifier of a loss closes the sentence ("120k tokens in context (incomplete)"), like the Cost panel header (#591);
+      // the inner copy is no longer partial either, or it would read "at least" (a loss claims no lower bound)
+      : tokens.incomplete
+        ? translate(locale, 'usage.incomplete', { v: translate(locale, 'topbar.context.tokens', { v: qualified({ ...tokens, status: 'available', incomplete: false },formatTokens(tokens.value as number)) }) })
+        : translate(locale, 'topbar.context.tokens', { v: qualified(tokens, formatTokens(tokens.value as number)) }),
+    // The cost in words (no "~"); a missing one reads "cost not reported"
+    spoken: missing(cost)
+      ? translate(locale, 'topbar.context.costMissing')
+      : `${translate(locale, 'topbar.context.costName')} ${qualified(cost, formatCost(cost.value as number))}`,
+  }
+}
+
+/**
+ * The unattributed row of the Cost panel in words (#555, #576), the one wording of the top bar and of the "Cost totals"
+ * region. It follows the drawing (`drawCostSummaryPanel`): the tokens, then the cost read "about" for the drawn "~" (priced
+ * at the default rate, the model being unknown), plus "estimated" when one part of it is an estimate. Null when the drawing
+ * draws no row (no unattributed tokens): never a bare figure, never a "$0".
+ */
+export function unattributedRestText(tokens: number, cost: number, estimated: boolean, locale: Locale = 'en'): string | null {
+  if (!(tokens > 0)) return null
+  const v = formatCost(cost)
+  return translate(locale, 'topbar.context.unattributed', {
+    tokens: formatTokens(tokens),
+    cost: estimated ? translate(locale, 'usage.estimated', { v }) : v,
+  })
+}
+
+/** Time the pointer has to go from a top bar button to its tooltip, below it (WCAG 1.4.13, #523). */
+export const TOOLTIP_CLOSE_DELAY_MS = 300
+
+/**
+ * Inks of the tooltips of the top bar panel buttons (#523), measured in every theme by scripts/theme-contrast.test.ts:
+ * `ground` is a palette key or a theme variable, `text` the palette key of its text.
+ */
+export const TOPBAR_TOOLTIP = { ground: 'panelBg', text: 'textPrimary' } as const
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported' | 'offline'
 
 /**
  * Status of a session. Unseen background activity wins over the plain active state. An active
  * session that no event was ever received for (and with no live hook flag) is 'unobserved': it is
  * listed, but whether it is idle or working is unknown (issue #52), so it never reads 'active'.
- * `isObservedId` defaults to the app-wide observation tracker.
+ * `isObservedId` defaults to the app-wide observation tracker. While the relay is offline (`relayOffline`), an
+ * active session is 'offline': no event can arrive, so it is not shown as active (#367).
  */
 export function sessionStatusKind(
   session: Pick<SessionInfo, 'status' | 'indexedOnly' | 'imported'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
   isObservedId: (sessionId: string) => boolean = observedSessions.has,
+  relayOffline = false,
 ): SessionStatusKind {
   // The index proves neither detection nor an end: never shown as completed
   if (session.indexedOnly) return 'indexed'
   // Read from a file: neither live activity nor a witnessed end (#294)
   if (session.imported) return 'imported'
+  if (relayOffline && session.status === 'active') return 'offline'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
@@ -41,6 +99,7 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   unobserved: SESSION_NOT_OBSERVED_TEXT,
   indexed: SESSION_INDEXED_TEXT,
   imported: SESSION_IMPORTED_TEXT,
+  offline: SESSION_OFFLINE_TEXT,
 }
 
 export interface TabItem {
@@ -105,6 +164,7 @@ export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; 
   if (runtime === 'copilot') return { short: 'GC', label: 'GitHub Copilot' }
   if (runtime === 'pi') return { short: 'PI', label: 'Pi' }
   if (runtime === 'gemini') return { short: 'GM', label: 'Gemini CLI' }
+  if (runtime === 'opencode') return { short: 'OC', label: 'OpenCode' }
   if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
   return null
 }
@@ -136,41 +196,96 @@ export function scrubberTimeFromX(clientX: number, left: number, width: number, 
   return ratio * total
 }
 
-export function scrubberValueText(current: number, total: number): string {
-  return `${formatDuration(current)} of ${formatDuration(total)}`
+export function scrubberValueText(current: number, total: number, locale: Locale = 'en'): string {
+  return translate(locale, 'bar.position.value', { current: formatDuration(current), total: formatDuration(total) })
 }
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-/** "5 agents: 2 active - 3 done"; agents whose status is no longer proven are counted apart ("- 4 last known state"). */
-export function formatAgentCounts(active: number, done: number, stale = 0): string {
-  const staleText = stale > 0 ? ` - ${stale} last known state` : ''
-  return `${pluralize(active + done + stale, 'agent')}: ${active} active${staleText} - ${done} done`
+/** "1 agent", "3 agents": the same word in both languages, only the plural mark follows the count. */
+function agentsText(locale: Locale, n: number): string {
+  return translate(locale, n === 1 ? 'count.agent.one' : 'count.agent.other', { n })
 }
 
-/** Splits agents into done, stale (status older than the freshness limit: only a last known state) and active. */
+/** Plural form of a message that exists as <base>.one / <base>.other (French: 0 and 1 are singular). */
+function countPart(locale: Locale, base: 'topbar.counts.active' | 'topbar.counts.idle' | 'topbar.counts.done' | 'topbar.counts.stale' | 'topbar.counts.stale.short' | 'topbar.counts.sessions', n: number): string {
+  const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
+  return translate(locale, `${base}.${rule}` as MessageKey, { n })
+}
+
+/**
+ * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
+ * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
+ */
+function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0, locale: Locale = 'en'): string {
+  const staleText = stale > 0 ? ` - ${countPart(locale, 'topbar.counts.stale', stale)}` : ''
+  const idleText = idle > 0 ? ` - ${countPart(locale, 'topbar.counts.idle', idle)}` : ''
+  const errorText = error > 0 ? ` - ${translate(locale, 'topbar.counts.error', { n: error })}` : ''
+  const colon = locale === 'fr' ? ' :' : ':'
+  return `${agentsText(locale, active + done + stale + idle + error)}${colon} ${countPart(locale, 'topbar.counts.active', active)}${staleText}${idleText}${errorText} - ${countPart(locale, 'topbar.counts.done', done)}`
+}
+
+/** Compact "30 agents: 0 active · 4 last known · 26 done", drawn in the Sessions panel header (#523); the full wording (`formatAgentCounts`) is read by screen readers. */
+function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0, locale: Locale = 'en'): string {
+  const part = (n: number, text: string) => (n > 0 ? ` · ${text}` : '')
+  const colon = locale === 'fr' ? ' :' : ':'
+  return `${agentsText(locale, active + done + stale + idle + error)}${colon} ${countPart(locale, 'topbar.counts.active', active)}${part(stale, countPart(locale, 'topbar.counts.stale.short', stale))}${part(idle, countPart(locale, 'topbar.counts.idle', idle))}${part(error, translate(locale, 'topbar.counts.error', { n: error }))} · ${countPart(locale, 'topbar.counts.done', done)}`
+}
+
+/** Agents of the view by state, as `agentActivityCounts` splits them. */
+export interface AgentStateCounts { active: number; done: number; stale: number; idle: number; error: number }
+
+/**
+ * Agent counts of the view (#523, moved from the top bar to the Sessions panel header, same text): `drawn` is the
+ * compact text ("30 agents: 0 active · 4 last known · 26 done"), `spoken` the full wording read by screen readers.
+ * In All (`allSessionCount` not null) it is the sessions and agents ("3 sessions · 30 agents"), without the states.
+ * `locale` is the interface language (#500); English when omitted.
+ */
+export function viewCountsText(c: AgentStateCounts, allSessionCount: number | null, locale: Locale = 'en'): { drawn: string; spoken: string } {
+  if (allSessionCount !== null) {
+    const sessions = countPart(locale, 'topbar.counts.sessions', allSessionCount)
+    const agents = agentsText(locale, c.active + c.done + c.stale + c.idle + c.error)
+    return { drawn: `${sessions} · ${agents}`, spoken: `${sessions}, ${agents}` }
+  }
+  return {
+    drawn: formatAgentCountsCompact(c.active, c.done, c.stale, c.idle, c.error, locale),
+    spoken: formatAgentCounts(c.active, c.done, c.stale, c.idle, c.error, locale),
+  }
+}
+
+/** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */
 export function agentActivityCounts(
   agents: Iterable<{ state: string; lastEventAt?: number }>,
   now: number,
-): { active: number; done: number; stale: number } {
-  let active = 0, done = 0, stale = 0
+): { active: number; done: number; stale: number; idle: number; error: number } {
+  let active = 0, done = 0, stale = 0, idle = 0, error = 0
   for (const a of agents) {
     if (a.state === 'complete') done++
     else if (deriveFreshness(a, now) === 'stale') stale++
+    else if (a.state === 'idle') idle++
+    else if (a.state === 'error') error++
     else active++
   }
-  return { active, done, stale }
+  return { active, done, stale, idle, error }
 }
 
-/** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */
-export function formatAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
-  const costText = typeof cost === 'number' ? formatCost(cost) : formatCostUsage(cost)
-  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${costText}`
+
+/** "3 events" / "3 événements": the count with its plural agreement (French counts 0 and 1 as singular). */
+export function formatEventCount(n: number, locale: Locale = 'en'): string {
+  const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.event.${rule}` as MessageKey, { n })
+}
+
+/** A playback speed with the decimal mark of the language: "0.5" in English, "0,5" in French. */
+export function formatSpeed(speed: number, locale: Locale = 'en'): string {
+  return new Intl.NumberFormat(locale).format(speed)
 }
 
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
-export function formatTruncatedHistory(droppedEvents: number): string | null {
-  return droppedEvents > 0 ? `History truncated: ${pluralize(droppedEvents, 'older event')} dropped` : null
+export function formatTruncatedHistory(droppedEvents: number, locale: Locale = 'en'): string | null {
+  if (!(droppedEvents > 0)) return null
+  const rule = new Intl.PluralRules(locale).select(droppedEvents) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.truncated.${rule}` as MessageKey, { n: droppedEvents })
 }
 
 /** "... 12 older messages dropped" line at the top of a conversation, or null when nothing was dropped. */
@@ -179,7 +294,7 @@ export function formatDroppedMessages(dropped: number): string | null {
 }
 
 /** Minimal agent shape needed to label it with its session. */
-interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' }
+interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' }
 
 /**
  * Attach the human-readable session label (and the session runtime when the agent has none) to each
@@ -265,26 +380,29 @@ export type ConnectionTone = 'ok' | 'pending' | 'error' | 'demo'
 export interface ConnectionDisplay { label: string; tone: ConnectionTone; description: string }
 
 /** Single place that decides the connection badge: DEMO never masquerades as LIVE. */
-export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): ConnectionDisplay {
+export function connectionDisplay(status: ConnectionStatus, isDemo: boolean, detail?: string | null): ConnectionDisplay {
   if (isDemo) return { label: 'DEMO', tone: 'demo', description: 'Showing demo data, not a live session' }
   switch (status) {
     case 'watching': return { label: 'LIVE', tone: 'ok', description: 'Live: watching for agent activity' }
     case 'connected': return { label: 'CONNECTED', tone: 'ok', description: 'Connected, waiting for agent activity' }
     case 'connecting': return { label: 'CONNECTING', tone: 'pending', description: 'Connecting to the relay' }
-    default: return { label: 'OFFLINE', tone: 'error', description: 'Relay offline' }
+    default: return { label: 'OFFLINE', tone: 'error', description: detail ? `Relay offline: ${detail}` : 'Relay offline' }
   }
 }
 
 /**
- * Badge of the playback bar. Follows the real connection: LIVE (pulsing) only while the relay is
- * connected or watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
+ * Badge of the playback bar. Follows the real connection with the top bar's wording: LIVE (pulsing) only while the relay is
+ * watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
  */
-export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
-  if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
-  if (status === 'connected' || status === 'watching') return { label: 'LIVE', live: true, tone: 'ok' }
-  const d = connectionDisplay(status, false)
-  return { label: d.label, live: false, tone: d.tone }
+export function liveBadge(status: ConnectionStatus, isDemo: boolean, locale: Locale = 'en'): { label: string; live: boolean; tone: ConnectionTone } {
+  if (isDemo) return { label: connectionText(locale, status, true).label, live: false, tone: 'demo' }
+  const d = connectionText(locale, status, false)
+  // Same word as the top bar; it pulses only while activity is actually watched (a bare connection proves less)
+  return { label: d.label, live: status === 'watching', tone: d.tone }
 }
+
+/** A mode switched on or off, announced once after the change */
+export type ModeNote = 'on' | 'off'
 
 /** Text for the sr-only polite live region. Only state changes alter it. */
 export function buildAnnouncement(opts: {
@@ -294,21 +412,46 @@ export function buildAnnouncement(opts: {
   isEmpty: boolean
   /** Listed sessions with no received event (issue #52): their activity is unknown */
   unobservedSessions?: number
-  /** 'Full screen on' / 'Full screen off' after a change (#196) */
-  fullscreenNote?: string | null
-  /** 'Presentation mode on' / 'Presentation mode off' after a change (#245) */
-  presentationNote?: string | null
+  /** Full screen switched on or off, after a change (#196) */
+  fullscreenNote?: ModeNote | null
+  /** Presentation mode switched on or off, after a change (#245) */
+  presentationNote?: ModeNote | null
+  /** Language of the whole sentence (#613); English by default */
+  locale?: Locale
 }): string {
-  const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
-  if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
-  parts.push(opts.isReviewing ? 'Review mode' : 'Live mode')
-  if (opts.isEmpty) parts.push('Waiting for an agent session')
-  if (opts.unobservedSessions && opts.unobservedSessions > 0) {
-    parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)
+  return buildAnnouncementParts(opts).map(p => p.text).join('. ')
+}
+
+/** The catalog key of the connection state a ConnectionDisplay shows (its label is one of these fixed words) */
+const CONNECTION_STATE_KEY: Readonly<Record<string, MessageKey>> = {
+  DEMO: 'topbar.connection.demo',
+  LIVE: 'topbar.connection.watching',
+  CONNECTED: 'topbar.connection.connected',
+  CONNECTING: 'topbar.connection.connecting',
+  OFFLINE: 'topbar.connection.offline',
+}
+
+/**
+ * The announcement cut into pieces, each with its language. Every piece is in the locale (#613): the connection state
+ * uses the words of the top bar, the review instruction names the button with the catalog text the bar shows (WCAG
+ * 3.3.2). The session name is data and is said as it is.
+ */
+export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): { text: string; lang: Locale }[] {
+  const locale = opts.locale ?? 'en'
+  const t = (key: MessageKey, params?: Record<string, string | number>) => ({ text: translate(locale, key, params), lang: locale })
+  const stateKey = CONNECTION_STATE_KEY[opts.connection.label]
+  const state = (stateKey ? translate(locale, stateKey) : opts.connection.label).toLocaleLowerCase(locale)
+  const parts: { text: string; lang: Locale }[] = [t('announce.connection', { state })]
+  if (opts.sessionLabel) parts.push(t('announce.session', { name: opts.sessionLabel }))
+  parts.push(opts.isReviewing ? t('announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }) : t('announce.liveMode'))
+  if (opts.isEmpty) parts.push(t('announce.waiting'))
+  const unobserved = opts.unobservedSessions
+  if (unobserved && unobserved > 0) {
+    parts.push(t(new Intl.PluralRules(locale).select(unobserved) === 'one' ? 'announce.unobserved.one' : 'announce.unobserved.other', { n: unobserved }))
   }
-  if (opts.fullscreenNote) parts.push(opts.fullscreenNote)
-  if (opts.presentationNote) parts.push(opts.presentationNote)
-  return parts.join('. ')
+  if (opts.fullscreenNote) parts.push(t(opts.fullscreenNote === 'on' ? 'announce.fullscreen.on' : 'announce.fullscreen.off'))
+  if (opts.presentationNote) parts.push(t(opts.presentationNote === 'on' ? 'announce.presentation.on' : 'announce.presentation.off'))
+  return parts
 }
 
 export function formatMissedEvents(n: number): string | null {
@@ -317,7 +460,10 @@ export function formatMissedEvents(n: number): string | null {
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
-export interface ChecklistItem { id: string; label: string; ok: boolean; detail?: string }
+/** `unknown`: cannot be proven right now (no relay to ask); shown as unknown, never as failed or done */
+export interface ChecklistItem { id: string; label: string; ok: boolean; detail?: string; unknown?: boolean }
+
+const UNKNOWN_DETAIL = 'unknown until the relay answers'
 
 export function emptyStateChecklist(opts: {
   status: ConnectionStatus
@@ -330,22 +476,25 @@ export function emptyStateChecklist(opts: {
   scope?: 'workspace' | 'all'
 }): ChecklistItem[] {
   const relayOk = opts.status === 'connected' || opts.status === 'watching'
+  // Without a relay answer the watched scope and the sessions cannot be known (#371)
+  const relayUnknown = !relayOk
   const items: ChecklistItem[] = [
     {
       id: 'relay',
       label: 'Relay connected',
       ok: relayOk,
-      detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable',
+      detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : (opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable') + (opts.isVSCode ? '' : '; start it with "pnpm run dev:relay"'),
     },
     opts.scope === 'all'
-      ? { id: 'workspace', label: 'All workspaces watched', ok: relayOk }
+      ? { id: 'workspace', label: 'All workspaces watched', ok: relayOk, ...(relayUnknown && { unknown: true, detail: UNKNOWN_DETAIL }) }
       : {
           id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching',
-          detail: opts.status === 'watching' ? undefined
+          ...(relayUnknown && { unknown: true }),
+          detail: relayUnknown ? UNKNOWN_DETAIL : opts.status === 'watching' ? undefined
             : opts.scope === 'workspace' ? 'this workspace only: choose All workspaces in the scope selector to look at the others'
             : 'only the current workspace is watched',
         },
-    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi or Gemini CLI session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
+    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi, Gemini CLI or OpenCode session detected', ok: opts.sessionCount > 0, ...(relayUnknown && opts.sessionCount === 0 && { unknown: true }), detail: opts.sessionCount > 0 ? undefined : relayUnknown ? UNKNOWN_DETAIL : 'start a session to see activity' },
   ]
   if (opts.hooksConfigured !== undefined) {
     items.push({
@@ -433,7 +582,7 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
 
 export interface CanvasSessionMeta {
   label: string
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
   workspace?: string
   projectId?: string
   projectName?: string

@@ -16,11 +16,12 @@ import * as path from 'path'
 import * as os from 'os'
 import { AgentEvent, SessionInfo } from './protocol'
 import {
-  ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
+  ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, ORCHESTRATOR_NAME,
   POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY, WATCH_SCAN_DEBOUNCE_MS,
 } from './constants'
 import { safeWatch, readTrackedLines, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
+import { displayCwd } from './display-cwd'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
 } from './codex-rollout-parser'
@@ -37,12 +38,14 @@ const SCAN_DAYS = 3
  *  Filenames look like: rollout-2026-04-22T09-15-00-{uuid}.jsonl */
 const SESSION_ID_FROM_FILENAME = /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{36})\.jsonl$/
 
+
 interface WatchedCodexSession {
   sessionId: string
   filePath: string
+  /** Working directory recorded by session_meta, when usable (#420) */
+  cwd?: string
   fileWatcher: fs.FSWatcher | null
   pollTimer: NodeJS.Timeout | null
-  inactivityTimer: NodeJS.Timeout | null
   fileSize: number
   /** Leftover bytes past the last newline from the previous read — prepended
    *  to the next chunk so a JSONL line split across reads gets reassembled. */
@@ -50,7 +53,6 @@ interface WatchedCodexSession {
   sessionStartTime: number
   lastActivityTime: number
   sessionDetected: boolean
-  sessionCompleted: boolean
   label: string
   rolloutState: CodexRolloutState
   parser: CodexRolloutParser
@@ -152,14 +154,19 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   /** Position de lecture des sessions libérées : un fichier qui reprend repart d'où il s'était arrêté
    *  (pas de rejeu de l'historique). Borné, les plus anciennes entrées sont oubliées. */
   private retired = new Map<string, Pick<WatchedCodexSession, 'fileSize' | 'fileTail' | 'rolloutState' | 'sessionStartTime' | 'label'>>()
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
+  private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
   private readonly _onSessionLifecycle = new TypedEventEmitter<SessionLifecycleEvent>()
+  /** A retired session forgotten for good: reattached, its history is read again from the start (#592) */
+  private readonly _onSessionReleased = new TypedEventEmitter<string>()
 
   readonly onEvent = this._onEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
+  readonly onSessionReleased = this._onSessionReleased.event
 
   /** Workspace path used as a cwd filter — Codex sessions are attached only if
    *  their session_meta.cwd matches this path (or is under it). Pass null/undefined
@@ -168,23 +175,26 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
 
   isActive(): boolean {
     for (const s of this.sessions.values()) {
-      if (s.sessionDetected && !s.sessionCompleted) return true
+      if (s.sessionDetected) return true
     }
     return false
   }
 
   isSessionActive(sessionId: string): boolean {
     const s = this.sessions.get(sessionId)
-    return !!s && s.sessionDetected && !s.sessionCompleted
+    return !!s && s.sessionDetected
   }
 
   getActiveSessions(): SessionInfo[] {
     return Array.from(this.sessions.values()).map(s => ({
       id: s.sessionId,
       label: s.label,
-      status: s.sessionCompleted ? 'completed' : 'active',
+      // No end is observed for this runtime: a silence never completes a session (#360)
+      status: 'active',
       startTime: s.sessionStartTime,
       lastActivityTime: s.lastActivityTime,
+      runtime: 'codex',
+      ...(s.cwd ? { cwd: s.cwd } : {}),
     }))
   }
 
@@ -192,8 +202,14 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     for (const [id, session] of this.sessions) {
       if (!session.sessionDetected) continue
       if (sessionIds && !sessionIds.includes(id)) continue
-      this._onSessionLifecycle.fire({ type: 'started', sessionId: id, label: session.label })
+      this._onSessionLifecycle.fire(this.started(session))
     }
+  }
+
+  /** The 'started' lifecycle, with the runtime and the recorded cwd (#420): a session started while a page
+   *  is open gets its badge without waiting for the list. */
+  private started(s: WatchedCodexSession): SessionLifecycleEvent {
+    return { type: 'started', sessionId: s.sessionId, label: s.label, runtime: 'codex', ...(s.cwd ? { cwd: s.cwd } : {}) }
   }
 
   start(): void {
@@ -325,7 +341,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
-      if (!s.sessionCompleted || (now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+      if ((now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
       this.retire(id, s)
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
@@ -335,7 +351,6 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   private retire(id: string, s: WatchedCodexSession): void {
     s.fileWatcher?.close()
     if (s.pollTimer) clearInterval(s.pollTimer)
-    if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     this.sessions.delete(id)
     this.retired.delete(id)
     this.retired.set(id, {
@@ -344,7 +359,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     })
     if (this.retired.size > CODEX_MAX_WATCHED_SESSIONS * 4) {
       const oldest = this.retired.keys().next().value
-      if (oldest !== undefined) this.retired.delete(oldest)
+      if (oldest !== undefined) { this.retired.delete(oldest); this._onSessionReleased.fire(oldest) }
     }
   }
 
@@ -375,7 +390,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     // Build the parser once per session so the delegate closures capture the
     // right session reference and re-emission is stateless on this side.
     const parser = new CodexRolloutParser({
-      emit: (event) => this._onEvent.fire({ ...event, sessionId }),
+      emit: (event) => this._onEvent.fire({ ...event, sessionId, ...(this.historyDepth > 0 ? { replayed: true } : {}) }),
       elapsed: () => {
         const s = this.sessions.get(sessionId)
         return s ? (Date.now() - s.sessionStartTime) / 1000 : 0
@@ -388,18 +403,19 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       },
     })
 
+    // The first line of a rollout does not change: read once per file (cached), also without a workspace filter
+    const cwd = displayCwd(this.cwdOf(filePath))
     const session: WatchedCodexSession = {
       sessionId,
       filePath,
+      ...(cwd ? { cwd } : {}),
       fileWatcher: null,
       pollTimer: null,
-      inactivityTimer: null,
       fileSize: 0,
       fileTail: '',
       sessionStartTime: stat.birthtimeMs || stat.mtimeMs,
       lastActivityTime: stat.mtimeMs,
       sessionDetected: false,
-      sessionCompleted: false,
       label,
       rolloutState: createCodexRolloutState(),
       parser,
@@ -412,12 +428,14 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     this.sessions.set(sessionId, session)
 
     // Drain existing content first, so late-opening panels see full history.
-    this.readNewLines(sessionId)
+    // (a session resumed after a release only reads what was written since: that is live)
+    if (retired) this.readNewLines(sessionId)
+    else this.asHistory(() => this.readNewLines(sessionId))
     if (this.sessions.get(sessionId) !== session) return // detached by a read failure
 
     session.sessionDetected = true
     this._onSessionDetected.fire(sessionId)
-    this._onSessionLifecycle.fire({ type: 'started', sessionId, label })
+    this._onSessionLifecycle.fire(this.started(session))
 
     try {
       session.fileWatcher = safeWatch(filePath, () => this.readNewLines(sessionId))
@@ -426,8 +444,13 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     // fs.watch on macOS sometimes silently stops after long idle — poll as backup.
     session.pollTimer = setInterval(() => this.readNewLines(sessionId), POLL_FALLBACK_MS)
 
-    this.resetInactivityTimer(sessionId)
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
+  }
+
+  /** Run a read of history: the events it emits are marked `replayed` (#390). */
+  private asHistory(read: () => void): void {
+    this.historyDepth++
+    try { read() } finally { this.historyDepth-- }
   }
 
   /** Called from watchers and timers: an exception is logged and detaches the session (#206). */
@@ -444,6 +467,20 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     if (s.sessionDetected) this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: s.label })
   }
 
+  /**
+   * A rollout attached while its first line was still being written has no cwd yet: it is read again on
+   * the next lines until the answer is final (cwdOf caches it then), and announced once with 'updated' (#420).
+   */
+  private lateCwd(session: WatchedCodexSession): void {
+    if (session.cwd !== undefined || this.cwdCache.has(session.filePath)) return
+    const cwd = displayCwd(this.cwdOf(session.filePath))
+    if (!cwd) return
+    session.cwd = cwd
+    if (session.sessionDetected) {
+      this._onSessionLifecycle.fire({ type: 'updated', sessionId: session.sessionId, label: session.label, runtime: 'codex', cwd })
+    }
+  }
+
   private readNewLinesUnguarded(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
@@ -451,38 +488,12 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const lines = readTrackedLines(session.filePath, session)
     if (!lines) return
     session.lastActivityTime = Date.now()
-
-    // Re-activate if the session had been marked complete on inactivity —
-    // new content means the user resumed the Codex CLI.
-    if (session.sessionCompleted) {
-      session.sessionCompleted = false
-      this._onSessionLifecycle.fire({ type: 'started', sessionId, label: session.label })
-      log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
-    }
+    this.lateCwd(session)
 
     for (const line of lines) {
       try { session.parser.processLine(line, session.rolloutState) }
       catch (err) { log.debug('Parser threw on line:', err) }
     }
-
-    this.resetInactivityTimer(sessionId)
-  }
-
-  private resetInactivityTimer(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    if (session.inactivityTimer) { clearTimeout(session.inactivityTimer) }
-    session.inactivityTimer = setTimeout(() => {
-      if (session.sessionCompleted) return
-      session.sessionCompleted = true
-      this._onEvent.fire({
-        time: (Date.now() - session.sessionStartTime) / 1000,
-        type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME, sessionEnd: true, inactivity: true },
-        sessionId,
-      })
-      this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: session.label })
-    }, INACTIVITY_TIMEOUT_MS)
   }
 
   dispose(): void {
@@ -494,12 +505,12 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     for (const s of this.sessions.values()) {
       s.fileWatcher?.close()
       if (s.pollTimer) clearInterval(s.pollTimer)
-      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     }
     this.sessions.clear()
     this.retired.clear()
     this._onEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
+    this._onSessionReleased.dispose()
   }
 }

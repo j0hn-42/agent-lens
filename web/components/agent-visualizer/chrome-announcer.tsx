@@ -1,7 +1,8 @@
 'use client'
 
 import type { SessionInfo } from '@/lib/bridge-types'
-import { buildAnnouncement, type ConnectionDisplay } from '@/lib/chrome-utils'
+import { buildAnnouncementParts, type ConnectionDisplay, type ModeNote } from '@/lib/chrome-utils'
+import { useLocale } from '@/lib/locale'
 import { hiddenDoneCount, hiddenDoneText } from '@/lib/inactive-agents'
 import type { Agent } from '@/lib/agent-types'
 import { useMemo } from 'react'
@@ -15,9 +16,9 @@ interface ChromeAnnouncerProps {
   sessions: ReadonlyArray<SessionInfo>
   sessionsWithActivity: ReadonlySet<string>
   /** Full screen on/off, once the mode has changed (#196) */
-  fullscreenNote?: string | null
+  fullscreenNote?: ModeNote | null
   /** Presentation mode on/off, once the mode has changed (#245) */
-  presentationNote?: string | null
+  presentationNote?: ModeNote | null
 }
 
 /**
@@ -26,8 +27,16 @@ interface ChromeAnnouncerProps {
  */
 export function ChromeAnnouncer({ connection, sessionLabel, isReviewing, isEmpty, sessions, sessionsWithActivity, fullscreenNote, presentationNote }: ChromeAnnouncerProps) {
   const unobservedSessions = useUnobservedSessionCount(sessions, sessionsWithActivity)
-  const announcement = buildAnnouncement({ connection, sessionLabel, isReviewing, isEmpty, unobservedSessions, fullscreenNote, presentationNote })
-  return <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
+  const { locale } = useLocale()
+  const parts = buildAnnouncementParts({ connection, sessionLabel, isReviewing, isEmpty, unobservedSessions, fullscreenNote, presentationNote, locale })
+  // The whole sentence is in the locale (#613): the region declares it, each piece too.
+  return (
+    <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" lang={locale}>
+      {parts.map((p, i) => (
+        <span key={i} lang={p.lang}>{i > 0 ? '. ' : ''}{p.text}</span>
+      ))}
+    </div>
+  )
 }
 
 interface HiddenFinishedAnnouncerProps {

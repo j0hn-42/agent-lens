@@ -1,7 +1,7 @@
 import type { SimulationEvent } from './agent-types'
 import type { SessionInfo } from './bridge-types'
 import { STRESS_SCENARIOS, type StressLevel } from './stress-test-scenario'
-import { TOUR_SCENARIO, TOUR_SESSIONS } from './tour-scenario'
+import { TOUR_SCENARIO, tourSessions } from './tour-scenario'
 import { GUIDED_SCENARIO } from './guided-scenario'
 
 // ─── Stress Test Support ─────────────────────────────────────────────────────
@@ -226,7 +226,11 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 /** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
 function getScenarioName(): string | null {
   if (typeof window === 'undefined') return null
-  return new URLSearchParams(window.location.search).get('scenario') || process.env.NEXT_PUBLIC_DEMO_SCENARIO || null
+  // `process` does not exist in a browser bundle that does not define the variable (#534): never read it bare.
+  // The bundler replaces the literal `process.env.NEXT_PUBLIC_DEMO_SCENARIO`; the try only covers a build that does not.
+  let fromEnv: string | undefined
+  try { fromEnv = process.env.NEXT_PUBLIC_DEMO_SCENARIO } catch { fromEnv = undefined }
+  return new URLSearchParams(window.location.search).get('scenario') || fromEnv || null
 }
 
 const WORKFLOW_MEMBERS: Array<{ name: string; phase: string }> = [
@@ -252,19 +256,61 @@ export const WORKFLOW_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 1.8, type: 'agent_activity', payload: { name: 'build-b', activity: 'working' } },
 ]
 
+// ?scenario=team10: an orchestrator and nine teammates of one team, all alive, with a context reading each.
+// Fixture of the label e2e on a real font (#593); it adds no product behavior.
+const TEAM10_NAMES = [
+  'explore-agent', 'research-agent', 'security-reviewer', 'test-runner', 'migration-planner',
+  'api-contract-checker', 'docs-writer', 'lint-fixer', 'performance-profiler',
+]
+const TEAM10_MOCK_SCENARIO: SimulationEvent[] = [
+  { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Coordinate the release team' } },
+  { time: 0.1, type: 'context_update', payload: { agent: 'orchestrator', tokens: 4300, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 1000, reasoning: 1100, subagentResults: 0 } } },
+  ...TEAM10_NAMES.flatMap((name, i): SimulationEvent[] => [
+    { time: 0.2 + i * 0.1, type: 'agent_spawn', payload: { name, kind: 'teammate', teamName: 'release', teamKind: 'team', parent: 'orchestrator', task: `Task of ${name}` } },
+    { time: 0.25 + i * 0.1, type: 'context_update', payload: { agent: name, tokens: 1800 + i * 1300, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: i * 1300, reasoning: 0, subagentResults: 0 } } },
+    { time: 0.3 + i * 0.1, type: 'agent_activity', payload: { name, activity: 'working' } },
+  ]),
+]
+
+// ?scenario=workflow83: an orchestrator and 82 workflow members that all speak in the Conversation panel, 30 of them finished.
+// Fixture of the agent picker e2e (many agents with messages); it adds no product behavior.
+const WORKFLOW83_MEMBERS: Array<{ name: string; phase: string }> = [
+  ...Array.from({ length: 10 }, (_, i) => ({ name: `planner-${String(i + 1).padStart(2, '0')}`, phase: 'Plan' })),
+  ...Array.from({ length: 50 }, (_, i) => ({ name: `builder-${String(i + 1).padStart(2, '0')}`, phase: 'Build' })),
+  ...Array.from({ length: 22 }, (_, i) => ({ name: `reviewer-${String(i + 1).padStart(2, '0')}`, phase: 'Review' })),
+]
+const WORKFLOW83_EVENTS: SimulationEvent[] = [
+  { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Run the large workflow' } },
+  { time: 0.05, type: 'message', payload: { agent: 'orchestrator', role: 'user', content: 'Run the large workflow across every package' } },
+  ...WORKFLOW83_MEMBERS.flatMap((m, i): SimulationEvent[] => [
+    { time: 0.1 + i * 0.01, type: 'agent_spawn', payload: { name: m.name, kind: 'teammate', teamName: 'mega', teamKind: 'workflow', parent: 'orchestrator', task: `${m.phase} step ${i + 1}` } },
+    { time: 1.0 + i * 0.01, type: 'message', payload: { agent: m.name, role: 'thinking', content: `Reading the ${m.phase.toLowerCase()} inputs of step ${i + 1}` } },
+    { time: 1.9 + i * 0.01, type: 'message', payload: { agent: m.name, content: `Step ${i + 1} (${m.phase}) progress report` } },
+  ]),
+  { time: 0.95, type: 'team_info', payload: { teamName: 'mega', teamKind: 'workflow', leadSessionId: 'default', members: WORKFLOW83_MEMBERS } },
+  // The ten planners and the first twenty builders are finished; the others keep working
+  ...WORKFLOW83_MEMBERS.slice(0, 30).map((m, i): SimulationEvent => ({ time: 3.0 + i * 0.01, type: 'agent_activity', payload: { name: m.name, activity: 'done' } })),
+  ...WORKFLOW83_MEMBERS.slice(30).map((m, i): SimulationEvent => ({ time: 3.4 + i * 0.01, type: 'agent_activity', payload: { name: m.name, activity: 'working' } })),
+]
+const WORKFLOW83_MOCK_SCENARIO: SimulationEvent[] = [...WORKFLOW83_EVENTS].sort((a, b) => a.time - b.time)
+
 const SCENARIO_NAME = getScenarioName()
 
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
   : SCENARIO_NAME === 'tour' ? TOUR_SCENARIO
   : SCENARIO_NAME === 'guided' ? GUIDED_SCENARIO
-  : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
+  : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO
+  : SCENARIO_NAME === 'workflow83' ? WORKFLOW83_MOCK_SCENARIO
+  : SCENARIO_NAME === 'team10' ? TEAM10_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
 
 /** True when the step-by-step guided demo (?scenario=guided) is the active scenario. */
 export const IS_GUIDED_DEMO = !stressLevel && SCENARIO_NAME === 'guided'
 
 /** Sessions the demo declares (the tour spans three: the relay would normally list them). Empty for the others. */
-export const MOCK_SESSIONS: SessionInfo[] = !stressLevel && SCENARIO_NAME === 'tour' ? TOUR_SESSIONS : []
+export const HAS_MOCK_SESSIONS = !stressLevel && SCENARIO_NAME === 'tour'
+/** Dated at the call (the browser, after mount), see tourSessions */
+export const mockSessions = (now: number = Date.now()): SessionInfo[] => HAS_MOCK_SESSIONS ? tourSessions(now) : []
 
 export const MOCK_DURATION = MOCK_SCENARIO.length > 0
   ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time + 10

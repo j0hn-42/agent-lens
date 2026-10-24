@@ -1,7 +1,7 @@
 /** Web side of the issue/PR links (#63): role of a node, defensive parsing, silent failure. */
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { agentRoleOf, parseIssueLinks, loadIssueLinks, issueLinksUrl, issueLinkLabel, parseRetryAfter, issueLinksRetryDelayMs, type FetchLike } from '../web/lib/issue-links'
+import { agentRoleOf, parseIssueLinks, loadIssueLinks, issueLinksUrl, parseRetryAfter, issueLinksRetryDelayMs, type FetchLike } from '../web/lib/issue-links'
 
 const U = 'https://github.com/j0hn-42/agent-lens'
 
@@ -92,7 +92,3 @@ test('issueLinksRetryDelayMs: exponential, capped, never below Retry-After, neve
   assert.equal(issueLinksRetryDelayMs(0, 3_600_000), 30000, 'a huge Retry-After is capped')
 })
 
-test('issueLinkLabel', () => {
-  assert.equal(issueLinkLabel({ kind: 'issue', number: 1, title: 'Fix', url: '', state: 'open' }), 'Issue #1 Fix')
-  assert.equal(issueLinkLabel({ kind: 'pr', number: 2, title: '', url: '', state: 'open', draft: true }), 'PR #2 (draft)')
-})

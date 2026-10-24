@@ -33,13 +33,14 @@ test('Space on a focused button never triggers the global play/pause shortcut', 
   assert.equal(shouldHandleShortcut(keyEvent(' ', document.body), true), true)
 })
 
-test('single-key shortcuts are ignored in text fields, dialogs and tabs', () => {
+test('single-key shortcuts are ignored in text fields and dialogs, but work from a tab or button (#376)', () => {
   for (const html of ['<input />', '<textarea></textarea>', '<div role="dialog"><span>x</span></div>', '<div contenteditable="true"></div>']) {
     const target = el(html)
     const inner = target.firstElementChild ?? target
     assert.equal(shouldHandleShortcut(keyEvent('f', inner), true), false, html)
   }
-  assert.equal(shouldHandleShortcut(keyEvent('f', el('<button role="tab">t</button>')), true), false)
+  assert.equal(shouldHandleShortcut(keyEvent('f', el('<button role="tab">t</button>')), true), true)
+  assert.equal(shouldHandleShortcut(keyEvent('Enter', el('<button role="tab">t</button>')), true), false)
 })
 
 test('Escape still closes panels from buttons but not from text fields or dialogs', () => {
@@ -170,6 +171,46 @@ test('sessions panel: the Active only toggle also hides an active session nobody
   fireEvent.click(getByRole('button', { name: 'Active only' }))
   assert.ok(queryByText('Ghost one'), 'listed once the filter is off')
   assert.ok(queryByText('Live one'))
+})
+
+test('sessions panel (#372): Active only follows the stored preference and reports each change', () => {
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'old', label: 'Old one', status: 'completed' as const, startTime: 0, lastActivityTime: 1 },
+  ]
+  const changes: boolean[] = []
+  const { getByRole, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="live" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+      observedSessionIds={new Set(['live'])} activeOnly={false} onActiveOnlyChange={v => changes.push(v)}
+    />,
+  )
+  const toggle = getByRole('button', { name: 'Active only' })
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false', 'the stored "off" is restored')
+  assert.ok(queryByText('Old one'))
+  assert.match(toggle.getAttribute('title') ?? '', /end was observed/)
+  fireEvent.click(toggle)
+  assert.deepEqual(changes, [true])
+})
+
+test('sessions panel (#372): the row button hides the session and says it comes back', () => {
+  const sessions = [{ id: 's1', label: 'Refactor', status: 'active' as const, startTime: 0, lastActivityTime: 5 }]
+  const hidden: string[] = []
+  const { getByRole } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={id => hidden.push(id)} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+      observedSessionIds={new Set(['s1'])}
+    />,
+  )
+  // The panel is named like the top bar button that opens it
+  getByRole('region', { name: /^Sessions and agents/ })
+  getByRole('slider', { name: 'Resize Sessions and agents panel' })
+  const button = getByRole('button', { name: 'Hide session Refactor (reappears on new activity or after a reconnect)' })
+  assert.equal(button.getAttribute('title'), 'Hide session Refactor (reappears on new activity or after a reconnect)')
+  fireEvent.click(button)
+  assert.deepEqual(hidden, ['s1'])
 })
 
 test('sessions panel: a session row shows its name, model and time, not its workspace nor a CC badge', () => {

@@ -23,7 +23,7 @@ export interface ObservedAgent { name: string; state: ObservedAgentState }
 
 export interface ObservedSession {
   id: string
-  runtime: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'unknown'
+  runtime: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'unknown'
   status: 'active' | 'completed'
   startedAt: number
   lastActivityAt: number
@@ -90,7 +90,7 @@ export const OBSERVATIONS_ACTION = {
           required: ['id', 'runtime', 'status', 'startedAt', 'lastActivityAt', 'ageMs', 'freshness', 'agentCount'],
           properties: {
             id: { type: 'string', pattern: OBSERVATIONS_SESSION_ID_PATTERN },
-            runtime: { enum: ['claude', 'codex', 'copilot', 'pi', 'gemini', 'unknown'] },
+            runtime: { enum: ['claude', 'codex', 'copilot', 'pi', 'gemini', 'opencode', 'unknown'] },
             status: { enum: ['active', 'completed'] },
             startedAt: { type: 'integer' },
             lastActivityAt: { type: 'integer' },
@@ -264,7 +264,7 @@ export function buildObservations(
     const agents = tracked.agents
     const out: ObservedSession = {
       id: s.id,
-      runtime: s.runtime === 'claude' || s.runtime === 'codex' || s.runtime === 'copilot' || s.runtime === 'pi' || s.runtime === 'gemini' ? s.runtime : 'unknown',
+      runtime: s.runtime === 'claude' || s.runtime === 'codex' || s.runtime === 'copilot' || s.runtime === 'pi' || s.runtime === 'gemini' || s.runtime === 'opencode' ? s.runtime : 'unknown',
       status: s.status === 'completed' ? 'completed' : 'active',
       startedAt: Math.trunc(s.startTime),
       lastActivityAt: Math.trunc(s.lastActivityTime),

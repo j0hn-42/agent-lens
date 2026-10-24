@@ -1,13 +1,8 @@
 'use client'
 
-import { COLORS } from '@/lib/colors'
 import { MOTION_LAYERS, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
 import { translate, type Locale } from '@/lib/messages'
-import { FOCUS_RING } from '@/lib/focus-ring'
-
-const BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
-  + `${FOCUS_RING} disabled:opacity-60`
+import { Button } from '@/components/ui/button'
 
 interface MotionLayerControlsProps {
   locale: Locale
@@ -24,22 +19,17 @@ export function MotionLayerControls({ locale, calm, lock, onToggle }: MotionLaye
       {MOTION_LAYERS.map(layer => {
         const pressed = lock !== null || calm[layer]
         return (
-          <button
+          <Button
             key={layer}
-            type="button"
+            variant="control"
+            active={pressed}
             aria-pressed={pressed}
             disabled={lock !== null}
             title={lock ? translate(locale, lock === 'system' ? 'motion.lockedBySystem' : 'motion.lockedByPause') : undefined}
             onClick={() => onToggle(layer)}
-            className={BUTTON_CLASS}
-            style={{
-              background: pressed ? COLORS.toggleActive : COLORS.panelBg,
-              border: `1px solid ${COLORS.controlBorder}`,
-              color: COLORS.textPrimary,
-            }}
           >
             {translate(locale, `motion.layer.${layer}`)}
-          </button>
+          </Button>
         )
       })}
     </div>

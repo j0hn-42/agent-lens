@@ -3,8 +3,10 @@
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { useSessionWork } from '@/hooks/use-session-work'
-import { checksLabel, isSessionBranch, sortPrsByBranch, type ChecksState } from '@/lib/session-work'
-import { issueLinkLabel } from '@/lib/issue-links'
+import { isSessionBranch, sortPrsByBranch, type ChecksState } from '@/lib/session-work'
+import { issueLinkText } from '@/lib/card-text'
+import { useLocale } from '@/lib/locale'
+import { DATA_EN, t as tr, pluralText, checksText } from '@/lib/panel-text'
 
 interface SessionWorkSectionProps {
   /** Origin of the relay API ('' = same origin); null: no relay, nothing is requested */
@@ -36,75 +38,77 @@ const ANCHOR_CLASS = `underline break-words rounded ${FOCUS_RING_INSET}`
 
 export function SessionWorkSection({ relayOrigin, sessionId, sessionBranch, active }: SessionWorkSectionProps) {
   const state = useSessionWork(relayOrigin, sessionId, active)
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   if (state.status === 'idle') return null
 
   const body = (() => {
-    if (state.status === 'loading') return <Note role="status">Loading pull requests and issues…</Note>
-    if (state.status === 'unavailable') return <Note role="status">Pull requests and issues unavailable for now.</Note>
-    if (state.status === 'unknown-project') return <Note>The project of this session is unknown: its pull requests and issues cannot be shown.</Note>
+    if (state.status === 'loading') return <Note role="status">{t('sw.loading')}</Note>
+    if (state.status === 'unavailable') return <Note role="status">{t('sw.unavailable')}</Note>
+    if (state.status === 'unknown-project') return <Note>{t('sw.unknownProject')}</Note>
     const work = state.work
     if (!work) return null
-    if (work.repo === null) return <Note>This project has no GitHub repository (no github.com origin remote).</Note>
+    if (work.repo === null) return <Note>{t('sw.noRepo')}</Note>
     const prs = sortPrsByBranch(work.prs)
     return (
       <>
-        <Heading>PULL REQUESTS BY BRANCH</Heading>
+        <Heading>{t('sw.prs.heading')}</Heading>
         {prs.length === 0 ? (
-          <Note>{work.prsTruncated ? 'No open pull request could be shown; more may exist.' : 'No open pull request.'}</Note>
+          <Note>{work.prsTruncated ? t('sw.prs.noneShown') : t('sw.prs.none')}</Note>
         ) : (
           <>
-            <table aria-label="Open pull requests by branch" className="w-full text-[11px] font-mono border-collapse" style={{ color: COLORS.assistantText }}>
+            <table aria-label={t('sw.prs.table')} className="w-full text-[11px] font-mono border-collapse" style={{ color: COLORS.assistantText }}>
               <thead>
                 <tr style={{ color: COLORS.textMuted }}>
-                  <th scope="col" className="text-left font-normal py-1 pr-2">Branch</th>
-                  <th scope="col" className="text-left font-normal py-1 pr-2">Pull request</th>
-                  <th scope="col" className="text-left font-normal py-1">Checks</th>
+                  <th scope="col" className="text-left font-normal py-1 pr-2">{t('sw.col.branch')}</th>
+                  <th scope="col" className="text-left font-normal py-1 pr-2"><span {...DATA_EN}>{t('sw.col.pr')}</span></th>
+                  <th scope="col" className="text-left font-normal py-1">{t('sw.col.checks')}</th>
                 </tr>
               </thead>
               <tbody>
                 {prs.map(pr => (
                   <tr key={pr.number} className="align-top" style={{ borderTop: `1px solid ${COLORS.holoBg05}` }}>
                     <td className="py-1 pr-2 break-all">
-                      {pr.branch}
-                      {isSessionBranch(pr.branch, sessionBranch) && <span style={{ color: COLORS.textMuted }}> (this session)</span>}
+                      <span {...DATA_EN}>{pr.branch}</span>
+                      {isSessionBranch(pr.branch, sessionBranch) && <span style={{ color: COLORS.textMuted }}> {t('sw.thisSession')}</span>}
                     </td>
                     <td className="py-1 pr-2 break-words">
-                      <a href={pr.url} target="_blank" rel="noopener noreferrer" title={issueLinkLabel({ ...pr, kind: 'pr', state: 'open' })} className={ANCHOR_CLASS} style={{ color: COLORS.textPrimary }}>
-                        #{pr.number}{pr.draft ? ' (draft)' : ''} {pr.title}
+                      <a href={pr.url} target="_blank" rel="noopener noreferrer" title={issueLinkText(locale, { ...pr, kind: 'pr', state: 'open' })} className={ANCHOR_CLASS} style={{ color: COLORS.textPrimary }}>
+                        #{pr.number}{pr.draft ? t('sw.draft') : ''} <span {...DATA_EN}>{pr.title}</span>
                       </a>
                     </td>
-                    <td className="py-1" style={{ color: CHECKS_COLOR[pr.checks.state]() }}>{checksLabel(pr.checks)}</td>
+                    <td className="py-1" style={{ color: CHECKS_COLOR[pr.checks.state]() }}>{checksText(locale, pr.checks)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {work.prsTruncated && <Note>At least {prs.length} open pull request{prs.length === 1 ? '' : 's'} shown; more may exist.</Note>}
+            {work.prsTruncated && <Note>{pluralText(locale, 'sw.prs.atLeast', prs.length)}</Note>}
           </>
         )}
-        {!sessionBranch && <Note testId="session-work-no-branch">The branch of this session was not recorded: no pull request is matched to it.</Note>}
+        {!sessionBranch && <Note testId="session-work-no-branch">{t('sw.noBranch')}</Note>}
 
         <div className="mt-2" />
-        <Heading>ISSUES WITHOUT AN AGENT</Heading>
-        <Note>Open issues carrying no agent:&lt;role&gt; label.</Note>
+        <Heading>{t('sw.issues.heading')}</Heading>
+        <Note>{t('sw.issues.note')}</Note>
         {work.issues.length === 0 ? (
-          <Note>{work.issuesTruncated ? 'No open issue without an agent could be shown; more may exist.' : 'No open issue without an agent.'}</Note>
+          <Note>{work.issuesTruncated ? t('sw.issues.noneShown') : t('sw.issues.none')}</Note>
         ) : (
           <>
-            <ul aria-label="Open issues without an agent" className="flex flex-col gap-0.5 list-none p-0 m-0 text-[11px] font-mono">
+            <ul aria-label={t('sw.issues.list')} className="flex flex-col gap-0.5 list-none p-0 m-0 text-[11px] font-mono">
               {work.issues.map(issue => (
                 <li key={issue.number}>
                   <a href={issue.url} target="_blank" rel="noopener noreferrer" className={ANCHOR_CLASS} style={{ color: COLORS.textPrimary }}>
-                    #{issue.number} {issue.title}
+                    #{issue.number} <span {...DATA_EN}>{issue.title}</span>
                   </a>
                 </li>
               ))}
             </ul>
-            {work.issuesTruncated && <Note>At least {work.issues.length} open issue{work.issues.length === 1 ? '' : 's'} without an agent shown; more may exist.</Note>}
+            {work.issuesTruncated && <Note>{pluralText(locale, 'sw.issues.atLeast', work.issues.length)}</Note>}
           </>
         )}
       </>
     )
   })()
 
-  return <section aria-label="Pull requests and issues" data-testid="session-work" className="mb-1">{body}</section>
+  return <section aria-label={t('sw.region')} data-testid="session-work" className="mb-1">{body}</section>
 }

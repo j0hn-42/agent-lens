@@ -3,8 +3,9 @@
  * received. Principle: only what is proven is reported.
  *
  * What counts as a repeat, per agent (each agent has its own context, so two agents reading one file is not a repeat):
- * - Read: the same file, offset and limit, with no Edit/Write/patch seen on that file since the previous read.
- * - Glob: the same pattern and path, with no write seen in the session since the previous call.
+ * - Read: the same file, offset and limit, with no Edit/Write/patch seen on that file since the previous read,
+ *   no context compaction of that agent in between, and a previous read not seen to fail or be cancelled.
+ * - Glob: the same pattern and path, with no write seen in the session (nor compaction of the agent) since the previous call.
  * - Bash / exec_command: the same command, run again right after itself (nothing else between).
  * Only tools whose input summary keeps every argument are compared: Grep and the others drop arguments, so two
  * "equal" summaries would not prove two equal calls. A call of a compared tool that carries no usable input is
@@ -13,7 +14,7 @@
  * makes the figure a lower bound, never 0. The ledger is bounded: past the limit new calls are not tracked
  * and the summary says it is a lower bound.
  */
-import { isValue, formatTokenUsage, USAGE_LABELS, type TokenSource, type UsageTotal } from './usage'
+import { isValue, type TokenSource, type UsageTotal } from './usage'
 
 /** Calls, ids and written paths tracked at once; findings are capped at MAX_WASTE_FINDINGS. */
 export const MAX_WASTE_TRACKED = 4000
@@ -46,7 +47,7 @@ export interface WasteLedger {
   items: ReadonlyMap<string, WasteItem>
   /** Signature -> write epoch at its last call */
   seen: ReadonlyMap<string, number>
-  /** Write counters: per session, per path, and per session for writes whose path is unknown */
+  /** Write counters: per session, per path, and per session for writes whose path is unknown; compactions per agent */
   writes: ReadonlyMap<string, number>
   /** Last call signature of each agent ('' when it was not a command) */
   last: ReadonlyMap<string, string>
@@ -126,20 +127,23 @@ function recordWrite(d: Draft, call: WasteCall): void {
 
 interface Signature { sig: string; kind: WasteKind; target: string; epoch: number | null }
 
+/** Compactions of an agent: what it read before is no longer in its context. */
+const compactions = (writes: ReadonlyMap<string, number>, agentId: string) => writes.get(`c\0${agentId}`) ?? 0
+
 /** The comparable identity of a call, or null when its tool is not compared / carries no usable input. */
 function signatureOf(writes: ReadonlyMap<string, number>, call: WasteCall): { sig: Signature } | { skipped: true } | null {
   const { toolName, agentId, sessionId, inputData } = call
   if (toolName === 'Read') {
     const path = str(inputData?.file_path)
     if (!path) return { skipped: true }
-    const epoch = (writes.get(`p\0${sessionId}\0${path}`) ?? 0) + (writes.get(`u\0${sessionId}`) ?? 0)
+    const epoch = (writes.get(`p\0${sessionId}\0${path}`) ?? 0) + (writes.get(`u\0${sessionId}`) ?? 0) + compactions(writes, agentId)
     return { sig: { sig: `read\0${agentId}\0${path}\0${num(inputData?.offset)}\0${num(inputData?.limit)}`, kind: 'reread', target: path, epoch } }
   }
   if (toolName === 'Glob') {
     const pattern = str(inputData?.pattern)
     if (!pattern) return { skipped: true }
     const path = typeof inputData?.path === 'string' ? inputData.path.slice(0, MAX_WASTE_TARGET_LEN) : ''
-    return { sig: { sig: `glob\0${agentId}\0${pattern}\0${path}`, kind: 'identical', target: pattern, epoch: writes.get(`s\0${sessionId}`) ?? 0 } }
+    return { sig: { sig: `glob\0${agentId}\0${pattern}\0${path}`, kind: 'identical', target: pattern, epoch: (writes.get(`s\0${sessionId}`) ?? 0) + compactions(writes, agentId) } }
   }
   if (COMMAND_TOOLS.has(toolName)) {
     const command = str(inputData?.command)
@@ -210,10 +214,30 @@ export function recordToolStart(ledger: WasteLedger, call: WasteCall, token?: ob
   return done(d)
 }
 
-/** Account for the end of a tool call: the cost of a repeat, when the runtime reported one. */
-export function recordToolEnd(ledger: WasteLedger, toolCallId: string, tokenCost: number | null, source: TokenSource, token?: object): WasteLedger {
+/** A context compaction of an agent: its later reads and globs are new epochs, not repeats. */
+export function recordCompaction(ledger: WasteLedger, agentId: string, token?: object): WasteLedger {
+  const key = `c\0${agentId}`
+  const d = draftOf(ledger, token)
+  if (d.writes.has(key) || d.writes.size < MAX_WASTE_TRACKED) bump(d.writes, key)
+  else d.limitReached = true
+  return done(d)
+}
+
+/**
+ * Account for the end of a tool call: the cost of a repeat, when the runtime reported one. `failed` is the call
+ * when it ended in a failure or a cancellation: a first read that brought nothing into the context is forgotten,
+ * so the read that follows is not a repeat.
+ */
+export function recordToolEnd(ledger: WasteLedger, toolCallId: string, tokenCost: number | null, source: TokenSource, token?: object, failed?: WasteCall): WasteLedger {
   const sig = ledger.pending.get(toolCallId)
-  if (sig === undefined) return ledger
+  if (sig === undefined) {
+    if (!failed) return ledger
+    const found = signatureOf(ledger.writes, failed)
+    if (!found || 'skipped' in found || found.sig.epoch === null || ledger.seen.get(found.sig.sig) !== found.sig.epoch) return ledger
+    const d = draftOf(ledger, token)
+    d.seen.delete(found.sig.sig)
+    return done(d)
+  }
   const d = draftOf(ledger, token)
   d.pending.delete(toolCallId)
   const item = d.items.get(sig)
@@ -235,17 +259,12 @@ export function wasteUsage(item: WasteItem): UsageTotal {
 }
 
 /** What was observed, as a fact (no verdict: a repeat may be intended). */
-export function describeWaste(item: WasteItem): string {
-  const times = `${item.repeats} ${item.repeats === 1 ? 'time' : 'times'}`
+export function describeWaste(item: WasteItem, lost = 0): string {
+  // Events the relay could not replay (#366): a repeat that is shown is proven, their number is a lower bound
+  const times = `${lost > 0 ? 'at least ' : ''}${item.repeats} ${item.repeats === 1 ? 'time' : 'times'}`
   if (item.kind === 'reread') return `read again ${times}, no edit seen in between`
   if (item.toolName === 'Glob') return `same Glob run again ${times}, no edit seen in between`
   return `same ${item.toolName} command run again ${times}, right after itself`
-}
-
-/** Tokens of the repeats of one finding, qualified ("at least 400 tokens", "tokens not reported"). */
-export function formatWasteTokens(item: WasteItem): string {
-  const usage = wasteUsage(item)
-  return usage.value === null ? `tokens ${USAGE_LABELS.unavailable}` : `${formatTokenUsage(usage)} tokens`
 }
 
 /** Findings, costliest first (known tokens, then repeats, then most recent). */
@@ -264,4 +283,18 @@ export interface WasteSummary {
 export function wasteSummary(ledger: WasteLedger): WasteSummary {
   const items = listWaste(ledger)
   return { items, repeats: items.reduce((s, i) => s + i.repeats, 0), uncompared: ledger.uncompared, limitReached: ledger.limitReached }
+}
+
+/** What the folded "Repeated reads and calls" summary may say (#518): the count of the listed findings, nothing else. */
+export interface RepeatsDisclosure {
+  /** Findings listed (the rows shown plus the ones counted as "more"): the same data as the list */
+  count: number
+  /** The tracking limit was reached or the relay could not replay events: the count is a lower bound, an empty list is incomplete */
+  lowerBound: boolean
+  /** Calls without input details, never compared: a repeat may hide among them */
+  uncompared: number
+}
+
+export function repeatsDisclosure(summary: Pick<WasteSummary, 'items' | 'uncompared' | 'limitReached'>, replayLost = 0): RepeatsDisclosure {
+  return { count: summary.items.length, lowerBound: summary.limitReached || replayLost > 0, uncompared: summary.uncompared }
 }

@@ -1,6 +1,8 @@
 import type { TeamSummary } from '@/lib/agent-types'
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
+import type { AnnounceLevel } from '@/lib/ui-preferences'
+import type { HealthVerdict } from '@/lib/loop-detection'
 import type { SessionMeta } from './index'
 
 export interface CanvasProps {
@@ -26,6 +28,11 @@ export interface CanvasProps {
   showCostOverlay?: boolean
   /** Hide idle / complete agents (the selected agent and the parents of visible agents stay) */
   hideInactive?: boolean
+  /**
+   * Called every frame with the agents drawn although hidden (selected, hovered, keyboard focus): the force layout
+   * lays them out like the drawn ones, rather than leaving them at their last position (#554)
+   */
+  onLayoutKeepIds?: (ids: ReadonlyArray<string | null | undefined>) => void
   /** Communication links between agents (spawn / teammate). Defaults to the simulation's own links. */
   links?: Map<string, AgentLink>
   /** Agent Teams (halo colours, legend) */
@@ -43,5 +50,17 @@ export interface CanvasProps {
    */
   /** Presentation mode (#245): `follow` = the camera follows the agent that worked last; `mask` = free text is drawn as bullets. Absent = both off */
   presentation?: { follow: boolean; mask: boolean }
+  /** Verbosity of the live announcements (#379); absent = every change. Urgent states are announced at every level */
+  announceLevel?: AnnounceLevel
+  /** Loop verdict per agent id (lib/loop-detection, `health.byAgent`): a proven loop badges its node (#377). Absent = no loop badge */
+  health?: ReadonlyMap<string, HealthVerdict>
+  /** Events the relay could not replay, per session id (#366): the tool count and the cost figures of that session's agents are lower bounds. Absent = none known */
+  replayLost?: ReadonlyMap<string, number>
+  /** Opens the Sessions and agents list (the L panel): the "N names hidden" button of the canvas controls (#594). Absent = no button */
+  onShowAgentList?: () => void
+  /** The single key that opens that list, quoted in the button's tooltip; null when single-key shortcuts are off */
+  agentListKey?: string | null
+  /** #372: raised by Settings > General to open the View popover of the canvas controls (CanvasControls.openViewRequest) */
+  openViewRequest?: number
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

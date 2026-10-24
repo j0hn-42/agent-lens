@@ -1,10 +1,9 @@
 import { useEffect, useRef } from "react"
 import { UNDO_SHORTCUT_KEY } from "../lib/chrome-utils"
 
-const IGNORED_TARGET_SELECTOR =
-  'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="dialog"], button, a, [role="tab"]'
 const TEXT_ENTRY_SELECTOR =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="dialog"]'
+const ACTIVATABLE_SELECTOR = 'button, a, [role="tab"]'
 
 /** Minimal structural view of a keyboard event, so the filter is testable without a DOM. */
 export interface ShortcutEventLike {
@@ -24,33 +23,27 @@ interface TargetLike {
 /**
  * Pure decision: should this keydown trigger a shortcut?
  * - Ctrl/Meta/Alt combos are never ours (browser/OS shortcuts, WCAG 2.1.4).
- * - Events from interactive widgets are left alone (Space on a button only activates the button).
- * - Space is only handled when focus is on <body> (or nothing).
- * - Single-key shortcuts require the user preference; Escape and `?` always work.
- *   Both may also fire from buttons/links/tabs (so they work after Tab navigation) but never
- *   from text fields or dialogs.
- * - Undo (U) is reachable from buttons/links/tabs while an undoable toast is visible
- *   (`opts.undoAvailable`): that is exactly where focus sits after the action that created the toast.
+ * - Text fields, selects, editable regions and dialogs are never ours.
+ * - Buttons, links and tabs let letters through: Escape gives the focus back to the button that
+ *   opened a panel, and shortcuts must keep working from there (#376). Space and Enter stay with
+ *   the focused control (they activate it); Space is only ours on <body> (or nothing).
+ * - Every shortcut but Escape, including `?`, follows the single-key preference (WCAG 2.1.4).
  */
 export function shouldHandleShortcut(
   e: ShortcutEventLike,
   singleKeyEnabled: boolean,
-  opts: { undoAvailable?: boolean } = {},
 ): boolean {
   if (e.ctrlKey || e.metaKey || e.altKey) return false
   const t = (e.target ?? null) as TargetLike | null
-  const isEscape = e.key === 'Escape'
-  const isAlways = isEscape || e.key === '?'
-  const isUndo = !!opts.undoAvailable && e.key.toLowerCase() === UNDO_SHORTCUT_KEY
   if (t) {
     if (t.isContentEditable) return false
-    if (typeof t.closest === 'function' && t.closest(IGNORED_TARGET_SELECTOR)) {
-      // Escape, ? and a currently useful Undo may still work from buttons/links/tabs, but never from text fields or dialogs.
-      if (!(isAlways || isUndo) || t.closest(TEXT_ENTRY_SELECTOR)) return false
+    if (typeof t.closest === 'function') {
+      if (t.closest(TEXT_ENTRY_SELECTOR)) return false
+      if ((e.key === ' ' || e.key === 'Enter') && t.closest(ACTIVATABLE_SELECTOR)) return false
     }
     if (e.key === ' ' && t.tagName !== undefined && t.tagName !== 'BODY') return false
   }
-  if (isAlways) return true
+  if (e.key === 'Escape') return true
   return singleKeyEnabled
 }
 
@@ -75,6 +68,7 @@ export function useKeyboardShortcuts(actions: {
   toggleHexGrid: () => void
   toggleStats: () => void
   toggleContext: () => void
+  toggleSystem: () => void
   toggleCostOverlay: () => void
   zoomToFit: () => void
   /** Enter / leave immersive full screen (`Z`) */
@@ -90,10 +84,10 @@ export function useKeyboardShortcuts(actions: {
   openShortcuts: () => void
   /** Open the command palette (`Ctrl+K` / `Cmd+K`) */
   openPalette?: () => void
+  /** Open the Settings dialog (`,`) */
+  openSettings?: () => void
   /** Run the action of the newest toast (Undo); returns true if one ran */
   undoLast: () => boolean
-  /** True while a visible toast has an Undo action (lets U fire from buttons and tabs) */
-  canUndo?: () => boolean
   singleKeyEnabled: boolean
 }): void {
   const actionsRef = useRef(actions)
@@ -107,7 +101,7 @@ export function useKeyboardShortcuts(actions: {
         a.openPalette()
         return
       }
-      if (!shouldHandleShortcut(e, a.singleKeyEnabled, { undoAvailable: a.canUndo?.() ?? false })) return
+      if (!shouldHandleShortcut(e, a.singleKeyEnabled)) return
 
       switch (e.key) {
         case ' ':
@@ -115,14 +109,14 @@ export function useKeyboardShortcuts(actions: {
           a.togglePlayPause()
           break
         case 'f':
-          a.toggleFilePanel()
+        case 'F':
+          // Caps Lock flips the case of `key` but not shiftKey: Shift decides, not the letter's case.
+          if (e.shiftKey) a.zoomToFit()
+          else a.toggleFilePanel()
           break
         case 'l':
         case 'L':
           a.toggleSessionList()
-          break
-        case 'F':
-          a.zoomToFit()
           break
         case 'z':
         case 'Z':
@@ -155,6 +149,10 @@ export function useKeyboardShortcuts(actions: {
         case 'S':
           a.toggleStats()
           break
+        case 'y':
+        case 'Y':
+          a.toggleSystem()
+          break
         case '$':
           a.toggleCostOverlay()
           break
@@ -165,6 +163,9 @@ export function useKeyboardShortcuts(actions: {
         case '?':
           e.preventDefault()
           a.openShortcuts()
+          break
+        case ',':
+          a.openSettings?.()
           break
         case UNDO_SHORTCUT_KEY:
         case UNDO_SHORTCUT_KEY.toUpperCase():

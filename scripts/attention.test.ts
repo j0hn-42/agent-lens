@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  attentionTitle, baseTitle, formatAttention, newlyBlocked, sessionAttentionText, summarizeAttention, type AttentionAgent,
+  attentionTitle, baseTitle, newlyBlocked, nextAttentionTarget, summarizeAttention, type AttentionAgent,
 } from '../web/lib/attention'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 
@@ -37,17 +37,12 @@ test('attention: a live permission still pending past the freshness window is co
   assert.equal(sum.firstAgentId, 'old')
   const expired = { ...a('h', 's', 'waiting_permission', 16 * 60_000), freshnessSource: 'history' as const }
   assert.equal(summarizeAttention([expired], NOW).waiting, 0)
+  const justReplayed = { ...a('h', 's', 'waiting_permission', 0), freshnessSource: 'history' as const }
+  assert.equal(summarizeAttention([justReplayed], NOW).waiting, 0, 'a permission read from history is not proven pending (#361)')
   assert.equal(summarizeAttention([{ id: 'n', sessionId: 's', state: 'waiting_permission' }], NOW).total, 0, 'never observed')
 })
 
 test('attention: wording of the counter, the row and the tab title', () => {
-  assert.equal(formatAttention(2, 1), '2 waiting / 1 error')
-  assert.equal(formatAttention(0, 3), '3 errors')
-  assert.equal(formatAttention(1, 0), '1 waiting')
-  assert.equal(formatAttention(0, 0), '')
-  assert.equal(sessionAttentionText({ waiting: 1, errors: 2 }), '1 waiting / 2 errors')
-  assert.equal(sessionAttentionText({ waiting: 0, errors: 0 }), null)
-  assert.equal(sessionAttentionText(undefined), null)
   assert.equal(attentionTitle('Agent Lens', 3), '(3) Agent Lens')
   assert.equal(attentionTitle('Agent Lens', 0), 'Agent Lens')
   assert.equal(baseTitle('(12) Agent Lens'), 'Agent Lens')
@@ -58,4 +53,28 @@ test('attention: only agents blocked since the last check are reported for a not
   assert.deepEqual(newlyBlocked(new Set(['a']), new Set(['a', 'b'])), ['b'])
   assert.deepEqual(newlyBlocked(new Set(['a']), new Set(['a'])), [])
   assert.deepEqual(newlyBlocked(new Set(['a']), new Set()), [])
+})
+
+// "Next" on the counter (#377): every blocked agent is reachable, waiting ones first, in turn
+
+test('attention: the jump order lists waiting agents first, then errors, each with its session', () => {
+  const sum = summarizeAttention([a('e1', 's1', 'error'), a('w1', 's1', 'waiting_permission'), a('w2', 's2', 'waiting_permission'), a('t', 's1', 'thinking')], NOW)
+  assert.deepEqual(sum.order, [
+    { id: 'w1', sessionId: 's1' }, { id: 'w2', sessionId: 's2' }, { id: 'e1', sessionId: 's1' },
+  ])
+})
+
+test('attention: next target cycles from the current one and wraps around', () => {
+  const sum = summarizeAttention([a('w1', 's1', 'waiting_permission'), a('w2', 's2', 'waiting_permission'), a('e1', 's1', 'error')], NOW)
+  assert.equal(nextAttentionTarget(sum, null)?.id, 'w1')
+  assert.equal(nextAttentionTarget(sum, 'w1')?.id, 'w2')
+  assert.equal(nextAttentionTarget(sum, 'w2')?.id, 'e1')
+  assert.equal(nextAttentionTarget(sum, 'e1')?.id, 'w1')
+  assert.deepEqual(nextAttentionTarget(sum, 'w1'), { id: 'w2', sessionId: 's2' })
+})
+
+test('attention: an unknown or no-longer-blocked current agent restarts at the first target', () => {
+  const sum = summarizeAttention([a('w1', 's1', 'waiting_permission'), a('e1', 's1', 'error')], NOW)
+  assert.equal(nextAttentionTarget(sum, 'gone')?.id, 'w1')
+  assert.equal(nextAttentionTarget(summarizeAttention([], NOW), 'w1'), null)
 })

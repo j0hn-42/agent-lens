@@ -8,12 +8,12 @@ pnpm run dev:demo            # http://localhost:3000
 pnpm run dev:demo:classic    # l'ancienne démo, une seule session
 ```
 
-On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en mode démo (`?scenario=workflow` : le workflow seul).
+On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en mode démo (`?scenario=workflow` : le workflow seul ; `?scenario=team10` : une équipe de 10 agents, utilisée par le test e2e des libellés, voir `CONTRIBUTING.md`).
 
 ## Avant de commencer
 
 - Fenêtre d'au moins 1280 × 800, thème au choix.
-- Désactivez **Hide inactive agents** (bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les sessions finies : c'est une fonctionnalité à montrer, voir l'acte 7.
+- Désactivez **Hide inactive** (*Masquer les inactifs*, bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les agents terminés et, dans la vue de toutes les sessions, les sessions finies depuis plus de 10 minutes : c'est une fonctionnalité à montrer, voir l'acte 7.
 - Pour l'acte 4, ouvrez **View** (**Affichage** en français, bas à droite) et réglez **Hide unanswered calls after** (**Masquer les appels sans réponse après**) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
 - Le tour ne se rejoue pas tout seul : rechargez la page pour recommencer. Le mode **Review** (barre du bas) permet de remonter la timeline et de survoler un instant précis.
 
@@ -34,14 +34,14 @@ Les deux sessions Claude partagent un projet : la vue **All** les regroupe sous 
 | 0:00 – 0:06 | **1. Un agent travaille** | L'`orchestrator` reçoit un prompt, réfléchit, lit le code (`Glob`, `Read`, `Grep`), planifie avec `TodoWrite`. | Cliquez l'agent : l'inspecteur donne modèle (pastille `configured`), contexte par catégorie, jetons. Ouvrez **Conversation** : messages, réflexion et appels d'outils au même endroit. |
 | 0:06 – 0:15 | **Sous-agents en parallèle** | `explore-agent` et `research-agent` sont dépêchés ensemble puis rendent leur résumé. | `explore-agent` a demandé `opus` et a reçu `sonnet` : la pastille lit **requested != actual**, c'est le cas honnête. Montrez les arêtes parent-enfant. |
 | 0:15 – 0:23 | **Outil MCP et permission** | L'appel `mcp__stripe__…` a son propre style (cyan, badge de serveur). Puis l'`orchestrator` attend une permission avant `npm install`. | Dites : « l'état *waiting for permission* est visible, pas deviné ». Repérez le bloc *Permission* dans **Timeline**. |
-| 0:24 – 0:38 | **Erreur et reprise** | `test-runner` (modèle `haiku` demandé, obtenu et détecté) lance les tests, échoue, ajoute un setup, relance et passe. | L'appel en échec est marqué en erreur dans le graphe et dans **Conversation**. Ouvrez **Files** : la carte d'attention des fichiers touchés. Ouvrez **$Cost** : coût par agent. |
+| 0:24 – 0:38 | **Erreur et reprise** | `test-runner` (modèle `haiku` demandé, obtenu et détecté) lance les tests, échoue, ajoute un setup, relance et passe. | L'appel en échec est marqué en erreur dans le graphe et dans **Conversation**. Ouvrez **Files** : la carte d'attention des fichiers touchés. Ouvrez **Cost** : coût par agent. |
 | 0:39 | **Fin de tour** | L'`orchestrator` passe en *idle* : il attend le prompt suivant, il ne travaille plus. | Dites : « un agent qui a fini son tour n'est pas compté comme actif ». |
 | 0:40 – 0:49 | **2. Agent Team et Comms** | `api-dev` et `qa-dev` forment l'équipe `payments-squad` (halo en tirets). Ils s'échangent des messages. | Cliquez le lien entre `api-dev` et `qa-dev` : le panneau de lien lit l'échange. Le badge est le nombre de messages. Montrez les couleurs de coéquipiers et l'état working / idle / done. |
-| 0:14 – 1:24 | **3. Workflow à phases** | La session `release` exécute un Workflow : phases **Plan** puis **Build**. | Les membres apparaissent avant l'annonce des phases : le graphe se réorganise. Quand **Plan** est terminé (0:19), ses agents quittent l'écran avec **Hide inactive agents**. |
-| 1:15 et 0:52 | **4. Valeurs honnêtes** | Un `WebFetch` lancé à 0:15 dont on ne reçoit jamais la fin, un coût rapporté pour un agent inconnu (0:52), un coéquipier annoncé qui n'a rien produit (0:52). | À 1:15 (une minute après son départ, avec le réglage ci-dessus), l'appel sans fin se lit **end not observed**, jamais « réussi ». Le coût inconnu apparaît dans **$Cost** comme **unattributed**, hors des agents. Le coéquipier se lit **Not observed yet**. Les totaux partiels de la barre du haut disent **at least** et **estimated**. |
+| 0:14 – 1:24 | **3. Workflow à phases** | La session `release` exécute un Workflow : phases **Plan** puis **Build**. | Les membres apparaissent avant l'annonce des phases : le graphe se réorganise. Quand **Plan** est terminé (0:19), ses agents quittent l'écran avec **Hide inactive**. |
+| 1:15 et 0:52 | **4. Valeurs honnêtes** | Un `WebFetch` lancé à 0:15 dont on ne reçoit jamais la fin, un coût rapporté pour un agent inconnu (0:52), un coéquipier annoncé qui n'a rien produit (0:52). | À 1:15 (une minute après son départ, avec le réglage ci-dessus), l'appel sans fin se lit **end not observed**, jamais « réussi ». Le coût inconnu apparaît dans **Cost** comme **unattributed**, hors des agents. Le coéquipier se lit **Not observed yet**. Les totaux partiels de la barre du haut disent **at least** et **estimated**. |
 | 0:30 – 1:08 | **5. Une session Codex** | `codex` met à jour des pages de documentation. Ses chiffres de jetons viennent du runtime, avec l'effort de raisonnement (`high`). | Dites : « Claude Code et Codex côte à côte, étiquetés par runtime ». Montrez la fenêtre de contexte de 272 000 jetons. |
 | tout le long | **6. Vue All (Fleet)** | Trois sessions sur un canevas, chacune dans un halo pointillé ; deux sont sous le même projet. | Cliquez un halo pour zoomer sur le cluster. Ouvrez **Sessions** : l'arbre sessions, agents et sous-agents ; le menu contextuel (clic droit) ; **Legend** en bas à gauche explique chaque forme. |
-| à la fin | **7. Les filtres** | **Hide inactive agents** masque les agents terminés. | Désactivez-le pour retrouver toute l'histoire. Montrez **Timeline**, **Stats** et **Shortcuts**. |
+| à la fin | **7. Les filtres** | **Hide inactive** masque les agents terminés. | Désactivez-le pour retrouver toute l'histoire. Montrez **Timeline**, **Stats** et **Shortcuts**. |
 
 Le temps des actes se chevauche (les sessions tournent en parallèle) : suivez l'horloge de la barre du bas, pas l'ordre des lignes.
 
@@ -81,7 +81,7 @@ Pendant la visite :
 - le scénario est mis en pause à chaque étape, et la lecture reprend quand on quitte la visite ;
 - un anneau entoure l'élément expliqué (un agent du graphe, ou une section de la légende) ;
 - sur les étapes qui parlent de la légende, elle s'ouvre toute seule, sans modifier la préférence enregistrée ;
-- les agents inactifs restent affichés même si **Hide inactive agents** est actif, sans changer la préférence enregistrée ;
+- les agents inactifs restent affichés même si **Hide inactive** est actif, sans changer la préférence enregistrée ;
 - le graphe reste explorable (zoom, clic sur un agent).
 
 Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette démo : il relance la visite après une sortie.
@@ -94,9 +94,9 @@ Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette d
 | 2 | Tool calls | état *tool calling*, carte d'outil, ligne d'outil |
 | 3 | Sub-agents | forme de sous-agent, ligne parent-enfant ; la particule d'envoi de tâche est décrite seulement |
 | 4 | Results come back | forme terminée (contour en tirets), état *complete*, agent archivé (estompé, contour en tirets, toujours cliquable) ; la particule de retour est décrite seulement |
-| 5 | Context usage | les cinq catégories de contexte : prompt système, messages, résultats d'outils, raisonnement, résultats de sous-agents |
+| 5 | Context window | les cinq catégories de contexte : prompt système, messages, résultats d'outils, raisonnement, résultats de sous-agents |
 | 6 | Waiting for you | état *waiting for permission* |
-| 7 | When something fails | état *error* |
+| 7 | When something fails | appel d'outil en échec (compté dans les erreurs d'outil de l'inspecteur) ; l'état *error* est décrit seulement (un appel d'outil en échec ne met pas l'agent en erreur) |
 | 8 | Agent Teams | état *idle*, anneau d'équipe, coéquipier au travail, coéquipier inactif, halo d'équipe, orchestrateur (couronne et badge LEAD), ligne d'équipe |
 | 9 | Messages between agents | lien de message en vol, bulle du dernier message |
 | 10 | Delivered messages and finished teammates | lien de message récent, coéquipier terminé |
@@ -131,4 +131,4 @@ La visite guidée ne sert pas qu'à la démo. Sur une session réelle (ou sur le
 - la scène n'est ni mise en pause ni rejouée : la visite reste en direct. Quand ce qu'une étape explique a quitté la scène, la carte l'écrit (« This is no longer on screen ») ;
 - mêmes contrôles que la visite de la démo : **Previous**, **Next**, **Go to step**, **Exit tour**, `←` `→` et `Échap` dans la carte ; le focus revient au bouton d'origine.
 
-La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui.md).
+La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui/legend-and-tour.md).

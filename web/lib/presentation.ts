@@ -8,6 +8,7 @@
 import type { Agent, AgentState } from './agent-types'
 import { getStateLabel, safeLabel } from './state-labels'
 import { parseMcpTool } from './mcp-tool'
+import { isBetweenSteps } from './inactive-agents'
 
 /** localStorage key of the three options (the mode itself is never stored: a page never starts in presentation) */
 export const PRESENTATION_STORAGE_KEY = 'agent-lens:presentation'
@@ -84,8 +85,16 @@ export interface AgentSnapshot {
   tool: string | undefined
 }
 
-export function snapshotOf(agent: Pick<Agent, 'state' | 'currentTool'>): AgentSnapshot {
+function snapshotOf(agent: Pick<Agent, 'state' | 'currentTool'>): AgentSnapshot {
   return { state: agent.state, tool: agent.state === 'tool_calling' ? agent.currentTool : undefined }
+}
+
+/**
+ * Snapshot to remember for the next transition. Between two steps of a turn (#362) nothing changed that was
+ * observed: the previous snapshot is kept, so the next real step reads "Calling tool A → Calling tool B".
+ */
+export function nextSnapshot(prev: AgentSnapshot | undefined, agent: Pick<Agent, 'state' | 'currentTool' | 'awaitingNextEvent'>): AgentSnapshot {
+  return prev && isBetweenSteps(agent) ? prev : snapshotOf(agent)
 }
 
 /** Was the last thing known about this agent seen live (not replayed, not imported, not absent)? */
@@ -112,6 +121,8 @@ function describe(s: AgentSnapshot): string {
  */
 export function transitionSubtitle(prev: AgentSnapshot | undefined, agent: Agent, mask: boolean): string | null {
   if (!observedLive(agent)) return null
+  // Between two steps of a turn: no observed change to report (#362)
+  if (isBetweenSteps(agent)) return null
   const next = snapshotOf(agent)
   const who = mask ? agentRoleLabel(agent) : (safeLabel(agent.name, MAX_NAME_LENGTH) ?? agentRoleLabel(agent))
   let text: string
@@ -132,7 +143,8 @@ const WORKING: ReadonlySet<AgentState> = new Set(['thinking', 'tool_calling', 'w
 export function pickFollowAgent(agents: Iterable<Agent>): Agent | null {
   let best: Agent | null = null
   for (const a of agents) {
-    if (a.archived || !WORKING.has(a.state) || !observedLive(a)) continue
+    // An agent between two steps of a turn is still working: the camera does not drop it mid-turn (#362)
+    if (a.archived || !(WORKING.has(a.state) || isBetweenSteps(a)) || !observedLive(a)) continue
     if (!best) { best = a; continue }
     const at = a.lastEventAt as number
     const bestAt = best.lastEventAt as number

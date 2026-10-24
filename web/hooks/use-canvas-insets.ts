@@ -1,6 +1,6 @@
 import { useRef, useCallback, type RefObject } from 'react'
-import { measureOverlayInsets } from '@/components/agent-visualizer/canvas/overlay-insets'
-import { safeRect, NO_INSETS, type Insets } from '@/components/agent-visualizer/canvas/camera-fit'
+import { measureOverlayInsets, measureCanvasCovers } from '@/components/agent-visualizer/canvas/overlay-insets'
+import { safeRect, NO_INSETS, type Insets, type Rect } from '@/components/agent-visualizer/canvas/camera-fit'
 
 /**
  * Insets of the UI overlaid on the canvas (top bar / tabs, control bar, open panels): re-measured
@@ -12,9 +12,14 @@ export function useCanvasInsets(mainCanvasRef: RefObject<HTMLCanvasElement | nul
   const insetsSizeRef = useRef({ w: 0, h: 0 })
   const safeAreaCacheRef = useRef<{ insets: Insets; w: number; h: number; rect: ReturnType<typeof safeRect> } | null>(null)
 
+  const coversRef = useRef<Rect[]>([])
+
   const getInsets = useCallback(() => insetsRef.current, [])
+  /** UI over the canvas that reserves no edge (data-canvas-cover), in canvas px: canvas texts are kept off it (#378) */
+  const getCovers = useCallback(() => coversRef.current, [])
   const refreshInsets = useCallback(() => {
     insetsRef.current = measureOverlayInsets(mainCanvasRef.current)
+    coversRef.current = measureCanvasCovers(mainCanvasRef.current)
   }, [mainCanvasRef])
 
   /**
@@ -39,5 +44,5 @@ export function useCanvasInsets(mainCanvasRef: RefObject<HTMLCanvasElement | nul
     return rect
   }, [])
 
-  return { getInsets, getSafeArea, refreshInsetsIfStale }
+  return { getInsets, getSafeArea, getCovers, refreshInsetsIfStale }
 }

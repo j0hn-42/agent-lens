@@ -5,15 +5,15 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
+import { canvasControlsFit } from '@/components/agent-visualizer/canvas-controls-slot'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 import { SHORTCUTS } from '@/lib/shortcuts'
 import { CAMERA } from '@/lib/canvas-constants'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 
-function setup(over: Partial<React.ComponentProps<typeof CanvasControls>> = {}) {
-  const calls: string[] = []
-  const props: React.ComponentProps<typeof CanvasControls> = {
+function setupProps(over: Partial<React.ComponentProps<typeof CanvasControls>> = {}, calls: string[] = []): React.ComponentProps<typeof CanvasControls> {
+  return {
     teams: [] as unknown as React.ComponentProps<typeof CanvasControls>['teams'],
     zoomBy: f => calls.push(`zoom:${f}`),
     doZoomToFit: () => calls.push('fit'),
@@ -29,6 +29,11 @@ function setup(over: Partial<React.ComponentProps<typeof CanvasControls>> = {}) 
     onChangeToolExpiry: e => calls.push(`expiry:${e.target.value}`),
     ...over,
   }
+}
+
+function setup(over: Partial<React.ComponentProps<typeof CanvasControls>> = {}) {
+  const calls: string[] = []
+  const props = setupProps(over, calls)
   const view = render(<CanvasControls {...props} />)
   const viewButton = () => view.getByRole('button', { name: 'View' })
   return { view, calls, viewButton }
@@ -172,4 +177,103 @@ test('in French the labels, names and tooltips come from the catalog', () => {
   assert.ok(view.getByRole('button', { name: 'Garder les cartes affichées' }))
   assert.ok(view.getByRole('combobox', { name: /^Masquer les appels sans réponse après/ }))
   assert.equal(view.getByRole('button', { name: 'Affichage' }).closest('[lang]')?.getAttribute('lang'), 'fr')
+})
+
+// #515: the controls fold into the playback bar when the two bars leave less than their rows. Values measured in Chromium
+// on develop @ 270534c (--topbar-h, height of the playback bar): at 320 x 256 the bars leave 18 px, at 256 x 320 38 px.
+test('the controls fit between the bars at 320x568, 390x844 and 640x512, not at 320x256 nor 256x320 (#515)', () => {
+  const fit = (w: number, h: number, topbarH: number, controlBarH: number) => canvasControlsFit({ viewport: { w, h }, topbarH, controlBarH })
+  assert.equal(fit(320, 256, 132, 98), false)
+  assert.equal(fit(256, 320, 176, 98), false)
+  assert.equal(fit(320, 568, 132, 98), true)
+  assert.equal(fit(390, 844, 126, 70), true)
+  assert.equal(fit(640, 512, 76, 70), true)
+  // One row of 28 px at 768 px and wider
+  assert.equal(fit(1280, 190, 76, 70), false)
+  assert.equal(fit(1280, 230, 76, 70), true)
+})
+
+// #594: when the overlay plan hides agent names, one button of the controls row says how many and opens the
+// Sessions and agents list (the L panel). What it shows comes from useHiddenNamesDisplay (stable readings only).
+const hidden = (count: number | null, shown = true) => ({ shown, count })
+
+test('no "names hidden" button when the plan hides no name', () => {
+  const { view } = setup({ hiddenNames: hidden(null, false), onShowAgentList: () => {} })
+  assert.equal(view.queryByRole('button', { name: /hidden/ }), null)
+  assert.equal(view.container.querySelector('[data-hidden-names]'), null)
+})
+
+test('"N names hidden": accessible name equal to the visible text, before the zoom buttons, opens the agent list', () => {
+  const calls: string[] = []
+  const { view } = setup({ hiddenNames: hidden(8), onShowAgentList: () => calls.push('list'), agentListKey: 'L' })
+  const b = view.getByRole('button', { name: '8 names hidden' })
+  assert.equal((b.textContent ?? '').trim(), '8 names hidden', 'visible text equals the accessible name (2.5.3)')
+  assert.ok(b.getAttribute('title')?.includes('Sessions and agents (L)'), 'the tooltip names the list and its key')
+  // Before the zoom block, on the side the row is not anchored to: it never moves the zoom buttons or View
+  const zoomIn = view.getByRole('button', { name: 'Zoom in' })
+  assert.ok(b.compareDocumentPosition(zoomIn) & Node.DOCUMENT_POSITION_FOLLOWING, 'Tab reaches it before Zoom in')
+  assert.equal(b.closest('[aria-live]'), null, 'no live region: a zoom must not make it chatter')
+  assert.equal(b.closest('[data-canvas-inset]'), null, 'it reserves no edge: the safe area does not depend on it')
+  assert.ok(zoomIn.closest('[data-canvas-inset="bottom"]'), 'the zoom row still reserves the bottom edge')
+  fireEvent.click(b)
+  assert.deepEqual(calls, ['list'])
+})
+
+test('the tooltip does not quote L when single-key shortcuts are off', () => {
+  const { view } = setup({ hiddenNames: hidden(2), onShowAgentList: () => {}, agentListKey: null })
+  const title = view.getByRole('button', { name: '2 names hidden' }).getAttribute('title') ?? ''
+  assert.ok(title.includes('Sessions and agents'), title)
+  assert.ok(!title.includes('(L)'), title)
+})
+
+test('"1 name hidden" in the singular', () => {
+  const { view } = setup({ hiddenNames: hidden(1), onShowAgentList: () => {} })
+  assert.ok(view.getByRole('button', { name: '1 name hidden' }))
+})
+
+test('no number while the count is not stable: the neutral label names the list it opens', () => {
+  const { view } = setup({ hiddenNames: hidden(null), onShowAgentList: () => {} })
+  const b = view.getByRole('button', { name: 'Sessions and agents' })
+  assert.equal(b.getAttribute('data-hidden-names'), '')
+  assert.ok(!/\d/.test(b.textContent ?? ''), 'no digit on the button')
+})
+
+test('in French: "8 noms masqués", "1 nom masqué", inside the block that declares lang="fr"', () => {
+  const { view } = setup({ locale: 'fr', hiddenNames: hidden(8), onShowAgentList: () => {} })
+  const b = view.getByRole('button', { name: '8 noms masqués' })
+  assert.equal(b.closest('[lang]')?.getAttribute('lang'), 'fr')
+  cleanup()
+  const one = setup({ locale: 'fr', hiddenNames: hidden(1), onShowAgentList: () => {} })
+  assert.ok(one.view.getByRole('button', { name: '1 nom masqué' }))
+})
+
+test('the button has the size and focus classes of the other controls (44 px under 768 px)', () => {
+  const { view } = setup({ hiddenNames: hidden(3), onShowAgentList: () => {} })
+  const zoomIn = view.getByRole('button', { name: 'Zoom in' })
+  const b = view.getByRole('button', { name: '3 names hidden' })
+  const shared = zoomIn.className.split(/\s+/).filter(c => /min-h|min-w|focus-visible/.test(c))
+  assert.ok(shared.length >= 3, `precondition: classes found (${shared.join(' ')})`)
+  for (const cls of shared) assert.ok(b.classList.contains(cls), cls)
+})
+
+test('the button goes while it has the focus: the focus moves to View, not to <body> (2.4.3)', () => {
+  const props = { hiddenNames: hidden(2), onShowAgentList: () => {} }
+  const { view } = setup(props)
+  const b = view.getByRole('button', { name: '2 names hidden' })
+  b.focus()
+  assert.equal(document.activeElement, b)
+  view.rerender(<CanvasControls {...setupProps({ ...props, hiddenNames: hidden(null, false) })} />)
+  assert.equal(document.activeElement, view.getByRole('button', { name: 'View' }))
+})
+
+test('the fit test reserves the row of the button under 420 px only, whatever the count (#594)', () => {
+  const fit = (w: number, h: number, topbarH: number, controlBarH: number, extraRow?: boolean) => canvasControlsFit({ viewport: { w, h }, topbarH, controlBarH }, extraRow)
+  assert.equal(fit(320, 568, 132, 98, true), true)
+  // 354 px high: 100 px between the bars, two rows of 44 px fit (96), three do not (148)
+  assert.equal(fit(320, 354, 132, 98), true)
+  assert.equal(fit(320, 354, 132, 98, true), false)
+  assert.equal(fit(390, 354, 132, 98, true), false)
+  // From 420 px the button fits on the zoom row, even with its neutral label (measured in hidden-names-reflow.e2e.ts)
+  assert.equal(fit(420, 354, 132, 98, true), true)
+  assert.equal(fit(1280, 230, 76, 70, true), true)
 })

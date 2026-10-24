@@ -316,6 +316,19 @@ test('no timeline event mutates an entry or a block of the previous state (#214)
   })
   const a = state.timelineEntries.get(agentKeyOf('s1', 'a'))!
   assert.equal(a.endTime, 10)
-  assert.deepEqual(a.blocks.slice(1, 4).map(b => b.label), ['Bash: FAILED', 'Thinking...', 'Bash: CANCELLED'])
+  assert.deepEqual(a.blocks.slice(1, 4).map(b => b.label), ['Bash: FAILED', 'Bash: CANCELLED', 'Read: z'], 'no Thinking block between calls (#362)')
   assert.equal(state.timelineEntries.get(agentKeyOf('s1', 'child'))!.endTime, 10)
+})
+
+test('normalization_stats is kept per session, last one wins, and parsed as untrusted (#366)', () => {
+  const s = run([
+    { sessionId: 's1', type: 'normalization_stats', payload: { ignoredEvents: 2, malformed: 1 } },
+    { sessionId: 's2', type: 'normalization_stats', payload: { droppedByCap: 4 } },
+    { sessionId: 's1', type: 'normalization_stats', payload: { ignoredEvents: 5, malformed: -3, droppedByCap: 'x' } },
+  ])
+  assert.equal(s.normalizationStats.get('s1')!.ignoredEvents, 5)
+  assert.equal(s.normalizationStats.get('s1')!.malformed, 0)
+  assert.equal(s.normalizationStats.get('s1')!.droppedByCap, 0)
+  assert.equal(s.normalizationStats.get('s2')!.droppedByCap, 4)
+  assert.equal(s.normalizationStats.has('default'), false)
 })

@@ -2,8 +2,10 @@
 // scripts/contrast.test.ts keeps pinning the neon pixels; this file checks the palette each theme really paints.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { SCENE } from '../web/lib/colors'
 import { paletteFor, type ColorKey } from '../web/lib/theme-palette'
 import { THEME_IDS, TOKENS, extraVars, type ThemeId } from '../web/lib/theme-tokens'
+import { TOPBAR_TOOLTIP } from '../web/lib/chrome-utils'
 
 type Rgb = [number, number, number]
 
@@ -42,17 +44,20 @@ const TEXT_KEYS: ColorKey[] = [
   'textFaint', 'filePathActive', 'filePathInactive', 'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText', 'costText', 'costTextDim', 'roleAssistantText', 'roleThinkingText',
   'roleUserText', 'roleCompactionText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
+  'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical', 'tool', 'holoBright',
 ]
 
 const NON_TEXT_KEYS: ColorKey[] = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder',
-  'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
+  'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem',
+  'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical', 'searchIcon',
 ]
 
 const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['thinking expanded', 'thinkingBgExpanded', ['thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded']],
   ['user message', 'userMsgBg', ['userLabel', 'userText']],
   ['tool call', 'toolCallBg', ['toolIndicatorText', 'textPrimary']],
+  ['tool detail result', 'resultBg', ['complete']],
   ['tool result', 'toolResultBg', ['toolResultText']],
   ['bash result', 'bashResultBg', ['bashResultText']],
   ['code block', 'codeBlockBg', ['contentDim', 'textPrimary']],
@@ -78,6 +83,14 @@ for (const id of THEME_IDS) {
     glass: over(p.glassBg, rgb(t.void)),
     raised: rgb(t['surface-raised']),
   }
+
+  test(`${id}: focus ring is >= 3:1 on the scene (the canvas background)`, () => {
+    assert.ok(ratio(rgb(t.focus), rgb(SCENE.void)) >= 3, `focus ${t.focus} on scene ${SCENE.void}`)
+  })
+  test(`${id}: search icon is >= 3:1 on the code block it sits on (over glass)`, () => {
+    const bg = over(p.codeBlockBg, grounds.glass)
+    assert.ok(ratio(over(p.searchIcon, bg), bg) >= 3, `searchIcon ${p.searchIcon} on codeBlockBg`)
+  })
 
   for (const [name, bg] of Object.entries(grounds)) {
     test(`${id}: ink and ink-muted are >= 4.5:1 on ${name}`, () => {
@@ -169,7 +182,7 @@ test('palettes of every theme define the same keys', () => {
 
 // ─── Roles on every ground, for every theme (the table the design system promises) ─────────────
 
-const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info'] as const
+const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info', 'system-warm', 'system-critical', 'quota-ok', 'quota-low', 'quota-critical'] as const
 const COMPONENT_ROLES = ['control-border', 'focus', 'context-system'] as const
 
 for (const id of THEME_IDS) {
@@ -262,6 +275,21 @@ test('contrast: the palette the interface paints keeps text >= 7:1 on its ground
   assert.deepEqual(failures, [])
 })
 
+// ─── System panel severity (#357): the bar and the status text of `warm` and `critical` ─────────────
+// The panel also states the severity in words and an icon; here the two hues must at least be told apart by luminance.
+
+for (const id of THEME_IDS) {
+  test(`${id}: system-warm and system-critical are >= 3:1 as bars on surface and differ by luminance (>= 1.2:1)`, () => {
+    const t = TOKENS[id]
+    for (const role of ['system-warm', 'system-critical'] as const) {
+      assert.ok(ratio(rgb(t[role]), rgb(t.surface)) >= 3, `${role} bar on surface`)
+    }
+    assert.ok(ratio(rgb(t['system-warm']), rgb(t['system-critical'])) >= 1.2, 'warm vs critical')
+    assert.notEqual(t['system-warm'], t.warn, 'warm is its own orange, not the yellow warn')
+    assert.notEqual(t['system-warm'], t['system-critical'])
+  })
+}
+
 test('neon: the panel and feed colours keep their historical values', () => {
   const p = paletteFor('neon')
   assert.equal(p.commDispatchBg, 'rgba(80,140,255,0.14)')
@@ -274,3 +302,22 @@ test('neon: the panel and feed colours keep their historical values', () => {
   assert.equal(v['--lens-hover-10'], 'rgba(255, 255, 255, 0.1)')
   assert.equal(v['--lens-focus-strong'], '#ffffff')
 })
+
+// #380 (2.4.7): in High contrast the focus ring must not be the accent colour, or a focused accent-filled control shows no ring
+test('contrast: the focus ring is visibly distinct from the accent (>= 1.2:1)', () => {
+  assert.ok(ratio(rgb(TOKENS.contrast.focus), rgb(TOKENS.contrast.accent)) >= 1.2)
+})
+
+// #523: the tooltip of a top bar panel button (its name, shortcut and what it shows) is drawn over the canvas and the
+// docked panels. Its text must read >= 4.5:1 in every theme, on the ground the tooltip really paints (over the scene void).
+for (const id of THEME_IDS) {
+  test(`${id}: top bar tooltip text is >= 4.5:1 on its ground`, () => {
+    const p = paletteFor(id)
+    const groundValue: string = TOPBAR_TOOLTIP.ground.startsWith('--')
+      ? extraVars(id)[TOPBAR_TOOLTIP.ground]
+      : p[TOPBAR_TOOLTIP.ground as ColorKey]
+    const ground = groundValue === 'transparent' ? rgb(SCENE.void) : over(groundValue, rgb(SCENE.void))
+    const c = ratio(over(p[TOPBAR_TOOLTIP.text], ground), ground)
+    assert.ok(c >= 4.5, `${TOPBAR_TOOLTIP.text} on ${TOPBAR_TOOLTIP.ground}=${groundValue}: ${c.toFixed(2)}`)
+  })
+}

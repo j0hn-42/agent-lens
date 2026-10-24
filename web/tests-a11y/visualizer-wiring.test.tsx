@@ -11,6 +11,10 @@ import { vscodeBridge } from '@/lib/vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair } from '@/lib/pair-filter-store'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { withSlowFrames } from './slow-frames'
+import { linkDashCount } from './link-dashes'
+import { waitFor } from './wait-for'
+import { clickInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -73,7 +77,7 @@ async function mountWith(sessions: unknown[], events: unknown[], row: number | n
   }
   await wait(100)
   await act(async () => { for (const e of events) post(e) })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) }) // idle agents are hidden by default
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {}) // idle agents are hidden by default
   await wait(700)
   return r
 }
@@ -150,18 +154,22 @@ test('loop detection (#230): three identical calls reach the inspector and the s
 })
 
 test('proven session links reach the canvas: a child session drawn with the dotted link to its parent', async () => {
-  const dots = () => calls.filter(c => c.name === 'setLineDash' && Array.isArray(c.args[0]) && (c.args[0] as number[]).length === 2
-    && Math.round(((c.args[0] as number[])[0] / (c.args[0] as number[])[1]) * 10) / 10 === 0.4).length
+  const dots = () => linkDashCount(calls, 'task') // link segments only: halos share the 2:5 ratio (#440)
   const spawns = [
     ev('sa', 'agent_spawn', { name: 'main-a', isMain: true }),
     ev('sb', 'agent_spawn', { name: 'main-b', isMain: true }),
   ]
   await mountWith([SA, info('sb', 'child-run')], spawns)
   const baseline = dots()
+  assert.equal(baseline, 0, 'no proven link, no link dash')
   cleanup()
-  resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive agents' choice of the first one is not carried over
+  resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive' choice of the first one is not carried over
   calls.length = 0
 
-  await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)
+  await withSlowFrames(8, async () => { // #440: fewer frames must not matter
+    await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)
+    // The link shows once the layout has placed both halos: wait for that, not for a fixed time a loaded machine may overrun
+    await waitFor(() => dots() > baseline)
+  })
   assert.ok(dots() > baseline, `a Task link is drawn between the two session halos (${dots()} vs ${baseline})`)
 })

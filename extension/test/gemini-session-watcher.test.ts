@@ -13,6 +13,7 @@ import { GeminiSessionWatcher, geminiTmpRoot, readGeminiSessionHeader } from '..
 import { geminiProjectHash, GEMINI_SEEN_MAX } from '../src/gemini-event-parser'
 import * as fsUtils from '../src/fs-utils'
 import type { AgentEvent } from '../src/protocol'
+import { INACTIVITY_TIMEOUT_MS } from '../src/constants'
 import type { SessionLifecycleEvent } from '../src/session-runtime'
 
 const uuid = (n: number) => `9c1d2e3f-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -121,6 +122,24 @@ describe('GeminiSessionWatcher', () => {
     watcher = new GeminiSessionWatcher(ws)
     watcher.start()
     assert.deepEqual(watcher.getActiveSessions().map(s => s.id).sort(), [uuid(1), uuid(2)])
+  })
+
+  // #360: a silence is not an end. No agent_complete, no 'ended': the session stays active, in its last known state
+  it('a silent session stays active: no agent_complete, no ended', () => {
+    mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'], now: Date.now() })
+    try {
+      addSession(1, ws)
+      watcher = new GeminiSessionWatcher(ws)
+      const types: string[] = []
+      const lifecycle: string[] = []
+      watcher.onEvent(e => { types.push(e.type) })
+      watcher.onSessionLifecycle(e => { lifecycle.push(e.type) })
+      watcher.start()
+      mock.timers.tick(INACTIVITY_TIMEOUT_MS + 60_000)
+      assert.ok(!types.includes('agent_complete'), types.join(','))
+      assert.ok(!lifecycle.includes('ended'), lifecycle.join(','))
+      assert.deepEqual(watcher.getActiveSessions().map(s => s.status), ['active'])
+    } finally { mock.timers.reset() }
   })
 
   it('attaches every session when no workspace is given, without inventing a cwd', () => {

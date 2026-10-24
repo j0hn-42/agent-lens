@@ -108,6 +108,36 @@ export function validateHookPayload(parsed: unknown): HookValidation {
   return { ok: true, payload: p as Record<string, unknown> & { session_id: string; hook_event_name: string } }
 }
 
+/**
+ * Hook event names documented by Cursor (https://cursor.com/docs/hooks, "Hook events", read on 2026-10-19).
+ * All camelCase; Claude Code's names are PascalCase (PreToolUse, Stop, ...), so an exact match cannot be a
+ * Claude Code event.
+ */
+const CURSOR_HOOK_EVENTS: ReadonlySet<string> = new Set([
+  'preToolUse', 'postToolUse', 'postToolUseFailure', 'subagentStart', 'subagentStop',
+  'beforeShellExecution', 'beforeMCPExecution', 'afterShellExecution', 'afterMCPExecution',
+  'afterFileEdit', 'beforeReadFile', 'beforeTabFileRead', 'afterTabFileEdit', 'beforeSubmitPrompt',
+  'afterAgentResponse', 'afterAgentThought', 'stop', 'sessionStart', 'sessionEnd', 'preCompact', 'workspaceOpen',
+])
+
+/**
+ * True for a hook payload sent by Cursor (#472), recognised only on DOCUMENTED markers
+ * (https://cursor.com/docs/hooks, read on 2026-10-19):
+ * - `cursor_version`, a non-empty string: listed in the "Common schema" that "All hooks receive", including
+ *   the app lifecycle hook `workspaceOpen`. Claude Code sends no such field.
+ * - or `hook_event_name` exactly one of Cursor's documented camelCase event names.
+ * Cursor also runs the hooks of `~/.claude/settings.json` (https://cursor.com/docs/reference/third-party-hooks),
+ * so Agent Lens's hook.js may receive these payloads; the input those third-party hooks get is not documented.
+ * A Cursor payload that carries neither marker is not recognised. The `CURSOR_VERSION` environment variable is
+ * deliberately not used: Claude Code started from Cursor's terminal could inherit it and would then be hidden.
+ */
+export function isCursorHookPayload(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { return false }
+  const p = parsed as Record<string, unknown>
+  if (typeof p.cursor_version === 'string' && p.cursor_version.length > 0) { return true }
+  return typeof p.hook_event_name === 'string' && CURSOR_HOOK_EVENTS.has(p.hook_event_name)
+}
+
 /** Runs async tasks with a concurrency limit and a bounded FIFO waiting queue. */
 export class AsyncLimiter {
   private active = 0

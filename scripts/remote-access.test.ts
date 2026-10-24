@@ -1,5 +1,5 @@
 /**
- * Remote access guards, step 1 of #241 (pure functions, no server).
+ * Remote access guards, step 1 of #241 (pure functions; one loopback server for the POST /pair gate of #475).
  *
  * v1 is "tunnel only": the relay keeps listening on 127.0.0.1 and an SSH / Tailscale tunnel forwards to it.
  * The tunnel's peer is loopback, so the only new thing a request can carry is a Host header naming the
@@ -7,9 +7,13 @@
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import * as http from 'node:http'
 import {
-  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey, REMOTE_AUTH_AVAILABLE,
+  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey,
+  requiresRemotePairing,
+  bindRemoteAuth, gateRemoteRequest, type RemoteAuth,
 } from './remote-access'
+import { listenLoopback } from './server-hardening'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 
 describe('parseAllowedHosts', () => {
@@ -49,6 +53,14 @@ describe('parseAllowedHosts', () => {
 
 describe('classifyHost (DNS rebinding: the Host must be loopback or EXACTLY an allowed name)', () => {
   const allowed = ['box.tail1234.ts.net', 'lens.example.com:8443']
+
+  it('asks for the pairing through an allowed Host, and on a loopback Host only when an allow list exists (#517)', () => {
+    assert.equal(requiresRemotePairing('allowed', allowed), true)
+    assert.equal(requiresRemotePairing('loopback', allowed), true, 'SSH -L / port forward: a loopback Host may be remote')
+    // Without an allow list (no --allow-host), loopback is exactly as before: no pairing
+    assert.equal(requiresRemotePairing('loopback', []), false)
+    assert.equal(requiresRemotePairing('foreign', allowed), false, 'a foreign Host is refused (403) before any pairing')
+  })
 
   it('keeps loopback Host headers loopback', () => {
     for (const h of ['127.0.0.1:3001', 'localhost:3001', 'localhost', '[::1]:3001']) assert.equal(classifyHost(h, allowed), 'loopback', h)
@@ -135,12 +147,149 @@ describe('remoteStartupError (fail closed at startup)', () => {
     }
   })
 
+  it('--host outside loopback without --remote names the missing --remote (#474)', () => {
+    for (const host of ['0.0.0.0', '192.168.1.10', '::', 'box.ts.net']) {
+      assert.match(remoteStartupError({ allowHosts: [], host }) ?? '', /--remote/, host)
+    }
+  })
+
+  it('--host outside loopback WITH --remote is still refused: no token, no TLS yet (#474)', () => {
+    for (const host of ['0.0.0.0', '192.168.1.10', '::']) {
+      const err = remoteStartupError({ allowHosts: [], host, remote: true }) ?? ''
+      assert.match(err, /token/i, host)
+      assert.match(err, /TLS/, host)
+    }
+  })
+
+  it('--remote never implies an address: alone, with an empty or a loopback --host, it stops the start (#474)', () => {
+    assert.match(remoteStartupError({ allowHosts: [], remote: true }) ?? '', /--host/)
+    assert.match(remoteStartupError({ allowHosts: [], host: '', remote: true }) ?? '', /--host/)
+    assert.notEqual(remoteStartupError({ allowHosts: [], host: '127.0.0.1', remote: true }), null)
+    assert.notEqual(remoteStartupError({ allowHosts: [], host: '' }), null)
+  })
+
+  it('--host ::1 is IPv6 loopback: refused because the server listens on 127.0.0.1 only, without sending the user to --remote (#478 review, point 6)', () => {
+    for (const host of ['::1', '[::1]', ' ::1 ', '0:0:0:0:0:0:0:1']) {
+      for (const remote of [false, true]) {
+        const err = remoteStartupError({ allowHosts: [], host, remote }) ?? ''
+        assert.match(err, /127\.0\.0\.1/, `${host} remote=${remote}`)
+        assert.match(err, /IPv6/, `${host} remote=${remote}`)
+        assert.doesNotMatch(err, /needs an explicit --remote|--remote --host/, `${host} remote=${remote}`)
+      }
+    }
+  })
+
+  it('an empty --host asks for an address, not for --remote (#474)', () => {
+    const err = remoteStartupError({ allowHosts: [], host: '' }) ?? ''
+    assert.match(err, /--host needs an address/)
+    assert.doesNotMatch(err, /--remote/)
+  })
+
+  it('reads no environment variable, only the flags it is given (#474)', () => {
+    const keys = ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST'] as const
+    const saved = keys.map(k => process.env[k])
+    try {
+      for (const k of keys) process.env[k] = k === 'AGENT_LENS_REMOTE' ? '1' : '0.0.0.0'
+      assert.equal(remoteStartupError({ allowHosts: [] }), null)
+      assert.equal(remoteStartupError({ allowHosts: [], host: '127.0.0.1' }), null)
+    } finally {
+      keys.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i] })
+    }
+  })
+
   it('an invalid --allow-host stops the start', () => {
     assert.match(remoteStartupError({ allowHosts: ['*.ts.net'] }) ?? '', /--allow-host/)
   })
 
-  it('a valid --allow-host is refused while token authentication is not shipped', () => {
-    assert.equal(REMOTE_AUTH_AVAILABLE, false)
-    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /token/i)
+  it('--allow-host needs --token-file; --token-file needs --allow-host and a path (#517)', () => {
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /--token-file/)
+    assert.match(remoteStartupError({ allowHosts: [], tokenFile: '/tmp/t' }) ?? '', /--token-file[^]*--allow-host/)
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '' }) ?? '', /--token-file needs a path/)
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '  ' }) ?? '', /--token-file needs a path/)
+    // A malformed name is still reported for what it is
+    assert.match(remoteStartupError({ allowHosts: ['*.ts.net'], tokenFile: '/tmp/t' }) ?? '', /--allow-host: /)
+  })
+
+  it('a valid --allow-host with --token-file starts: the pairing is wired into the command (#517)', () => {
+    assert.equal(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '/home/me/.agent-lens/pair-token' }), null)
+    assert.equal(remoteStartupError({ allowHosts: ['box.tail1234.ts.net', 'lens.example.com:8443'], tokenFile: 't', host: '127.0.0.1' }), null)
+    // Still refused without the token file, and listening outside loopback is still refused
+    assert.notEqual(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }), null)
+    assert.notEqual(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: 't', host: '0.0.0.0', remote: true }), null)
+  })
+})
+
+describe('gateRemoteRequest: POST /pair never kills the relay (#475)', () => {
+  const TUNNEL = 'box.tail1234.ts.net'
+
+  /** Anyone who reaches the tunnel can send POST /pair: a rejection of handlePair must never become an unhandled one. */
+  async function pairWith(handlePair: RemoteAuth['handlePair'], requests = 1): Promise<{ status: number; body: string; unhandled: unknown[]; logs: string[] }> {
+    const allowed = [TUNNEL]
+    bindRemoteAuth(allowed, { handlePair, isPaired: () => false })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    // Every console channel: a line on any of them counts
+    const logs: string[] = []
+    const saved = { log: console.log, warn: console.warn, error: console.error, info: console.info }
+    for (const k of Object.keys(saved) as (keyof typeof saved)[]) console[k] = (...args: unknown[]) => { logs.push(args.map(String).join(' ')) }
+    const server = http.createServer((req, res) => { if (!gateRemoteRequest(req, res, allowed, 'api')) res.writeHead(404).end() })
+    const port = await listenLoopback(server, 0)
+    try {
+      let reply = { status: 0, body: '' }
+      for (let i = 0; i < requests; i++) reply = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/pair', agent: false,
+          headers: { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json' } }, res => {
+          let body = ''
+          res.setEncoding('utf8')
+          res.on('data', c => { body += c })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+        })
+        req.setTimeout(2000, () => req.destroy(new Error('no answer: the response was left open')))
+        req.on('error', reject)
+        req.end('{}')
+      })
+      // Let a dropped rejection surface before the listener goes away
+      await new Promise(r => setTimeout(r, 50))
+      return { ...reply, unhandled, logs }
+    } finally {
+      Object.assign(console, saved)
+      process.off('unhandledRejection', onUnhandled)
+      server.close()
+    }
+  }
+
+  it('a handlePair that rejects before answering: the same 401 without detail, no unhandled rejection', async () => {
+    const r = await pairWith(async () => { throw new Error('secret detail') })
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 401)
+    assert.equal(r.body, 'Unauthorized')
+  })
+
+  it('a handlePair that rejects after its headers: the response is ended, no unhandled rejection', async () => {
+    const r = await pairWith(async (_req, res) => { res.writeHead(204); throw new Error('late') })
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 204)
+  })
+
+  it('a handlePair that rejects leaves one fixed log line per interval, nothing of the request or the error', async () => {
+    const SECRET = 'tok_0123456789abcdef secret detail from 203.0.113.7'
+    const r = await pairWith(async () => { const e = new TypeError(SECRET); throw e }, 3)
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 401)
+    assert.equal(r.body, 'Unauthorized', 'the answer stays the uniform 401')
+    assert.equal(r.logs.length, 1, `exactly one line for 3 failures in a row, got ${JSON.stringify(r.logs)}`)
+    const line = r.logs[0]
+    assert.match(line, /POST \/pair/, 'the line names the step')
+    assert.match(line, /TypeError/, 'the line carries the error class')
+    assert.ok(!line.includes('secret') && !line.includes('tok_') && !line.includes('203.0.113.7'), `no detail of the error: ${line}`)
+    assert.ok(!line.includes(TUNNEL), `nothing of the request: ${line}`)
+  })
+
+  it('an error name that is not a plain identifier is not echoed into the log', async () => {
+    const r = await pairWith(async () => { const e = new Error('x'); e.name = 'tok_\nforged line'; throw e })
+    assert.equal(r.status, 401)
+    assert.equal(r.logs.length, 1)
+    assert.ok(!r.logs[0].includes('tok_') && !r.logs[0].includes('forged'), `the name is replaced: ${r.logs[0]}`)
   })
 })

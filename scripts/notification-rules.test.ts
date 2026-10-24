@@ -53,10 +53,10 @@ test('permission and error: only newly blocked agents, per enabled rule, body co
   const both = evaluateTriggers(prev, cur, all)
   assert.equal(both.length, 1)
   assert.equal(both[0].trigger, 'attention')
-  assert.equal(both[0].body, '2 waiting / 1 error')
+  assert.equal(both[0].body, '2 agents waiting / 1 agent in error')
 
   const onlyError = evaluateTriggers(prev, cur, { ...all, permission: false })
-  assert.equal(onlyError[0].body, '1 error')
+  assert.equal(onlyError[0].body, '1 agent in error')
 
   const onlyPermission = evaluateTriggers(prev, snap({ waitingIds: new Set(['a']), errorIds: new Set(['c']) }), { ...all, error: false })
   assert.deepEqual(onlyPermission, [], 'a new error is silent when the error rule is off')
@@ -94,7 +94,7 @@ test('cost: fires once when the total crosses the threshold, not while it stays 
   const out = evaluateTriggers(below, above, all)
   assert.equal(out.length, 1)
   assert.equal(out[0].trigger, 'cost')
-  assert.equal(out[0].body, 'Cost reached $5.20 (threshold $5.00)')
+  assert.equal(out[0].body, 'Context cost estimate reached ~$5.20 (threshold $5.00)')
   assert.deepEqual(evaluateTriggers(above, snap({ cost: cost(7) }), all), [])
   assert.equal(evaluateTriggers(snap({ cost: cost(7) }), snap({ cost: cost(1) }), all).length, 0, 'dropping back is silent')
   assert.equal(evaluateTriggers(snap({ cost: cost(1) }), snap({ cost: cost(6) }), all).length, 1, 'crossing again re-arms')
@@ -102,8 +102,8 @@ test('cost: fires once when the total crosses the threshold, not while it stays 
 
 test('cost: the wording keeps the qualification of the figure (lower bound, estimate)', () => {
   const prev = snap({ cost: cost(1) })
-  assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'partial') }), all)[0].body, 'Cost reached at least $6.00 (threshold $5.00)')
-  assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'available', true) }), all)[0].body, 'Cost reached $6.00 estimated (threshold $5.00)')
+  assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'partial') }), all)[0].body, 'Context cost estimate reached at least ~$6.00 (threshold $5.00)')
+  assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'available', true) }), all)[0].body, 'Context cost estimate reached ~$6.00 estimated (threshold $5.00)')
 })
 
 test('cost: an unknown cost never triggers, and the rule off or a changed threshold is honoured', () => {
@@ -111,4 +111,29 @@ test('cost: an unknown cost never triggers, and the rule off or a changed thresh
   assert.deepEqual(evaluateTriggers(snap({ cost: cost(1) }), snap({ cost: cost(9) }), { ...all, cost: false }), [])
   assert.equal(evaluateTriggers(snap({ cost: cost(1) }), snap({ cost: cost(9) }), { ...all, costThresholdUsd: 10 }).length, 0)
   assert.equal(evaluateTriggers(snap({ cost: cost(null, 'unavailable') }), snap({ cost: cost(9) }), all).length, 1, 'first known figure above the threshold')
+})
+
+test('French: the bodies keep the same facts and qualifiers, in the language of the interface (#373)', () => {
+  const prev = snap({ waitingIds: new Set(['a']) })
+  const cur = snap({ waitingIds: new Set(['a', 'b']), errorIds: new Set(['c']) })
+  assert.equal(evaluateTriggers(prev, cur, all, 'fr')[0].body, '2 agents en attente / 1 agent en erreur')
+  assert.equal(evaluateTriggers(prev, cur, { ...all, permission: false }, 'fr')[0].body, '1 agent en erreur')
+
+  const act = (l: string) => ({ label: l, status: 'active' as const })
+  const done = (l: string) => ({ label: l, status: 'completed' as const })
+  assert.equal(evaluateTriggers(snap({ sessions: new Map([['s', act('api')]]) }), snap({ sessions: new Map([['s', done('api')]]) }), all, 'fr')[0].body, 'Session terminée : api')
+  assert.equal(evaluateTriggers(snap({ sessions: new Map([['a', act('A')], ['b', act('B')]]) }), snap({ sessions: new Map([['a', done('A')], ['b', done('B')]]) }), all, 'fr')[0].body, '2 sessions terminées')
+
+  const before = snap({ cost: cost(1) })
+  assert.equal(evaluateTriggers(before, snap({ cost: cost(5.2) }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : ~$5.20 (seuil $5.00)')
+  assert.equal(evaluateTriggers(before, snap({ cost: cost(6, 'partial') }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : au moins ~$6.00 (seuil $5.00)')
+  assert.equal(evaluateTriggers(before, snap({ cost: cost(6, 'available', true) }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : ~$6.00 estimé (seuil $5.00)')
+  assert.equal(evaluateTriggers(before, snap({ cost: { value: 6, status: 'partial', estimated: false, incomplete: true } }), all, 'fr')[0].body, 'Estimation du coût du contexte atteinte : ~$6.00 (incomplet) (seuil $5.00)')
+})
+
+test('English stays the default and equals the explicit "en"; the title is the product name in both', () => {
+  const prev = snap({ cost: cost(1) })
+  const cur = snap({ cost: cost(6, 'partial') })
+  assert.deepEqual(evaluateTriggers(prev, cur, all), evaluateTriggers(prev, cur, all, 'en'))
+  assert.equal(evaluateTriggers(prev, cur, all, 'fr')[0].title, 'Agent Lens')
 })

@@ -1,13 +1,18 @@
 'use client'
 
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo, useId } from 'react'
 import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useThemeVersion } from '@/lib/theme'
-import { formatDuration, pluralize } from '@/lib/utils'
+import { formatDuration } from '@/lib/utils'
+import { useLocale } from '@/lib/locale'
+import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import type { ConnectionStatus } from '@/lib/bridge-types'
-import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { blurFlagAction, formatEventCount, formatSpeed, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { Button } from '@/components/ui/button'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { canvasControlsSlotRef } from './canvas-controls-slot'
 
 interface ControlBarProps {
   isPlaying: boolean
@@ -33,8 +38,8 @@ interface ControlBarProps {
 }
 
 /** Marker at the start of the scrubber: the oldest part of the history is gone. */
-function TruncationMarker({ dropped }: { dropped: number }) {
-  const text = formatTruncatedHistory(dropped)
+function TruncationMarker({ dropped, locale }: { dropped: number; locale: Locale }) {
+  const text = formatTruncatedHistory(dropped, locale)
   if (!text) return null
   return (
     <span
@@ -44,7 +49,7 @@ function TruncationMarker({ dropped }: { dropped: number }) {
     >
       <span aria-hidden="true">… </span>
       <span className="sr-only">{text}</span>
-      <span aria-hidden="true">truncated</span>
+      <span aria-hidden="true">{translate(locale, 'bar.truncated')}</span>
     </span>
   )
 }
@@ -114,7 +119,6 @@ function useScrubberEvents(timelineEvents: TimelineEvent[], totalDuration: numbe
  *  (COLORS.scrubberFill starts at 30% alpha, which fails that ratio at the left end). */
 const scrubberFill = () => `linear-gradient(90deg, ${COLORS.accent}, ${COLORS.focus})`
 
-const BTN_BASE = `min-h-6 min-w-6 rounded font-mono text-[11px] ${FOCUS_RING}`
 const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
 /** Same box as controlBarRect() in lib/panel-layout (which the docks keep clear of). */
 const BAR_STYLE: import("react").CSSProperties = { pointerEvents: 'auto', maxWidth: `min(${POPUP.controlBarMaxWidth}px, calc(100vw - 32px))`, zIndex: Z.controlBar }
@@ -170,14 +174,19 @@ function LiveControlBar({
   currentTime, totalDuration, timelineEvents,
   eventCount = 0, onEnterReview, isDemo = false, droppedEvents = 0, connectionStatus = 'watching',
 }: ControlBarProps) {
+  const { locale } = useLocale()
+  const t = (key: MessageKey) => translate(locale, key)
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
-  const badge = liveBadge(connectionStatus, isDemo)
+  const badge = liveBadge(connectionStatus, isDemo, locale)
   const badgeColor = badge.live ? COLORS.liveText : badge.tone === 'demo' ? COLORS.holoBright : badge.tone === 'error' ? COLORS.error : COLORS.textMuted
+  const noEvents = eventCount === 0
+  const reviewReasonId = useId()
 
   return (
     <div
       role="toolbar"
-      aria-label="Playback controls"
+      lang={locale}
+      aria-label={t('bar.toolbar')}
       data-control-bar
       className={BAR_CLASS}
       style={BAR_STYLE}
@@ -204,7 +213,7 @@ function LiveControlBar({
           {formatDuration(currentTime)}
         </span>
 
-        <TruncationMarker dropped={droppedEvents} />
+        <TruncationMarker dropped={droppedEvents} locale={locale} />
 
         {/* Read-only event track */}
         <div className="flex-1 min-w-12 relative h-6 flex items-center">
@@ -219,25 +228,29 @@ function LiveControlBar({
 
         {/* Event count */}
         <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-          {pluralize(eventCount, 'event')}
+          {formatEventCount(eventCount, locale)}
         </span>
+        {noEvents && <span id={reviewReasonId} className="sr-only">{t('bar.review.empty')}</span>}
 
         {/* Review button */}
-        <button
-          type="button"
+        <Button
+          variant="bar"
           onClick={onEnterReview}
           data-primary-control=""
-          aria-label="Pause and review history"
+          aria-disabled={noEvents || undefined}
+          aria-describedby={noEvents ? reviewReasonId : undefined}
+          aria-label={t('bar.review.name')}
           aria-keyshortcuts="Space"
-          className={`${BTN_BASE} px-2.5 py-1 transition-all motion-safe:hover:scale-105`}
+          className={`px-2.5 py-1 transition-all ${noEvents ? 'opacity-60 cursor-not-allowed' : 'motion-safe:hover:scale-105'}`}
           style={{
             background: COLORS.holoBg10,
             border: `1px solid ${COLORS.controlBorder}`,
-            color: COLORS.textPrimary,
+            color: noEvents ? COLORS.textMuted : COLORS.textPrimary,
           }}
         >
-          <span aria-hidden="true">⏸ </span>Review
-        </button>
+          <span aria-hidden="true">⏸ </span>{t('bar.review')}
+        </Button>
+        <div ref={canvasControlsSlotRef} data-canvas-controls-slot="" className="contents" />
       </div>
     </div>
   )
@@ -253,6 +266,8 @@ function ReviewControlBar({
   onPlayPause, onRestart, onSpeedChange, onSeek,
   timelineEvents, isReviewing, onResumeLive, droppedEvents = 0,
 }: ControlBarProps) {
+  const { locale } = useLocale()
+  const t = (key: MessageKey) => translate(locale, key)
   const scrubberRef = useRef<HTMLDivElement>(null)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [confirmingClear, setConfirmingClear] = useState(false)
@@ -301,20 +316,21 @@ function ReviewControlBar({
   return (
     <div
       role="toolbar"
-      aria-label="Playback controls"
+      lang={locale}
+      aria-label={t('bar.toolbar')}
       data-control-bar
       className={BAR_CLASS}
       style={BAR_STYLE}
     >
       <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* Play/Pause */}
-        <button
-          type="button"
+        <Button
+          variant="bar"
           onClick={onPlayPause}
           data-primary-control=""
-          aria-label={isPlaying ? 'Pause' : 'Play'}
+          aria-label={isPlaying ? t('bar.pause') : t('bar.play')}
           aria-keyshortcuts="Space"
-          className={`${BTN_BASE} w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 motion-safe:hover:scale-110`}
+          className="w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 motion-safe:hover:scale-110"
           style={{
             background: isPlaying ? COLORS.playBtnActiveBg : COLORS.playBtnBg,
             border: `1.5px solid ${COLORS.controlBorder}`,
@@ -324,27 +340,27 @@ function ReviewControlBar({
           <span aria-hidden="true" style={{ color: COLORS.textPrimary, fontSize: 14, marginLeft: isPlaying ? 0 : 2 }}>
             {isPlaying ? '⏸' : '▶'}
           </span>
-        </button>
+        </Button>
 
         {/* Time */}
         <span className="text-xs font-mono shrink-0" style={{ color: COLORS.textPrimary, minWidth: 42 }}>
           {formatDuration(currentTime)}
         </span>
 
-        <TruncationMarker dropped={droppedEvents} />
+        <TruncationMarker dropped={droppedEvents} locale={locale} />
 
-        {/* Timeline scrubber */}
+        {/* Playback position slider (the Timeline is the panel opened by T) */}
         <div
           ref={scrubberRef}
           role="slider"
           tabIndex={0}
-          aria-label="Timeline position"
+          aria-label={t('bar.position')}
           aria-orientation="horizontal"
           aria-valuemin={0}
           aria-valuemax={Math.round(totalDuration)}
           aria-valuenow={Math.round(Math.min(currentTime, totalDuration))}
-          aria-valuetext={scrubberValueText(currentTime, totalDuration)}
-          className={`flex-1 min-w-12 relative h-8 flex items-center group cursor-pointer rounded touch-none ${FOCUS_RING}`}
+          aria-valuetext={scrubberValueText(currentTime, totalDuration, locale)}
+          className={`flex-1 min-w-12 relative h-8 ${TOUCH_TARGET} flex items-center group cursor-pointer rounded touch-none ${FOCUS_RING}`}
           onKeyDown={handleScrubberKeyDown}
           onPointerDown={(e) => {
             e.preventDefault()
@@ -399,44 +415,45 @@ function ReviewControlBar({
 
         {/* Duration */}
         <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-          <span className="sr-only">Total duration </span>{formatDuration(totalDuration)}
+          <span className="sr-only">{t('bar.duration')} </span>{formatDuration(totalDuration)}
         </span>
 
         {/* Speed controls */}
-        <div role="group" aria-label="Playback speed" className="flex items-center gap-0.5 shrink-0">
+        <div role="group" aria-label={t('bar.speed.group')} className="flex items-center gap-0.5 shrink-0">
           {SPEEDS.map((s) => (
-            <button
-              type="button"
+            <Button
+              variant="bar"
               key={s}
               onClick={() => onSpeedChange(s)}
               aria-pressed={speed === s}
-              aria-label={`Speed ${s}x`}
-              className={`${BTN_BASE} px-2 py-1 transition-all ${speed === s ? 'font-bold underline underline-offset-4' : ''}`}
+              aria-label={translate(locale, 'bar.speed', { s: formatSpeed(s, locale) })}
+              className={`px-2 py-1 transition-all ${speed === s ? 'font-bold underline underline-offset-4' : ''}`}
               style={{
                 background: speed === s ? COLORS.playBtnActiveBg : 'transparent',
                 color: speed === s ? COLORS.textPrimary : COLORS.textMuted,
               }}
             >
-              {s}x
-            </button>
+              {formatSpeed(s, locale)}x
+            </Button>
           ))}
         </div>
 
         {/* Resume Live */}
         {isReviewing && (
-          <button
-            type="button"
+          <Button
+            variant="bar"
             onClick={onResumeLive}
-            aria-label="Resume live"
-            className={`${BTN_BASE} px-2.5 py-1 font-semibold transition-all motion-safe:hover:scale-105 shrink-0`}
+            aria-label={t('bar.resumeLive')}
+            className="px-2.5 py-1 font-semibold transition-all motion-safe:hover:scale-105 shrink-0"
             style={{
-              background: COLORS.liveResumeBg,
-              border: `1px solid ${COLORS.liveResumeBorder}`,
-              color: COLORS.liveText,
+              // An action, like Review: the live red belongs to the badge that says the flux is live
+              background: COLORS.holoBg10,
+              border: `1px solid ${COLORS.controlBorder}`,
+              color: COLORS.textPrimary,
             }}
           >
-            <span aria-hidden="true">▶ </span>LIVE
-          </button>
+            <span aria-hidden="true">▶ </span>{t('topbar.connection.watching')}
+          </Button>
         )}
 
         {/* Clear history (destructive: two-step confirmation) */}
@@ -451,41 +468,42 @@ function ReviewControlBar({
           <span
             ref={confirmGroupRef}
             role="group"
-            aria-label="Confirm clearing history"
+            aria-label={t('bar.confirmGroup')}
             className="flex items-center gap-1 shrink-0"
           >
-            <button
+            <Button
+              variant="bar"
               ref={confirmBtnRef}
-              type="button"
               onClick={() => { setConfirmingClear(false); onRestart() }}
-              className={`${BTN_BASE} px-2 py-1 font-semibold`}
+              className="px-2 py-1 font-semibold"
               style={{ background: COLORS.liveResumeBg, border: `1px solid ${COLORS.liveResumeBorder}`, color: COLORS.liveText }}
             >
-              Confirm clear
-            </button>
-            <button
-              type="button"
+              {t('bar.confirmClear')}
+            </Button>
+            <Button
+              variant="bar"
               onClick={cancelClear}
-              className={`${BTN_BASE} px-2 py-1`}
+              className="px-2 py-1"
               style={{ color: COLORS.textMuted }}
             >
-              Cancel
-            </button>
+              {t('bar.cancel')}
+            </Button>
           </span>
           </span>
         ) : (
-          <button
+          <Button
+            variant="bar"
             ref={clearBtnRef}
-            type="button"
             onClick={() => setConfirmingClear(true)}
-            aria-label="Clear history"
-            title="Clear history (keeps active agents)"
-            className={`${BTN_BASE} px-2 py-1 transition-all motion-safe:hover:scale-105 shrink-0`}
+            aria-label={t('bar.clear')}
+            title={t('bar.clear.title')}
+            className="px-2 py-1 transition-all motion-safe:hover:scale-105 shrink-0"
             style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
           >
-            <span aria-hidden="true">⟲ </span>Clear history
-          </button>
+            <span aria-hidden="true">⟲ </span>{t('bar.clear')}
+          </Button>
         ))}
+        <div ref={canvasControlsSlotRef} data-canvas-controls-slot="" className="contents" />
       </div>
     </div>
   )

@@ -15,6 +15,8 @@ import { createEmptyState } from '@/hooks/simulation/types'
 import type { Agent, Edge } from '@/lib/agent-types'
 import { A11Y_SNAPSHOT_MS } from '@/lib/canvas-constants'
 import { badgeRect, badgeSizeText } from '@/components/agent-visualizer/canvas/branch-collapse'
+import { withSlowFrames } from './slow-frames'
+import { linkDashCount } from './link-dashes'
 
 if (typeof (globalThis as any).Path2D === 'undefined') {
   ;(globalThis as any).Path2D = class { addPath() {} moveTo() {} lineTo() {} closePath() {} arc() {} rect() {} bezierCurveTo() {} quadraticCurveTo() {} }
@@ -205,26 +207,30 @@ test('session links between two session halos are drawn dashed in the All view',
   sim.agents.set('s2:m', agent('s2:m', { sessionId: 's2', isMain: true, state: 'thinking', x: 600, y: 0 }))
   sim.currentTime = 10
   sim.isPlaying = true
-  const count = (kind: 'task' | 'worktree' | null) => {
-    const wanted = kind === 'task' ? 0.4 : 1.6
-    return calls.filter(c => c.name === 'setLineDash' && Array.isArray(c.args[0]) && (c.args[0] as number[]).length === 2
-      && Math.round(((c.args[0] as number[])[0] / (c.args[0] as number[])[1]) * 10) / 10 === wanted).length
-  }
+  const count = (kind: 'task' | 'worktree') => linkDashCount(calls, kind)
 
   mount(sim, { sessionLinks: [] })
   await tick()
   const baseline = { task: count('task'), worktree: count('worktree') }
+  // Session halos share the 2:5 ratio of task links: only link segments are counted, so no link means 0
+  assert.equal(baseline.task, 0, 'no link, no task dash (halos are not links)')
+  assert.equal(baseline.worktree, 0, 'no link, no worktree dash')
   cleanup()
 
   calls.length = 0
-  mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'task' }] })
-  await tick()
+  // Slow frames (#440): a link is proven by what it draws, not by how many frames real time allowed
+  await withSlowFrames(8, async () => {
+    mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'task' }] })
+    await tick()
+  })
   assert.ok(count('task') > baseline.task, 'a task link is drawn with the dotted 2:5 pattern')
   cleanup()
 
   calls.length = 0
-  mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'worktree' }] })
-  await tick()
+  await withSlowFrames(8, async () => {
+    mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'worktree' }] })
+    await tick()
+  })
   assert.ok(count('worktree') > baseline.worktree, 'a worktree link is drawn with the dashed 8:5 pattern')
 })
 

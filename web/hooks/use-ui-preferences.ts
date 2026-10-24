@@ -13,8 +13,9 @@
  * stored id before it is read). Use the state machine of lib/ui-preferences.ts (initSessionMemory /
  * stepSessionMemory), seeded from `getPrefs()` and stepped when the session list or the selection changes.
  *
- * Already persisted elsewhere, do NOT add here: mute and show-finished-sessions (SHOW_FINISHED_STORAGE_KEY).
- * hide-inactive and single-key shortcuts are stored here (their former keys are migrated on load). Speed is deliberately not persisted.
+ * hide-inactive, single-key shortcuts, show-finished-sessions (read by use-vscode-bridge through this same store, #372),
+ * the View menu of the canvas controls (use-canvas-preferences) and the sound (use-audio-effects) are stored here; their
+ * former keys are migrated on load. Speed is deliberately not persisted.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import {
@@ -46,6 +47,11 @@ let defaultStore: PrefsStore | null = null
 function getDefaultStore(): PrefsStore {
   if (!defaultStore) defaultStore = createBrowserPrefsStore()
   return defaultStore
+}
+
+/** The stored preferences, read now from the shared store: for code outside a component (or before one subscribes) */
+export function readUiPrefs(): UiPrefs {
+  return getDefaultStore().getSnapshot()
 }
 
 const getServerSnapshot = (): UiPrefs => DEFAULT_UI_PREFS as UiPrefs

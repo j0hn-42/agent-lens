@@ -64,9 +64,11 @@ test('the MAIN / LEAD pill of an orchestrator has a dark contour drawn before it
   }
   const opts: any = { reducedMotion: true, zoom: 1, showCost: false, showStats: false, showSessionLabels: false, crowded: false, edgeBubbles: false }
   drawAgents(ctx, new Map([['s1:m', agent]]), null, null, false, 1, opts)
-  const i = log.indexOf('pill')
-  assert.ok(i >= 0, 'the pill is drawn')
-  assert.match(log[i + 1], /^stroke:/, `contour first, got ${log.slice(i, i + 3).join(' ')}`)
+  // The label plates (#378) are rounded rectangles too, drawn before the pill, and each one is filled right after
+  // its shape: the pill is the rounded rectangle that is followed by a stroke (its dark contour), not a fill.
+  const i = log.findIndex((op, k) => op === 'pill' && log[k + 1]?.startsWith('stroke:'))
+  assert.ok(i >= 0, `the pill is drawn with a contour, got ${log.slice(0, 16).join(' ')}`)
   assert.equal(log[i + 1], 'stroke:#050510', 'dark (void) contour')
   assert.equal(log[i + 2], 'fill:#ffd166', 'then the accent fill')
+  assert.ok(log.indexOf('fill:#ffd166', i) === i + 2, 'the accent fill comes right after the contour, never before it')
 })

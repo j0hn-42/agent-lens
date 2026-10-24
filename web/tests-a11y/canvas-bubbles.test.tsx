@@ -49,6 +49,21 @@ function makeSim(simTime: number) {
 
 const tick = (ms = 60) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
 
+/** Wait for the auto-fit to come to rest: the bubble has not moved over several consecutive frames (a fixed delay
+ *  is too short on a loaded machine, and the camera keeps easing until it arrives: #440). */
+async function untilCameraRests(read: () => { x: number; y: number }) {
+  let last = read()
+  let still = 0
+  const deadline = Date.now() + 20_000
+  while (still < 8) {
+    if (Date.now() > deadline) assert.fail('the auto-fit camera never came to rest')
+    await tick(25)
+    const now = read()
+    still = now.x === last.x && now.y === last.y ? still + 1 : 0
+    last = now
+  }
+}
+
 function mount(sim: ReturnType<typeof makeSim>, props: Record<string, unknown> = {}) {
   const ref = { current: sim }
   const noop = () => {}
@@ -172,7 +187,7 @@ test('dragging from a bubble pans the camera through the real canvas pointer han
   await tick()
   const [b] = buttons()
   assert.ok(b)
-  await tick(300)
+  await untilCameraRests(() => tx(buttons()[0]))
   const before = tx(buttons()[0])
   // Press on the bubble's centre: it sits on the link, and a pan carries the link with the pointer, so the
   // release lands on the link again (the pointerup must not read that as a click on it)
@@ -197,7 +212,7 @@ test('a short press on a bubble does not pan', async () => {
   const { buttons } = mount(sim)
   await tick()
   const [b] = buttons()
-  await tick(300)
+  await untilCameraRests(() => tx(buttons()[0]))
   const before = tx(buttons()[0])
   act(() => {
     b.dispatchEvent(realPointer('pointerdown', 100, 100))
@@ -206,4 +221,56 @@ test('a short press on a bubble does not pan', async () => {
   })
   await tick()
   assert.deepEqual(tx(buttons()[0]), before)
+})
+
+// #440: the camera easing toward a fit target must not keep running against a pan the user is making.
+test('a pointer pan started while "Fit to view" is still easing holds: the camera is not pulled back toward the fit', async () => {
+  const sim = makeSim(10)
+  sim.isPlaying = false
+  const ref = { current: sim }
+  const noop = () => {}
+  const props = (zoomToFitTrigger: number) => ({
+    simulationRef: ref, selectedAgentId: null, hoveredAgentId: null, showStats: false, showHexGrid: false,
+    zoomToFitTrigger, onAgentClick: noop, onAgentHover: noop, onAgentDrag: noop, onContextMenu: noop,
+  } as any)
+  const utils = render(React.createElement(AgentCanvas, props(0)))
+  const layer = utils.container.querySelector('[data-edge-bubble-layer]') as HTMLElement
+  const buttons = () => Array.from(layer.querySelectorAll<HTMLButtonElement>('button[data-edge-bubble]'))
+  await tick()
+  const b = buttons()[0]
+  assert.ok(b)
+  await untilCameraRests(() => tx(buttons()[0]))
+  const send = (ev: Event) => act(() => { b.dispatchEvent(ev) })
+  const rest = tx(buttons()[0])
+  const c = { x: rest.x + parseInt(b.style.width, 10) / 2, y: rest.y + parseInt(b.style.height, 10) / 2 }
+  // Move the camera far from the fit by a pan, and let it come to rest (inertia included)
+  await send(realPointer('pointerdown', c.x, c.y))
+  await tick(20)
+  await send(realPointer('pointermove', c.x + 30, c.y + 20))
+  await tick(20)
+  await send(realPointer('pointermove', c.x + 60, c.y + 40))
+  await tick(60)
+  await send(realPointer('pointermove', c.x + 60, c.y + 40)) // held still: no velocity, so no inertia after the release
+  await send(realPointer('pointerup', c.x + 60, c.y + 40))
+  await untilCameraRests(() => tx(buttons()[0]))
+  const away = tx(buttons()[0])
+  assert.ok(Math.abs(away.x - rest.x) > 50, 'the camera is far from the fit')
+
+  // "Fit to view": the camera starts easing back; a new pan starts while it is on its way
+  utils.rerender(React.createElement(AgentCanvas, props(1)))
+  await tick(40)
+  const underway = tx(buttons()[0])
+  assert.notDeepEqual(underway, away, 'the fit is easing')
+  const d = { x: underway.x + parseInt(b.style.width, 10) / 2, y: underway.y + parseInt(b.style.height, 10) / 2 }
+  await send(realPointer('pointerdown', d.x, d.y))
+  await tick(20)
+  await send(realPointer('pointermove', d.x + 15, d.y + 10))
+  await tick(20)
+  await send(realPointer('pointermove', d.x + 30, d.y + 20))
+  await tick(60) // a frame draws the pan
+  const held = tx(buttons()[0])
+  await tick(300) // the pointer is still down: the camera belongs to the user
+  const later = tx(buttons()[0])
+  await send(realPointer('pointerup', d.x + 30, d.y + 20))
+  assert.deepEqual(later, held, 'no pull toward the fit target while the pointer holds the pan')
 })

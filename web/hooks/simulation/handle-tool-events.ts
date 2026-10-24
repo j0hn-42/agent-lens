@@ -7,10 +7,14 @@ import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import { USAGE_LABELS } from '../../lib/ui-glossary'
-import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader } from '../../lib/agent-types'
+import type { Agent, ToolCallNode, ToolCallEndListing, FileAttention, FileEditor, FileReader, TimelineBlock } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
+import { reviveFinished } from './revive-agent'
 import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
+import { searchDiscoveries } from '../../lib/search-discoveries'
+import { fileStepKind, recordFileStep } from '../../lib/file-timeline'
+import { recordGitCall } from '../../lib/git-state'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -66,6 +70,19 @@ function findCallToClose(toolCalls: Map<string, ToolCallNode>, agentId: string, 
   return expired
 }
 
+/**
+ * Index of the Timeline block of a call (the latest tool block that started with it and carries its tool name),
+ * or -1. It may already be closed: a later block cuts the previous one.
+ */
+function findCallBlock(blocks: TimelineBlock[], tc: Pick<ToolCallNode, 'startTime' | 'toolName'>): number {
+  const prefix = `${formatToolName(tc.toolName)}:`
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]
+    if (b.type === 'tool_call' && b.startTime === tc.startTime && b.label.startsWith(prefix)) return i
+  }
+  return -1
+}
+
 /** Token counters after one more figure: a present value adds up, an absent one only widens the gap. */
 export function addToken(
   agent: Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokenGaps' | 'tokensEstimated'>,
@@ -96,7 +113,9 @@ export function handleToolCallStart(
   const inputData = (payload.inputData && typeof payload.inputData === 'object' && !Array.isArray(payload.inputData))
     ? payload.inputData as Record<string, unknown> : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
-  const agent = state.agents.get(agentName)
+  // A finished agent that starts a call never seen before is live again, prompt or not (#433)
+  const seen = toolUseId !== undefined && state.agents.get(agentName)?.state === 'complete' && Array.from(state.toolCalls.values()).some(tc => tc.agentId === agentName && tc.toolUseId === toolUseId)
+  const agent = reviveFinished(state, agentName, ctx, currentTime, !seen)
 
   if (agent) {
     // Dedup: skip if there's already a running tool call for the same agent+tool
@@ -214,11 +233,29 @@ export function handleToolCallEnd(
   }
 
   if (agent) {
+    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
+    const matchedCall = matchedId ? state.toolCalls.get(matchedId) : undefined
+    // Another call of this agent still running (a parallel batch): the agent is still calling that tool
+    let stillRunning: ToolCallNode | undefined
+    for (const [id, tc] of state.toolCalls) {
+      if (id !== matchedId && tc.agentId === agentName && tc.state === 'running') stillRunning = tc
+    }
+    const nextState = stillRunning ? 'tool_calling' : 'idle'
+    // A late result for a finished agent proves no work: it stays finished (#433)
+    const finished = agent.state === 'complete'
+    // Branch, commits and PR states this agent's own shell output proves (#386); a failed or unmatched call proves none
+    const git = matchedId && matchedCall && isShellTool(matchedCall.toolName)
+      ? recordGitCall(agent.git, { command: asString(matchedCall.inputData?.command), result, callId: matchedId, toolUseId: matchedCall.toolUseId ?? toolUseId, time: currentTime }, outcome)
+      : agent.git
     state.agents.set(agentName, {
       ...agent,
-      // A cancelled call is neither a success nor an agent failure
-      state: outcome === 'error' ? 'error' : 'thinking',
-      currentTool: undefined,
+      ...(git !== agent.git ? { git } : {}),
+      // A failed or cancelled tool call is not an agent failure: the agent handles it and goes on (#363). The failure is counted in toolErrors; 'error' stays for the agent or the runtime.
+      // What the agent does next is unknown until its next event: neutral, never a 'thinking' nobody observed (#362).
+      // Its turn is not over though: idle between two steps, not at rest.
+      state: finished ? 'complete' : nextState,
+      ...(nextState === 'idle' && !finished ? { awaitingNextEvent: true } : {}),
+      currentTool: finished ? undefined : stillRunning?.toolName,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
         ? addToken(agent, tokenCost, tokenSource)
@@ -227,7 +264,6 @@ export function handleToolCallEnd(
     })
 
     const toolState: ToolCallNode['state'] = outcome === 'error' ? 'error' : outcome
-    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
     for (const [id, tc] of state.toolCalls) {
       if (id === matchedId) {
         pill = toolState === 'complete' ? provenResultPill(tc, result) : null
@@ -249,7 +285,24 @@ export function handleToolCallEnd(
           const file = filePath ? state.fileAttention.get(filePath) : undefined
           if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
         }
-        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
+        // One timeline step per call observed to succeed, tied to that call (#385); a failure or a cancellation adds none
+        const stepKind = fileStepKind(tc.toolName)
+        if (stepKind) {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          const stepUseId = tc.toolUseId ?? toolUseId
+          const timeline = file && recordFileStep(file.timeline, {
+            kind: stepKind, callId: id, agentId: agentName, time: currentTime, ...(stepUseId ? { toolUseId: stepUseId } : {}),
+          }, toolState)
+          if (file && timeline !== file.timeline) state.fileAttention.set(filePath, { ...file, timeline })
+        }
+        // File cards for the paths a successful Glob / Grep output lists itself (#438); a replayed result reuses the ids
+        if (toolState === 'complete') {
+          const cards = searchDiscoveries({ ...tc, toolUseId: tc.toolUseId ?? toolUseId }, result, currentTime, (payload as ToolCallEndListing).listing)
+          for (const d of cards) if (!state.discoveries.some(x => x.id === d.id)) state.discoveries.push(d)
+        }
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken,
+          toolState === 'complete' ? undefined : { sessionId, agentId: agentName, toolName: tc.toolName, inputData: tc.inputData, toolUseId: tc.toolUseId, toolCallId: id, time: currentTime })
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
@@ -270,26 +323,54 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      let base = entry
-      const last = entry.blocks.length - 1
-      if ((isError || isCancelled) && last >= 0 && !entry.blocks[last].endTime) {
-        const blocks = entry.blocks.slice()
+      // The block of the call that ended, never the block of another call still running (#362). Without a
+      // matched call (an end whose start was not seen), the last open block, as long as no other call runs.
+      const blocks = entry.blocks.slice()
+      const last = blocks.length - 1
+      const own = matchedCall ? findCallBlock(blocks, matchedCall) : -1
+      const idx = own >= 0 ? own : !stillRunning && last >= 0 && !blocks[last].endTime ? last : -1
+      if (idx >= 0) {
+        let block = blocks[idx]
         // A cancelled call is not a failure: neutral color, never the error red
-        blocks[last] = { ...blocks[last], color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
-        base = { ...entry, blocks }
+        if (isError || isCancelled) block = { ...block, color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
+        if (block.endTime === undefined) block = { ...block, endTime: currentTime }
+        blocks[idx] = block
       }
-      state.timelineEntries.set(agentName, pushTimelineBlock(base, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx))
+      // No other call runs: whatever block is still open (a permission wait) ends here too. No 'Thinking...'
+      // block opens until a thinking block is observed.
+      const closeTrailing = !stillRunning && last >= 0 && blocks[last].endTime === undefined
+      if (closeTrailing) blocks[last] = { ...blocks[last], endTime: currentTime }
+      if (idx >= 0 || closeTrailing) state.timelineEntries.set(agentName, { ...entry, blocks })
     }
 
-    // File attention token cost
-    if (tokenCost) { // 0 and null add nothing
-      const matchedTc = Array.from(state.toolCalls.values()).find(tc => tc.agentId === agentName && tc.toolName === toolName)
-      const filePath = extractFilePath(matchedTc?.inputData, matchedTc?.args)
-      if (filePath) {
-        const existing = state.fileAttention.get(filePath)
-        if (existing) {
-          state.fileAttention.set(filePath, { ...existing, totalTokens: existing.totalTokens + tokenCost })
+    // File attention token cost: the figure of the call that just ended, never the first call of this tool
+    // the agent ever made. A call that ended without a figure leaves the file total a lower bound (#368).
+    {
+      const matchedTc = matchedId ? state.toolCalls.get(matchedId) : undefined
+      const filePath = matchedTc ? extractFilePath(matchedTc.inputData, matchedTc.args) : undefined
+      const existing = filePath ? state.fileAttention.get(filePath) : undefined
+      if (filePath && existing) {
+        if (tokenCost === null) {
+          state.fileAttention.set(filePath, { ...existing, tokensPartial: true })
+        } else if (tokenCost) { // 0 adds nothing
+          state.fileAttention.set(filePath, {
+            ...existing,
+            totalTokens: existing.totalTokens + tokenCost,
+            ...(tokenSource === 'estimated' ? { tokensEstimated: true } : {}),
+          })
         }
+      }
+    }
+
+    // The tool_call row carries how its call ended, so the transcript never says "replaced" for a call that did not apply
+    const callUseId = matchedCall?.toolUseId ?? toolUseId
+    if (callUseId && (isError || isCancelled)) {
+      const rows = state.conversations.get(agentName)
+      const at = rows ? rows.findIndex(m => m.type === 'tool_call' && m.toolUseId === callUseId) : -1
+      if (rows && at >= 0) {
+        const next = rows.slice()
+        next[at] = { ...rows[at], callOutcome: isError ? 'error' : 'cancelled' }
+        state.conversations.set(agentName, next)
       }
     }
 

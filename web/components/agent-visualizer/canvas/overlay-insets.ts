@@ -25,8 +25,25 @@ export function overlayRoleOf(el: Pick<Element, 'getAttribute' | 'matches'>): Pi
 /** Elements that cover part of the canvas. Panels may opt in with data-canvas-inset. */
 const OVERLAY_SELECTOR = [
   '[data-canvas-inset]', '[role="toolbar"]', '[role="banner"]', 'header',
-  '[aria-label="Session transcript"]', '[aria-label="Files accessed by agents"]', '[aria-label="Execution timeline"]',
+  // The Files & repeats panel carries data-canvas-inset (dockAttrs): its region's name, which follows the language, is not a selector (#518)
+  '[aria-label="Session transcript"]', '[aria-label="Execution timeline"]',
 ].join(',')
+
+/**
+ * UI laid over the canvas that reserves no edge (the collapsed Conversation pill): tagged data-canvas-cover.
+ * Returned in canvas coordinates for the overlay plan, which keeps every canvas text off it (#378).
+ */
+export function measureCanvasCovers(canvas: HTMLElement | null, doc: Document | undefined = typeof document === 'undefined' ? undefined : document): Rect[] {
+  if (!canvas || !doc) return []
+  const c = canvas.getBoundingClientRect()
+  const out: Rect[] = []
+  for (const el of Array.from(doc.querySelectorAll<HTMLElement>('[data-canvas-cover]'))) {
+    const r = el.getBoundingClientRect()
+    if (r.width <= 0 || r.height <= 0) continue
+    out.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height })
+  }
+  return out
+}
 
 export function measureOverlayInsets(canvas: HTMLElement | null, doc: Document | undefined = typeof document === 'undefined' ? undefined : document): Insets {
   if (!canvas || !doc) return { ...NO_INSETS }
@@ -35,14 +52,16 @@ export function measureOverlayInsets(canvas: HTMLElement | null, doc: Document |
   const container = canvas.closest('[data-agent-canvas-root]')
   const rects: OverlayRect[] = []
   for (const el of Array.from(doc.querySelectorAll<HTMLElement>(OVERLAY_SELECTOR))) {
-    if (container && container.contains(el)) continue
+    const role = overlayRoleOf(el)
+    // Inside the canvas root only an explicit edge counts: the canvas controls row on the playback bar (#378)
+    if (container && container.contains(el) && !role.edge) continue
     if (el.contains(canvas)) continue
     // A header / toolbar nested in another overlay panel is part of that panel, not a bar of its own
     const outer = el.parentElement?.closest(OVERLAY_SELECTOR)
     if (outer && !outer.contains(canvas)) continue
     const r = el.getBoundingClientRect()
     if (r.width <= 0 || r.height <= 0) continue
-    rects.push({ x: r.left, y: r.top, w: r.width, h: r.height, ...overlayRoleOf(el) })
+    rects.push({ x: r.left, y: r.top, w: r.width, h: r.height, ...role })
   }
   const insets = classifyOverlayInsets(rects, canvasRect)
   // The top bar publishes its measured height (bar + offset + breathing room)

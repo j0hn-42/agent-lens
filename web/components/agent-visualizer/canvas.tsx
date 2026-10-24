@@ -3,7 +3,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { COLORS } from '@/lib/colors'
 import type { HitTarget, Cluster } from './canvas/index'
-import { graphKeyboardHelp } from '@/lib/shortcuts'
+import { graphKeyboardHelpText } from '@/lib/shortcuts-text'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { describeTooltip } from './canvas/tooltip'
 import type { CanvasProps } from './canvas/canvas-props'
@@ -17,7 +17,9 @@ import { useCanvasInsets } from '@/hooks/use-canvas-insets'
 import { useCanvasDrawProps } from '@/hooks/use-canvas-draw-props'
 import { useCanvasA11yMirror } from '@/hooks/use-canvas-a11y-mirror'
 import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
+import type { AnnounceLevel } from '@/lib/ui-preferences'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
+import { useHiddenNamesDisplay } from '@/hooks/use-hidden-names-display'
 import { useTourBridge } from './guided-tour-context'
 
 type PresentationFlags = { follow: boolean; mask: boolean }
@@ -27,10 +29,12 @@ export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation, onShowAgentList, agentListKey, openViewRequest,
   } = props
   const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
   presentationRef.current = presentation ?? NO_PRESENTATION
+  const announceLevelRef = useRef<AnnounceLevel>('all')
+  announceLevelRef.current = props.announceLevel ?? 'all'
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const simTimeRef = useRef(0)
@@ -76,6 +80,8 @@ export function AgentCanvas(props: CanvasProps) {
   onClusterSelectRef.current = onClusterSelect
   /** Clusters of the last drawn frame (read by the cluster click handler and the camera fit) */
   const clustersRef = useRef<Cluster[]>([])
+  /** Agent names the last planned frame does not draw (written by the draw loop, #594) */
+  const hiddenAgentNamesRef = useRef(0)
   const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null)
   const selectedClusterKeyRef = useRef<string | null>(null)
   selectedClusterKeyRef.current = selectedClusterKey
@@ -85,7 +91,7 @@ export function AgentCanvas(props: CanvasProps) {
     drawPropsRef, hideInactiveRef, collapseMemoryRef, collapseViewRef, handleToggleBranch, handleClusterClickRef,
   } = useCanvasDrawProps(props, { hasFocus, focusedNode, dimensions })
 
-  const { getInsets, getSafeArea, refreshInsetsIfStale } = useCanvasInsets(mainCanvasRef)
+  const { getInsets, getSafeArea, getCovers, refreshInsetsIfStale } = useCanvasInsets(mainCanvasRef)
 
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
@@ -94,8 +100,10 @@ export function AgentCanvas(props: CanvasProps) {
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets, scopeKey, presentationRef,
+    clustersRef, getInsets, scopeKey, presentationRef, reducedMotionRef: prefs.reducedMotionRef,
   })
+  // "N names hidden" (#594): shown, changed or removed only on a stable count with the camera at rest
+  const hiddenNames = useHiddenNamesDisplay(hiddenAgentNamesRef, isCameraBusy)
   const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
 
@@ -130,22 +138,42 @@ export function AgentCanvas(props: CanvasProps) {
   })
   useEffect(() => { reportPresence?.(legendPresence) }, [legendPresence, reportPresence])
   const { effectsRef, announcements, detectStateChanges } = useCanvasStateEffects({
-    simulationRef, drawPropsRef, reducedMotionRef: prefs.reducedMotionRef, linksPropRef,
+    simulationRef, drawPropsRef, reducedMotionRef: prefs.reducedMotionRef, linksPropRef, announceLevelRef,
   })
   useCanvasDrawLoop({
     simulationRef, mainCanvasRef, tooltipRef, bubbleLayerRef, drawPropsRef, transformRef, simTimeRef, dimensions, dprRef,
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
-    heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
+    heldBubbleKeysRef, selectedClusterKeyRef, clustersRef, hiddenAgentNamesRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
     presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
-    updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
+    updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, getCovers, effectsRef, detectStateChanges,
   })
 
   // ─── Tooltip target (hover or keyboard focus) ──────────────────────────
   const focusedForTooltip = hasFocus ? focusedNode : null
-  const tooltipTarget: NavNode | null = hoveredAgentId
+  const rawTooltipTarget: NavNode | null = hoveredAgentId
     ? { type: 'agent', id: hoveredAgentId }
     : focusedForTooltip
+  // Escape dismisses the tooltip of the current target (WCAG 1.4.13) without moving pointer or focus;
+  // another target brings it back
+  const rawTooltipTargetRef = useRef<NavNode | null>(null)
+  rawTooltipTargetRef.current = rawTooltipTarget
+  const [dismissedTip, setDismissedTip] = useState<NavNode | null>(null)
+  const rawTipKey = rawTooltipTarget ? `${rawTooltipTarget.type}:${rawTooltipTarget.id}` : null
+  useEffect(() => {
+    setDismissedTip(d => (d && `${d.type}:${d.id}` === rawTipKey ? d : null))
+  }, [rawTipKey])
+  useEffect(() => {
+    if (!rawTipKey) return
+    // Document level: a hovered tooltip shows while the focus is elsewhere. Not stopped: the global
+    // Escape order (panels, selection) still runs
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDismissedTip(rawTooltipTargetRef.current) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [rawTipKey])
+  const tooltipTarget: NavNode | null = rawTooltipTarget && dismissedTip && sameNode(dismissedTip, rawTooltipTarget)
+    ? null
+    : rawTooltipTarget
   tooltipTargetRef.current = tooltipTarget
   const tooltipContent = tooltipTarget ? describeTooltip(tooltipTarget, simulationRef.current) : null
 
@@ -191,7 +219,7 @@ export function AgentCanvas(props: CanvasProps) {
         tabIndex={0}
         onPointerDownCapture={(e) => { if (e.pointerType === 'mouse') setFocusedNode(null) }}
         {...keyHandlers}
-        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
+        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
       >
         <canvas
           ref={mainCanvasRef}
@@ -204,7 +232,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={bubbleLayerRef}
         data-edge-bubble-layer=""
-        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
+        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-[color:var(--lens-focus)] [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
       />
       {auxFocus && (
         <div
@@ -216,7 +244,7 @@ export function AgentCanvas(props: CanvasProps) {
           {auxFocus.label}
         </div>
       )}
-      <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
+      <p id="graph-keyboard-help" className="sr-only" lang={prefs.locale}>{graphKeyboardHelpText(prefs.locale)}</p>
 
       <GraphA11yList
         model={a11yModel}
@@ -274,6 +302,10 @@ export function AgentCanvas(props: CanvasProps) {
         onToggleAnimationsPaused={prefs.toggleAnimationsPaused}
         onToggleNeverHide={prefs.toggleNeverHide}
         onChangeToolExpiry={prefs.changeToolExpiry}
+        hiddenNames={hiddenNames}
+        onShowAgentList={onShowAgentList}
+        agentListKey={agentListKey}
+        openViewRequest={openViewRequest}
       />
     </div>
   )

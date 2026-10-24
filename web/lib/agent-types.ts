@@ -5,6 +5,9 @@ import type { UsageStatus, TokenSource } from './usage'
 import type { ModelSource } from './model-provenance'
 import type { ResultPill } from './action-summary'
 import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
+import type { FileTimeline } from './file-timeline'
+import type { GitState } from './git-state'
+import { POPUP_MIN_H } from './panel-layout'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -37,6 +40,17 @@ export interface Agent {
   /** tool_use_id of the dispatching Agent/Task call, when the agent is a sub-agent */
   toolUseId?: string
   state: AgentState
+  /**
+   * Between two steps of a turn (#362): a tool call, a thinking block or a permission prompt ended and the
+   * agent's next step is not observed yet. Read only while `state` is 'idle': the agent shows Idle (nothing is
+   * claimed about what it does) but its turn is not over, so it is not inactive. Cleared by the end of the turn.
+   */
+  awaitingNextEvent?: boolean
+  /**
+   * A finished agent that received a prompt after its end (a resume, #433). Armed by that observed user turn,
+   * never by work alone: a late message of the turn that already ended must not bring the agent back.
+   */
+  resumePrompted?: boolean
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
   /** Agent Team (or Workflow run) the agent belongs to */
@@ -67,6 +81,9 @@ export interface Agent {
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
   tokensMax: number
+  /** True when `tokensMax` is a fallback (no model, a model the table does not know, or a known window a reading
+   *  overflowed), not reported by the runtime nor read from the model id; shown as "assumed" (#364) */
+  tokensMaxAssumed?: boolean
   contextBreakdown: ContextBreakdown
   toolCalls: number
   /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
@@ -80,7 +97,7 @@ export interface Agent {
   isMain: boolean
   /** Which agent runtime produced this agent — used to pick the brand logo.
    *  Optional for forward compat with events that don't carry it (defaults to 'claude'). */
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
   /** Model ID last reported for this agent (agent_spawn / model_detected).
    *  Drives context-window sizing and the per-family cost rate. */
   model?: string
@@ -100,6 +117,8 @@ export interface Agent {
   completeTime?: number
   /** What the sub-agent returned to its parent (subagent_return, #233); absent = no return observed */
   delegationReturn?: DelegationReturn
+  /** Branch, commits and PR states read from this agent's own observed shell outputs (#386); absent = none observed */
+  git?: GitState
   /** Wall-clock ms (Date.now) of the last live event that touched this agent; absent = never observed live */
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set), replayed 'history', or an
@@ -122,8 +141,10 @@ export interface DelegationReturn {
   /** True when the report was longer than the excerpt (the full text is in the Conversation) */
   truncated: boolean
   isError: boolean
-  /** Seconds reported by the runtime for a live return; never kept for a replayed or imported one */
+  /** Seconds of a live return, measured by Agent Lens; never kept for a replayed or imported one */
   durationS?: number
+  /** True when durationS is the one a background completion notice records, not a measurement (#365) */
+  durationRecorded?: boolean
   /** Simulation time of the return */
   time: number
 }
@@ -186,6 +207,11 @@ export interface Discovery {
   targetY: number
   opacity: number
   timestamp: number
+  /** tool_use_id of the call whose output listed it (#438); absent for a discovery from no call */
+  toolUseId?: string
+  /** Set for a file a Glob / Grep output listed (#438): its 1-based index among the listed paths, the count
+   *  the tool's header reported, and the number of cards made from that call (bounded by SEARCH_DISCOVERY.maxPerCall) */
+  listing?: { tool: string; position: number; reported: number; shown: number }
 }
 
 // File attention tracking
@@ -194,12 +220,18 @@ export interface FileAttention {
   reads: number
   edits: number
   totalTokens: number   // how much context this file consumed
+  /** True once part of totalTokens comes from an estimate rather than a reported figure */
+  tokensEstimated?: boolean
+  /** True once a call on this file ended without a figure: totalTokens is then a lower bound */
+  tokensPartial?: boolean
   lastAccessed: number
   agents: string[]      // which agents touched this file
   /** Edit / Write calls per agent, with how many were observed to succeed (#227) */
   editors?: FileEditor[]
   /** Read calls per agent, with how many were observed to succeed (#233) */
   readers?: FileReader[]
+  /** Ordered, bounded steps of the file, one per call observed to succeed (#385); absent: none yet */
+  timeline?: FileTimeline
 }
 
 export interface FileReader {
@@ -304,6 +336,17 @@ export interface TeamSummary {
   members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string; phase?: string }>
 }
 
+/** The files a Glob's structured result proves it listed (#451), carried by `tool_call_end` in `listing`; mirror of extension/src/protocol.ts */
+export interface SearchListingPayload {
+  files: string[]
+  count: number
+}
+
+/** The optional `listing` field of a `tool_call_end` payload (absent unless a successful Glob proved its list) */
+export interface ToolCallEndListing {
+  listing?: SearchListingPayload
+}
+
 export interface SimulationEvent {
   time: number
   type:
@@ -318,6 +361,7 @@ export interface SimulationEvent {
     | 'subagent_dispatch'
     | 'subagent_return'
     | 'permission_requested'
+    | 'normalization_stats'
     | 'agent_link'
     | 'message_sent'
     | 'team_info'
@@ -347,17 +391,12 @@ export const NODE = {
   radiusSub: 20,
 } as const
 
-export const CARD = {
-  detail: { width: 240, height: 200 },
-
-  chat: { width: 300, maxHeight: 360, messagesMinHeight: 100, messagesMaxHeight: 240 },
-  margin: 8,
-  offsetX: 40,     // horizontal offset from agent to detail card
-  offsetY: -80,    // vertical offset from agent to detail card
-} as const
-
 export const Z = {
   info: 10,
+  /** The top bar: above the canvas controls (z-10, later in the page), so an unfolded bar is never covered by the Legend (#497) */
+  topBar: 11,
+  /** The top bar while one of its tooltips is open: the tooltip is drawn below the bar, over the docked panels (#497, #523) */
+  topBarRaised: 60,
   sidePanel: 40,
   controlBar: 50,
   chatPanel: 50,
@@ -383,6 +422,8 @@ export const ANIM = {
   inertiaThreshold: 0.5,
   dragLerp: 0.25,
   autoFitLerp: 0.06,
+  /** Share of the gap to the auto-fit target closed per frame while part of what it frames is off the safe area (#378) */
+  autoFitCatchUpLerp: 0.25,
   dragThresholdPx: 5,
   viewportPadding: 120,
   breathe: {
@@ -417,20 +458,12 @@ export const BEAM = {
   wobble: { amp: 3, freq: 10, timeFreq: 3, trailOffset: 0.15 },
 } as const
 
-export const TETHER = {
-  alpha: 0.7,
-  strokeAlpha: '80',
-  lineWidth: 1,
-  dash: [6, 4] as number[],
-  dotRadius: 3,
-  curveOffset: 20,
-} as const
-
 // ─── Popup Dimensions ───────────────────────────────────────────────────────
 
 export const POPUP = {
   tool: { width: 320, estimatedHeight: 200 },
-  discovery: { width: 300, estimatedHeight: 160 },
+  // A short popup: it asks for no more than the height a popup keeps anyway (#536)
+  discovery: { width: 300, estimatedHeight: POPUP_MIN_H },
   controlBarMaxWidth: 680,
 } as const
 

@@ -1,12 +1,14 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { TourStep } from '@/lib/guided-steps'
-import { FOCUS_RING } from '@/lib/focus-ring'
-import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
+import { Button } from '@/components/ui/button'
+import { guidedTourButton } from './guided-tour-context'
 
 interface GuidedTourCardProps {
   steps: readonly TourStep[]
@@ -19,17 +21,14 @@ interface GuidedTourCardProps {
   onExit: () => void
 }
 
-const BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono aria-disabled:opacity-50 '
-  + FOCUS_RING
-const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
-
 /**
  * The guided tour card: what the highlighted element is. A dialog without a focus trap, so the page stays
  * explorable (zoom, click an agent) while the tour is open. Arrow keys and Escape work only while the focus is
  * inside the card, so they never take the arrow keys away from the graph keyboard navigation.
  */
 export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, onExit }: GuidedTourCardProps) {
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(locale, key, params)
   // The tour opens on Next: a first Enter goes forward instead of ending the tour (Exit tour comes first in the card)
   const nextRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -44,8 +43,8 @@ export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, on
     return () => {
       if (trigger?.isConnected) { trigger.focus({ preventScroll: true }); return }
       // Opener gone (the Guided tour button is unmounted during the tour) or none (auto-started demo):
-      // the Guided tour button, rendered again once the tour has ended
-      requestAnimationFrame(() => document.getElementById(GUIDED_TOUR_BUTTON_ID)?.focus({ preventScroll: true }))
+      // the Guided tour button, rendered again once the tour has ended (or the folded "Canvas controls" button that holds it, #515)
+      requestAnimationFrame(() => guidedTourButton()?.focus({ preventScroll: true }))
     }
   }, [])
 
@@ -77,6 +76,7 @@ export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, on
     <section
       ref={dialogRef}
       role="dialog"
+      lang={locale}
       // The camera fit keeps the agents of the step above the card
       data-canvas-inset="bottom"
       aria-labelledby="guided-tour-title"
@@ -91,23 +91,23 @@ export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, on
       }}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span style={{ color: COLORS.textMuted }}>{`Step ${index + 1} of ${steps.length}`}</span>
-        <button type="button" onClick={onExit} className={BUTTON_CLASS} style={BUTTON_STYLE}>Exit tour</button>
+        <span style={{ color: COLORS.textMuted }}>{t('tour.card.step', { n: index + 1, total: steps.length })}</span>
+        <Button variant="tour" onClick={onExit}>{t('tour.card.exit')}</Button>
       </div>
       <div aria-live="polite">
         <h2 id="guided-tour-title" className="mb-1 text-sm font-semibold">{step.title}</h2>
         <p id="guided-tour-body" className="leading-relaxed" style={{ color: COLORS.textPrimary }}>{step.body}</p>
         {stale && (
           <p className="mt-1 leading-relaxed" style={{ color: COLORS.textMuted }}>
-            This is no longer on screen: the session moved on since the tour started.
+            {t('tour.card.stale')}
           </p>
         )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => { if (!isFirst) onPrev() }} aria-disabled={isFirst || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Previous</button>
-        <button ref={nextRef} type="button" onClick={() => { if (!isLast) onNext() }} aria-disabled={isLast || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Next</button>
+        <Button variant="tour" onClick={() => { if (!isFirst) onPrev() }} aria-disabled={isFirst || undefined}>{t('tour.card.prev')}</Button>
+        <Button ref={nextRef} variant="tour" onClick={() => { if (!isLast) onNext() }} aria-disabled={isLast || undefined}>{t('tour.card.next')}</Button>
         <select
-          aria-label="Go to step"
+          aria-label={t('tour.card.goto')}
           value={index}
           onChange={e => onGoTo(Number(e.target.value))}
           className="ml-auto max-w-[12rem] bg-transparent font-mono text-xs"

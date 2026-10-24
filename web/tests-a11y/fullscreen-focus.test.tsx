@@ -8,6 +8,8 @@ import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { SCENE } from '@/lib/colors'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { TOPBAR_MORE_ID } from '@/components/agent-visualizer/top-bar'
+import { inMore, pressInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -37,7 +39,7 @@ function contrast(a: string, b: string): number {
 
 test('Enter full screen by keyboard puts the focus on Exit full screen, and Exit gives it back', async () => {
   const r = await mount()
-  const enter = r.getByRole('button', { name: 'Enter full screen' })
+  const enter = inMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   enter.focus()
   assert.equal(document.activeElement, enter)
   await act(async () => { fireEvent.click(enter) })
@@ -46,13 +48,28 @@ test('Enter full screen by keyboard puts the focus on Exit full screen, and Exit
   assert.equal(document.activeElement, exit, 'focus lands on the exit button, not <body>')
   await act(async () => { fireEvent.click(exit) })
   await settle()
-  assert.equal(document.activeElement, r.getByRole('button', { name: 'Enter full screen' }), 'focus returns to the Enter button')
+  // Enter full screen is in More (one-line bar), closed once used: the focus comes back to More, which holds it
+  assert.equal(document.activeElement?.id, TOPBAR_MORE_ID, 'focus returns to More')
+})
+
+test('in full screen, Settings > Open View controls still opens the View popover (#613)', async () => {
+  const r = await mount()
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
+  await settle()
+  assert.ok(r.getByRole('button', { name: 'Exit full screen' }), 'precondition: in full screen')
+  // Settings by its shortcut (the top bar is hidden in full screen)
+  await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key: ',' }) })
+  await settle()
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Open View controls' })) })
+  await settle()
+  const popover = r.getByRole('dialog', { name: 'View settings' })
+  assert.ok(popover.contains(document.activeElement), `the focus is in the popover, not ${document.activeElement?.tagName}`)
 })
 
 test('entering and leaving full screen is announced in the status region', async () => {
   const r = await mount()
   const status = () => Array.from(r.container.querySelectorAll('[role="status"]')).map(n => n.textContent ?? '').join(' | ')
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   await settle()
   assert.match(status(), /Full screen on/)
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Exit full screen' })) })
@@ -63,17 +80,17 @@ test('entering and leaving full screen is announced in the status region', async
 test('Escape leaves immersive mode when the Fullscreen API is missing', async () => {
   const r = await mount()
   assert.equal(typeof document.documentElement.requestFullscreen, 'undefined', 'jsdom has no Fullscreen API')
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   await settle()
   await act(async () => { fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' }) })
   await settle()
   assert.equal(r.queryByRole('button', { name: 'Exit full screen' }), null)
-  assert.ok(r.getByRole('button', { name: 'Enter full screen' }))
+  assert.ok(inMore(() => r.getByRole('button', { name: 'Enter full screen' })))
 })
 
 test('Escape does not leave immersive mode while a dialog is open', async () => {
   const r = await mount()
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   await settle()
   const dialog = document.createElement('div')
   dialog.setAttribute('role', 'dialog')
@@ -87,7 +104,7 @@ test('Escape does not leave immersive mode while a dialog is open', async () => 
 
 test('the Exit full screen button is not faded and meets 3:1 (icon and outline) on the scene', async () => {
   const r = await mount()
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Enter full screen' })) })
+  await pressInMore(() => r.getByRole('button', { name: 'Enter full screen' }))
   await settle()
   const exit = r.getByRole('button', { name: 'Exit full screen' }) as HTMLElement
   assert.doesNotMatch(exit.className, /opacity-/, 'no resting opacity')

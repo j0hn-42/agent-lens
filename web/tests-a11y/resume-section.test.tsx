@@ -100,7 +100,7 @@ test('no button, and the reason, for an imported session, another runtime, an un
 })
 
 test('it is offered inside VS Code too: it needs no relay', () => {
-  const r = show(session(), { unavailableReason: 'Project context is read through the standalone relay; it is not available inside VS Code.' })
+  const r = show(session(), { unavailableReason: 'vscode' })
   assert.ok(r.getByRole('button', { name: 'Copy resume command' }))
 })
 

@@ -4,6 +4,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent, FileAttention } from '../web/lib/agent-types'
 import { deriveFileConflicts, conflictPath, MAX_FILE_CONFLICTS } from '../web/lib/file-conflicts'
+import { conflictHeadingText } from '../web/lib/panel-text'
 import { fileConflictSegments } from '../web/components/agent-visualizer/canvas/file-conflict-model'
 import { buildA11yModel } from '../web/components/agent-visualizer/canvas/a11y-model'
 import { LEGEND_ENTRIES } from '../web/lib/legend-entries'
@@ -55,6 +56,13 @@ test('two agents of two sessions whose edits of the same absolute file both succ
   assert.equal(conflicts.length, 1)
   assert.equal(conflicts[0].path, '/repo/src/a.ts')
   assert.deepEqual(conflicts[0].editors.map(e => [e.agent, e.edits]), [['s1:main', 1], ['s2:main', 1]])
+})
+
+test('conflict heading under replay loss (#366): "at least", and a zero is said for the observed part only', () => {
+  assert.equal(conflictHeadingText('en', 0, 0), null)
+  assert.equal(conflictHeadingText('en', 2, 0), '2 conflicts')
+  assert.equal(conflictHeadingText('en', 2, 9), 'at least 2 conflicts')
+  assert.equal(conflictHeadingText('en', 0, 9), 'No conflict in the observed part')
 })
 
 test('two agents of one session (main and sub-agent) also conflict', () => {

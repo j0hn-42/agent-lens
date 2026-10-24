@@ -8,9 +8,11 @@ interface GlassCardProps {
   className?: string
   style?: React.CSSProperties
   visible: boolean
+  /** The card's own box, for a caller that must measure or scroll it (the agent card's scroll container). */
+  ref?: React.Ref<HTMLDivElement>
 }
 
-export function GlassCard({ children, className = '', style, visible }: GlassCardProps) {
+export function GlassCard({ children, className = '', style, visible, ref }: GlassCardProps) {
   const [mounted, setMounted] = useState(visible)
   const [animating, setAnimating] = useState(false)
 
@@ -29,6 +31,7 @@ export function GlassCard({ children, className = '', style, visible }: GlassCar
 
   return (
     <div
+      ref={ref}
       className={`glass-card motion-reduce:transition-none! ${className}`}
       style={{
         ...style,

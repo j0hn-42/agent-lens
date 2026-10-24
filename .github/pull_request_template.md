@@ -14,3 +14,4 @@
 - [ ] If the change touches rendering, canvas, CSS or a11y: the e2e suite (`pnpm --dir web run test:e2e`) passes
 - [ ] No a11y baseline widened (`lint-baseline.json`, `known-violations.json`)
 - [ ] New UI is keyboard-operable and has accessible names
+- [ ] New strings and guide bullets go in the file of their domain: `web/lib/messages/<domain>.ts` (fr and en side by side) and `docs/reading-the-ui/<domain>.md` (a translated surface: one bullet under `### In your language` of that file, not in `language.md`)

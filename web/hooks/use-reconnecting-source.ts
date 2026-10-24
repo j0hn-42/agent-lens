@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createLoadToken, createReconnectingSource,
   type EventSourceLike, type SourceStatus,
@@ -22,6 +22,8 @@ export interface UseReconnectingSourceOptions extends ReconnectingSourceDeps {
   /** Bumped to drop the connection and open a new one (a new replay), e.g. after the relay's scope changed (#291) */
   generation?: number
   onMessage: (data: unknown) => void
+  /** Called synchronously with each status change, before the messages of that connection (a render may not have run yet) */
+  onStatusChange?: (status: SourceStatus['status']) => void
   onParseError?: () => void
 }
 
@@ -31,9 +33,10 @@ const IDLE: SourceStatus = { status: 'connecting', mode: 'sse', attempt: 0, deta
  * Relay SSE connection with backoff, polling fallback, stale-selection guard and replay dedupe
  * (logic in lib/reconnect). Timers and the stream are released on unmount or when inputs change.
  */
-export function useReconnectingSource(opts: UseReconnectingSourceOptions): SourceStatus {
+export function useReconnectingSource(opts: UseReconnectingSourceOptions): SourceStatus & { retryNow: () => void } {
   const [state, setState] = useState<SourceStatus>(IDLE)
   const tokenRef = useRef(createLoadToken())
+  const retryRef = useRef<(() => void) | null>(null)
   // Latest callbacks/deps without restarting the connection on every render
   const latest = useRef(opts)
   latest.current = opts
@@ -41,6 +44,7 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
 
   useEffect(() => {
     if (!enabled) return
+    latest.current.onStatusChange?.('connecting')
     setState(IDLE)
     const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''
     const source = createReconnectingSource({
@@ -50,13 +54,15 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
       loadToken: tokenRef.current,
       onMessage: d => latest.current.onMessage(d),
       onParseError: () => latest.current.onParseError?.(),
-      onStatus: setState,
+      onStatus: s => { latest.current.onStatusChange?.(s.status); setState(s) },
       createEventSource: latest.current.createEventSource ?? (url => new EventSource(url) as unknown as EventSourceLike),
       fetchStatus: latest.current.fetchStatus ?? ((url, signal) => fetch(url, { signal, cache: 'no-store' })),
       random: latest.current.random,
     })
-    return () => source.close()
+    retryRef.current = () => source.retryNow()
+    return () => { retryRef.current = null; source.close() }
   }, [enabled, origin, sessionId, generation])
 
-  return state
+  const retryNow = useCallback(() => { retryRef.current?.() }, [])
+  return useMemo(() => ({ ...state, retryNow }), [state, retryNow])
 }

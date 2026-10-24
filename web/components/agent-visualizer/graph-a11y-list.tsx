@@ -1,6 +1,8 @@
 'use client'
 
 import { emptyState } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { panelName } from '@/lib/command-palette'
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
@@ -54,6 +56,7 @@ export function GraphA11yList({
   onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, linkMessages, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
   onFocusAux, onToggleBranch,
 }: GraphA11yListProps) {
+  const { locale } = useLocale()
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
   const hasFocusedButton = !!focusedNode && (
@@ -113,17 +116,19 @@ export function GraphA11yList({
         {agent.name}, {agent.orchestrator ? 'orchestrator, ' : ''}{agent.stateText}
         {agent.activityText ? `, ${agent.activityText}` : ''}
         {agent.archived ? ', archived' : ''}
+        {agent.repeats ? `, ${agent.repeats.short}` : ''}
       </button>
       <p>
         {agent.orchestrator === 'lead' ? 'Orchestrator, lead of the team. ' : agent.orchestrator === 'main' ? 'Orchestrator, main agent of the session. ' : ''}
         {agent.teamName ? (agent.teamKind === 'workflow' ? `Agent in workflow ${agent.teamName}. ` : `Teammate in team ${agent.teamName}. `) : ''}
         {agent.phase ? `Phase ${agent.phase}. ` : ''}
         {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
-        {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
+        {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. {agent.cost}. {agent.toolCallsText}.
       </p>
       {agent.childNames.length > 0 && (
         <p>Parent of {agent.childNames.join(', ')}.</p>
       )}
+      {agent.repeats && <p>{agent.repeats.detail}</p>}
       {agent.branch && (
         <p>
           {agent.branch.text}.{' '}
@@ -172,7 +177,11 @@ export function GraphA11yList({
   return (
     <>
       <div role="status" aria-live="polite" aria-atomic="false" className="sr-only">
-        {announcements.map(a => <p key={a.id}>{a.text}</p>)}
+        {announcements.filter(a => !a.urgent).map(a => <p key={a.id}>{a.text}</p>)}
+      </div>
+      {/* Actionable states (failure, permission request) interrupt: never summarised, own region */}
+      <div role="alert" aria-atomic="false" className="sr-only" data-testid="graph-urgent-announcer">
+        {announcements.filter(a => a.urgent).map(a => <p key={a.id}>{a.text}</p>)}
       </div>
 
       {/* Arrow-key boundary of the outline (keys from its buttons bubble here): presentational and
@@ -274,7 +283,7 @@ export function GraphA11yList({
         {model.fileConflicts && model.fileConflicts.length > 0 && (
           <>
             <h3>File conflicts</h3>
-            <p>Files that two or more agents edited, each edit observed to succeed. The Files panel lists them too.</p>
+            <p>Files that two or more agents edited, each edit observed to succeed. The {panelName(locale, 'files')} panel lists them too.</p>
             <ul aria-label="File conflicts">
               {model.fileConflicts.map(c => <li key={c.path}>{c.text}</li>)}
             </ul>
@@ -294,7 +303,7 @@ export function GraphA11yList({
                     onFocus={() => onFocusNode({ type: 'discovery', id: d.id })}
                     onClick={() => onDiscoveryClick?.(d.id)}
                   >
-                    {d.type} found by {d.agentName}: {d.label}
+                    {d.origin ? `${d.label}: ${d.origin}, call by ${d.agentName}` : `${d.type} found by ${d.agentName}: ${d.label}`}
                   </button>
                   {d.content && <p>{d.content}</p>}
                 </li>

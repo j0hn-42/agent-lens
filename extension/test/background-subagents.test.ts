@@ -24,7 +24,7 @@ function makeSession(): WatchedSession {
     sessionId: 's-bg', filePath: '', fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
     sessionStartTime: Date.now(), pendingToolCalls: new Map(), seenToolUseIds: new Set(),
     seenMessageHashes: new Set(), sessionDetected: true, sessionCompleted: false,
-    lastActivityTime: Date.now(), inactivityTimer: null, subagentWatchers: new Map(),
+    lastActivityTime: Date.now(), subagentWatchers: new Map(),
     spawnedSubagents: new Set(), inlineProgressAgents: new Set(),
     subagentsDirWatcher: null, subagentsDir: null, label: 'x', labelSet: false, model: null,
     modelDetectedAgents: new Map(), permissionTimer: null, permissionEmitted: false,
@@ -102,6 +102,22 @@ describe('background subagent: launch receipt is not a finish (#239)', () => {
     assert.equal(ret[0].payload.toolUseId, 'toolu_bg1')
     assert.equal(ret[0].payload.isError, false)
     assert.equal(ret[0].payload.summary, 'No defect found.')
+  })
+
+  it('the duration the notice records is said to be recorded, not measured (#365)', () => {
+    const { events, feed } = setup()
+    feed(PROMPT, DISPATCH, RECEIPT, TEXT, COMPLETED)
+    const ret = ofType(events, 'subagent_return')[0]
+    assert.equal(ret.payload.durationS, 60.1)
+    assert.equal(ret.payload.durationSource, 'recorded')
+  })
+
+  it('without a recorded duration, the one measured from the launch carries no "recorded" source (#365)', () => {
+    const { events, feed } = setup()
+    feed(PROMPT, DISPATCH, RECEIPT, TEXT, COMPLETED.replace(/<duration_ms>\d+<\/duration_ms>/, ''))
+    const ret = ofType(events, 'subagent_return')[0]
+    assert.equal(typeof ret.payload.durationS, 'number')
+    assert.equal(ret.payload.durationSource, undefined)
   })
 
   it('the notification never becomes a user message', () => {

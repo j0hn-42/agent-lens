@@ -134,10 +134,10 @@ test('without a single session (All / team view) nothing is fetched and the pane
 
 test('when the relay is not reachable from here (VS Code, demo) the reason is stated and nothing is fetched', async () => {
   const f = makeFetch([ctx()])
-  const { container } = render(<ProjectContextPanel visible sessionId="s1" fetchContext={f.fetchContext} unavailableReason="Not available in demo mode." onClose={noop} />)
+  const { container } = render(<ProjectContextPanel visible sessionId="s1" fetchContext={f.fetchContext} unavailableReason="demo" onClose={noop} />)
   await flush()
   assert.equal(f.calls.length, 0)
-  assert.match(container.textContent ?? '', /Not available in demo mode/)
+  assert.match(container.textContent ?? '', /not available in demo mode/)
 })
 
 test('axe: loaded, error and unavailable states have no violations', async () => {

@@ -294,6 +294,14 @@ export function shellCommands(command: string): ShellCommand[] {
   return found
 }
 
+/** One entry per segment of a Bash command line, in order: the git / gh call it runs, or null for any other command. */
+export function shellSegments(command: string): (ShellCommand | null)[] {
+  return splitShell(command).map(words => {
+    const r = recognise(words)
+    return r && 'sub' in r ? { tool: r.kind, sub: r.sub } : null
+  })
+}
+
 /** The distinct Python, test, docker and package-manager calls a Bash command line runs, in order of appearance. */
 export function toolingCommands(command: string): ToolingCommand[] {
   const found: ToolingCommand[] = []
@@ -305,7 +313,7 @@ export function toolingCommands(command: string): ToolingCommand[] {
 }
 
 /** Characters of a tool result kept on the event (`RESULT_MAX` in extension/src/constants.ts): a result that long may be cut. */
-const RESULT_CAPTURE_LIMIT = 200
+export const RESULT_CAPTURE_LIMIT = 200
 
 /** Prefix the hook server puts on the result of a failed call */
 const FAILED_PREFIX = '[FAILED]'

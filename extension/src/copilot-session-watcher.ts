@@ -15,7 +15,7 @@ import * as path from 'path'
 import * as os from 'os'
 import { AgentEvent, SessionInfo } from './protocol'
 import {
-  ACTIVE_SESSION_AGE_S, COPILOT_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
+  ACTIVE_SESSION_AGE_S, COPILOT_MAX_WATCHED_SESSIONS, ORCHESTRATOR_NAME,
   POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY,
 } from './constants'
 import { safeWatch, readTrackedLines, foldPathCase } from './fs-utils'
@@ -40,14 +40,12 @@ interface WatchedCopilotSession {
   cwd?: string
   fileWatcher: fs.FSWatcher | null
   pollTimer: NodeJS.Timeout | null
-  inactivityTimer: NodeJS.Timeout | null
   fileSize: number
   /** Bytes past the last newline of the previous read, prepended to the next chunk. */
   fileTail: string
   sessionStartTime: number
   lastActivityTime: number
   sessionDetected: boolean
-  sessionCompleted: boolean
   label: string
   eventState: CopilotEventState
   parser: CopilotEventParser
@@ -99,14 +97,19 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
   private capWarned = false
   /** Read position of released sessions: a log that resumes restarts where it stopped (no history replay). */
   private retired = new Map<string, Pick<WatchedCopilotSession, 'fileSize' | 'fileTail' | 'eventState' | 'sessionStartTime' | 'label'>>()
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
+  private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
   private readonly _onSessionLifecycle = new TypedEventEmitter<SessionLifecycleEvent>()
+  /** A retired session forgotten for good: reattached, its history is read again from the start (#592) */
+  private readonly _onSessionReleased = new TypedEventEmitter<string>()
 
   readonly onEvent = this._onEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
+  readonly onSessionReleased = this._onSessionReleased.event
 
   /** Workspace path used as a filter — a session is attached only if its cwd or git_root is this
    *  path or inside it. Pass null/undefined to attach to any Copilot session. */
@@ -114,21 +117,22 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
 
   isActive(): boolean {
     for (const s of this.sessions.values()) {
-      if (s.sessionDetected && !s.sessionCompleted) return true
+      if (s.sessionDetected) return true
     }
     return false
   }
 
   isSessionActive(sessionId: string): boolean {
     const s = this.sessions.get(sessionId)
-    return !!s && s.sessionDetected && !s.sessionCompleted
+    return !!s && s.sessionDetected
   }
 
   getActiveSessions(): SessionInfo[] {
     return Array.from(this.sessions.values()).map(s => ({
       id: s.sessionId,
       label: s.label,
-      status: s.sessionCompleted ? 'completed' : 'active',
+      // No end is observed for this runtime: a silence never completes a session (#360)
+      status: 'active',
       startTime: s.sessionStartTime,
       lastActivityTime: s.lastActivityTime,
       runtime: 'copilot',
@@ -220,10 +224,9 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
-      if (!s.sessionCompleted || (now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+      if ((now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
       s.fileWatcher?.close()
       if (s.pollTimer) clearInterval(s.pollTimer)
-      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
       this.sessions.delete(id)
       this.retired.delete(id)
       this.retired.set(id, {
@@ -232,7 +235,7 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
       })
       if (this.retired.size > COPILOT_MAX_WATCHED_SESSIONS * 4) {
         const oldest = this.retired.keys().next().value
-        if (oldest !== undefined) this.retired.delete(oldest)
+        if (oldest !== undefined) { this.retired.delete(oldest); this._onSessionReleased.fire(oldest) }
       }
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
@@ -259,7 +262,7 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
 
     // Parser built once per session so the delegate closures capture the right session
     const parser = new CopilotEventParser({
-      emit: (event) => this._onEvent.fire({ ...event, sessionId }),
+      emit: (event) => this._onEvent.fire({ ...event, sessionId, ...(this.historyDepth > 0 ? { replayed: true } : {}) }),
       elapsed: () => {
         const s = this.sessions.get(sessionId)
         return s ? (Date.now() - s.sessionStartTime) / 1000 : 0
@@ -278,13 +281,11 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
       ...(cwd ? { cwd } : {}),
       fileWatcher: null,
       pollTimer: null,
-      inactivityTimer: null,
       fileSize: 0,
       fileTail: '',
       sessionStartTime: stat.birthtimeMs || stat.mtimeMs,
       lastActivityTime: stat.mtimeMs,
       sessionDetected: false,
-      sessionCompleted: false,
       label,
       eventState: createCopilotEventState(),
       parser,
@@ -297,7 +298,9 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
     this.sessions.set(sessionId, session)
 
     // Drain existing content first, so late-opening panels see the full history.
-    this.readNewLines(sessionId)
+    // (a session resumed after a release only reads what was written since: that is live)
+    if (retired) this.readNewLines(sessionId)
+    else this.asHistory(() => this.readNewLines(sessionId))
 
     session.sessionDetected = true
     this._onSessionDetected.fire(sessionId)
@@ -310,8 +313,13 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
     // fs.watch sometimes silently stops after a long idle — poll as a backup.
     session.pollTimer = setInterval(() => this.readNewLines(sessionId), POLL_FALLBACK_MS)
 
-    this.resetInactivityTimer(sessionId)
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
+  }
+
+  /** Run a read of history: the events it emits are marked `replayed` (#390). */
+  private asHistory(read: () => void): void {
+    this.historyDepth++
+    try { read() } finally { this.historyDepth-- }
   }
 
   private readNewLines(sessionId: string): void {
@@ -322,36 +330,10 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
     if (!lines) return
     session.lastActivityTime = Date.now()
 
-    // New content in a session marked complete on inactivity means the user resumed it.
-    if (session.sessionCompleted) {
-      session.sessionCompleted = false
-      this._onSessionLifecycle.fire(this.lifecycle('started', session))
-      log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
-    }
-
     for (const line of lines) {
       try { session.parser.processLine(line, session.eventState) }
       catch (err) { log.debug('Parser threw on line:', err) }
     }
-
-    this.resetInactivityTimer(sessionId)
-  }
-
-  private resetInactivityTimer(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    if (session.inactivityTimer) { clearTimeout(session.inactivityTimer) }
-    session.inactivityTimer = setTimeout(() => {
-      if (session.sessionCompleted) return
-      session.sessionCompleted = true
-      this._onEvent.fire({
-        time: (Date.now() - session.sessionStartTime) / 1000,
-        type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME, sessionEnd: true, inactivity: true },
-        sessionId,
-      })
-      this._onSessionLifecycle.fire(this.lifecycle('ended', session))
-    }, INACTIVITY_TIMEOUT_MS)
   }
 
   dispose(): void {
@@ -361,12 +343,12 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
     for (const s of this.sessions.values()) {
       s.fileWatcher?.close()
       if (s.pollTimer) clearInterval(s.pollTimer)
-      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     }
     this.sessions.clear()
     this.retired.clear()
     this._onEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
+    this._onSessionReleased.dispose()
   }
 }

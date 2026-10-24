@@ -76,7 +76,7 @@ test('attention: a session row says in words how many agents wait or failed, eve
     agent('a:m', 'a', 'waiting_permission'), agent('a:n', 'a', 'error'), agent('b:m', 'b', 'thinking'),
   ]))
   const rowA = container.querySelector('[data-closable-id="a"]') as HTMLElement
-  assert.match(within(rowA).getByTestId('session-attention').textContent ?? '', /1 waiting \/ 1 error/)
+  assert.match(within(rowA).getByTestId('session-attention').textContent ?? '', /1 agent waiting \/ 1 agent in error/)
   assert.equal(within(container.querySelector('[data-closable-id="b"]') as HTMLElement).queryByTestId('session-attention'), null)
 })
 
@@ -86,11 +86,11 @@ test('attention: an expired history status is not reported as blocked, a live pe
   assert.equal(history.container.querySelector('[data-testid="session-attention"]'), null)
   cleanup()
   const live = render(panel({}, [{ ...old, freshnessSource: 'live' } as SessionListAgent]))
-  assert.match(live.container.querySelector('[data-testid="session-attention"]')?.textContent ?? '', /1 waiting/)
+  assert.match(live.container.querySelector('[data-testid="session-attention"]')?.textContent ?? '', /1 agent waiting/)
 })
 
 test('attention: the marker follows the shared summary, so a session absent from this view still shows it', () => {
   const shared = summarizeAttention([{ id: 'b:x', sessionId: 'b', state: 'waiting_permission', lastEventAt: Date.now(), freshnessSource: 'live' }], Date.now())
   const { container } = render(panel({ attention: shared }, []))
-  assert.match(within(container.querySelector('[data-closable-id="b"]') as HTMLElement).getByTestId('session-attention').textContent ?? '', /1 waiting/)
+  assert.match(within(container.querySelector('[data-closable-id="b"]') as HTMLElement).getByTestId('session-attention').textContent ?? '', /1 agent waiting/)
 })

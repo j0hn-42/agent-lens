@@ -1,7 +1,7 @@
 /**
  * Runtime abstraction for agent session watchers.
  *
- * Each supported agent tool (Claude Code, Codex, Copilot, Pi, Gemini CLI, ...) implements
+ * Each supported agent tool (Claude Code, Codex, Copilot, Pi, Gemini CLI, OpenCode, ...) implements
  * AgentSessionWatcher and is started via a runtime factory in extension.ts.
  * The interface deliberately matches what the visualizer needs to render
  * live activity: an event stream, session lifecycle, and replay on panel
@@ -12,10 +12,11 @@
 import * as vscode from 'vscode'
 import type { AgentEvent, SessionInfo } from './protocol'
 import { VisualizerPanel } from './webview-provider'
+import { panelLoss } from './panel-loss'
 import { SESSION_ID_DISPLAY, STATUS_MESSAGE_DURATION_MS } from './constants'
 import type { TypedDisposable, TypedEvent } from './typed-event-emitter'
 
-export type AgentRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+export type AgentRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
 
 export interface SessionLifecycleEvent {
   type: 'started' | 'ended' | 'updated'
@@ -46,6 +47,22 @@ export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'team
   }
 }
 
+/**
+ * The session announced by a 'started' lifecycle (#365). When the watcher lists the session, its own times are
+ * kept (start recorded by the transcript, last write of the file); `now` only stands in for a session it does
+ * not list.
+ */
+export function startedSessionInfo(lifecycle: SessionLifecycleEvent, listed: SessionInfo | undefined, now: number): SessionInfo {
+  const times = listed
+    ? {
+      startTime: listed.startTime, lastActivityTime: listed.lastActivityTime,
+      ...(listed.recordedStartTime !== undefined ? { recordedStartTime: listed.recordedStartTime } : {}),
+      ...(listed.startTimeWatched ? { startTimeWatched: true } : {}),
+    }
+    : { startTime: now, lastActivityTime: now, startTimeWatched: true }
+  return { id: lifecycle.sessionId, label: lifecycle.label, status: 'active', ...times, ...lifecycleTags(lifecycle) }
+}
+
 /** Interface every runtime's watcher implements. Uses portable typed-event
  *  types (not vscode.Event) so watchers can run in the relay/CLI too. */
 export interface AgentSessionWatcher extends TypedDisposable {
@@ -57,6 +74,10 @@ export interface AgentSessionWatcher extends TypedDisposable {
   isSessionActive(sessionId: string): boolean
   getActiveSessions(): SessionInfo[]
   replaySessionStart(sessionIds?: string[]): void
+  /** A session whose read position the watcher forgot (#592): if it comes back, its history is emitted again
+   *  (`replayed`) and may repeat events emitted before. Absent for a watcher that never reads a history twice, and
+   *  for one that reads it again unmarked (OpenCode), which is wired with `countPanelLoss: false` instead. */
+  readonly onSessionReleased?: TypedEvent<string>
 }
 
 /** A running runtime: its watcher, a status line describing its connection,
@@ -76,6 +97,32 @@ export interface WatchPanelWiringOptions {
   sessionLabelPrefix: string
   /** Optional event transform — return null to suppress an event. */
   transformEvent?: (event: AgentEvent) => AgentEvent | null
+  /** false: this watcher's events are not counted in the panel's loss figure (#592), for a watcher that reads a
+   *  history again without marking it `replayed` (OpenCode). The figure then leaves them out: a lower bound. */
+  countPanelLoss?: boolean
+}
+
+/**
+ * Hand an event to the current panel (only once its page is ready, unless `requireReady` is false) and count it,
+ * delivered or not: a page that opens later gets a reset, never this event (#592, panel-loss.ts).
+ */
+export function forwardToPanel(
+  event: AgentEvent,
+  opts: { requireReady?: boolean; countLoss?: boolean; reread?: boolean } = {},
+): void {
+  // countLoss false: a source whose re-reads cannot be told apart is left out (the figure stays a lower bound)
+  if (opts.countLoss !== false) panelLoss.note(event, { reread: opts.reread })
+  const panel = VisualizerPanel.getCurrent()
+  if (!panel || (opts.requireReady !== false && !panel.isReady)) return
+  panel.sendEvent(event)
+}
+
+/**
+ * The Claude hook events that survived reconciliation against the transcript, to the panel (#53, #592). Those the
+ * reconciler dropped never get here and are not counted: they may duplicate transcript events.
+ */
+export function wireHookEventsToPanel(watcher: { readonly onHookEvent: TypedEvent<AgentEvent> }): TypedDisposable {
+  return watcher.onHookEvent((event) => forwardToPanel(event))
 }
 
 /**
@@ -94,11 +141,11 @@ export function wireWatcherToPanel(
   const subs: TypedDisposable[] = []
 
   subs.push(watcher.onEvent((event) => {
-    const panel = VisualizerPanel.getCurrent()
-    if (!panel || !panel.isReady) return
     const transformed = options.transformEvent ? options.transformEvent(event) : event
-    if (transformed) panel.sendEvent(transformed)
+    if (transformed) forwardToPanel(transformed, { countLoss: options.countPanelLoss })
   }))
+  // Its history may come again: counted once, not twice (#592, panel-loss.ts)
+  if (watcher.onSessionReleased && options.countPanelLoss !== false) subs.push(watcher.onSessionReleased((sessionId) => panelLoss.release(sessionId)))
 
   subs.push(watcher.onSessionDetected((sessionId) => {
     const panel = VisualizerPanel.getCurrent()
@@ -118,17 +165,8 @@ export function wireWatcherToPanel(
     const panel = VisualizerPanel.getCurrent()
     if (!panel) return
     if (lifecycle.type === 'started') {
-      panel.postMessage({
-        type: 'session-started',
-        session: {
-          id: lifecycle.sessionId,
-          label: lifecycle.label,
-          status: 'active',
-          startTime: Date.now(),
-          lastActivityTime: Date.now(),
-          ...lifecycleTags(lifecycle),
-        },
-      })
+      const listed = watcher.getActiveSessions().find(s => s.id === lifecycle.sessionId)
+      panel.postMessage({ type: 'session-started', session: startedSessionInfo(lifecycle, listed, Date.now()) })
     } else if (lifecycle.type === 'updated') {
       panel.postMessage({
         type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label,

@@ -31,7 +31,7 @@ import {
 import { purgeStaleDiscoveryFiles } from './discovery-purge'
 import { createLogger } from './logger'
 import { filterOrchestratorCompletion } from './orchestrator-completion'
-import { wireWatcherToPanel } from './session-runtime'
+import { wireWatcherToPanel, wireHookEventsToPanel } from './session-runtime'
 import type { AgentRuntime } from './session-runtime'
 
 const log = createLogger('ClaudeRuntime')
@@ -100,10 +100,7 @@ export async function startClaudeRuntime(
   // already reported (or reports later) is dropped, and events arriving while a session history is
   // loaded are held and replayed deduplicated. Survivors come back on watcher.onHookEvent.
   if (hookPort !== HOOK_SERVER_NOT_STARTED) {
-    context.subscriptions.push(watcher.onHookEvent((event) => {
-      const panel = VisualizerPanel.getCurrent()
-      if (panel && panel.isReady) panel.sendEvent(event)
-    }))
+    context.subscriptions.push(wireHookEventsToPanel(watcher))
     hookServer.onEvent((event) => {
       const panel = VisualizerPanel.getCurrent()
       if (!panel || !panel.isReady) return
@@ -135,7 +132,9 @@ export async function startClaudeRuntime(
         return
       }
 
-      watcher.submitHookEvent(event)
+      // A Stop is a turn end here too: only a SessionEnd finishes an orchestrator (#360)
+      const filtered = filterOrchestratorCompletion(event)
+      if (filtered) watcher.submitHookEvent(filtered)
       panel.setConnectionStatus('watching', `Claude Code hooks (:${hookPort})`)
     })
   }

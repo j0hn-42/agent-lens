@@ -1,26 +1,34 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
-  activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject, SHOW_FINISHED_STORAGE_KEY,
+  activeSessionIds, finishedSessionIds, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject,
 } from '@/hooks/simulation/session-visibility'
+import { useUiPreferences } from '@/hooks/use-ui-preferences'
+import { showsFinishedSessions } from '@/lib/show-mode'
 import {
   vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice,
-  type PermissionBridgeMessage, type PermissionRequestMessage, type PermissionDecision,
+  type PermissionBridgeMessage, type PermissionRequestMessage,
 } from '@/lib/vscode-bridge'
+import type { PermissionAction } from '@/lib/bridge-types'
+import { carriesRefusal, redirectMessage, refusalProbe } from '@/lib/permission-requests'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
-import { MOCK_SESSIONS } from '@/lib/mock-scenario'
-import { applyRelayScope, fetchRelayScopeState, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
+import { HAS_MOCK_SESSIONS, mockSessions } from '@/lib/mock-scenario'
+import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, runtimeRecheckKey, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
+import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss, type LossSource } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
+import { parseSystemSample, pushSample } from '@/lib/system-stats'
+import { parseQuotaMessage, acceptQuota } from '@/lib/quota'
+import { SESSION_HANDLERS, type SessionHandlerCtx } from '@/lib/bridge-session-handlers'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
@@ -73,14 +81,16 @@ interface BridgeHookResult {
   teamSummaries: Map<string, GroupSummary>
   /** Members known per team (team config or teammates seen) */
   teamMemberCounts: Map<string, number>
-  /** 'All' also shows the finished sessions (persisted preference) */
+  /**
+   * 'All' also shows the finished sessions: the Show mode is 'all' (persisted preference, #372). Read only: the one
+   * writer is the preference store (top bar, Settings, reset, another tab), never the bridge
+   */
   showFinished: boolean
-  setShowFinished: (show: boolean) => void
   /** Sessions the 'All' view shows (null = every session); changes whenever the shown set changes */
   allViewSessionIds: ReadonlySet<string> | null
   /** Identity of the 'All' view's shown set: a change means the union simulation must be rebuilt */
   allViewKey: string
-  /** Sessions of the list that count as finished (hidden from 'All' unless showFinished) */
+  /** Sessions of the list, in the project scope when there is one, that count as finished (hidden from 'All' unless showFinished) */
   finishedSessionCount: number
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
@@ -108,6 +118,10 @@ interface BridgeHookResult {
   relayUnreachable: boolean
   /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
   connectionDetail: string | null
+  /** "Retry now" (#371): skip the reconnect wait and open the stream at once; no-op when the relay is not used */
+  retryRelay: () => void
+  /** Leave the demo for the empty state (#371); the demo sessions go, a real source is not touched */
+  exitDemo: () => void
   /** Consecutive relay connection failures (0 when connected) */
   reconnectAttempt: number
   /** 'polling' after repeated SSE failures: only reachability is probed until the relay answers */
@@ -117,6 +131,25 @@ interface BridgeHookResult {
   /** Agent launches (#229): present only when GET /status of a SAME-ORIGIN relay has `launch` (--allow-launch).
    *  `launches` is what the relay reported (SSE `launch` / `launch-list` and the status), by id. */
   launch: { maxConcurrent: number; launches: ReadonlyMap<string, LaunchView> } | null
+  /** Machine health (#357): the relay's `system-stats` samples, oldest first, bounded. Empty until the relay sends one,
+   *  while the link is down, and always in VS Code and demo mode (the relay stream is not used there). */
+  systemStats: readonly SystemSample[]
+  /** Subscription quota (#467): the relay's latest `quota` snapshot of the account, null until it sends one. Kept when the link
+   *  drops (its age tells how stale it is, see quotaGaugeState). Relay stream only: always null in VS Code and demo mode. */
+  quota: QuotaSnapshotView | null
+  /** What the relay could not replay when this page connected (#366): null when it reported nothing. Relay stream only. */
+  eventLoss: EventLoss | null
+  /** Events of the selection the relay could not replay (0 when none is proven), see lib/event-loss */
+  replayLost: number
+  /** Where the figure of eventLoss comes from: 'extension' without a relay stream (VS Code, #592; the demo has no figure),
+   *  else 'relay'. The VS Code extension lowers its figure while the page is open; the relay's only goes down when it
+   *  restarts or the graph is reloaded (see truncationBannerState, whose rule depends on it). */
+  eventLossSource: LossSource
+  /**
+   * Sessions a union view counts (#366): a team's sessions, or the ones All shows (null = every session). The scope of
+   * replayLost, and of the normalizer counters the truncation notice adds up. Unused for a single session.
+   */
+  viewSessionIds: ReadonlySet<string> | null
 }
 
 export const PARSE_NOTICE_INTERVAL_MS = 10_000
@@ -198,20 +231,23 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     setUseMockData(false)
     if (!demoSessionsRef.current) return
     demoSessionsRef.current = false
-    updateSessions(prev => prev.filter(s => !MOCK_SESSIONS.some(m => m.id === s.id)))
+    const demoIds = new Set(mockSessions().map(m => m.id))
+    updateSessions(prev => prev.filter(s => !demoIds.has(s.id)))
     if (selectedSessionIdRef.current === ALL_SESSIONS_ID) { selectedSessionIdRef.current = null; setSelectedSessionId(null) }
   }, [updateSessions])
   // Seeded after mount: the scenario is read from the URL, which the server render cannot know
   useEffect(() => {
-    if (process.env.NEXT_PUBLIC_DEMO === '0' || MOCK_SESSIONS.length === 0 || sessionsRef.current.length > 0) return
+    if (process.env.NEXT_PUBLIC_DEMO === '0' || !HAS_MOCK_SESSIONS || sessionsRef.current.length > 0) return
     demoSessionsRef.current = true
-    updateSessions(() => MOCK_SESSIONS)
+    updateSessions(() => mockSessions())
     selectedSessionIdRef.current = ALL_SESSIONS_ID
     setSelectedSessionId(ALL_SESSIONS_ID)
   }, [updateSessions])
-  // 'All' shows only the active sessions unless the user asked for the finished ones too
-  const [showFinished, setShowFinishedState] = useState(false)
-  const showFinishedRef = useRef(false)
+  // 'All' shows only the active sessions unless the Show mode is 'all' (#372). The choice lives in the preference blob:
+  // Settings, the top bar, another tab and 'Reset preferences' all write the same field.
+  const { prefs: uiPrefs } = useUiPreferences()
+  const showFinished = showsFinishedSessions(uiPrefs.show)
+  const showFinishedRef = useRef(showFinished)
   const lastEventAtRef = useRef<Map<string, number>>(new Map())
   /** Sessions shown in 'All' (null = every one); read synchronously by the event filter */
   const visibleRef = useRef<ReadonlySet<string> | null>(null)
@@ -246,7 +282,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       teamSummaries: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.summary(name)] as const)),
       now: Date.now(),
     })
-    finished = finishedSessionIds(sessionsRef.current, active).length
+    // Counted in the project scope only: a session out of it stays out of the view whatever the filter, so the
+    // count is what 'active' actually hides (#372, said by the top bar)
+    const inScope = restrictToProject(null, sessionsRef.current, projectScopeRef.current)
+    finished = finishedSessionIds(inScope === null ? sessionsRef.current : sessionsRef.current.filter(s => inScope.has(s.id)), active).length
     if (!showFinishedRef.current) next = active
     // A project scope narrows the view to that project's sessions (#291), whatever their activity
     const restricted = restrictToProject(next, sessionsRef.current, projectScopeRef.current)
@@ -262,23 +301,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     }
   }, [])
 
-  const setShowFinished = useCallback((show: boolean) => {
-    showFinishedRef.current = show
-    setShowFinishedState(show)
-    try { localStorage.setItem(SHOW_FINISHED_STORAGE_KEY, String(show)) } catch { /* storage unavailable */ }
-    recomputeVisible()
-  }, [recomputeVisible])
-
-  // Restore the persisted preference once on mount
+  // Follow the stored preference: the value restored after hydration, another tab, a reset from Settings
   useEffect(() => {
-    try {
-      if (parseShowFinished(localStorage.getItem(SHOW_FINISHED_STORAGE_KEY))) {
-        showFinishedRef.current = true
-        setShowFinishedState(true)
-      }
-    } catch { /* storage unavailable */ }
+    showFinishedRef.current = showFinished
     recomputeVisible()
-  }, [recomputeVisible])
+  }, [showFinished, recomputeVisible])
   const [sessionsWithActivity, setSessionsWithActivity] = useState<Set<string>>(new Set())
   const [relayUnreachable, setRelayUnreachable] = useState(false)
   const [relayScope, setRelayScopeState] = useState<RelayScopeState | null>(null)
@@ -305,13 +332,42 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // a frame that embeds the page cannot make up a launch.
   const [launches, setLaunches] = useState<ReadonlyMap<string, LaunchView>>(() => new Map())
   const [launchMax, setLaunchMax] = useState<number | null>(null)
+  // Machine health (#357): from the relay stream only, like the launches
+  const [systemStats, setSystemStats] = useState<readonly SystemSample[]>([])
+  // Subscription quota (#467): from the relay stream only. An invalid message keeps the previous snapshot
+  const [quota, setQuota] = useState<QuotaSnapshotView | null>(null)
+  // Events the relay could not replay (#366). Its figure is a total since the relay started: only the first
+  // connection of a graph is a lower bound of what the graph lacks, a reconnection that keeps the graph is
+  // not. The figure lives as long as the graph (until a scope change reloads it), not as long as the link.
+  const [eventLoss, setEventLoss] = useState<EventLoss | null>(null)
+  const connectionsRef = useRef(0)
+  const lastLinkStatusRef = useRef<string>('connecting')
   const source = useReconnectingSource({
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
     sessionId: options?.relaySessionId ?? null,
     generation: connectionGeneration,
+    onStatusChange: status => {
+      if (status === 'connected' && lastLinkStatusRef.current !== 'connected') connectionsRef.current++
+      lastLinkStatusRef.current = status
+    },
     onMessage: data => {
       if (isLaunchMessage(data)) { setLaunches(prev => reduceLaunches(prev, data)); return }
+      if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'system-stats') {
+        const next = parseSystemSample((data as { sample?: unknown }).sample)
+        if (next) setSystemStats(prev => pushSample(prev, next))
+        return
+      }
+      if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'quota') {
+        const next = parseQuotaMessage((data as { quota?: unknown }).quota)
+        setQuota(prev => acceptQuota(prev, next))
+        return
+      }
+      if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'event-loss') {
+        const incoming = parseEventLoss(data)
+        setEventLoss(prev => acceptEventLoss(connectionsRef.current, prev, incoming))
+        return
+      }
       vscodeBridge?.dispatch(data)
     },
     onParseError: () => {
@@ -377,6 +433,39 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return () => ctl.abort()
   }, [relayEnabled, source.status, refreshRelayScope])
   useEffect(() => { if (!relayEnabled) { setRelayScopeState(null); syncedScopeRef.current = null } }, [relayEnabled])
+  // A runtime problem read from GET /status may turn false while the page is connected (#420): re-read it on a
+  // bounded schedule for as long as it is shown
+  const runtimeRecheckRef = useRef(0)
+  const runtimeRecheckKeyRef = useRef('')
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected') return
+    // A problem that appears (or goes away) restarts the schedule from 5 s; a loss count that grows does not (#420)
+    const key = runtimeRecheckKey(relayScope)
+    if (key !== runtimeRecheckKeyRef.current) { runtimeRecheckKeyRef.current = key; runtimeRecheckRef.current = 0 }
+    const delay = runtimeProblemRecheckDelay(relayScope, runtimeRecheckRef.current)
+    if (delay === null) { runtimeRecheckRef.current = 0; return }
+    const ctl = new AbortController()
+    const timer = setTimeout(() => {
+      runtimeRecheckRef.current++
+      void refreshRelayScope(ctl.signal)
+    }, delay)
+    return () => { clearTimeout(timer); ctl.abort() }
+  }, [relayEnabled, source.status, relayScope, refreshRelayScope])
+
+  // A buffer from a link that is gone would show old figures as current
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected') setSystemStats(prev => (prev.length > 0 ? [] : prev))
+  }, [relayEnabled, source.status])
+  // Without a relay stream the figure is the extension's (VS Code, #592: after its reset, then lower when a history read again reaches the page; emptied by the reset), none in
+  // the demo; with one, a cut link keeps the relay's figure, since the graph keeps its hole
+  useEffect(() => {
+    if (relayEnabled) return
+    connectionsRef.current = 0
+    lastLinkStatusRef.current = 'connecting'
+    if (!vscodeBridge) { setEventLoss(prev => (prev === null ? prev : null)); return }
+    setEventLoss(vscodeBridge.eventLoss)
+    return vscodeBridge.onEventLoss(loss => setEventLoss(loss))
+  }, [relayEnabled])
 
   // Launching (#229): only a page served by the relay itself (same origin) can send POST /launch. The relay answers
   // no CORS preflight, which a request with Authorization and a JSON body needs, so the dev server (:3000) and the
@@ -396,6 +485,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       .catch(() => { if (!ctl.signal.aborted) { setLaunchMax(null); setLaunches(prev => (prev.size > 0 ? new Map() : prev)) } })
     return () => ctl.abort()
   }, [relayEnabled, source.status, relayOrigin])
+  // What the relay could not replay, for the selection: a team counts only its own sessions, All only the ones it shows (#453)
+  const teamIds = useMemo(() => {
+    const team = parseTeamSelection(selectedSessionId)
+    return team === null ? null : teamSessionIds(team, teamTrackerRef.current, sessions)
+    // teamView changes when the tracker learns a team member
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionId, sessions, teamView])
+  const replayLost = useMemo(() => replayLostFor(eventLoss, selectedSessionId, teamIds, visibility.ids), [eventLoss, selectedSessionId, teamIds, visibility.ids])
+  const viewSessionIds = teamIds ?? visibility.ids
   const launch = useMemo(() => (launchMax === null ? null : { maxConcurrent: launchMax, launches }), [launchMax, launches])
 
   /** The relay scans another scope: reload the view once (sessions and replay of the old scope must not linger), then re-read the status. */
@@ -403,6 +501,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     if (syncedScopeRef.current === scope) { void refreshRelayScope(); return }
     syncedScopeRef.current = scope
     vscodeBridge?.dispatch({ type: 'reset', reason: 'scope-changed' })
+    // The graph is emptied: the next connection is a first one again
+    connectionsRef.current = 0
+    lastLinkStatusRef.current = 'connecting'
+    setEventLoss(null)
     setConnectionGeneration(g => g + 1)
     void refreshRelayScope()
   }, [refreshRelayScope])
@@ -536,92 +638,18 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       if (typeof config.hooksConfigured === 'boolean') { setHooksConfigured(config.hooksConfigured) }
     })
 
-    // Session lifecycle tracking
-    // Note: these handlers only update session list + selection state.
-    // Event flushing is handled by the consumer (index.tsx effect) to avoid
-    // races between auto-flush here and save/restore logic there.
+    // Session lifecycle: one handler per message type (lib/bridge-session-handlers). They only update the
+    // session list and the selection; event flushing is the consumer's (index.tsx layout effect).
+    const sessionCtx: SessionHandlerCtx = {
+      updateSessions, selectedSessionIdRef, setSelectedSessionId, sessionSwitchPendingRef, pendingEventsRef,
+      sessionBuffersRef, allEventsRef, allBaseRef, lastEventAtRef, modelTrackerRef, teamTrackerRef, dismissedSessionsRef,
+      setSessionModels, refreshTeamView, setSessionsWithActivity, pushNotice,
+      bumpEventVersion: () => setEventVersion(v => v + 1),
+      now: Date.now,
+    }
     const unsubSession = bridge.onSession((type, data) => {
-      if (type === 'reset') {
-        // Panel was reopened — clear all stale state (and tell the user, non-blocking)
-        // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
-        if (data === 'scope-changed') pushNotice('reset', 'Scope changed: the session view was reloaded')
-        else if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
-        updateSessions(() => [])
-        setSelectedSessionId(null)
-        selectedSessionIdRef.current = null
-        pendingEventsRef.current.length = 0
-        clearSessionBuffers(sessionBuffersRef.current)
-        modelTrackerRef.current.clear()
-        setSessionModels(new Map())
-        allEventsRef.current = []
-        allBaseRef.current = 0
-        lastEventAtRef.current.clear()
-        teamTrackerRef.current.clear()
-        refreshTeamView()
-        setSessionsWithActivity(new Set())
-        dismissedSessionsRef.current.clear()
-        setEventVersion(v => v + 1)
-        return
-      }
-      if (type === 'list') {
-        const sessionList = data as SessionInfo[]
-        // Events replayed before the list arrived were stamped with the reception time: undo that for finished sessions
-        pruneReplayStamps(lastEventAtRef.current, sessionList, Date.now())
-        updateSessions(() => sessionList)
-        // Auto-select: prefer active sessions, then most recently active.
-        // Only set selection — useLayoutEffect handles flushing events.
-        const autoId = selectedSessionIdRef.current ? undefined : pickAutoSelectSession(sessionList)
-        if (autoId) {
-          sessionSwitchPendingRef.current = true
-          pendingEventsRef.current.length = 0
-          selectedSessionIdRef.current = autoId
-          setSelectedSessionId(autoId)
-        }
-      } else if (type === 'started') {
-        const session = data as SessionInfo
-        updateSessions(prev => {
-          const existing = prev.find(s => s.id === session.id)
-          if (existing) {
-            // Session resumed after inactivity — mark active again (an imported one never is: keep what the relay says)
-            return prev.map(s => {
-              if (s.id !== session.id) return s
-              if (session.imported) return session
-              const { indexedOnly: _indexedOnly, ...live } = s // now watched live
-              return { ...live, status: 'active' as const, lastActivityTime: Date.now() }
-            })
-          }
-          return [...prev, session]
-        })
-        if (selectedSessionIdRef.current) {
-          // Never yank the user away from what they are watching: pulse the new tab instead.
-          if (selectedSessionIdRef.current !== session.id && selectedSessionIdRef.current !== ALL_SESSIONS_ID) {
-            setSessionsWithActivity(prev => {
-              if (prev.has(session.id)) return prev
-              const next = new Set(prev)
-              next.add(session.id)
-              return next
-            })
-          }
-        } else {
-          // Nothing selected yet: select the new session.
-          // Set switch-pending flag to prevent the animation frame from processing
-          // events in the wrong simulation state before useLayoutEffect swaps it.
-          sessionSwitchPendingRef.current = true
-          pendingEventsRef.current.length = 0
-          selectedSessionIdRef.current = session.id
-          setSelectedSessionId(session.id)
-        }
-      } else if (type === 'updated') {
-        const { sessionId, label } = data as { sessionId: string; label: string }
-        updateSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, label } : s
-        ))
-      } else if (type === 'ended') {
-        const sessionId = data as string
-        updateSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, status: 'completed' as const } : s
-        ))
-      }
+      const handle = SESSION_HANDLERS[type] as (ctx: SessionHandlerCtx, data: unknown) => void
+      handle(sessionCtx, data)
     })
 
     return () => {
@@ -785,7 +813,6 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     teamSummaries: teamView.summaries,
     teamMemberCounts: teamView.members,
     showFinished,
-    setShowFinished,
     allViewSessionIds: visibility.ids,
     allViewKey: visibility.key,
     finishedSessionCount: visibility.finished,
@@ -803,9 +830,18 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     relayUnreachable,
     connectionDetail: relayEnabled ? source.detail : null,
     reconnectAttempt: relayEnabled ? source.attempt : 0,
+    retryRelay: source.retryNow,
+    exitDemo: leaveDemo,
     relayLinkMode: source.mode,
     notice,
     launch,
+    systemStats,
+    quota,
+    eventLoss,
+    replayLost,
+    // The same switch as the effect that reads the figure: without a relay stream it is the extension's (none in the demo)
+    eventLossSource: (relayEnabled ? 'relay' : 'extension') as LossSource,
+    viewSessionIds,
   }
 }
 
@@ -818,12 +854,24 @@ export interface PermissionRow {
   request: PermissionRequestMessage
   state: PermissionRowState
   /** The decision this page sent, when it sent one */
-  action?: PermissionDecision['action']
+  action?: PermissionAction
+  /**
+   * What the error result of the call must contain to prove this page's deny or redirect reached Claude (#387): the
+   * deny text or the beginning of the redirect text. In memory only: never shown, never sent elsewhere.
+   */
+  probe?: string
+  /**
+   * A deny or redirect this page sent was seen applied (#387): after the extension said `sent`, a live tool_call_end
+   * of that very call (same session, same non-null tool_use_id) ended in error, not cancelled, not from the hook's
+   * PostToolUseFailure, and its result contains the probe. Never set otherwise.
+   */
+  applied?: boolean
 }
 
 /** One polite announcement; `id` changes at each one so the same text is announced again */
 export type PermissionNotice =
   | { id: number; kind: 'sent'; request: PermissionRequestMessage }
+  | { id: number; kind: 'applied'; request: PermissionRequestMessage; action: 'deny' | 'redirect' }
   | { id: number; kind: 'closed'; request: PermissionRequestMessage; outcome: string }
   | { id: number; kind: 'error'; reason: string; request?: PermissionRequestMessage }
 
@@ -835,8 +883,10 @@ export interface PermissionState {
 
 export type PermissionEvent =
   | PermissionBridgeMessage
-  | { kind: 'decide'; nonce: string; action: PermissionDecision['action'] }
+  | { kind: 'decide'; nonce: string; action: PermissionAction; probe?: string }
   | { kind: 'dismiss'; nonce: string }
+  /** The end of a tool call, seen live in the event stream (#387) */
+  | { kind: 'tool-end'; sessionId: string; toolUseId: string; refused: boolean; result: unknown }
 
 const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
 
@@ -848,12 +898,24 @@ const STILL_WAITING_REASONS = new Set(['mismatch', 'message-required'])
 
 type NoticeBody =
   | { kind: 'sent'; request: PermissionRequestMessage }
+  | { kind: 'applied'; request: PermissionRequestMessage; action: 'deny' | 'redirect' }
   | { kind: 'closed'; request: PermissionRequestMessage; outcome: string }
   | { kind: 'error'; reason: string; request?: PermissionRequestMessage }
 
+/** A refusal of one call (#387): a tool_call_end that names its call, ended in error and was not a user interrupt */
+function observedToolEnd(e: AgentEvent): Extract<PermissionEvent, { kind: 'tool-end' }> | null {
+  // History (replayed, imported) is not news: only what arrives live after the decision can show it was applied
+  if (e.type !== 'tool_call_end' || e.replayed || e.imported || typeof e.sessionId !== 'string') return null
+  const id = e.payload.toolUseId
+  if (typeof id !== 'string' || !id) return null
+  return { kind: 'tool-end', sessionId: e.sessionId, toolUseId: id, refused: e.payload.isError === true && e.payload.outcome !== 'cancelled', result: e.payload.result }
+}
+
 /**
  * What the panel shows of the waiting requests. Only the extension's messages move a row to `sent` or remove it:
- * a click only makes it `sending`. Nothing here ever says a decision was applied (docs/reading-the-ui.md).
+ * a click only makes it `sending`. A row is marked applied only for a deny or redirect sent from this page, once
+ * the event stream shows its refusal (see PermissionRow.applied); an approval is never claimed applied
+ * (docs/reading-the-ui.md).
  */
 function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionState {
   const find = (nonce: string | null) => (nonce === null ? undefined : s.rows.find(r => r.request.nonce === nonce))
@@ -875,7 +937,14 @@ function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionSt
     case 'decide': {
       const row = find(e.nonce)
       if (!row || row.state !== 'waiting') return s
-      return { ...s, rows: withRow(e.nonce, { ...row, state: 'sending', action: e.action }) }
+      return { ...s, rows: withRow(e.nonce, { ...row, state: 'sending', action: e.action, ...(e.probe ? { probe: e.probe } : {}) }) }
+    }
+    case 'tool-end': {
+      if (!e.refused) return s
+      const row = s.rows.find(r => r.state === 'sent' && !r.applied && (r.action === 'deny' || r.action === 'redirect')
+        && r.request.toolUseId === e.toolUseId && r.request.sessionId === e.sessionId)
+      if (!row || (row.action !== 'deny' && row.action !== 'redirect') || !row.probe || !carriesRefusal(row.probe, e.result)) return s
+      return { ...s, rows: withRow(row.request.nonce, { ...row, applied: true }), ...announce({ kind: 'applied', request: row.request, action: row.action }) }
     }
     case 'dismiss': {
       const row = find(e.nonce)
@@ -918,7 +987,8 @@ export interface PermissionRequestsResult {
   available: boolean
   rows: readonly PermissionRow[]
   notice: PermissionNotice | null
-  decide: (nonce: string, action: PermissionDecision['action']) => void
+  /** A redirect needs its text; an empty one is not sent */
+  decide: (nonce: string, action: PermissionAction, message?: string) => void
   dismiss: (nonce: string) => void
 }
 
@@ -945,20 +1015,32 @@ export function usePermissionRequests(): PermissionRequestsResult {
     if (!available || !vscodeBridge) return
     // Listen first: the extension answers the surface with the requests already waiting
     const off = vscodeBridge.onPermission(apply)
+    // The event stream is read only for the end of a call a deny or redirect was sent for (#387)
+    const offEvents = vscodeBridge.onEvent(event => {
+      const end = observedToolEnd(event)
+      if (end) apply(end)
+    })
     const detach = vscodeBridge.attachPermissionSurface()
     return () => {
       detach()
+      offEvents()
       off()
     }
   }, [available, apply])
 
-  const decide = useCallback((nonce: string, action: PermissionDecision['action']) => {
+  const decide = useCallback((nonce: string, action: PermissionAction, message?: string) => {
     const row = stateRef.current.rows.find(r => r.request.nonce === nonce)
     if (!row || row.state !== 'waiting' || !vscodeBridge) return
+    // A redirect without a text is not sent at all: the extension would refuse it (message-required)
+    const text = action === 'redirect' ? redirectMessage(message ?? '') : ''
+    if (action === 'redirect' && !text) return
     // State first: a second click before the re-render finds the row 'sending' and sends nothing
-    apply({ kind: 'decide', nonce, action })
+    const probe = refusalProbe(action, text) ?? undefined
+    apply({ kind: 'decide', nonce, action, probe })
     const { sessionId, toolUseId } = row.request
-    vscodeBridge.sendPermissionDecision({ sessionId, toolUseId, nonce, action })
+    vscodeBridge.sendPermissionDecision(action === 'redirect'
+      ? { sessionId, toolUseId, nonce, action, message: text }
+      : { sessionId, toolUseId, nonce, action })
   }, [apply])
 
   const dismiss = useCallback((nonce: string) => { apply({ kind: 'dismiss', nonce }) }, [apply])

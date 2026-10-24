@@ -9,6 +9,7 @@ import { useAttentionAlerts } from '@/hooks/use-attention-alerts'
 import { useAgentSimulation } from '@/hooks/use-agent-simulation'
 import type { SimulationEvent } from '@/lib/agent-types'
 import { summarizeAttention, trackForeignAttention, withForeignAttention, type AttentionAgent } from '@/lib/attention'
+import { openMore } from './topbar-more'
 
 const noop = () => {}
 const g = globalThis as unknown as { Notification?: unknown }
@@ -40,19 +41,35 @@ test('top bar: no counter without a blocked agent', () => {
   assert.equal(queryByTestId('attention-counter'), null)
 })
 
-test('top bar: the counter names the numbers in words and a click goes to the first blocked agent', () => {
+test('top bar: the counter names the numbers in words and each click goes to the next blocked agent (#377)', () => {
   let jumped = 0
   const { getByRole } = render(topBar({ attention: { waiting: 2, errors: 1 }, onJumpToAttention: () => { jumped++ } }))
-  const button = getByRole('button', { name: /2 waiting \/ 1 error\. Go to the first agent/ })
+  const button = getByRole('button', { name: /2 agents waiting \/ 1 agent in error\. Go to the next agent that needs you/ })
   fireEvent.click(button)
-  assert.equal(jumped, 1)
+  fireEvent.click(button)
+  assert.equal(jumped, 2)
+})
+
+test('top bar: with a single blocked agent the counter does not promise a next one', () => {
+  const { getByRole } = render(topBar({ attention: { waiting: 1, errors: 0 }, onJumpToAttention: noop }))
+  getByRole('button', { name: '1 agent waiting. Go to the agent that needs you' })
+})
+
+test('top bar: outside VS Code the counter says that a permission is answered where the agent runs (#377)', () => {
+  const web = render(topBar({ attention: { waiting: 1, errors: 0 }, onJumpToAttention: noop }))
+  assert.match(web.getByTestId('attention-counter').getAttribute('title') ?? '', /answered where the agent runs/)
+  cleanup()
+  const vscode = render(topBar({ isVSCode: true, attention: { waiting: 1, errors: 0 }, onJumpToAttention: noop }))
+  assert.doesNotMatch(vscode.getByTestId('attention-counter').getAttribute('title') ?? '', /answered where/)
 })
 
 test('top bar: the notification option is hidden when unsupported and says when blocked', () => {
   const none = render(topBar({ notifyState: 'unsupported', onToggleNotify: noop }))
+  openMore() // the filters are behind More (one-line bar)
   assert.equal(none.queryByRole('button', { name: /Notif/ }), null)
   none.unmount()
   const denied = render(topBar({ notifyState: 'denied', onToggleNotify: noop }))
+  openMore()
   denied.getByRole('button', { name: 'Notifications blocked' })
 })
 
@@ -95,7 +112,7 @@ test('notification: permission is asked only when the user turns it on, then a h
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
   hook.rerender({ agents: [blocked('s1:a', 'waiting_permission'), blocked('s2:a', 'error')] })
   assert.equal(FakeNotification.shown.length, 1)
-  assert.match(FakeNotification.shown[0].body ?? '', /1 waiting \/ 1 error/)
+  assert.match(FakeNotification.shown[0].body ?? '', /1 agent waiting \/ 1 agent in error/)
   hook.rerender({ agents: [blocked('s1:a', 'waiting_permission'), blocked('s2:a', 'error')] })
   assert.equal(FakeNotification.shown.length, 1, 'no repeat for agents already reported')
 

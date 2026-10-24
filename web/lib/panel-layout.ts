@@ -5,7 +5,8 @@
  * bar, panels owned by other modules) and publishes one layout to every docked panel:
  *
  *   - right dock : "link" (stacked on top) then "files" | "conversation" (width = resizable, default 380)
- *   - left dock  : "detail" (agent card), placed below / beside whatever else sits in the left column
+ *   - left dock  : "detail" (agent card), placed below / beside whatever else sits in the left column,
+ *                  then "system" (machine health) in the same column, right below the card
  *   - bottom dock: "timeline", centred above the control bar, narrowed by whatever sits beside it
  *   - popups     : clamped to the viewport, between the top bar and the control bar
  *
@@ -19,10 +20,12 @@
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Viewport { w: number; h: number }
 
-export type PanelId = 'detail' | 'link' | 'files' | 'conversation' | 'timeline'
+export type PanelId = 'detail' | 'system' | 'link' | 'files' | 'conversation' | 'timeline'
 
 /** Below this viewport width panels become full-width sheets (one at a time). */
 export const SHEET_BREAKPOINT = 900
+/** Minimum band kept under the top bar by a sheet that hides other open panels (the "N panels hidden" notice). */
+export const SHEET_NOTICE_H = 44
 /** Space between two panels. */
 export const DOCK_GAP = 8
 /** Space between a panel and the viewport edge. */
@@ -35,7 +38,17 @@ export const CONTROL_BAR_FALLBACK_H = 56
 export const TOPBAR_FALLBACK_H = 60
 
 export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720, step: 16, bigStep: 64 } as const
-export const DETAIL_SIZE = { w: 240, h: 240, minH: 120 } as const
+/**
+ * The cards of the left dock: the size they ask for (`w` x `h`), and the narrowest and shortest they accept.
+ * Both carry rows of text (counts, durations, model names, paths, a delegation report), so the full size is what
+ * shows that content without scrolling it a row at a time; `minW` / `minH` keep them docked on a tight column
+ * instead of dropping the whole layout to a sheet.
+ */
+export const DETAIL_SIZE = { w: 320, h: 420, minW: 240, minH: 120 } as const
+/** Height the System panel asks for: its metric rows, its per-core detail and its load / uptime list. */
+const SYSTEM_H = 420
+/** Heights a left card falls back to, tallest first, once the one it asked for does not fit. */
+const CARD_HEIGHTS = [420, 320, 240, 180, DETAIL_SIZE.minH] as const
 export const LINK_H = 300
 export const MIN_MAIN_H = 160
 export const TIMELINE_SIZE = { maxW: 700, minW: 280, heights: [360, 280, 200] as readonly number[] }
@@ -104,7 +117,8 @@ export function leftPanelWidthBounds(
 ): { min: number; max: number } {
   if (viewportW < SHEET_BREAKPOINT) return dockWidthBounds(viewportW)
   const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
-  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') ? DETAIL_SIZE.w + DOCK_GAP : 0)
+  // What the cards *need* (minW), not what they ask for: a left panel widened past that only narrows them (placeCard)
+  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? DETAIL_SIZE.minW + DOCK_GAP : 0)
   const max = Math.max(0, Math.floor(viewportW - 2 * DOCK_EDGE - reserved))
   // Never wider than the room, even when the room is smaller than the usual minimum
   return { min: Math.min(RIGHT_DOCK.min, max), max }
@@ -167,6 +181,12 @@ export interface DockInput {
   rightWidth?: number
   /** Rectangles of panels owned elsewhere (message feed, per-agent chat, ...): never covered. */
   obstacles?: readonly Rect[]
+  /** Measured height of the "N panels hidden" notice (0 / unknown until it is drawn). */
+  noticeH?: number
+  /** Measured height of the truncation banner (0 / absent when none is drawn): a sheet keeps it free (#453). */
+  bannerH?: number
+  /** Measured height of the permission cards (0 / absent when none is drawn): a sheet keeps a slot for them (#410). */
+  permissionsH?: number
 }
 
 export interface DockLayout {
@@ -181,6 +201,8 @@ export interface DockLayout {
   topbar: Rect
   controlBar: Rect
   rightWidth: number
+  /** Band a sheet keeps free right under the top bar for the permission cards, 0 in dock mode (#410). */
+  permissionsBand: number
 }
 
 export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
@@ -188,20 +210,107 @@ export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
   return { x: Math.round((viewport.w - w) / 2), y: viewport.h - CONTROL_BAR_BOTTOM - controlBarH, w, h: controlBarH }
 }
 
-function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room'): DockLayout {
+/** Offset of the column under the top bar that holds the hidden-panels notice, then the truncation banner (#453). */
+export const TOPBAR_STACK_TOP = 2
+/** Space between the notice and the banner in that column. */
+export const TOPBAR_STACK_GAP = 4
+/** The banner never starts higher than this under the top bar: the history-loading indicator (top bar + 8 px) keeps its slot. */
+export const BANNER_MIN_TOP = 44
+
+/**
+ * The column under the top bar (#453), as offsets from the bottom of the top bar: where the banner starts (null when
+ * none is drawn) and the band it all takes (0 when nothing is drawn). The notice is drawn only when panels are hidden,
+ * at least SHEET_NOTICE_H - 4 high; the banner goes right under it, never above its own slot. Heights are the measured
+ * ones (an unmeasured or invalid value counts as nothing drawn), so a wrapped line grows the band instead of being cut.
+ */
+export function topbarStack(hiddenCount: number, noticeH = 0, bannerH = 0, permissionsH = 0): { bannerTop: number | null; band: number } {
+  const perm = permissionsBand(permissionsH)
+  const notice = hiddenCount > 0 ? Math.max(SHEET_NOTICE_H - 4, Math.ceil(Math.max(0, finite(noticeH, 0)))) : 0
+  const banner = Math.ceil(Math.max(0, finite(bannerH, 0)))
+  const noticeBottom = notice > 0 ? perm + TOPBAR_STACK_TOP + notice : 0
+  const bannerTop = banner > 0 ? (noticeBottom > 0 ? Math.max(BANNER_MIN_TOP, noticeBottom + TOPBAR_STACK_GAP) : perm + BANNER_MIN_TOP) : null
+  const lowest = bannerTop !== null ? bannerTop + banner : noticeBottom > 0 ? noticeBottom : perm
+  return { bannerTop, band: lowest > 0 ? lowest + 2 : 0 }
+}
+
+/**
+ * Slot of the permission cards (#410): they sit right under the top bar, so in a sheet they take the top of the column
+ * and the notice and the banner go under them. Their measured height plus a gap; 0 when none is drawn or invalid.
+ */
+export function permissionsBand(permissionsH = 0): number {
+  const h = Math.ceil(Math.max(0, finite(permissionsH, 0)))
+  return h > 0 ? h + TOPBAR_STACK_GAP : 0
+}
+
+/**
+ * Smallest sheet left under the column when a truncation banner is drawn (#453): lower than MIN_MAIN_H, so a phone
+ * (320 x 568, where the top bar wraps) keeps the banner, the only sign of a partial graph, visible; the sheet scrolls.
+ */
+const MIN_SHEET_H_WITH_BANNER = 96
+
+/**
+ * Band a sheet keeps free under the top bar for that column. In order: the whole column (notice and banner) when it
+ * leaves MIN_MAIN_H, or, with a banner, MIN_SHEET_H_WITH_BANNER; else the notice alone (as before #453) when it leaves
+ * MIN_MAIN_H; else none (the sheet takes the room and may cover the column).
+ */
+function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0, bannerH = 0, permissionsH = 0): { band: number; permissions: number } {
+  // The permission slot is kept only when everything still leaves a usable sheet; else the cards cover it as before
+  for (const perm of permissionsH > 0 ? [permissionsH, 0] : [0]) {
+    const full = topbarStack(hiddenCount, noticeH, bannerH, perm)
+    const floor = full.bannerTop !== null ? MIN_SHEET_H_WITH_BANNER : MIN_MAIN_H
+    if (full.band > 0 && areaH - full.band >= floor) return { band: full.band, permissions: permissionsBand(perm) }
+    const noticeOnly = topbarStack(hiddenCount, noticeH, 0, perm).band
+    if (noticeOnly > 0 && areaH - noticeOnly >= MIN_MAIN_H) return { band: noticeOnly, permissions: permissionsBand(perm) }
+  }
+  return { band: 0, permissions: 0 }
+}
+
+function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number, bannerH?: number, permissionsH?: number): DockLayout {
   const { area } = base
   const newest = open[open.length - 1]
-  const sheet: Rect = { x: 8, y: area.y, w: Math.max(0, area.w - 0), h: area.h }
+  // Other open panels are hidden: keep a band under the top bar for the notice that names them (#410), and for the
+  // truncation banner under it (#453), which a sheet must not slide under even when it is the only open panel; the
+  // permission cards take the top of that column (#410)
+  const { band, permissions } = sheetNoticeBand(area.h, open.length - 1, noticeH, bannerH, permissionsH)
+  const sheet: Rect = { x: 8, y: area.y + band, w: Math.max(0, area.w - 0), h: area.h - band }
   return {
     ...base,
     mode: 'sheet',
     sheetReason: reason,
     rects: newest ? { [newest]: sheet } : {},
     hidden: open.slice(0, -1),
+    permissionsBand: permissions,
   }
 }
 
-function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>): Partial<Record<PanelId, Rect>> | null {
+/**
+ * Sizes the cards of the left column are allowed, biggest first: `computeDockLayout` walks this ladder and keeps the
+ * first size at which EVERY open panel finds a place. A card is placed before System and before the timeline, so a
+ * card that grabs all it asks for can leave them nothing — and a layout that cannot place one panel becomes a sheet,
+ * which hides all but the newest. Height comes before width because the cards are a column of rows: more rows in a
+ * narrow card read better than fewer in a wide one.
+ */
+function cardSizes(viewportW: number): Array<{ w: number; h: number }> {
+  const room = viewportW - 2 * DOCK_EDGE
+  const widths = [DETAIL_SIZE.w, DETAIL_SIZE.minW].map(w => Math.min(w, room)).filter(w => w > 0)
+  const out: Array<{ w: number; h: number }> = []
+  for (const h of [DETAIL_SIZE.h, ...CARD_HEIGHTS.filter(h => h < DETAIL_SIZE.h)]) {
+    for (const w of widths) if (!out.some(s => s.w === w && s.h === h)) out.push({ w, h })
+  }
+  return out
+}
+
+/** First spot a left card fits in at that width, from `maxH` down the ladder. Null when not even the shortest fits. */
+function placeCard(maxH: number, w: number, leftArea: Rect, blockers: readonly Rect[]): Rect | null {
+  const heights = [maxH, ...CARD_HEIGHTS.filter(h => h < maxH)]
+  for (const h of heights) {
+    const placed = findFreeSpot(w, Math.min(h, leftArea.h), leftArea, blockers)
+    if (placed) return placed
+  }
+  return null
+}
+
+function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, card: { w: number; h: number }): Partial<Record<PanelId, Rect>> | null {
   const { viewport: vp, open } = input
   const { area, rightWidth: rw } = base
   const rects: Partial<Record<PanelId, Rect>> = {}
@@ -227,17 +336,31 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     blockers.push(r)
   }
 
+  // With both cards in the column, neither asks for more than half of it: the agent card is placed first, and taking
+  // the whole column would leave System a sliver, or nothing at all.
+  const share = isOpen('detail') && isOpen('system')
+    ? Math.max(DETAIL_SIZE.minH, Math.floor((area.h - DOCK_GAP) / 2))
+    : Number.POSITIVE_INFINITY
+
   // Left dock: the agent card.
   if (isOpen('detail')) {
-    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
     const leftArea: Rect = { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
-    let placed: Rect | null = null
-    for (const h of [DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
-      placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
-      if (placed) break
-    }
+    const placed = placeCard(Math.min(card.h, share), card.w, leftArea, blockers)
     if (!placed) return null
     rects.detail = placed
+    blockers.push(placed)
+  }
+
+  // Left dock, second slot: System, in the card's column (below it, and as wide as it), or at the top of the
+  // column when the card is closed.
+  if (isOpen('system')) {
+    const above = rects.detail
+    const leftArea: Rect = above
+      ? { x: above.x, y: area.y, w: above.w, h: area.h }
+      : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
+    const placed = placeCard(Math.min(SYSTEM_H, card.h, share), above ? above.w : card.w, leftArea, blockers)
+    if (!placed) return null
+    rects.system = placed
     blockers.push(placed)
   }
 
@@ -282,40 +405,105 @@ export function computeDockLayout(input: DockInput): DockLayout {
     rightWidth: clampDockWidth(input.rightWidth ?? RIGHT_DOCK.default, vp.w),
   }
   const open = Array.from(new Set(input.open))
-  if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [] }
-  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow')
-  const rects = tryDock({ ...input, viewport: vp, open }, base)
-  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room')
-  return { ...base, mode: 'dock', rects, hidden: [] }
+  if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [], permissionsBand: 0 }
+  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH, input.permissionsH)
+  // The biggest card size at which every open panel finds a place (cardSizes); the ladder is walked only when a card
+  // is open, since nothing else reads the cap.
+  const sizes = open.includes('detail') || open.includes('system') ? cardSizes(vp.w) : [{ w: 0, h: 0 }]
+  for (const size of sizes) {
+    const rects = tryDock({ ...input, viewport: vp, open }, base, size)
+    if (rects) return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
+  }
+  return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
 }
 
 // ─── Popups ─────────────────────────────────────────────────────────────────
 
-export interface PopupPlacement { left: number; top: number; width: number; maxHeight: number }
+export interface PopupPlacement {
+  left: number; top: number; width: number; maxHeight: number
+  /**
+   * The popup lies over the lower part of the permission cards: only when there is no room under them nor beside them
+   * (the floor was applied, #536, #558). Focus entering the cards then closes the popup (DetailPopup).
+   */
+  coversCards: boolean
+}
+
+/**
+ * Height a popup asks for when it has to share the column with the permission cards (WCAG 1.4.10 Reflow): its close
+ * button, a title and a few lines of body, about five 32 px rows, readable with its own scrollbar. Under it, a popup
+ * goes beside the cards when a column is wide enough there, and otherwise keeps what is left under them (#558).
+ */
+export const POPUP_MIN_H = 160
+
+/** Narrowest column beside the cards a popup is moved into rather than squeezed under them (#558) */
+const POPUP_MIN_W = 160
+
+/** Smallest height under the cards still used for a popup (its header and about one line, scrolled): under it, the floor */
+const POPUP_FIT_MIN_H = 64
+
+/** Height kept for the cards' title and intro when their measure is unknown (about a title line and a two-line intro) */
+const PERMISSIONS_HEAD_FALLBACK = 72
 
 /**
  * Place a popup under an anchor point, inside the viewport and between the top bar and the control
- * bar (never over either). Wider-than-viewport popups shrink; taller ones get a maxHeight to scroll.
+ * bar (never over either), nor over the permission cards that sit right under the top bar (#410, #558): a popup on
+ * top of them would hide a pending decision, the Approve and Deny buttons included. Their measured slot is kept free
+ * where the popup overlaps them horizontally (permissionsX / permissionsW, the whole width when unknown). In order:
+ * 1. under the cards, when at least POPUP_MIN_H is left there (or the popup does not overlap them);
+ * 2. beside them (left or right, the wider), over the full height of the column, when that column is at least
+ *    POPUP_MIN_W wide: the popup narrows to it;
+ * 3. under them in what is left, at least POPUP_FIT_MIN_H, with its own scrollbar;
+ * 4. no room at all (a very short and narrow window): the floor. The popup starts at POPUP_MIN_H from the control bar
+ *    and covers the lower part of the cards (coversCards), never their title and intro (permissionsHeadH, measured; a
+ *    fallback when unknown), which win over the floor. Focus entering the cards then closes it, and Escape too.
+ * Wider-than-viewport popups shrink; taller ones get a maxHeight to scroll.
  */
 export function placePopup(
   anchor: { x: number; y: number },
   size: { w: number; h: number },
-  env: { viewport: Viewport; topbarH: number; controlBarH: number },
+  env: { viewport: Viewport; topbarH: number; controlBarH: number; permissionsH?: number; permissionsHeadH?: number; permissionsX?: number; permissionsW?: number },
   offsetY = 20,
 ): PopupPlacement {
   const margin = 8
   const vw = env.viewport.w
-  const width = Math.max(0, Math.min(size.w, vw - 2 * margin))
-  const minTop = Math.min(env.topbarH, env.viewport.h)
-  const maxBottom = Math.max(minTop, env.viewport.h - CONTROL_BAR_BOTTOM - env.controlBarH - DOCK_GAP)
-  const maxHeight = Math.max(0, maxBottom - minTop)
-  const height = Math.min(size.h, maxHeight)
-  return {
-    left: Math.round(clamp(finite(anchor.x, 0) - width / 2, margin, vw - width - margin)),
-    top: Math.round(clamp(finite(anchor.y, 0) + offsetY, minTop, maxBottom - height)),
-    width,
-    maxHeight,
+  const ax = finite(anchor.x, 0)
+  const ay = finite(anchor.y, 0) + offsetY
+  const bottomLimit = env.viewport.h - CONTROL_BAR_BOTTOM - env.controlBarH - DOCK_GAP
+  const topLimit = Math.min(env.topbarH, env.viewport.h)
+  /** The popup in a column [colLeft, colRight] x [minTop, bottomLimit] */
+  const inColumn = (colLeft: number, colRight: number, minTop: number, coversCards = false): PopupPlacement => {
+    const width = Math.max(0, Math.min(size.w, colRight - colLeft))
+    const left = Math.round(clamp(ax - width / 2, colLeft, colRight - width))
+    const maxBottom = Math.max(minTop, bottomLimit)
+    const maxHeight = Math.max(0, maxBottom - minTop)
+    const height = Math.min(size.h, maxHeight)
+    return { left, top: Math.round(clamp(ay, minTop, maxBottom - height)), width, maxHeight, coversCards }
   }
+  const full = inColumn(margin, vw - margin, topLimit)
+  const px = env.permissionsX
+  const pw = env.permissionsW
+  const known = Number.isFinite(px) && Number.isFinite(pw)
+  const overlapsCards = !known || (full.left < (px as number) + (pw as number) && full.left + full.width > (px as number))
+  const band = overlapsCards ? permissionsBand(env.permissionsH) : 0
+  if (band === 0) return full
+  // 1. Under the cards, with the height a popup asks for
+  const under = inColumn(margin, vw - margin, Math.min(topLimit + band, Math.max(topLimit, bottomLimit)))
+  if (bottomLimit - (topLimit + band) >= POPUP_MIN_H) return under
+  // 2. Beside the cards, over the whole height of the column
+  if (known) {
+    const leftCol: [number, number] = [margin, (px as number) - TOPBAR_STACK_GAP]
+    const rightCol: [number, number] = [(px as number) + (pw as number) + TOPBAR_STACK_GAP, vw - margin]
+    const [colLeft, colRight] = leftCol[1] - leftCol[0] >= rightCol[1] - rightCol[0] ? leftCol : rightCol
+    if (colRight - colLeft >= POPUP_MIN_W && bottomLimit - topLimit >= POPUP_FIT_MIN_H) return inColumn(colLeft, colRight, topLimit)
+  }
+  // 3. Under the cards in what is left
+  if (bottomLimit - (topLimit + band) >= POPUP_FIT_MIN_H) return under
+  // 4. The floor: over the lower part of the cards, never over their title and intro
+  const floorTop = clamp(topLimit + band, topLimit, Math.max(topLimit, Math.min(topLimit + band, bottomLimit - POPUP_MIN_H)))
+  const headH = Math.min(band, Math.ceil(Math.max(0, finite(env.permissionsHeadH as number, PERMISSIONS_HEAD_FALLBACK))) + TOPBAR_STACK_GAP)
+  const minTop = Math.max(floorTop, Math.min(topLimit + headH, Math.max(topLimit, bottomLimit)))
+  const floor = inColumn(margin, vw - margin, minTop)
+  return { ...floor, coversCards: floor.top < topLimit + band && floor.maxHeight > 0 }
 }
 
 // ─── Store (environment measurement + shared state) ─────────────────────────
@@ -325,6 +513,17 @@ export interface DockEnv {
   topbarH: number
   controlBarH: number
   obstacles: Rect[]
+  /** Height of the drawn hidden-panels notice (absent when none is drawn). */
+  noticeH?: number
+  /** Height of the drawn truncation banner (absent when none is drawn, #453). */
+  bannerH?: number
+  /** Height of the drawn permission cards (absent when none is drawn, #410). */
+  permissionsH?: number
+  /** Height from the top of the cards to the bottom of their title and intro (absent when no cards are drawn, #536). */
+  permissionsHeadH?: number
+  /** Left edge and width of the drawn permission cards: a popup clear of them horizontally is not pushed down. */
+  permissionsX?: number
+  permissionsW?: number
 }
 
 export interface DockSnapshot { layout: DockLayout; env: DockEnv; open: readonly PanelId[] }
@@ -334,6 +533,8 @@ export const OBSTACLE_SELECTORS = [
   '[role="region"][aria-label="Messages"]',
   'button[aria-label^="Expand messages"]',
   '[data-companion-panel]',
+  '[data-permission-requests]',
+  '[data-truncation-banner]',
   '[aria-label="Session transcript"]',
   '[aria-label="Sessions and agents"]',
 ] as const
@@ -361,7 +562,29 @@ export function measureDockEnv(doc: Document | undefined = typeof document === '
     if (r.width <= 0 || r.height <= 0) continue
     obstacles.push(roundRect(r))
   }
-  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles }
+  const notice = doc.querySelector<HTMLElement>('[data-hidden-panels-notice]')
+  const noticeH = notice ? Math.ceil(notice.getBoundingClientRect().height) : 0
+  // The banner is an obstacle for the docks (above) and takes its own band over a sheet (#453)
+  const banner = doc.querySelector<HTMLElement>('[data-truncation-banner]')
+  const bannerH = banner && !banner.closest('[aria-hidden="true"]') && !banner.closest('[inert]') ? Math.max(0, Math.ceil(banner.getBoundingClientRect().height)) : 0
+  // The cards are an obstacle for the docks (above) and take a slot at the top of the column over a sheet (#410)
+  const perm = doc.querySelector<HTMLElement>('[data-permission-requests]')
+  const permRect = perm && !perm.closest('[aria-hidden="true"]') && !perm.closest('[inert]') ? perm.getBoundingClientRect() : null
+  const permissionsH = permRect ? Math.max(0, Math.ceil(permRect.height)) : 0
+  // Title and intro of the cards, from the cards' top, as laid out before any scroll of the cards
+  let permissionsHeadH = 0
+  if (perm && permRect && permissionsH > 0) {
+    for (const el of Array.from(perm.querySelectorAll<HTMLElement>('[data-permission-head]'))) {
+      const r = el.getBoundingClientRect()
+      if (r.height <= 0) continue
+      permissionsHeadH = Math.max(permissionsHeadH, Math.ceil(r.bottom - permRect.top + perm.scrollTop))
+    }
+    permissionsHeadH = Math.min(permissionsHeadH, permissionsH)
+  }
+  return {
+    viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH, permissionsH, permissionsHeadH,
+    ...(permRect && permissionsH > 0 ? { permissionsX: Math.floor(permRect.left), permissionsW: Math.ceil(permRect.width) } : {}),
+  }
 }
 
 type Listener = () => void

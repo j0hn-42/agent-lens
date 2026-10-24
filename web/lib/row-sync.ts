@@ -6,6 +6,9 @@
 import type { AgentLike, AgentNode } from './session-tree'
 import { getStateLabel } from './state-labels'
 import { deriveFreshness, deriveSilence, lastKnownStateText, silenceText } from '../hooks/simulation/freshness'
+import { translate, type Locale } from './messages'
+import * as C from './card-text'
+import { drawnStatusText, teammateActivity } from '../components/agent-visualizer/canvas/team-style'
 
 /** Test seam: called with the agent id each time an agent row really renders (never set in production). */
 export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = { onRender: null }
@@ -13,24 +16,57 @@ export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = 
 export interface AgentRowView {
   detail: string
   stale: boolean
-  role: 'agent' | 'sub-agent' | 'teammate'
+  /** The role in the language asked for (English by default: 'agent', 'sub-agent', 'teammate') */
+  role: string
+  /**
+   * Outside English: the English status line the canvas draws under this agent, exactly (drawnStatusText: "thinking",
+   * "working" for a teammate at work, "last known state: Thinking" for a stale agent), which the row quotes before its
+   * gloss so the word read on the canvas can be matched with the row (WCAG 1.4.1, 1.3.3). Absent in English (the row
+   * says the state in its own words there) and when the row shows a tool name instead of a state.
+   */
+  drawn?: string
 }
 
 /** What an agent row says about its agent: the same wording the row renders. */
-export function agentRowView(a: AgentLike, freshnessNow: number): AgentRowView {
+export function agentRowView(a: AgentLike, freshnessNow: number, locale: Locale = 'en'): AgentRowView {
   const freshness = deriveFreshness(a, freshnessNow)
   const stale = freshness === 'stale'
   // A stale status is only the last known one: said in words, and the marker is greyed
   const silence = stale ? deriveSilence(a, freshnessNow) : null
-  const detail = silence
-    ? silenceText(silence, a.state)
-    : stale
-    ? lastKnownStateText(a.state)
-    : freshness === 'closed' && a.state !== 'complete'
-      ? `closed, ${lastKnownStateText(a.state)}`
-      : a.currentTool && a.state === 'tool_calling' ? a.currentTool : getStateLabel(a.state)
-  const role = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
-  return { detail, stale, role }
+  const showsTool = !silence && !stale && !(freshness === 'closed' && a.state !== 'complete') && !!a.currentTool && a.state === 'tool_calling'
+  let detail: string
+  if (locale === 'en') {
+    detail = silence
+      ? silenceText(silence, a.state)
+      : stale
+      ? lastKnownStateText(a.state)
+      : freshness === 'closed' && a.state !== 'complete'
+        ? `closed, ${lastKnownStateText(a.state)}`
+        : a.currentTool && a.state === 'tool_calling' ? a.currentTool : getStateLabel(a.state)
+  } else {
+    // Same conditions as above, only the language of the words changes
+    detail = silence
+      ? C.silenceText(locale, silence, a.state)
+      : stale
+      ? C.lastKnownStateText(locale, a.state)
+      : freshness === 'closed' && a.state !== 'complete'
+        ? translate(locale, 'sessions.agent.closed', { rest: C.lastKnownStateText(locale, a.state) })
+        : a.currentTool && a.state === 'tool_calling' ? a.currentTool : C.stateText(locale, a.state)
+  }
+  const kind = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
+  const role = locale === 'en' ? kind : translate(locale, kind === 'sub-agent' ? 'sessions.role.subAgent' : kind === 'teammate' ? 'sessions.role.teammate' : 'sessions.role.agent')
+  const view: AgentRowView = { detail, stale, role }
+  if (locale !== 'en' && !showsTool) {
+    // drawnStatusText is the function drawAgentLabel draws the status line with (draw-agents.ts): a teammate's activity,
+    // a stale node's last known state. Where the row would gloss the state word, a teammate drawn with its activity is
+    // glossed with that activity instead: its state can lag behind (an agent_activity 'idle' while the state says
+    // thinking reads "idle : Inactif", never "idle : Réflexion")
+    view.drawn = drawnStatusText(a, freshnessNow)
+    const activity = teammateActivity(a)
+    const glossesState = !stale && !(freshness === 'closed' && a.state !== 'complete')
+    if (glossesState && activity && view.drawn === activity) view.detail = C.activityText(locale, activity)
+  }
+  return view
 }
 
 /**
@@ -40,7 +76,7 @@ export function agentRowView(a: AgentLike, freshnessNow: number): AgentRowView {
 export function agentTreeSignature(node: AgentNode, freshnessNow: number, selectedId: string | null = null): string {
   const a = node.agent
   const view = agentRowView(a, freshnessNow)
-  const own = [a.id, a.name, a.state, a.kind ?? '', a.phase ?? '', view.detail, view.stale ? 's' : '', a.tokensUsed, a.tokenStatus ?? '', a.tokensEstimated ? 'e' : '', a.model ?? '', a.activeMs ?? '', a.activeSince ?? '', deriveFreshness(a, freshnessNow), a.id === selectedId ? 'sel' : ''].join('\u0001')
+  const own = [a.id, a.name, a.state, a.kind ?? '', a.activity ?? '', a.phase ?? '', view.detail, view.stale ? 's' : '', a.tokensUsed, a.tokenStatus ?? '', a.tokensEstimated ? 'e' : '', a.model ?? '', a.activeMs ?? '', a.activeSince ?? '', deriveFreshness(a, freshnessNow), a.id === selectedId ? 'sel' : ''].join('\u0001')
   if (node.children.length === 0) return own
   return `${own}\u0002${node.children.map(c => agentTreeSignature(c, freshnessNow, selectedId)).join('\u0003')}\u0004`
 }

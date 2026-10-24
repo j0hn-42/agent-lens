@@ -32,8 +32,12 @@ export interface SessionInfo {
   lastActivityTime: number
   /** True when lastActivityTime only stands for the start: usable to sort, never to display */
   lastActivityUnknown?: boolean
+  /** Start of the session as its transcript records it; `startTime` stays the origin of the event times */
+  recordedStartTime?: number
+  /** True when no start is recorded and `startTime` is only when watching began: a duration from it is a lower bound */
+  startTimeWatched?: boolean
   /** Agent runtime of the session, when the extension reports it */
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
   /** Workspace name/path of the session, when known */
   workspace?: string
   /** Working directory of the session, when known */
@@ -144,6 +148,28 @@ export interface LaunchView {
   outputDroppedBytes: number
 }
 
+/** Mirror of scripts/system-stats.ts SystemSample (SSE `system-stats`, #357). */
+export interface SystemUsage { total: number; used: number }
+export interface SystemSample {
+  ts: number
+  cpu: { total: number | null; perCore: (number | null)[] }
+  mem: SystemUsage | null
+  swap: SystemUsage | null
+  disk: SystemUsage | null
+  load: [number, number, number] | null
+  uptime: number | null
+  platformNote: string | null
+}
+
+/** View of the relay's SSE `quota` message (#467): `remainingPercent` is 100 - used, `resetsAt` in epoch seconds,
+ *  `receivedAt` in epoch milliseconds. A window the relay could not prove is null. */
+export interface GaugeView { remainingPercent: number; resetsAt: number }
+export interface QuotaSnapshotView {
+  fiveHour: GaugeView | null
+  sevenDay: GaugeView | null
+  receivedAt: number
+}
+
 // ─── Runtime validation (messages are untrusted: relay, hooks and window.postMessage) ───
 
 const CONNECTION_STATUSES: readonly string[] = ['connected', 'disconnected', 'watching', 'connecting']
@@ -160,6 +186,22 @@ export function isAgentEvent(v: unknown): v is AgentEvent {
     && (v.sessionId === undefined || typeof v.sessionId === 'string')
 }
 
+/**
+ * A known session announced again ('session-started': now watched live, or resumed after inactivity). It turns
+ * active and takes the times the source gives (#365): the last write of its transcript, not the moment the
+ * message arrived; `now` only when the source gives none. Its label (and alias) stays.
+ */
+export function resumeSession(known: SessionInfo, announced: SessionInfo, now: number): SessionInfo {
+  const { indexedOnly: _indexedOnly, ...live } = known
+  return {
+    ...live,
+    status: 'active',
+    lastActivityTime: Number.isFinite(announced.lastActivityTime) ? announced.lastActivityTime : now,
+    ...(announced.recordedStartTime !== undefined ? { recordedStartTime: announced.recordedStartTime } : {}),
+    ...(announced.startTimeWatched !== undefined ? { startTimeWatched: announced.startTimeWatched } : {}),
+  }
+}
+
 export function isSessionInfo(v: unknown): v is SessionInfo {
   return isRecord(v)
     && typeof v.id === 'string'
@@ -168,7 +210,9 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && typeof v.startTime === 'number'
     && typeof v.lastActivityTime === 'number'
     && (v.lastActivityUnknown === undefined || typeof v.lastActivityUnknown === 'boolean')
-    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex' || v.runtime === 'copilot' || v.runtime === 'pi' || v.runtime === 'gemini')
+    && (v.recordedStartTime === undefined || (typeof v.recordedStartTime === 'number' && Number.isFinite(v.recordedStartTime)))
+    && (v.startTimeWatched === undefined || typeof v.startTimeWatched === 'boolean')
+    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex' || v.runtime === 'copilot' || v.runtime === 'pi' || v.runtime === 'gemini' || v.runtime === 'opencode')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')
     && (v.projectId === undefined || typeof v.projectId === 'string')
@@ -267,13 +311,14 @@ export type PermissionCloseOutcome = 'sent' | 'expired' | 'answered-elsewhere' |
 export interface PermissionClosedMessage { nonce: string; sessionId: string; toolUseId: string | null; outcome: string }
 export interface PermissionResultMessage { nonce: string | null; ok: boolean; reason?: string }
 
-/** What the page answers; a redirect (with its text) is not offered yet */
-export interface PermissionDecision {
-  sessionId: string
-  toolUseId: string | null
-  nonce: string
-  action: 'approve' | 'deny'
-}
+/** The three answers the page can give; a redirect is a deny that carries the operator's text to Claude (#387) */
+export type PermissionAction = 'approve' | 'deny' | 'redirect'
+
+/** What the page answers: only a redirect carries a message, and it must not be empty */
+export type PermissionDecision = { sessionId: string; toolUseId: string | null; nonce: string } & (
+  | { action: 'approve' | 'deny' }
+  | { action: 'redirect'; message: string }
+)
 
 const NONCE_RE = /^[0-9a-f]{32}$/
 const SHA256_RE = /^[0-9a-f]{64}$/

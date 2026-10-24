@@ -7,6 +7,7 @@
  */
 
 export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './bridge-types'
+import { parseEventLoss, acceptEventLoss, type EventLoss } from './event-loss'
 export { ALL_SESSIONS_ID } from './bridge-types'
 export type { PermissionRequestMessage, PermissionDecision } from './bridge-types'
 import type { AgentEvent, SessionInfo, ConnectionStatus, PermissionRequestMessage, PermissionDecision } from './bridge-types'
@@ -28,6 +29,8 @@ type StatusCallback = (status: ConnectionStatus, source: string) => void
 type ConfigCallback = (config: Partial<{ mode: string; autoPlay: boolean; showMockData: boolean; disable1MContext: boolean; hooksConfigured: boolean }>) => void
 /** The relay changed what it scans (#291): `allWorkspaces` is its new scope, to be confirmed with GET /status */
 type RelayScopeCallback = (allWorkspaces: boolean) => void
+/** What the extension says the page lacks (#592), validated; null after a reset */
+type EventLossCallback = (loss: EventLoss | null) => void
 type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | { sessionId: string; label: string }) => void
 
 class VSCodeBridge {
@@ -42,6 +45,9 @@ class VSCodeBridge {
   private sessionListeners: SessionCallback[] = []
   private relayScopeListeners: RelayScopeCallback[] = []
   private permissionListeners: PermissionCallback[] = []
+  private eventLossListeners: EventLossCallback[] = []
+  /** Last `event-loss` of the extension for the current page (#592): kept, so a view that mounts later still reads it */
+  private _eventLoss: EventLoss | null = null
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -107,7 +113,24 @@ class VSCodeBridge {
         }
         break
 
+      case 'event-loss': {
+        // Sent by the extension after the reset (#592): what that page will never receive; sent
+        // again, lower, when a session's history read again reaches the page (panel-loss.ts). It replaces the last
+        // one. In relay mode the stream's own figure is read by the hook before it reaches the bridge, and a figure
+        // kept here is not read (see onEventLoss).
+        const next = acceptEventLoss(1, this._eventLoss, parseEventLoss(data))
+        if (next === this._eventLoss) break
+        this._eventLoss = next
+        for (const cb of this.eventLossListeners) cb(next)
+        break
+      }
+
       case 'reset':
+        // A new graph: the figure of the old one no longer describes it
+        if (this._eventLoss !== null) {
+          this._eventLoss = null
+          for (const cb of this.eventLossListeners) cb(null)
+        }
         for (const cb of this.sessionListeners) {
           cb('reset', typeof data.reason === 'string' && data.reason ? data.reason : 'panel-reopened')
         }
@@ -222,6 +245,19 @@ class VSCodeBridge {
     return this.subscribe(this.permissionListeners, callback)
   }
 
+  /**
+   * The extension's figure of what the page lacks (#592); `eventLoss` holds the last one. Contract: it describes the
+   * page only WITHOUT a relay stream. The bridge keeps whatever `event-loss` reaches it (a frame can send one in relay
+   * mode too), so a reader must check that no relay stream is in use first, as useVSCodeBridge does; with a relay, the
+   * relay's figure is the only one (read from the stream by the hook, never from here).
+   */
+  onEventLoss(callback: EventLossCallback): () => void {
+    return this.subscribe(this.eventLossListeners, callback)
+  }
+
+  /** See onEventLoss: meaningful only without a relay stream */
+  get eventLoss(): EventLoss | null { return this._eventLoss }
+
   // ─── Send commands to extension ──────────────────────────────────────────
 
   openFile(filePath: string, line?: number): void {
@@ -238,9 +274,10 @@ class VSCodeBridge {
     this.postToExtension({ type: 'permission-surface', ready })
   }
 
-  /** The operator's answer to one waiting request (#240): exactly the fields the extension checks */
+  /** The operator's answer to one waiting request (#240): exactly the fields the extension checks; only a redirect has a message (#387) */
   sendPermissionDecision(d: PermissionDecision): void {
-    this.postToExtension({ type: 'permission-decision', sessionId: d.sessionId, toolUseId: d.toolUseId, nonce: d.nonce, action: d.action })
+    const base = { type: 'permission-decision', sessionId: d.sessionId, toolUseId: d.toolUseId, nonce: d.nonce, action: d.action }
+    this.postToExtension(d.action === 'redirect' ? { ...base, message: d.message } : base)
   }
 
   /**
@@ -298,6 +335,7 @@ class VSCodeBridge {
     this.sessionListeners = []
     this.relayScopeListeners = []
     this.permissionListeners = []
+    this.eventLossListeners = []
   }
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
@@ -11,6 +11,8 @@ import {
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { DRAWER_COMPANIONS, DRAWER_FOCUSABLE, PERMISSION_HEIGHT_VAR, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
+import { useMobileView } from '@/hooks/use-mobile-view'
 import { GlassCard } from './glass-card'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
@@ -34,7 +36,7 @@ export function CloseButton({ onClick, className = '', label = 'Close' }: CloseB
       onClick={onClick}
       aria-label={label}
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
+      className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
@@ -51,9 +53,11 @@ interface PanelHeaderProps {
   actions?: ReactNode
   /** id for the heading so the surrounding dialog/region can reference it via aria-labelledby */
   titleId?: string
+  /** Accessible name of the close button, in the language of the panel (default: Close) */
+  closeLabel?: string
 }
 
-export function PanelHeader({ children, onClose, className = 'mb-2', actions, titleId }: PanelHeaderProps) {
+export function PanelHeader({ children, onClose, className = 'mb-2', actions, titleId, closeLabel }: PanelHeaderProps) {
   return (
     <div className={`flex items-center justify-between ${className}`}>
       <h2 id={titleId} className="m-0 flex min-w-0 items-center gap-2 text-inherit font-normal">
@@ -61,30 +65,32 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
       </h2>
       <div className="flex items-center gap-1">
         {actions}
-        <CloseButton onClick={onClose} />
+        <CloseButton onClick={onClose} label={closeLabel} />
       </div>
     </div>
   )
 }
 
 // ─── Dialog behaviour ───────────────────────────────────────────────────────
-// Focus the container on open, restore focus on close, close on Escape and when
-// focus moves outside (non-modal popups).
+// Focus the container on open, restore focus on close, close on Escape (non-modal
+// popups). Moving focus outside closes only when a caller opts in (closeOnFocusOutside);
+// every current dialog opts out, since focus moving is not a request to close (WCAG 3.2.2 / 2.4.3).
+// The one exception is DetailPopup's own focusin listener: it closes when focus enters a permission card the popup
+// covers, because the focused button would be hidden (WCAG 2.4.7, #536).
 
 /**
- * Controls the inspector card must survive focus moving to: the Sessions button and panel (#115). Choosing
- * another session there is how an agent leaves the view; closing the card first would clear the selection and
- * the "no longer listed" card could never appear.
+ * Marks the controls tied to the inspector (Sessions button and panel, #115). Since #380 nothing closes the
+ * inspector on focus-out, so no code reads this attribute any more; it is kept as an inert marker and can be
+ * removed with its call sites.
  */
 export const INSPECTOR_KEEP_ATTR = 'data-keeps-inspector'
-export const INSPECTOR_IGNORE_SELECTOR = `[data-companion-panel], [${INSPECTOR_KEEP_ATTR}]`
 
 export function useDialogBehavior(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
-  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string; focusOnOpen?: boolean } = {},
+  options: { closeOnFocusOutside?: boolean; focusOnOpen?: boolean } = {},
 ): void {
-  const { closeOnFocusOutside = true, ignoreSelector, focusOnOpen = true } = options
+  const { closeOnFocusOutside = true, focusOnOpen = true } = options
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
@@ -107,12 +113,11 @@ export function useDialogBehavior(
     const onFocusIn = (e: FocusEvent) => {
       const el = ref.current
       if (!el || !(e.target instanceof Element) || el.contains(e.target)) return
-      if (ignoreSelector && e.target.closest(ignoreSelector)) return
       onCloseRef.current()
     }
     document.addEventListener('focusin', onFocusIn)
     return () => document.removeEventListener('focusin', onFocusIn)
-  }, [ref, closeOnFocusOutside, ignoreSelector])
+  }, [ref, closeOnFocusOutside])
 }
 
 /**
@@ -161,7 +166,23 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   const placed = placePopup(position, { w: width, h: estimatedHeight }, env)
 
   useClickOutside(ref, onClose)
-  useDialogBehavior(ref, onClose)
+  // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do. The only
+  // exception is below: focus entering a permission card that this popup covers.
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
+  // Over the lower part of the permission cards (the height floor, only when there is no room under nor beside them,
+  // #558), the popup would hide a button that takes focus: it closes when focus enters a card (WCAG 2.4.7, #536).
+  // Elsewhere, tabbing away stays harmless.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const covers = placed.coversCards
+  useEffect(() => {
+    if (!covers) return
+    const onFocusIn = (e: FocusEvent) => {
+      if (e.target instanceof Element && e.target.closest('[data-permission-requests]')) onCloseRef.current()
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [covers])
 
   return (
     // Event boundary of the popup (Escape, and pointer events kept from the scene): a box-less
@@ -272,6 +293,8 @@ interface DockResizerProps {
   edge?: 'left' | 'right'
   /** Range of the width, when it depends on more than the viewport (free room beside the panel). */
   bounds?: { min: number; max: number }
+  /** Spoken value of the width, in the language of the panel (default: "<n> pixels wide") */
+  valueText?: (px: number) => string
 }
 
 /**
@@ -284,7 +307,7 @@ interface DockResizerProps {
  * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
  * Renders nothing in sheet mode (narrow viewports have no resizable dock).
  */
-export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds }: DockResizerProps) {
+export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds, valueText }: DockResizerProps) {
   const onRight = edge === 'right'
   const side = onRight ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'
   const { layout, env } = useDockSnapshot()
@@ -310,7 +333,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
         aria-label={label}
         aria-controls={controls}
         aria-orientation="horizontal"
-        aria-valuetext={`${current} pixels wide`}
+        aria-valuetext={valueText ? valueText(current) : `${current} pixels wide`}
         min={min}
         max={max}
         step={step}
@@ -369,17 +392,86 @@ interface SlidingPanelProps {
   autoFocus?: boolean
   /** Extra attributes on the root, e.g. dockAttrs(...) */
   attrs?: Record<string, string>
+  /** Accessible name of the mobile drawer when no heading id is given (`labelledBy` wins) */
+  label?: string
+  /**
+   * Language of `label`. An aria-label cannot declare its language (WCAG 3.1.2), so with this the drawer is named by a
+   * visually hidden element carrying lang instead. The drawer itself gets no lang: its body may still be in another language.
+   */
+  labelLang?: string
   children: ReactNode
 }
 
+/**
+ * Below 768 px (#476) an open SlidingPanel is a drawer: a dialog the full width of the viewport that keeps Tab inside
+ * it (and the permission cards and truncation notice drawn above it, so it is not aria-modal) and closes on Escape
+ * through its own Close button. Opening and closing move the focus as
+ * on desktop (createPanelFocusController). Native listeners: no JSX handler on a static element.
+ */
+function useDrawerKeys(ref: RefObject<HTMLElement | null>, active: boolean) {
+  useEffect(() => {
+    const el = ref.current
+    if (!active || !el) return
+    // Only what Tab can reach: a roving-tabindex row (tabindex -1) or a control that is not drawn (display: none,
+    // visibility: hidden) is skipped by the browser, so it must not count as the first or last one
+    // (checkVisibility is missing in jsdom: kept there)
+    const tabbable = (root: Element) => Array.from(root.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE)).filter(n => n.tabIndex >= 0 && !n.closest('[inert]') && !n.closest('[hidden]')
+      && (typeof n.checkVisibility !== 'function' || n.checkVisibility({ visibilityProperty: true })))
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return
+      // The permission cards and the truncation notice stay drawn above the drawer (#410, #453): they share its Tab
+      // cycle, first (they sit above it). Focus elsewhere (a tap on the top bar) is left alone: a soft trap.
+      const companions = Array.from(document.querySelectorAll(DRAWER_COMPANIONS)).filter(c => !c.closest('[aria-hidden="true"]') && !c.closest('[inert]'))
+      const inCycle = (n: Node | null) => !!n && (el.contains(n) || companions.some(c => c.contains(n)))
+      if (!inCycle(e.target as Node | null)) return
+      const segments = [...companions.map(tabbable), tabbable(el)]
+      const active = document.activeElement instanceof HTMLElement && inCycle(document.activeElement) ? document.activeElement : null
+      const target = nextTrapTarget(segments, active, e.shiftKey)
+      if (!target) return
+      e.preventDefault()
+      target.focus({ preventScroll: true })
+      // A card or a drawer that scrolls (permission card open, #548) must show the control that took the focus:
+      // the page itself never scrolls, so only the nearest scroll containers move. Missing in jsdom.
+      target.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    }
+    // On window, after React's handlers: an Escape a control inside already took (stopPropagation) never gets here
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !(e.target instanceof Element) || !el.contains(e.target)) return
+      if (e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return
+      const close = el.querySelector<HTMLElement>('[data-panel-close]')
+      if (!close) return
+      e.preventDefault()
+      close.click()
+    }
+    window.addEventListener('keydown', onTab, true)
+    window.addEventListener('keydown', onEscape)
+    return () => {
+      window.removeEventListener('keydown', onTab, true)
+      window.removeEventListener('keydown', onEscape)
+    }
+  }, [ref, active])
+}
+
+/**
+ * With a permission card shown, a drawer starts under it (margin-top, see drawerStyle) and scrolls in the room left
+ * above the bottom control bar (7.5rem), so it never reaches under that bar (#548). A scroll container clips what
+ * is painted outside its padding box: the 5 px of padding (and of scroll-padding, so that a focused control scrolled
+ * into view stops 5 px from the edge) hold the focus ring of a control at its edge (2 px outline, 2 px offset).
+ */
+const DRAWER_BELOW_CARD = '[html[data-permission-open]_&]:max-h-[calc(100dvh-var(--topbar-h,60px)-16px-var(--permission-h,0px)-7.5rem)] [html[data-permission-open]_&]:overflow-y-auto [html[data-permission-open]_&]:p-[5px] [html[data-permission-open]_&]:scroll-p-[5px]'
+
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
-  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, children,
+  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, label, labelLang, children,
 }: SlidingPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<PanelFocusController | null>(null)
   const autoFocusRef = useRef(autoFocus)
   autoFocusRef.current = autoFocus
+  const drawer = useMobileView() && visible
+  const labelId = useId()
+  const langLabel = drawer && !labelledBy && label && labelLang ? label : undefined
+  useDrawerKeys(ref, drawer)
 
   // Focus management lives here (not in the parent) so it works for every panel and does
   // not depend on wrapper elements such as display:contents divs. The decision logic is the
@@ -414,17 +506,24 @@ export function SlidingPanel({
     controllerRef.current?.setVisible(visible)
   }, [visible])
 
+  // Mobile drawer: a named dialog spanning the viewport width (8 px gutters, like a sheet of the dock layout)
+  const drawerProps = drawer
+    ? { role: 'dialog', 'aria-labelledby': labelledBy ?? (langLabel ? labelId : undefined), 'aria-label': labelledBy || langLabel ? undefined : label, 'data-mobile-drawer': '' }
+    : { role: labelledBy ? 'region' : undefined, 'aria-labelledby': labelledBy }
+  const drawerStyle: React.CSSProperties | undefined = drawer
+    ? { left: 8, right: 'auto', marginTop: `var(${PERMISSION_HEIGHT_VAR}, 0px)`, width: 'calc(100vw - 16px)', maxWidth: 'calc(100vw - 16px)' }
+    : undefined
+
   return (
     <div
       ref={ref}
-      role={labelledBy ? 'region' : undefined}
-      aria-labelledby={labelledBy}
+      {...drawerProps}
       aria-hidden={!visible}
       inert={!visible}
       tabIndex={-1}
       {...attrs}
       {...panelStopPropagationHandlers}
-      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-[transform,opacity] duration-300 motion-reduce:transition-none ${className}`}
+      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-[transform,opacity] duration-300 motion-reduce:transition-none ${drawer ? DRAWER_BELOW_CARD : ''} ${className}`}
       style={{
         ...position,
         opacity: visible ? 1 : 0,
@@ -433,8 +532,10 @@ export function SlidingPanel({
         zIndex,
         width,
         ...style,
+        ...drawerStyle,
       }}
     >
+      {langLabel && <span id={labelId} lang={labelLang} className="sr-only">{langLabel}</span>}
       {children}
     </div>
   )

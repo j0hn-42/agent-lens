@@ -18,6 +18,8 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Frame } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { postWhenListening } from './bridge-ready'
+import { closeMore, topbarButton } from './topbar-fold'
 
 let browser: Browser
 let server: DemoServer
@@ -50,11 +52,14 @@ async function openWithFakeRelay(width: number, height: number) {
   }))
   await host.goto(`${server.url}/__host`)
   const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
-  await page.getByRole('button', { name: 'Files' }).waitFor()
+  await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
-  await post({ type: '__vscode-bridge-init' })
-  await post({ type: 'config', showMockData: false })
-  await post({ type: 'session-list', sessions: [info('sa', 'payments-api'), info('sb', 'web-app', { lastActivityTime: Date.now() - 5000 })] })
+  // The Sessions button is in the server HTML, so seeing it proves nothing about the bridge: init is repeated until the
+  // page answers, then the config and the list are posted (bridge-ready.ts, the race fixed in #603, #613)
+  await postWhenListening(host, [
+    { type: 'config', showMockData: false },
+    { type: 'session-list', sessions: [info('sa', 'payments-api'), info('sb', 'web-app', { lastActivityTime: Date.now() - 5000 })] },
+  ])
   // The session list is applied (the Sessions button names the shown session) before agents are posted into it
   await page.getByRole('button', { name: /^Sessions: payments-api/ }).waitFor()
   for (const e of [spawn('sa', { name: 'main-a', isMain: true }), spawn('sa', { name: 'worker-a', parent: 'main-a' }), spawn('sb', { name: 'main-b', isMain: true })]) {
@@ -62,8 +67,9 @@ async function openWithFakeRelay(width: number, height: number) {
   }
   // The top bar counts what React knows: wait until both agents of the shown session are in it
   await page.getByText(/2 agents/).first().waitFor()
-  // Idle agents are hidden by default
-  await page.getByRole('button', { name: /Hide inactive agents/ }).evaluate((el: HTMLElement) => el.click())
+  // Idle agents are hidden by default. The filter is behind More at every width (one-line bar)
+  await (await topbarButton(page, /^Hide inactive/)).evaluate((el: HTMLElement) => el.click())
+  await closeMore(page)
   return { page, close: () => context.close() }
 }
 
@@ -109,4 +115,31 @@ describe('agent inspector in a real browser', () => {
       } finally { await close() }
     })
   }
+
+  test('#386: at 320 px the git strip of the card reflows (long branch, commit, PR) without horizontal scroll', async () => {
+    const { page, close } = await openWithFakeRelay(320, 700)
+    try {
+      const host = page.parentFrame()!
+      const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
+      const branch = 'feat/386-a-very-long-branch-name-that-does-not-fit-in-a-narrow-card'
+      const bash = (time: number, id: string, command: string, result: string) => [
+        { type: 'agent-event', event: { time, type: 'tool_call_start', sessionId: 'sa', payload: { agent: 'worker-a', tool: 'Bash', args: command, inputData: { command }, toolUseId: id } } },
+        { type: 'agent-event', event: { time: time + 1, type: 'tool_call_end', sessionId: 'sa', payload: { agent: 'worker-a', tool: 'Bash', result, toolUseId: id } } },
+      ]
+      for (const e of [
+        ...bash(10, 'g1', `git checkout -b ${branch}`, `Switched to a new branch '${branch}'`),
+        ...bash(20, 'g2', 'git commit -m "feat: a commit message long enough to wrap (#386)"', `[${branch} abc1234] feat: a commit message long enough to wrap (#386)`),
+        ...bash(30, 'g3', 'gh pr create --draft', 'https://github.com/o/r/pull/12'),
+      ]) await post(e)
+      await selectWorker(page)
+      const strip = page.locator('[data-testid="git-strip"]')
+      await strip.waitFor()
+      await waitForStableLayout(page)
+      assert.match((await strip.textContent()) ?? '', /PR #12 \(o\/r\) created/)
+      const box = await strip.boundingBox()
+      assert.ok(box && box.x >= -0.5 && box.x + box.width <= 320.5, `the strip is inside the viewport (${JSON.stringify(box)})`)
+      const overflow = await strip.evaluate((el: HTMLElement) => el.scrollWidth - el.clientWidth)
+      assert.ok(overflow <= 1, `no horizontal overflow in the strip (${overflow} px)`)
+    } finally { await close() }
+  })
 })

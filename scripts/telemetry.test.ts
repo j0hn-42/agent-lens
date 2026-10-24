@@ -141,3 +141,16 @@ test('emit sanitizes session_id', async () => {
   const e = JSON.parse(fs.readFileSync(jsonl, 'utf-8').trim())
   assert.equal(e.session_id, 'quotebackslashnewline')
 })
+
+test('the runtimes string of the auto mode survives intact', async () => {
+  const dir = setup()
+  delete process.env.AGENT_LENS_TELEMETRY
+  delete process.env.DO_NOT_TRACK
+  const client = makeClient(dir)
+  await client.init()
+  const runtimes = 'claude,codex,copilot,pi,gemini,opencode'
+  client.emit({ ...baseEvent(), event_type: 'session_end' as const, runtimes })
+  await client.dispose()
+  const lines = fs.readFileSync(path.join(dir, 'telemetry', 'events.jsonl'), 'utf-8').trim().split('\n')
+  assert.equal(JSON.parse(lines[0]).runtimes, runtimes)
+})

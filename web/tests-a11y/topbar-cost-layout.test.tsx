@@ -1,36 +1,11 @@
-// #112: the two qualified totals of the top bar are separated, and the canvas cost panel sits below the (wrapping) bar.
-import { test, afterEach } from 'node:test'
+// #112: the canvas cost panel sits below the (wrapping) top bar. The totals of the top bar itself are no longer drawn
+// (#523): see topbar-counts.test.tsx.
+import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import React from 'react'
-import { render, cleanup } from '@testing-library/react'
 
-import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { costPanelTop, costHeaderWraps } from '@/components/agent-visualizer/canvas/draw-cost'
+import { fitHeaderTokens } from '@/components/agent-visualizer/canvas/draw-misc'
 import { COST_PANEL } from '@/lib/canvas-constants'
-
-afterEach(() => {
-  cleanup()
-  document.body.replaceChildren()
-})
-
-const noop = () => {}
-const base: TopBarProps = {
-  sessions: [{ id: 's1', label: 'one', status: 'active', startTime: 1, lastActivityTime: 2 }],
-  selectedSessionId: 's1', sessionsWithActivity: new Set(),
-  showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
-  activeAgentCount: 1, doneAgentCount: 0, totalTokens: 33000, totalCost: 0.312,
-  showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, showStats: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
-}
-
-test('a partial estimated token total and a partial estimated cost are separated', () => {
-  const partial = { value: 33000, status: 'partial', estimated: true } as const
-  const cost = { value: 0.312, status: 'partial', estimated: true } as const
-  const { container } = render(<TopBar {...base} tokenUsage={partial} costUsage={cost} unattributedCost={0.03} />)
-  const text = container.textContent ?? ''
-  assert.doesNotMatch(text, /estimated\s*at least/, 'no "estimated" glued to the next "at least"')
-  assert.match(text, /tokens\s*·\s*at least/)
-})
 
 test('cost panel top follows the published top bar height', () => {
   assert.equal(costPanelTop('96px'), 96)
@@ -47,4 +22,38 @@ test('cost panel header puts tokens on a second line when both do not fit side b
   assert.equal(costHeaderWraps(60, 60), false)
   // « $0.069 estimated » + « 11k estimated tokens » dépassaient les 232 px du panneau
   assert.equal(costHeaderWraps(114, 126), true)
+})
+
+// #545 review: « ctx tokens » made the wrapped token line wider than the panel (« at least 5.3M estimated ctx tokens »
+// is 34 characters, about 225 px at 11 px for a 212 px content width)
+const fakeCtx = () => {
+  const ctx = { font: '11px monospace', measureText: (s: string) => ({ width: s.length * parseFloat(ctx.font) * 0.602 }) }
+  return ctx as unknown as CanvasRenderingContext2D
+}
+
+test('the token line of the cost panel header never leaves the panel, whatever its qualifiers', () => {
+  const widest = [
+    'at least 5.3M estimated ctx tokens',
+    'at least 13M estimated ctx tokens',
+    'at least 130M estimated ctx tokens',
+    '11k ctx tokens',
+  ]
+  const inner = COST_PANEL.width - COST_PANEL.contentPadding * 2
+  for (const text of widest) {
+    const ctx = fakeCtx()
+    const fit = fitHeaderTokens(ctx, text, inner)
+    ctx.font = fit.font
+    assert.ok(ctx.measureText(fit.text).width <= inner, `"${fit.text}" (${fit.font}) is ${ctx.measureText(fit.text).width} px for ${inner} px`)
+    assert.equal(fit.text, text, 'the whole sentence is kept, a smaller font makes it fit')
+    assert.ok(parseFloat(fit.font) >= 9, `${fit.font}: still readable`)
+  }
+})
+
+test('a token line too long even at the smallest size is cut with an ellipsis, never drawn past the panel', () => {
+  const inner = COST_PANEL.width - COST_PANEL.contentPadding * 2
+  const ctx = fakeCtx()
+  const fit = fitHeaderTokens(ctx, 'at least 1234567890123M estimated ctx tokens, and more words than a panel holds', inner)
+  ctx.font = fit.font
+  assert.ok(ctx.measureText(fit.text).width <= inner)
+  assert.ok(fit.text.endsWith('…'))
 })

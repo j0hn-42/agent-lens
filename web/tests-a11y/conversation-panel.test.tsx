@@ -8,7 +8,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { clearPair } from '@/lib/pair-filter-store'
 import { measureOverlayInsets } from '@/components/agent-visualizer/canvas/overlay-insets'
 import { dockStore } from '@/lib/panel-layout'
-import { COLLAPSED_TEXT_MAX } from '@/lib/feed-utils'
+import { COLLAPSED_TEXT_MAX, AGENT_PICKER_MIN } from '@/lib/feed-utils'
 import type { Agent } from '@/lib/agent-types'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { ConversationHarness, createPanelRegistry } from './conversation-harness'
@@ -63,6 +63,14 @@ test('closed: a pill with the latest message and its role as visible text; click
   assert.equal(r.calls.opened, 1)
   assert.ok(r.getByRole('region', { name: 'Conversation' }))
   assert.equal(r.queryByRole('button', { name: /^Open Conversation/ }), null, 'the pill is replaced by the panel')
+})
+
+test('the collapsed pill is a cover for the canvas text (data-canvas-cover): halo titles move off it (#378)', () => {
+  const r = panel()
+  const pill = r.getByRole('button', { name: /^Open Conversation/ })
+  assert.ok(pill.closest('[data-canvas-cover]'), 'the pill (or its wrapper) is tagged data-canvas-cover')
+  fireEvent.click(pill)
+  assert.equal(document.querySelector('[data-canvas-cover]'), null, 'the open panel reserves its dock instead (no cover left)')
 })
 
 test('without any message there is no pill, but an opened panel shows the one empty state', () => {
@@ -157,7 +165,11 @@ test('search: labelled input, filters by text and tool name, highlights, own emp
 })
 
 test('tabs: tablist semantics, roving tabindex, arrow keys, full-name titles', () => {
+  // the tab pattern applies below the agent picker threshold (conversation-agent-picker.test.tsx covers the picker)
+  assert.ok(base.size < AGENT_PICKER_MIN)
   const r = panel({ initialOpen: true })
+  assert.equal(r.queryByRole('button', { name: /^Agent: / }), null, 'no agent picker below the threshold')
+  assert.ok(r.getByRole('tablist').className.includes('flex-wrap'), 'the tabs wrap instead of scrolling sideways')
   const list = r.getByRole('tablist', { name: 'Filter messages by agent' })
   const tabs = r.getAllByRole('tab')
   assert.deepEqual(tabs.map(t => t.getAttribute('aria-selected')), ['true', 'false', 'false', 'false'])

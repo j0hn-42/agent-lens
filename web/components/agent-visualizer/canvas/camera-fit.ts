@@ -7,9 +7,10 @@
 import type { Agent, ToolCallNode, Discovery } from '../../../lib/agent-types'
 import {
   CAMERA, BUBBLE_HOLD, BUBBLE_FADE_OUT, BUBBLE_MAX_W, TOOL_CARD_W, TOOL_CARD_H,
-  DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H, CLUSTER_DRAW, CONTEXT_BAR, AGENT_DRAW,
+  DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H, CLUSTER_DRAW, CONTEXT_BAR, AGENT_DRAW, LOD,
 } from '../../../lib/canvas-constants'
 import { agentDrawRadius, isAgentVisible } from './team-style'
+import { labelScaleForZoom } from './draw-options'
 
 export interface Transform { x: number; y: number; scale: number }
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -60,10 +61,19 @@ export interface FitBoundsInput {
   discoveries?: Iterable<Discovery>
   /** Cluster halos (world circles) */
   clusters?: ReadonlyArray<{ cx: number; cy: number; r: number }>
+  /** Workspace zones (world rectangles drawn around the halos of one project); skipped with a focus scope like halos */
+  zones?: ReadonlyArray<Rect>
   /** Only these agents (and their tools / discoveries) count; halos are skipped */
   focusScope?: ReadonlySet<string> | null
   simTime: number
   includeToolCards?: boolean
+  /**
+   * Size at 100 % of the label block drawn under an agent (see agentLabelBlock), when it is known. It is
+   * framed at `labelScale` times that size: below 100 % the labels are drawn enlarged (#378).
+   */
+  labelBlock?: (agent: Agent) => { w: number; h: number } | null
+  /** Enlargement of the label blocks at the zoom being fitted (labelScaleForZoom); 1 by default */
+  labelScale?: number
 }
 
 /** Extra world px around a node disc (rings, glow) */
@@ -77,9 +87,12 @@ const AGENT_PADDING = 22
 export function computeFitBounds(input: FitBoundsInput): WorldBounds {
   const b = emptyBounds()
   const scope = input.focusScope ?? null
+  // Cards and discoveries are framed only with their drawn agent (#378): an orphan card must not stretch the fit
+  const drawn = new Set<string>()
   for (const agent of input.agents) {
     if (scope && !scope.has(agent.id)) continue
     if (!isAgentVisible(agent)) continue
+    drawn.add(agent.id)
     const r = agentDrawRadius(agent) + AGENT_PADDING
     extendCircle(b, agent.x, agent.y, r)
     // Label block and context bar under the node, stats / cost overlay above it
@@ -87,6 +100,11 @@ export function computeFitBounds(input: FitBoundsInput): WorldBounds {
     const below = agentDrawRadius(agent) + CONTEXT_BAR.yOffset + 3 * AGENT_DRAW.stateLabelGap + CONTEXT_BAR.barHeight + CONTEXT_BAR.labelBoxExtra
     extendRect(b, agent.x - halfW, agent.y, halfW * 2, below)
     extendRect(b, agent.x - 40, agent.y - agentDrawRadius(agent) - 60, 80, 60)
+    const block = input.labelBlock?.(agent)
+    if (block) {
+      const k = input.labelScale ?? 1
+      extendRect(b, agent.x - (block.w * k) / 2, agent.y + agentDrawRadius(agent) + AGENT_DRAW.labelYOffset, block.w * k, block.h * k)
+    }
     const bubbles = agent.messageBubbles ?? []
     if (bubbles.length > 0) {
       let visible = 0
@@ -99,16 +117,17 @@ export function computeFitBounds(input: FitBoundsInput): WorldBounds {
   if (input.includeToolCards !== false) {
     for (const tool of input.toolCalls ?? []) {
       if (!(tool.opacity > 0.1)) continue
-      if (scope && !scope.has(tool.agentId)) continue
+      if (!drawn.has(tool.agentId)) continue
       extendRect(b, tool.x - TOOL_CARD_W / 2, tool.y - TOOL_CARD_H / 2, TOOL_CARD_W, TOOL_CARD_H)
     }
     for (const disc of input.discoveries ?? []) {
       if (!(disc.opacity > 0.1)) continue
-      if (scope && !scope.has(disc.agentId)) continue
+      if (!drawn.has(disc.agentId)) continue
       extendRect(b, disc.x - DISC_BOUNDS_HALF_W, disc.y - DISC_BOUNDS_HALF_H, DISC_BOUNDS_HALF_W * 2, DISC_BOUNDS_HALF_H * 2)
     }
   }
   if (!scope) for (const c of input.clusters ?? []) extendCircle(b, c.cx, c.cy, c.r)
+  if (!scope) for (const z of input.zones ?? []) extendRect(b, z.x, z.y, z.w, z.h)
   return b
 }
 
@@ -182,6 +201,68 @@ export function fitToView(
     y: safe.y + safe.h / 2 - cy * scale,
     scale,
   }
+}
+
+/** Largest number of refits fitContent runs to settle the label size against the zoom */
+const LABEL_FIT_ROUNDS = 8
+
+/**
+ * fitToView of the content, with the agent label blocks counted at the size they are drawn at the resulting
+ * zoom (#378): below 100 % they are held at LOD.minTextPx on screen, so they grow in world units as the zoom
+ * drops. `boundsAt(k)` gives the bounds with the label blocks enlarged k times (computeFitBounds with
+ * `labelScale: k`), `boundsAt(null)` the bounds without them. Each refit can only lower the zoom and it
+ * settles in a few rounds; under the zoom where labels are hidden (hysteresis band included) they no longer count.
+ */
+export function fitContent(
+  boundsAt: (labelScale: number | null) => WorldBounds, viewport: Viewport, insets?: Partial<Insets> | null, options: FitOptions = {},
+): Transform | null {
+  const plain = fitToView(boundsAt(null), viewport, insets, options)
+  if (!plain) return plain
+  const labelsShownDownTo = LOD.labelMinZoom * (1 - LOD.hysteresis)
+  let t = plain
+  for (let i = 0; i < LABEL_FIT_ROUNDS; i++) {
+    if (t.scale < labelsShownDownTo) break
+    const next = fitToView(boundsAt(labelScaleForZoom(t.scale)), viewport, insets, options)
+    if (!next) break
+    const settled = Math.abs(next.scale - t.scale) <= t.scale * 1e-3
+    t = next
+    if (settled) break
+  }
+  return t
+}
+
+/** How far (screen px) `bounds` stick out of the `safe` rectangle at transform `t`; 0 when they are inside. */
+function boundsOverflow(t: Transform, bounds: WorldBounds, safe: Rect): number {
+  if (isEmptyBounds(bounds)) return 0
+  const l = bounds.minX * t.scale + t.x
+  const r = bounds.maxX * t.scale + t.x
+  const top = bounds.minY * t.scale + t.y
+  const bottom = bounds.maxY * t.scale + t.y
+  return Math.max(0, safe.x - l, r - (safe.x + safe.w), safe.y - top, bottom - (safe.y + safe.h))
+}
+
+/**
+ * Share of the gap to an auto-fit target the camera closes this frame (#378). While part of what the fit frames is
+ * off the safe area at the current transform (the scene grew past the frame), `catchUp`; once all of it is inside,
+ * the usual `ease`, so a shrinking scene or a settling layout is not rushed. Half a pixel of tolerance.
+ */
+export function autoFitStepShare(cur: Transform, bounds: WorldBounds | null, safe: Rect | null, ease: number, catchUp: number): number {
+  if (!bounds || !safe) return ease
+  return boundsOverflow(cur, bounds, safe) > 0.5 ? Math.max(ease, catchUp) : ease
+}
+
+/**
+ * One step of `share` from `cur` toward `target`, around the screen point `anchor` (the centre of the safe area):
+ * the scale and the world point under the anchor move by that share, and the pan follows from them. Lerping the
+ * pan and the scale separately swings the view sideways while the zoom changes much; here the anchored world point
+ * goes straight to its target.
+ */
+export function stepTowardAnchored(cur: Transform, target: Transform, share: number, anchor: { x: number; y: number }): Transform {
+  const wx = (anchor.x - cur.x) / cur.scale, wy = (anchor.y - cur.y) / cur.scale
+  const tx = (anchor.x - target.x) / target.scale, ty = (anchor.y - target.y) / target.scale
+  const scale = cur.scale + (target.scale - cur.scale) * share
+  const nx = wx + (tx - wx) * share, ny = wy + (ty - wy) * share
+  return { x: anchor.x - nx * scale, y: anchor.y - ny * scale, scale }
 }
 
 /** Bounds of a world circle (e.g. one cluster halo). */

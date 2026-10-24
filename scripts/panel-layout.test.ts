@@ -2,14 +2,20 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
-  intersects, bottom, right, createDockStore, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
-const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640]]
-const PANELS: PanelId[] = ['detail', 'link', 'files', 'conversation', 'timeline']
+const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640], [320, 568], [640, 360], [640, 300]]
+const PANELS: PanelId[] = ['detail', 'system', 'link', 'files', 'conversation', 'timeline']
 const TOPBAR_H = 68
 const BAR_H = 56
+/** Height the cards' title and intro take, as measureDockEnv reads it (#536) */
+const HEAD_H = 62
+/** Narrowest column beside the cards and smallest height under them that placePopup uses (#558, panel-layout.ts) */
+const POPUP_MIN_W = 160
+const POPUP_FIT_MIN_H = 64
 
 /** Every subset of the docked panels (including the empty one). */
 function subsets<T>(items: T[]): T[][] {
@@ -57,6 +63,10 @@ function assertGeometry(l: DockLayout, w: number, h: number, open: PanelId[], ob
     if (open.length) {
       assert.equal(placed[0][0], open[open.length - 1], `${label}: the newest panel is the sheet`)
       assert.equal(l.hidden.length, open.length - 1)
+      // #410: the band for the "N panels hidden" notice is kept free under the top bar (when there is room for it)
+      if (l.hidden.length > 0 && l.area.h - SHEET_NOTICE_H >= MIN_MAIN_H) {
+        assert.ok(placed[0][1].y >= TOPBAR_H + SHEET_NOTICE_H, `${label}: the sheet starts below the notice band`)
+      }
     }
   }
 }
@@ -77,7 +87,10 @@ test('no two open panels overlap, none covers the bars or a foreign panel (all v
     }
   }
   assert.ok(total > 600)
-  assert.ok(docked > 100, `docking must really happen (got ${docked} docked layouts)`)
+  // Pinned, not a loose floor: a left card that grabs the room it asks for silently turns docked layouts into sheets
+  // (which hide all but the newest panel). `docked > 100` let 105 such regressions through while the cards were being
+  // enlarged. Raise this number when a change docks MORE; never lower it without saying which layouts gave up.
+  assert.ok(docked >= 702, `docking must really happen and must not regress (got ${docked} docked layouts, expected at least 702)`)
 })
 
 test('wide viewports dock the usual combination: card + files + timeline next to the feed and the chat', () => {
@@ -90,6 +103,83 @@ test('wide viewports dock the usual combination: card + files + timeline next to
   assert.ok(files.x + files.w <= 1600 - 12)
   assert.equal(files.w, 380)
   assert.ok(bottom(timeline) <= 900 - 16 - BAR_H - 8)
+})
+
+test('System docks in the left column, below the agent card', () => {
+  const l = layoutFor(1600, 900, ['detail', 'system'], [])
+  assert.equal(l.mode, 'dock')
+  const { detail, system } = l.rects as Record<string, Rect>
+  assert.ok(system, 'System has a rect')
+  assert.ok(!intersects(detail, system))
+  assert.equal(system.x, detail.x, 'same column')
+  assert.ok(system.y >= bottom(detail) + 8, 'below the card')
+  assert.ok(system.h >= 120)
+})
+
+test('System alone takes the top of the left column and its width is reserved for the Sessions list', () => {
+  const l = layoutFor(1600, 900, ['system'], [])
+  assert.equal(l.mode, 'dock')
+  assert.equal(l.rects.system!.x, 12)
+  assert.equal(l.rects.system!.y, l.area.y)
+  assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - 240 - 8)
+})
+
+test('the agent card alone is given its full size: readable, not a 240 x 240 letterbox', () => {
+  const l = layoutFor(1600, 900, ['detail'], [])
+  assert.equal(l.mode, 'dock')
+  const detail = l.rects.detail!
+  assert.equal(detail.w, DETAIL_SIZE.w, 'the card takes the full card width')
+  assert.equal(detail.h, DETAIL_SIZE.h, 'the card takes the full card height')
+  assert.ok(detail.w >= 320 && detail.h >= 420, `a card of ${detail.w} x ${detail.h} shows its rows without a scroll for each one`)
+})
+
+test('both cards open: they share the column evenly, neither squeezes the other out', () => {
+  for (const [w, h] of [[1600, 900], [1280, 720], [1024, 640]] as Array<[number, number]>) {
+    const l = layoutFor(w, h, ['detail', 'system'], [])
+    assert.equal(l.mode, 'dock', `${w}x${h}: both cards stay docked`)
+    const { detail, system } = l.rects as Record<string, Rect>
+    assert.equal(detail.w, DETAIL_SIZE.w, `${w}x${h}: the card keeps the full width`)
+    assert.equal(system.w, detail.w, `${w}x${h}: System is as wide as the card above it`)
+    assert.ok(Math.abs(detail.h - system.h) <= 1, `${w}x${h}: ${detail.h} vs ${system.h} is not an even share`)
+    assert.ok(system.h >= 240, `${w}x${h}: System keeps at least the 240 px it had (got ${system.h})`)
+    assert.ok(!intersects(detail, system))
+  }
+})
+
+test('a column too tight for the full card narrows it instead of dropping to a sheet, and height wins over width', () => {
+  // 1024 x 640 with the expanded message feed on the left and the Files panel on the right: 320 px no longer fit
+  const feed = obstacleSets(1024, 640)[2].rects[0]
+  const l = layoutFor(1024, 640, ['detail', 'files'], [feed])
+  assert.equal(l.mode, 'dock', 'still docked, not a sheet')
+  const detail = l.rects.detail!
+  assert.equal(detail.w, DETAIL_SIZE.minW, 'the card falls back to its narrow width')
+  assert.equal(detail.h, DETAIL_SIZE.h, 'and keeps its full height: a tall narrow card beats a short wide one')
+  assert.ok(!intersects(detail, feed) && !intersects(detail, l.rects.files!))
+})
+
+test('System alone asks for 420 px of its own, on the full card width', () => {
+  const l = layoutFor(1600, 900, ['system'], [])
+  assert.equal(l.rects.system!.w, DETAIL_SIZE.w)
+  assert.equal(l.rects.system!.h, 420, 'its metric rows, per-core detail and load / uptime list fit without a scroll')
+})
+
+test('a card gives room back rather than pushing another panel out (a11y review of the bigger cards)', () => {
+  // Zoom levels of a 1920x1080 or 1280x800 screen at 166-200 %: exactly who needs the bigger text
+  for (const [w, h] of [[1152, 648], [1024, 640], [1000, 600], [960, 540], [900, 640]] as Array<[number, number]>) {
+    assert.equal(layoutFor(w, h, ['detail', 'system'], []).mode, 'dock', `${w}x${h}: the two cards stay side by side`)
+  }
+  // The card is placed before the timeline: 320 px wide beside the message pill left the timeline under its 280 px
+  const pill = obstacleSets(1280, 720)[1].rects[0]
+  const l = layoutFor(1280, 720, ['detail', 'files', 'timeline'], [pill])
+  assert.equal(l.mode, 'dock', 'the card narrows so the timeline keeps its width')
+  assert.ok(l.rects.timeline!.w >= 280 && l.rects.detail && l.rects.files)
+})
+
+test('System is a full-width sheet on a narrow viewport', () => {
+  const l = layoutFor(390, 844, ['system'], [])
+  assert.equal(l.mode, 'sheet')
+  assert.equal(l.sheetReason, 'narrow')
+  assert.ok(l.rects.system)
 })
 
 test('the card does not start inside the expanded feed even at 720px high', () => {
@@ -116,8 +206,29 @@ test('below 900px every panel is a full-width sheet between the bars, newest ope
   const r = l.rects.files!
   assert.equal(r.x, 8)
   assert.equal(r.w, 390 - 16)
-  assert.equal(r.y, TOPBAR_H)
+  // #410: a band under the top bar is kept for the "N panels hidden" notice, so the sheet never sits under it
+  assert.equal(r.y, TOPBAR_H + SHEET_NOTICE_H)
   assert.equal(bottom(r), 844 - 16 - BAR_H - 8)
+})
+
+test('the band follows the measured height of the notice, never below the minimum (#410)', () => {
+  const at = (noticeH?: number) => computeDockLayout({ viewport: { w: 320, h: 700 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'timeline', 'files'], noticeH }).rects.files!
+  assert.equal(at(undefined).y, TOPBAR_H + SHEET_NOTICE_H)
+  assert.equal(at(20).y, TOPBAR_H + SHEET_NOTICE_H)
+  assert.equal(at(90).y, TOPBAR_H + 90 + 4)
+})
+
+test('no band when the area is too short to keep a usable sheet (#410)', () => {
+  const l = computeDockLayout({ viewport: { w: 390, h: 200 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'files'] })
+  assert.equal(l.mode, 'sheet')
+  assert.ok(l.rects.files!.h > 0)
+  assert.equal(l.rects.files!.y, l.area.y)
+})
+
+test('a lone sheet keeps the whole area: no notice band when nothing is hidden (#410)', () => {
+  const l = layoutFor(390, 844, ['files'], [])
+  assert.deepEqual(l.hidden, [])
+  assert.equal(l.rects.files!.y, TOPBAR_H)
 })
 
 test('a layout that cannot fit falls back to a sheet instead of overlapping', () => {
@@ -163,6 +274,104 @@ test('popups stay inside the viewport and between the bars', () => {
       assert.ok(p.top + Math.min(200, p.maxHeight) <= h - 16 - BAR_H - 8, `${label}: above the control bar`)
     }
   }
+})
+
+test('popups never cover the permission cards under the top bar (#410)', () => {
+  for (const [w, h] of VIEWPORTS) {
+    // Cards as drawn by CSS: right-3, width min(28rem, 100% - 1.5rem), so they span the right part of the canvas
+    const permissionsW = Math.min(448, w - 24)
+    const permissionsX = w - 12 - permissionsW
+    for (const permissionsH of [0, 120, 260]) {
+      const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH, permissionsHeadH: permissionsH > 0 ? Math.min(HEAD_H, permissionsH) : 0, permissionsX, permissionsW }
+      const slot = TOPBAR_H + (permissionsH > 0 ? permissionsH + 4 : 0)
+      const barTop = h - 16 - BAR_H - 8
+      for (const anchor of [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w / 2, y: h / 2 }]) {
+        const p = placePopup(anchor, { w: 320, h: 200 }, env)
+        const label = `${w}x${h} perm=${permissionsH} @${anchor.x},${anchor.y}`
+        const overCards = p.left < permissionsX + permissionsW && p.left + p.width > permissionsX
+        assert.ok(p.maxHeight > 0, `${label}: the popup keeps a usable height (${p.maxHeight})`)
+        assert.ok(p.top + Math.min(200, p.maxHeight) <= Math.max(barTop, p.top), `${label}: above the control bar`)
+        const box = { x: p.left, y: p.top, w: p.width, h: Math.min(200, p.maxHeight) }
+        const cardsBox = { x: permissionsX, y: TOPBAR_H, w: permissionsW, h: permissionsH }
+        if (overCards && barTop - slot >= POPUP_MIN_H) assert.ok(p.top >= Math.min(slot, h), `${label}: under the cards (top ${p.top} < ${slot})`)
+        if (!p.coversCards) {
+          // #558: off the cards (under or beside them), with at least a header and a line
+          if (permissionsH > 0) assert.equal(intersects(box, cardsBox), false, `${label}: popup ${JSON.stringify(box)} over the cards`)
+          assert.ok(p.maxHeight >= Math.min(POPUP_FIT_MIN_H, barTop - TOPBAR_H), `${label}: usable height (${p.maxHeight})`)
+        } else {
+          // The floor only when there is no room under nor beside the cards; their title and intro still win (#536)
+          assert.ok(permissionsH > 0 && barTop - slot < POPUP_FIT_MIN_H, `${label}: the floor while there was room under the cards`)
+          assert.ok(Math.max(permissionsX - 4 - 8, w - 8 - (permissionsX + permissionsW + 4)) < POPUP_MIN_W, `${label}: the floor while there was room beside the cards`)
+          const headEnd = env.permissionsHeadH + 4
+          assert.ok(p.maxHeight >= Math.min(POPUP_MIN_H, barTop - TOPBAR_H - headEnd), `${label}: at least the readable floor (${p.maxHeight})`)
+        }
+        if (overCards && permissionsH > 0 && barTop > TOPBAR_H + env.permissionsHeadH) assert.ok(p.top >= TOPBAR_H + env.permissionsHeadH, `${label}: title and intro of the cards stay clear (top ${p.top})`)
+      }
+    }
+  }
+})
+
+test('640x300 (200 % zoom of 1280x600), cards over the whole width: no room under nor beside them, the popup starts under the cards title, which wins over the floor (#536, #558)', () => {
+  const [w, h] = [640, 300]
+  const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: 180, permissionsHeadH: HEAD_H, permissionsX: 12, permissionsW: w - 24 }
+  const p = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, env)
+  assert.ok(p.top >= TOPBAR_H + HEAD_H, `top ${p.top} is over the title (cards start at ${TOPBAR_H}, head ${HEAD_H})`)
+  assert.ok(p.maxHeight > 0, `maxHeight ${p.maxHeight}`)
+  assert.equal(p.coversCards, true, 'the popup covers the lower part of the cards')
+  const clear = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, { ...env, permissionsX: undefined, permissionsW: undefined, permissionsH: 0, permissionsHeadH: 0 })
+  assert.equal(clear.coversCards, false)
+})
+
+test('popups keep a readable height when the cards take the whole column (#410, reflow)', () => {
+  // 320x568 and 640x360 (200 % zoom): cards at their 60vh cap, over the whole width (nothing beside them)
+  for (const [w, h, expected, covers] of [[320, 568, 75, false], [640, 360, 146, true]] as const) {
+    const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: Math.round(h * 0.6), permissionsHeadH: HEAD_H, permissionsX: 12, permissionsW: w - 24 }
+    const p = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, env)
+    // 320x568: 75 px are left under the cards, the popup takes them and scrolls (#558). 640x360: nothing is left, the
+    // floor applies, and the cards' title and intro win over it (#536): the popup starts under them
+    assert.ok(p.top >= TOPBAR_H + HEAD_H, `${w}x${h}: top ${p.top} is over the title and intro (head ends at ${TOPBAR_H + HEAD_H})`)
+    assert.equal(p.maxHeight, expected, `${w}x${h}: maxHeight`)
+    assert.equal(p.coversCards, covers, `${w}x${h}: coversCards`)
+    if (!covers) assert.ok(p.top >= TOPBAR_H + permissionsBand(env.permissionsH), `${w}x${h}: under the cards (top ${p.top})`)
+    assert.ok(p.top + p.maxHeight <= h - 16 - BAR_H - 8, `${w}x${h}: ends above the control bar`)
+  }
+})
+
+test('a popup never lies over drawn permission cards when there is room beside or under them (#558, measured in Chromium)', () => {
+  // Geometry read in the browser (popup-permission.e2e.ts): top bar, control bar, the cards' box and their title + intro
+  const cases = [
+    { vp: [320, 568], topbarH: 126, controlBarH: 98, cards: { x: 12, w: 296, h: 170, head: 82 } },
+    { vp: [640, 360], topbarH: 76, controlBarH: 70, cards: { x: 180, w: 448, h: 108, head: 66 } },
+    { vp: [640, 300], topbarH: 76, controlBarH: 70, cards: { x: 180, w: 448, h: 90, head: 66 } },
+  ] as const
+  for (const c of cases) {
+    const [w, h] = c.vp
+    const env = { viewport: { w, h }, topbarH: c.topbarH, controlBarH: c.controlBarH, permissionsH: c.cards.h, permissionsHeadH: c.cards.head, permissionsX: c.cards.x, permissionsW: c.cards.w }
+    const bottomLimit = h - 16 - c.controlBarH - 8
+    for (const size of [{ w: 320, h: 200 }, { w: 300, h: POPUP_MIN_H }]) {
+      for (const anchor of [{ x: 0, y: 0 }, { x: w / 2, y: h / 2 }, { x: w, y: h }]) {
+        const p = placePopup(anchor, size, env)
+        const label = `${w}x${h} ${size.w}x${size.h} @${anchor.x},${anchor.y}`
+        const box = { x: p.left, y: p.top, w: p.width, h: Math.min(size.h, p.maxHeight) }
+        const cards = { x: c.cards.x, y: c.topbarH, w: c.cards.w, h: c.cards.h }
+        assert.equal(intersects(box, cards), false, `${label}: popup ${JSON.stringify(box)} lies over the cards ${JSON.stringify(cards)}`)
+        assert.equal(p.coversCards, false, `${label}: coversCards`)
+        assert.ok(p.maxHeight >= POPUP_FIT_MIN_H, `${label}: a usable height (${p.maxHeight})`)
+        assert.ok(p.left >= 8 && p.left + p.width <= w - 8, `${label}: inside the window`)
+        assert.ok(p.top >= c.topbarH && p.top + box.h <= bottomLimit, `${label}: between the bars`)
+      }
+    }
+  }
+})
+
+test('popups ignore the card slot where the cards are not (#410, horizontal overlap)', () => {
+  const env = { viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: 400, permissionsX: 1600 - 12 - 448, permissionsW: 448 }
+  const left = placePopup({ x: 300, y: 0 }, { w: 320, h: 200 }, env)
+  assert.equal(left.top, TOPBAR_H, 'left half: not pushed under cards that are on the right')
+  const right = placePopup({ x: 1500, y: 0 }, { w: 320, h: 200 }, env)
+  assert.ok(right.top >= TOPBAR_H + 400 + 4, 'right: under the cards')
+  const unknown = placePopup({ x: 300, y: 0 }, { w: 320, h: 200 }, { ...env, permissionsX: undefined, permissionsW: undefined })
+  assert.ok(unknown.top >= TOPBAR_H + 400 + 4, 'unknown extent: the whole width is kept (safe reading)')
 })
 
 test('freeIntervals / findFreeSpot', () => {
@@ -227,4 +436,147 @@ test('left panel (Sessions): the whole width when nothing is open, minus the rig
   assert.equal(leftPanelWidthBounds(900, ['files'], 540).min, 280 > 900 - 24 - 548 ? 900 - 24 - 548 : 280)
   assert.equal(clampLeftPanelWidth(NaN, 480, { min: 280, max: 900 }), 480)
   assert.equal(clampLeftPanelWidth(5000, 480, { min: 280, max: 900 }), 900)
+})
+
+test('permission cards are an obstacle: the right dock is placed below them, whatever the top bar height (#370)', () => {
+  assert.ok((OBSTACLE_SELECTORS as readonly string[]).includes('[data-permission-requests]'))
+  const cards: Rect = { x: 1600 - 12 - 448, y: TOPBAR_H, w: 448, h: 200 }
+  const layout = computeDockLayout({ viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['conversation'], obstacles: [cards] })
+  assert.equal(layout.mode, 'dock')
+  assert.ok(!intersects(layout.rects.conversation!, cards))
+  assert.ok(layout.rects.conversation!.y >= bottom(cards))
+})
+
+// #453: the truncation banner sits under the hidden-panels notice, in one column under the top bar, and a sheet
+// keeps their measured height free (the banner used to cover the notice and the top of the sheet below 900 px).
+const sheetAt = (w: number, h: number, open: PanelId[], noticeH?: number, bannerH?: number, obstacles: Rect[] = []) =>
+  computeDockLayout({ viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, noticeH, bannerH, obstacles })
+
+test('topbarStack: the banner goes under the notice, never above its own slot, and the band ends under the lower one (#453)', () => {
+  assert.deepEqual(topbarStack(0, 0, 0), { bannerTop: null, band: 0 }, 'nothing drawn: no band')
+  assert.deepEqual(topbarStack(2, 55, 0), { bannerTop: null, band: TOPBAR_STACK_TOP + 55 + 2 })
+  assert.deepEqual(topbarStack(1, 0, 0), { bannerTop: null, band: SHEET_NOTICE_H }, 'the notice keeps its minimum height')
+  assert.deepEqual(topbarStack(0, 0, 30), { bannerTop: BANNER_MIN_TOP, band: BANNER_MIN_TOP + 30 + 2 }, 'alone, the banner keeps its slot')
+  const both = topbarStack(2, 55, 78)
+  assert.equal(both.bannerTop, TOPBAR_STACK_TOP + 55 + TOPBAR_STACK_GAP, 'right under the notice')
+  assert.equal(both.band, both.bannerTop! + 78 + 2)
+  assert.ok(topbarStack(1, 40, 30).bannerTop! >= BANNER_MIN_TOP)
+  assert.deepEqual(topbarStack(1, NaN, NaN), topbarStack(1, 0, 0), 'unmeasured values count as nothing drawn')
+})
+
+test('sheet + banner: the sheet starts under the banner, the banner under the notice, at 320, 390, 600 and 899 px (#453)', () => {
+  for (const w of [320, 390, 600, 899]) {
+    for (const [noticeH, bannerH] of [[40, 38], [55, 78], [40, 46]] as const) {
+      const l = sheetAt(w, 844, ['detail', 'timeline', 'files'], noticeH, bannerH)
+      const s = topbarStack(l.hidden.length, noticeH, bannerH)
+      const noticeBottom = TOPBAR_H + TOPBAR_STACK_TOP + noticeH
+      const bannerTop = TOPBAR_H + s.bannerTop!
+      assert.equal(l.mode, 'sheet')
+      assert.ok(bannerTop >= noticeBottom + TOPBAR_STACK_GAP, `${w}px: the banner does not cover the notice`)
+      assert.ok(l.rects.files!.y >= bannerTop + bannerH, `${w}px: the sheet starts under the banner (${l.rects.files!.y} < ${bannerTop + bannerH})`)
+    }
+  }
+})
+
+test('a lone sheet keeps a band for the banner, none without it (#453)', () => {
+  assert.equal(sheetAt(390, 844, ['detail'], 0, 0).rects.detail!.y, TOPBAR_H)
+  const l = sheetAt(390, 844, ['detail'], 0, 46)
+  assert.ok(l.rects.detail!.y >= TOPBAR_H + BANNER_MIN_TOP + 46, 'the card sheet does not slide under the banner')
+})
+
+test('a no-room sheet (wide viewport) keeps the band for the banner too (#453)', () => {
+  const banner: Rect = { x: 300, y: TOPBAR_H + BANNER_MIN_TOP, w: 400, h: 30 }
+  const wall: Rect = { x: 0, y: TOPBAR_H, w: 1000, h: 400 }
+  const l = sheetAt(1000, 640, ['files'], 0, 30, [wall, banner])
+  assert.equal(l.sheetReason, 'no-room')
+  assert.ok(l.rects.files!.y >= bottom(banner))
+})
+
+test('when notice and banner do not both fit, the sheet still keeps the notice band (#453 review)', () => {
+  // Area of 220 px: room for the notice band alone (44), not for the notice and a 120 px banner (168)
+  const l = sheetAt(390, TOPBAR_H + 220 + 16 + BAR_H + 8, ['detail', 'files'], 40, 120)
+  assert.equal(l.area.h, 220)
+  assert.equal(l.rects.files!.y, l.area.y + topbarStack(1, 40, 0).band)
+  assert.equal(topbarStack(1, 40, 0).band, SHEET_NOTICE_H)
+})
+
+// A 320 x 568 phone as measured in a real browser: the top bar wraps to 187 px, the area under it is 276 px
+const phone = (open: PanelId[], noticeH: number, bannerH: number) => {
+  const l = computeDockLayout({ viewport: { w: 320, h: 568 }, topbarH: 187, controlBarH: 81, open, noticeH, bannerH })
+  assert.equal(l.area.h, 276)
+  return l
+}
+
+test('320 x 568, two panels and a banner: the sheet starts under the notice and the banner (#453 review)', () => {
+  const l = phone(['timeline', 'files'], 40, 74)
+  const s = topbarStack(1, 40, 74)
+  assert.ok(l.rects.files!.y >= l.area.y + TOPBAR_STACK_TOP + 40, `the sheet starts under the notice (${l.rects.files!.y})`)
+  assert.ok(l.rects.files!.y >= l.area.y + s.bannerTop! + 74, `the sheet starts under the banner (${l.rects.files!.y})`)
+  assert.equal(bottom(l.rects.files!), bottom(l.area), 'the sheet still ends above the control bar')
+})
+
+test('320 x 568, agent card alone and a banner: the card sheet does not cover the banner (#453 review)', () => {
+  const l = phone(['detail'], 0, 74)
+  assert.ok(l.rects.detail!.y >= l.area.y + topbarStack(0, 0, 74).bannerTop! + 74, `card at ${l.rects.detail!.y}`)
+  assert.ok(l.rects.detail!.h >= 96, 'the card keeps a usable, scrolling sheet (MIN_SHEET_H_WITH_BANNER)')
+})
+
+test('a window too short even for the reduced floor: the notice band is kept, then nothing (#453 review)', () => {
+  // Area 200: notice + banner 74 (122) leaves 78, under the reduced floor; the notice alone (44) leaves 156, under MIN_MAIN_H
+  const l = sheetAt(390, TOPBAR_H + 200 + 16 + BAR_H + 8, ['timeline', 'files'], 40, 74)
+  assert.equal(l.area.h, 200)
+  assert.equal(l.rects.files!.y, l.area.y)
+  const k = sheetAt(390, TOPBAR_H + 210 + 16 + BAR_H + 8, ['timeline', 'files'], 40, 74)
+  assert.equal(k.rects.files!.y, k.area.y + SHEET_NOTICE_H, '210 px: the notice band fits (166 left)')
+})
+
+test('store: a measured banner re-flows the sheet (#453)', () => {
+  let env = fakeEnv({ viewport: { w: 390, h: 844 } })
+  const store = createDockStore(() => env)
+  store.setOpen('detail', true)
+  assert.equal(store.getSnapshot().layout.rects.detail!.y, TOPBAR_H)
+  env = fakeEnv({ viewport: { w: 390, h: 844 }, bannerH: 46 })
+  store.measure()
+  assert.ok(store.getSnapshot().layout.rects.detail!.y >= TOPBAR_H + BANNER_MIN_TOP + 46)
+})
+
+// #410: the permission cards get their own slot at the top of the column under the top bar in a sheet: the notice and
+// the banner go under it, the sheet under all of them (the cards used to cover the notice and the top of the sheet).
+test('topbarStack: the permission slot comes first, the notice and the banner are pushed under it (#410)', () => {
+  assert.deepEqual(topbarStack(0, 0, 0, 0), { bannerTop: null, band: 0 })
+  assert.equal(topbarStack(0, 0, 0, 120).band, 120 + TOPBAR_STACK_GAP + 2, 'the slot alone')
+  assert.equal(topbarStack(2, 55, 0, 120).band, 120 + TOPBAR_STACK_GAP + TOPBAR_STACK_TOP + 55 + 2, 'notice under the slot')
+  const both = topbarStack(2, 55, 78, 120)
+  assert.equal(both.bannerTop, 120 + TOPBAR_STACK_GAP + TOPBAR_STACK_TOP + 55 + TOPBAR_STACK_GAP)
+  assert.equal(permissionsBand(NaN), 0)
+  assert.equal(permissionsBand(-5), 0)
+  assert.equal(permissionsBand(120.2), 121 + TOPBAR_STACK_GAP)
+  assert.deepEqual(topbarStack(2, 55, 78, 0), topbarStack(2, 55, 78), 'no cards: unchanged')
+})
+
+test('sheet + permission cards: the sheet starts under the cards, the notice under the cards, at 320, 390 and 899 px (#410)', () => {
+  for (const w of [320, 390, 899]) {
+    const l = computeDockLayout({ viewport: { w, h: 844 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'files'], noticeH: 40, permissionsH: 150 })
+    assert.equal(l.mode, 'sheet')
+    assert.equal(l.permissionsBand, permissionsBand(150))
+    assert.ok(l.rects.files!.y >= TOPBAR_H + permissionsBand(150) + TOPBAR_STACK_TOP + 40, `${w}px: the sheet starts under cards and notice`)
+    assert.ok(bottom(l.rects.files!) <= 844 - 16 - BAR_H - 8 + 0.5)
+  }
+})
+
+test('sheet + permission cards too tall: the slot is dropped, the sheet keeps its minimum height (#410)', () => {
+  const l = computeDockLayout({ viewport: { w: 390, h: 600 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['files'], permissionsH: 400 })
+  assert.equal(l.permissionsBand, 0)
+  assert.ok(l.rects.files!.h >= MIN_MAIN_H)
+})
+
+test('dock mode: no permission slot, the cards stay an obstacle (#410)', () => {
+  const l = computeDockLayout({ viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['files'], permissionsH: 150 })
+  assert.equal(l.mode, 'dock')
+  assert.equal(l.permissionsBand, 0)
+})
+
+test('store: a measured permissions height is accepted and does not change a closed layout (#410)', () => {
+  const env = createDockStore(() => ({ viewport: { w: 390, h: 800 }, topbarH: TOPBAR_H, controlBarH: BAR_H, obstacles: [], permissionsH: 90 })).getSnapshot()
+  assert.equal(env.layout.permissionsBand, 0, 'nothing open: no band')
 })

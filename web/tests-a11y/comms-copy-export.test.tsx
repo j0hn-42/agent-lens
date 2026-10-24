@@ -7,7 +7,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import axe from 'axe-core'
 
 import {
-  conversationToMarkdown, messageToMarkdown, exportNotes, exportFileName, copyText,
+  conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText, redactForCopy, copiedMessage,
 } from '@/lib/comms-export'
 import { LINK_MESSAGE_MAX_CHARS } from '@/components/agent-visualizer/canvas/link-panel-model'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -79,7 +79,7 @@ test('a truncated message says so in the export, never silently', () => {
 test('the conversation export states what it does not contain', () => {
   const notes = exportNotes({ droppedText: '3 older messages were dropped', toolsHidden: true, searchQuery: ' foo ' })
   assert.equal(notes.length, 3)
-  const md = conversationToMarkdown({ title: 'T', entries: [{ label: 'MESSAGE', time: '0:00', content: 'hi' }], notes })
+  const { markdown: md } = conversationExport({ title: 'T', entries: [{ label: 'MESSAGE', time: '0:00', content: 'hi' }], notes })
   assert.match(md, /^# T\n\n1 message\n/)
   assert.match(md, /> Incomplete: 3 older messages were dropped\./)
   assert.match(md, /> Incomplete: tool calls and results were hidden/)
@@ -155,6 +155,37 @@ test('link panel: Export conversation downloads Markdown with the dropped and tr
   assert.match(text, /Incomplete: 2 older messages were dropped\./)
   assert.match(text, /Truncated: 51 characters were cut/)
   assert.match(r.getByRole('status').textContent ?? '', /exported as Markdown/)
+})
+
+const TOKEN = 'ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'
+
+test('the Markdown export masks secrets in contents, title and notes, and counts them', () => {
+  const out = conversationExport({
+    title: `Conversation: ${TOKEN}`,
+    entries: [{ label: 'RETURN', time: '0:09', content: `result: Authorization: Bearer abcdefghijklmnop1234 and ${TOKEN}` }],
+    notes: exportNotes({ searchQuery: TOKEN }),
+  })
+  assert.ok(!out.markdown.includes(TOKEN), 'the token must not reach the file')
+  assert.ok(!out.markdown.includes('abcdefghijklmnop1234'))
+  assert.match(out.markdown, /\[REDACTED:github-token\]/)
+  assert.equal(out.redactions, 4)
+  assert.equal(conversationExport({ title: 't', entries: [{ label: 'X', time: '0:00', content: TOKEN }], notes: [] }).markdown.includes(TOKEN), false)
+})
+
+test('the saved message announces the number of masked secrets, and the failure message is the shared one', () => {
+  assert.match(exportSavedMessage(2), /2 secrets redacted \(best effort\)/)
+  assert.match(exportSavedMessage(1), /1 secret redacted/)
+  assert.doesNotMatch(exportSavedMessage(0), /redacted/)
+  assert.equal(EXPORT_FAILED_MESSAGE, 'Export failed: this view cannot save files')
+})
+
+test('link panel: a tool result carrying a token is masked in the downloaded file and announced', () => {
+  const secretLink = { ...link, messages: [...link.messages, msg('sec', 'return', 9, `ok ${TOKEN}`, { from: 'u', to: 'o' })] } as unknown as AgentLink
+  const r = render(<LinkPanel link={secretLink} agents={agents} onClose={() => {}} />)
+  fireEvent.click(r.getByRole('button', { name: 'Export conversation' }))
+  assert.equal(downloads.length, 1)
+  assert.ok(!downloads[0].text.includes(TOKEN))
+  assert.match(r.getByRole('status').textContent ?? '', /secrets? redacted/)
 })
 
 test('link panel: the status region is rendered (not display:none) before the first Copy, then holds the message', async () => {
@@ -252,4 +283,42 @@ test('conversation panel: export of an active pair reports the older messages dr
   assert.match(text, /^# Conversation: orchestrator and audit-ux/)
   assert.match(text, /Incomplete: .*4 older messages dropped/)
   assert.doesNotMatch(text, /13 older/)
+})
+
+// ── Copy masks secrets like the export (#409) ──
+test('redactForCopy masks secrets and counts them', () => {
+  const out = redactForCopy(`token ${TOKEN} and Authorization: Bearer abcdefghijklmnop1234`)
+  assert.ok(!out.text.includes(TOKEN))
+  assert.match(out.text, /\[REDACTED:github-token\]/)
+  assert.equal(out.redactions, 2)
+  assert.deepEqual(redactForCopy('plain'), { text: 'plain', redactions: 0 })
+})
+
+test('copiedMessage says how many secrets were masked and what was cut', () => {
+  assert.equal(copiedMessage('DISPATCH', 0, 0), 'DISPATCH copied')
+  assert.equal(copiedMessage('DISPATCH', 0, 1), 'DISPATCH copied; 1 secret redacted (best effort)')
+  assert.match(copiedMessage('RETURN', 5, 2), /RETURN copied; 2 secrets redacted \(best effort\) \(truncated: 5 characters were cut\)/)
+})
+
+test('link panel: Copy puts masked text on the clipboard and announces the redaction', async () => {
+  const l = { ...link, messages: [msg('d1', 'dispatch', 5, `use ${TOKEN}`, { from: 'o', to: 'u' })] } as unknown as AgentLink
+  const r = render(<LinkPanel link={l} agents={agents} onClose={() => {}} />)
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.equal(copied.length, 1)
+  assert.ok(!copied[0].includes(TOKEN))
+  assert.match(copied[0], /\[REDACTED:github-token\]/)
+  assert.match(r.getByRole('status').textContent ?? '', /1 secret redacted/)
+})
+
+test('conversation panel: Copy puts masked text on the clipboard and announces the redaction', async () => {
+  const conv = new Map<string, ConversationMessage[]>([['u', [msg('d1', 'dispatch', 5, `use ${TOKEN}`, { from: 'o', to: 'u' })]]])
+  const r = render(
+    <ConversationHarness registry={createPanelRegistry()} conversations={conv} agents={agents} selectedAgentId={null} onAgentClick={() => {}} initialOpen />,
+  )
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.equal(copied.length, 1)
+  assert.ok(!copied[0].includes(TOKEN))
+  assert.match(r.getAllByRole('status').map(s => s.textContent).join(' '), /1 secret redacted/)
 })

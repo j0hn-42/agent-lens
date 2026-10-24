@@ -9,24 +9,36 @@ import { stopPropagationHandlers } from './shared-ui'
 import { clampMenuPosition, nextMenuIndex } from '@/lib/menu-nav'
 import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 
 interface ContextMenuProps {
   position: { x: number; y: number }
   items: Array<{
     label: string
+    /** Decorative glyph shown before the label; hidden from assistive technology */
+    icon?: string
+    /** A toggle that knows its state: rendered as a menuitemcheckbox with aria-checked */
+    checked?: boolean
     onClick: () => void
     danger?: boolean
     separator?: boolean
+    /** Sensitive item (#374): the first activation only arms it (this label replaces `label`), the second runs it */
+    confirmLabel?: string
   }>
   onClose: () => void
 }
 
 export function GlassContextMenu({ position, items, onClose }: ContextMenuProps) {
+  const { locale } = useLocale()
   const ref = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const [active, setActive] = useState(0)
+  /** Index of the sensitive item waiting for its second activation */
+  const [armed, setArmed] = useState<number | null>(null)
+  const armedAtRef = useRef(0)
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: position.x, top: position.y })
 
   useClickOutside(ref, onClose, TIMING.contextMenuDelayMs)
@@ -38,12 +50,20 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    // Measured from the top-left corner of the window: a fixed box placed next to the right edge is squeezed to the room
+    // left on its right (shrink-to-fit), so measured where it stands it looks narrow and the clamp would let it overflow.
+    const { left, top } = el.style
+    el.style.left = '0px'
+    el.style.top = '0px'
     // offsetWidth/Height ignore the open animation's scale(0.95) transform
-    setPos(clampMenuPosition(position, { width: el.offsetWidth, height: el.offsetHeight }, {
+    const size = { width: el.offsetWidth, height: el.offsetHeight }
+    el.style.left = left
+    el.style.top = top
+    setPos(clampMenuPosition(position, size, {
       width: window.innerWidth,
       height: window.innerHeight,
     }))
-  }, [position, items.length])
+  }, [position, items.length, armed])
 
   // Focus the first item on open, restore focus on close
   useEffect(() => {
@@ -97,6 +117,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   return (
     <div
       ref={ref}
+      lang={locale}
       {...stopPropagationHandlers}
       style={{
         position: 'fixed',
@@ -110,7 +131,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
         style={{ minWidth: 160 }}
       >
         {/* Roving tabindex: items carry the tab stop; -1 makes the menu focusable without adding one */}
-        <div role="menu" aria-label="Context menu" tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
+        <div role="menu" aria-label={translate(locale, 'menu.name')} tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
           {items.map((item, i) => {
             if (item.separator) {
               return <div key={i} role="separator" className="my-1 h-px" style={{ background: COLORS.holoBg10 }} />
@@ -121,21 +142,31 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                 key={i}
                 ref={el => { itemRefs.current[i] = el }}
                 type="button"
-                role="menuitem"
+                role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                aria-checked={item.checked}
                 tabIndex={rovingPos === active ? 0 : -1}
-                onFocus={() => setActive(rovingPos)}
+                onFocus={() => { setActive(rovingPos); if (armed !== null && armed !== i) setArmed(null) }}
                 onClick={() => {
+                  if (item.confirmLabel && armed !== i) { armedAtRef.current = Date.now(); setArmed(i); return }
+                  // A double click or a held key must not arm and run in one gesture
+                  if (item.confirmLabel && Date.now() - armedAtRef.current < 400) return
                   item.onClick()
                   onClose()
                 }}
                 className={`min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-[color:var(--lens-hover-subtle)] focus-visible:bg-[color:var(--lens-hover)] ${FOCUS_RING_INSET}`}
-                style={{ color: item.danger ? COLORS.error : COLORS.textPrimary }}
+                style={{ color: item.danger || armed === i ? COLORS.error : COLORS.textPrimary }}
               >
-                {item.label}
+                {item.icon && <span aria-hidden="true" className="mr-2 inline-block w-4 text-center">{item.icon}</span>}
+                {armed === i && item.confirmLabel ? item.confirmLabel : item.label}
+                {/* Visible twin of aria-checked, so what is seen matches what is announced */}
+                {item.checked !== undefined && <span aria-hidden="true" data-check-mark="" className="ml-2">{item.checked ? '✓' : ''}</span>}
               </button>
             )
           })}
         </div>
+        <p role="status" aria-live="polite" className="sr-only">
+          {armed !== null ? items[armed]?.confirmLabel ?? '' : ''}
+        </p>
       </GlassCard>
     </div>
   )

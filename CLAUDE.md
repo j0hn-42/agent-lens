@@ -7,10 +7,11 @@ Principle: never display a state or a number that cannot be proven ([docs/readin
 ## Layout
 
 - `web/`: Next.js 16 / React 19 / Tailwind 4 app and the Vite webview bundle. Canvas, panels, themes (`web/lib/theme-tokens.json`).
+- `web/lib/messages/<domain>.ts`: the message catalog, one file per domain with its fr and en tables side by side. Add your key in the file of your domain, with its two languages; `web/lib/messages.ts` only assembles them (import from there).
 - `extension/`: VS Code extension (esbuild).
 - `app/`: standalone app build.
 - `scripts/`: the relay server (`relay.ts`), routes, telemetry and most unit tests (`scripts/*.test.ts`).
-- `docs/`: user documentation. `scripts/docs.test.ts` and `ui-glossary.test.ts` check parts of it.
+- `docs/`: user documentation. `scripts/docs.test.ts` and `ui-glossary.test.ts` check parts of it. The UI guide is an index, `docs/reading-the-ui.md`, and one file per domain in `docs/reading-the-ui/`: add your bullet in the file of your domain (tests read the whole guide through `scripts/reading-guide.ts`); a newly translated surface is one bullet under `### In your language` in the file of its domain, never in `language.md`, which only links those sections.
 
 ## Commands
 
@@ -57,7 +58,7 @@ WCAG 2.1 AA is enforced by CI. Do not widen `web/tests-a11y/lint-baseline.json` 
 ## Automations in `.claude/`
 
 - `settings.json`: hooks. Type-check the package of an edited `.ts`/`.tsx` file (PostToolUse), block generated files (PreToolUse).
-- `skills/`: `run-checks`, `pr-fork`.
+- `skills/`: `run-checks`, `pr-fork`, `issue-waves` (launch several issues in parallel without conflicts).
 - `agents/`: `a11y-reviewer`, `relay-hardening-reviewer`.
 - `.mcp.json` (root): context7 (current docs for Next 16, React 19, Tailwind 4, Vite 8) and Playwright.
 - `settings.local.json` and `worktrees/` are personal and git-ignored.

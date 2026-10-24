@@ -126,6 +126,32 @@ test('a fully observed history without loop is "clear" and says how many calls i
   assert.equal(healthText(detectLoops([...ok('Read', { file_path: 'a' })])), 'No loop observed (1 tool call)')
 })
 
+test('events the relay could no longer replay make the verdict incomplete and the runs "at least" (#366)', () => {
+  const loop = [...ok('Read', { file_path: 'a' }), ...ok('Read', { file_path: 'a' }), ...ok('Read', { file_path: 'a' })]
+  const clean = detectLoops([...ok('Bash', { command: 'ls' })], 0, 40)
+  assert.equal(clean.status, 'incomplete', 'a clean verdict on a partial replay is not "clear"')
+  assert.equal(clean.lostEvents, 40)
+  assert.equal(healthText(clean), 'No loop in the observed part (1 tool call; at least 40 earlier events of this session not replayed)')
+  assert.equal(detectLoops(loop, 0, 40).findings[0].atLeast, true)
+  assert.equal(detectLoops(loop, 0, 0).findings[0].atLeast, false)
+  assert.equal(detectLoops([], 0, 40).status, 'unknown', 'nothing to judge stays unknown')
+  assert.equal(detectLoops([...ok('Bash', { command: 'ls' })]).lostEvents, 0)
+})
+
+test('assessHealth reads the replay loss per session, not per agent (#366)', () => {
+  const conversations = new Map<string, ConversationMessage[]>([
+    ['s1:main', [...ok('Bash', { command: 'ls' })]],
+    ['s1:sub', [...ok('Bash', { command: 'pwd' })]],
+    ['s2:main', [...ok('Bash', { command: 'ls' })]],
+  ])
+  const sessionOf = new Map([['s1:main', 's1'], ['s1:sub', 's1'], ['s2:main', 's2']])
+  const h = assessHealth(conversations, new Map(), k => sessionOf.get(k), new Map([['s1', 7]]))
+  assert.equal(h.byAgent.get('s1:main')!.status, 'incomplete')
+  assert.equal(h.bySession.get('s1')!.status, 'incomplete')
+  assert.equal(h.bySession.get('s1')!.lostEvents, 7, 'counted once for the session, not once per agent')
+  assert.equal(h.bySession.get('s2')!.status, 'clear')
+})
+
 test('assessHealth gives a verdict per agent and per session; a loop of any agent marks its session', () => {
   const loop = [...ok('Read', { file_path: 'a' }), ...ok('Read', { file_path: 'a' }), ...ok('Read', { file_path: 'a' })]
   const conversations = new Map<string, ConversationMessage[]>([

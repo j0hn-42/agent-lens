@@ -1,5 +1,6 @@
 import { DepthParticle } from '@/lib/agent-types'
-import { SCENE } from '@/lib/colors'
+import { scenePalette } from '@/lib/scene-state-colors'
+import type { ThemeId } from '@/lib/theme-tokens'
 import { alphaHex } from '@/lib/utils'
 
 const NUM_PARTICLES = 80
@@ -46,9 +47,12 @@ export function drawBackground(
   time: number,
   activeAgentPos?: { x: number; y: number; color: string },
   reducedMotion = false,
+  /** Theme of the scene (#381): the grid and the depth particles take its colours; the ground stays the scene ground. Absent = neon */
+  theme?: ThemeId,
 ): void {
+  const scene = scenePalette(theme)
   // Deep void
-  ctx.fillStyle = SCENE.void
+  ctx.fillStyle = scene.void
   ctx.fillRect(0, 0, width, height)
 
   // Ambient spotlight following active agent
@@ -71,14 +75,14 @@ export function drawBackground(
     const alpha = p.brightness * (0.5 + p.depth * 0.5)
 
     ctx.beginPath()
-    ctx.fillStyle = SCENE.holoBase + alphaHex(alpha)
+    ctx.fillStyle = scene.holoBase + alphaHex(alpha)
     ctx.arc(px, py, size, 0, Math.PI * 2)
     ctx.fill()
   }
 
   // Hex grid (optional)
   if (showHexGrid) {
-    drawHexGrid(ctx, width, height, transform, time, reducedMotion)
+    drawHexGrid(ctx, width, height, transform, time, reducedMotion, scene.hexGrid)
   }
 }
 
@@ -94,7 +98,9 @@ function drawHexGrid(
   height: number,
   transform: { x: number; y: number; scale: number },
   time: number,
-  reducedMotion = false,
+  reducedMotion: boolean,
+  /** Grid colour of the theme (decoration: faint in every theme) */
+  gridColor: string,
 ): void {
   ctx.save()
   ctx.translate(transform.x, transform.y)
@@ -108,7 +114,7 @@ function drawHexGrid(
   const endY = startY + height / transform.scale + hexHeight * 4
 
   const r = size * 0.4
-  ctx.strokeStyle = SCENE.hexGrid
+  ctx.strokeStyle = gridColor
   ctx.lineWidth = 0.5
 
   // Quantize alpha into buckets to batch hexagons into fewer draw calls

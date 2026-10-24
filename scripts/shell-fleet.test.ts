@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  formatAllSummary, formatTruncatedHistory,
+  formatTruncatedHistory,
   formatDroppedMessages, labelAgentsWithSession, blurFlagAction, toastSettleTarget, pickRestoreTarget,
 } from '../web/lib/chrome-utils'
 import { createPanelRegistry } from '../web/hooks/use-panel-registry'
@@ -21,19 +21,17 @@ const ev = (key: string, t: unknown = body, mods: Partial<{ ctrlKey: boolean; me
 
 // ─── Undo shortcut ───────────────────────────────────────────────────────────
 
-test('undo key fires from buttons and tabs while an undo toast is visible', () => {
-  const undo = { undoAvailable: true }
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true, undo), true)
-  assert.equal(shouldHandleShortcut(ev('U', target('BUTTON', ['[role="tab"]'])), true, undo), true)
-  assert.equal(shouldHandleShortcut(ev('u', target('A')), true, undo), true)
-  // never from text fields or dialogs, never with the preference off, never with modifiers
-  assert.equal(shouldHandleShortcut(ev('u', target('INPUT')), true, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('DIV', ['[role="dialog"]'])), true, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), false, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON'), { ctrlKey: true }), true, undo), false)
-  // other single keys stay ignored on buttons even while a toast is visible
-  assert.equal(shouldHandleShortcut(ev('f', target('BUTTON')), true, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true, { undoAvailable: false }), false)
+test('undo key fires from buttons and tabs (#376)', () => {
+  {
+    assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true), true)
+    assert.equal(shouldHandleShortcut(ev('U', target('BUTTON', ['[role="tab"]'])), true), true)
+    assert.equal(shouldHandleShortcut(ev('u', target('A')), true), true)
+    // never from text fields or dialogs, never with the preference off, never with modifiers
+    assert.equal(shouldHandleShortcut(ev('u', target('INPUT')), true), false)
+    assert.equal(shouldHandleShortcut(ev('u', target('DIV', ['[role="dialog"]'])), true), false)
+    assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), false), false)
+    assert.equal(shouldHandleShortcut(ev('u', target('BUTTON'), { ctrlKey: true }), true), false)
+  }
 })
 
 // ─── Single-key preference (#4) ──────────────────────────────────────────────
@@ -54,9 +52,7 @@ test('the single-key preference is read from storage: only an explicit false dis
 
 // ─── All tab ─────────────────────────────────────────────────────────────────
 
-test('All mode summary and truncation markers', () => {
-  assert.equal(formatAllSummary(3, 12, 1.234), '3 sessions - 12 agents - $1.23')
-  assert.equal(formatAllSummary(1, 1, 0), '1 session - 1 agent - $0.00')
+test('All mode truncation markers', () => {
   assert.equal(formatTruncatedHistory(0), null)
   assert.equal(formatTruncatedHistory(1), 'History truncated: 1 older event dropped')
   assert.equal(formatTruncatedHistory(250), 'History truncated: 250 older events dropped')

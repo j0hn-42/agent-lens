@@ -67,6 +67,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
           inputData={tool.inputData}
           args={tool.args}
           compact={false}
+          outcome={tool.state === 'error' || tool.state === 'cancelled' || tool.state === 'expired' ? tool.state : undefined}
         />
       ) : (
         <div className="text-xs font-mono" style={{ color: COLORS.textPrimary }}>
@@ -97,7 +98,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
             color: COLORS.complete,
           }}
         >
-          <span className="opacity-70 mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
+          <span className="mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
           {isShellTool(tool.toolName) ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
         </div>
       )}

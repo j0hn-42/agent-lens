@@ -1,11 +1,16 @@
 import { test } from 'node:test'
+import { translate } from '../web/lib/messages'
 import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
-  formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
-  agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  connectionDisplay, liveBadge, buildAnnouncement, buildAnnouncementParts, formatMissedEvents,
+  agentActivityCounts, topBarContextText, viewCountsText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
+
+/** The two wordings of viewCountsText for one session (formatAgentCounts / formatAgentCountsCompact are internal since #523). */
+const formatAgentCounts = (active: number, done: number, stale = 0, idle = 0, error = 0) => viewCountsText({ active, done, stale, idle, error }, null).spoken
+const formatAgentCountsCompact = (active: number, done: number, stale = 0, idle = 0, error = 0) => viewCountsText({ active, done, stale, idle, error }, null).drawn
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
   assert.equal(sessionStatusKind({ status: 'active' }, true, false), 'new-activity')
@@ -39,6 +44,7 @@ test('connection badge: DEMO never shows as LIVE, connecting is distinct', () =>
   assert.equal(connectionDisplay('watching', true).label, 'DEMO')
   assert.equal(connectionDisplay('watching', false).label, 'LIVE')
   assert.equal(connectionDisplay('connected', false).label, 'CONNECTED')
+  assert.equal(connectionDisplay('connected', false).label, liveBadge('connected', false).label)
   assert.equal(connectionDisplay('connecting', false).label, 'CONNECTING')
   assert.equal(connectionDisplay('disconnected', false).label, 'OFFLINE')
 })
@@ -47,7 +53,7 @@ test('announcement and missed events', () => {
   const connection = connectionDisplay('watching', false)
   assert.equal(
     buildAnnouncement({ connection, sessionLabel: 'main', isReviewing: true, isEmpty: false }),
-    'Connection: live. Session: main. Review mode',
+    'Connection: live. Session: main. Review mode, use Resume live to return',
   )
   assert.match(buildAnnouncement({ connection, sessionLabel: null, isReviewing: false, isEmpty: true }), /Waiting for an agent session/)
   assert.equal(formatMissedEvents(0), null)
@@ -123,14 +129,14 @@ test('agent counts: an agent whose status is older than the freshness limit is n
     { state: 'idle', lastEventAt: old },
     { state: 'complete', lastEventAt: old },
   ]
-  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2 })
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2, idle: 0, error: 0 })
   assert.equal(formatAgentCounts(1, 1, 2), '4 agents: 1 active - 2 last known state - 1 done')
   assert.equal(formatAgentCounts(0, 0, 9), '9 agents: 0 active - 9 last known state - 0 done')
 })
 
 test('agent counts: without stale agents the text is unchanged; agents never heard from stay counted as before', () => {
   assert.equal(formatAgentCounts(2, 3, 0), '5 agents: 2 active - 3 done')
-  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 1, done: 1, stale: 0 })
+  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 0, done: 1, stale: 0, idle: 1, error: 0 })
 })
 
 test('empty-state checklist states the scope the relay really scans (#291)', () => {
@@ -144,4 +150,117 @@ test('empty-state checklist states the scope the relay really scans (#291)', () 
   assert.equal(all?.detail, undefined)
   // Scope unknown (extension, old relay): the previous wording, no claim
   assert.equal(emptyStateChecklist({ status: 'connected', sessionCount: 0 }).find(i => i.id === 'workspace')?.label, 'Workspace watched')
+})
+
+test('the playback badge uses the same word as the top bar and only pulses while activity is watched (#367)', () => {
+  for (const status of ['watching', 'connected', 'connecting', 'disconnected'] as const) {
+    assert.equal(liveBadge(status, false).label, connectionDisplay(status, false).label)
+  }
+  assert.equal(liveBadge('connected', false).live, false)
+  assert.equal(liveBadge('watching', false).live, true)
+})
+
+test('agent counts: idle and error agents are not counted as active (#367)', () => {
+  const now = 1_000_000
+  const agents = [
+    { state: 'thinking', lastEventAt: now },
+    { state: 'idle', lastEventAt: now },
+    { state: 'error', lastEventAt: now },
+    { state: 'complete', lastEventAt: now },
+  ]
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 0, idle: 1, error: 1 })
+  assert.equal(formatAgentCounts(1, 1, 0, 1, 1), '4 agents: 1 active - 1 idle - 1 error - 1 done')
+  assert.equal(formatAgentCounts(2, 3), '5 agents: 2 active - 3 done')
+})
+
+test('connection detail (#371): the reconnect detail reaches the label description, only while offline', () => {
+  const d = 'reconnecting (attempt 2, retry in 10s)'
+  assert.match(connectionDisplay('disconnected', false, d).description, /attempt 2, retry in 10s/)
+  assert.equal(connectionDisplay('disconnected', false, d).label, 'OFFLINE')
+  assert.equal(connectionDisplay('disconnected', false, null).description, 'Relay offline')
+  assert.equal(connectionDisplay('watching', false, d).description, 'Live: watching for agent activity')
+  assert.doesNotMatch(connectionDisplay('watching', true, d).description, /attempt/)
+})
+
+test('empty-state checklist (#371): workspace and session are unknown, not failed, while the relay is unreachable', () => {
+  const down = emptyStateChecklist({ status: 'disconnected', relayPort: '3001', sessionCount: 0 })
+  assert.equal(down[0].unknown, undefined)
+  assert.equal(down[1].unknown, true)
+  assert.equal(down[2].unknown, true)
+  assert.match(down[1].detail ?? '', /unknown/)
+  const connecting = emptyStateChecklist({ status: 'connecting', sessionCount: 0 })
+  assert.equal(connecting[1].unknown, true)
+  const up = emptyStateChecklist({ status: 'connected', sessionCount: 0 })
+  assert.equal(up[2].unknown, undefined, 'the relay answers: no session is a fact')
+  assert.equal(up[2].ok, false)
+})
+
+// #523: the totals are no longer drawn in the top bar; screen readers still read them there (the Cost panel is a canvas)
+test('top bar: tokens and cost that are not reported each name what is missing (#383)', () => {
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  const ok = { value: 1200, status: 'available', estimated: false } as const
+  assert.deepEqual(topBarContextText(none, none), { tokens: 'tokens not reported', spoken: 'cost not reported' })
+  assert.deepEqual(topBarContextText(ok, none), { tokens: '1.2k tokens in context', spoken: 'cost not reported' })
+  assert.equal(topBarContextText(none, ok).tokens, 'tokens not reported')
+  assert.match(topBarContextText(ok, ok).spoken, /^context cost estimate \$/)
+})
+
+test('top bar: partial, estimated and value-less available totals are qualified or named missing (#383)', () => {
+  const partial = { value: 1200, status: 'partial', estimated: false } as const
+  const estimated = { value: 1200, status: 'available', estimated: true } as const
+  const noValue = { value: null, status: 'available', estimated: false } as const
+  assert.equal(topBarContextText(partial, partial).tokens, 'at least 1.2k tokens in context')
+  assert.match(topBarContextText(partial, partial).spoken, /^context cost estimate at least \$/)
+  assert.match(topBarContextText(estimated, estimated).spoken, /^context cost estimate \$.* estimated$/)
+  assert.equal(topBarContextText(noValue, noValue).tokens, 'tokens not reported')
+  assert.equal(topBarContextText(noValue, noValue).spoken, 'cost not reported')
+  assert.equal(topBarContextText({ value: 5_300_000, status: 'partial', estimated: true }, noValue).tokens, 'at least 5.3M estimated tokens in context')
+})
+
+test('agent counts (#497): the full wording for screen readers, the compact one drawn; zero kinds are not listed', () => {
+  assert.equal(formatAgentCounts(0, 26, 4), '30 agents: 0 active - 4 last known state - 26 done')
+  assert.equal(formatAgentCountsCompact(0, 26, 4), '30 agents: 0 active · 4 last known · 26 done')
+  assert.equal(formatAgentCountsCompact(2, 3), '5 agents: 2 active · 3 done')
+  assert.equal(formatAgentCountsCompact(1, 1, 0, 1, 1), '4 agents: 1 active · 1 idle · 1 error · 1 done')
+  assert.equal(formatAgentCountsCompact(1, 0), '1 agent: 1 active · 0 done')
+})
+
+test('view counts (#523): the text the top bar drew, moved to the Sessions panel header, unchanged', () => {
+  const one = { active: 0, done: 26, stale: 4, idle: 0, error: 0 }
+  assert.deepEqual(viewCountsText(one, null), {
+    drawn: '30 agents: 0 active · 4 last known · 26 done',
+    spoken: '30 agents: 0 active - 4 last known state - 26 done',
+  })
+  // All: sessions and agents, no state split (as the bar drew it)
+  assert.deepEqual(viewCountsText(one, 3), { drawn: '3 sessions · 30 agents', spoken: '3 sessions, 30 agents' })
+  assert.deepEqual(viewCountsText({ active: 1, done: 0, stale: 0, idle: 0, error: 0 }, 1), { drawn: '1 session · 1 agent', spoken: '1 session, 1 agent' })
+})
+
+test('announcement of review mode names the button with the catalog text of the locale (#383)', () => {
+  const connection = connectionDisplay('watching', false)
+  const base = { connection, sessionLabel: null, isReviewing: true, isEmpty: false }
+  assert.match(buildAnnouncement({ ...base, locale: 'en' }), new RegExp(`use ${translate('en', 'bar.resumeLive')} to return`))
+  const fr = buildAnnouncement({ ...base, locale: 'fr' })
+  assert.ok(fr.includes(translate('fr', 'bar.resumeLive')), fr)
+  assert.ok(!fr.includes('Resume live'), 'the English button name is not given as an instruction in French')
+  const parts = buildAnnouncementParts({ ...base, locale: 'fr' })
+  assert.equal(parts.find(p => p.text.includes('Reprendre en direct'))?.lang, 'fr')
+  assert.ok(parts.every(p => p.lang === 'fr'), 'the whole sentence is in French (#613)')
+  assert.ok(buildAnnouncementParts({ ...base, locale: 'en' }).every(p => p.lang === 'en'))
+  assert.equal(buildAnnouncement({ ...base, isReviewing: false, locale: 'fr' }), 'Connexion : en direct. Mode direct')
+})
+
+test('the whole announcement follows the locale: connection, session, live mode, empty, unobserved, full screen, presentation (#613)', () => {
+  const all = (locale: 'en' | 'fr', fullscreen: 'on' | 'off', presentation: 'on' | 'off', status: Parameters<typeof connectionDisplay>[0] = 'watching') => buildAnnouncement({
+    connection: connectionDisplay(status, false), sessionLabel: 'main', isReviewing: false, isEmpty: true, unobservedSessions: 2,
+    fullscreenNote: fullscreen, presentationNote: presentation, locale,
+  })
+  assert.equal(all('en', 'on', 'off'), 'Connection: live. Session: main. Live mode. Waiting for an agent session. 2 sessions listed, activity not observed. Full screen on. Presentation mode off')
+  assert.equal(all('fr', 'on', 'off'), 'Connexion : en direct. Session : main. Mode direct. En attente d’une session d’agent. 2 sessions listées, activité non observée. Plein écran activé. Mode présentation désactivé')
+  assert.equal(all('fr', 'off', 'on'), 'Connexion : en direct. Session : main. Mode direct. En attente d’une session d’agent. 2 sessions listées, activité non observée. Plein écran désactivé. Mode présentation activé')
+  for (const [status, fr] of [['connected', 'connecté'], ['connecting', 'connexion'], ['disconnected', 'hors ligne']] as const) {
+    assert.ok(all('fr', 'on', 'on', status).startsWith(`Connexion : ${fr}.`), status)
+  }
+  assert.ok(buildAnnouncement({ connection: connectionDisplay('watching', true), sessionLabel: null, isReviewing: false, isEmpty: false, locale: 'fr' }).startsWith('Connexion : démo.'))
+  assert.equal(buildAnnouncement({ connection: connectionDisplay('watching', false), sessionLabel: null, isReviewing: false, isEmpty: false, unobservedSessions: 1, locale: 'fr' }), 'Connexion : en direct. Mode direct. 1 session listée, activité non observée')
 })

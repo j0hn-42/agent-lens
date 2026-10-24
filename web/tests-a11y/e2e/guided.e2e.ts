@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Locator, type Page } from 'playwright'
 import { AxeBuilder } from '@axe-core/playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { closeMore, topbarButton } from './topbar-fold'
 import { GUIDED_STEPS } from '../../lib/guided-steps'
 
 let browser: Browser
@@ -55,7 +56,7 @@ test('the guided tour walks every step with Next and shows the card each time', 
     const c = (await dialog.boundingBox())!
     assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.width <= 1280 && r.y + r.height <= 800, `step ${i + 1}: ring out of view`)
     assert.ok(r.y + r.height <= c.y || r.x + r.width <= c.x || r.x >= c.x + c.width, `step ${i + 1}: ring under the card`)
-    // An agent step targets an agent that is drawn: a hidden agent (Hide inactive agents) is not in the outline
+    // An agent step targets an agent that is drawn: a hidden agent (Hide inactive) is not in the outline
     const target = GUIDED_STEPS[i].target
     if (target.kind === 'agent') {
       assert.ok(await ring.isVisible(), `step ${i + 1}: ring visible`)
@@ -100,7 +101,7 @@ test('legend steps open the legend and leave the saved preference alone', async 
   await page.getByRole('combobox', { name: 'Go to step' }).selectOption(String(firstLegendStep))
   await page.getByRole('region', { name: 'Graph legend' }).waitFor()
   assert.equal(await page.evaluate(() => window.localStorage.getItem('agent-viz-legend-open')), null)
-  // The tour also shows the idle and finished agents it talks about without saving 'Hide inactive agents'
+  // The tour also shows the idle and finished agents it talks about without saving 'Hide inactive'
   assert.equal(await page.evaluate(() => window.localStorage.getItem('agent-lens:ui-prefs')), null)
 })
 
@@ -109,10 +110,10 @@ const apiDevListed = (page: Page, listed: boolean) => page.waitForFunction(
   listed,
 )
 
-/** Page opened with 'Hide inactive agents' saved as on (the default, made explicit) */
+/** Page opened with 'Hide inactive' saved as on (the default, made explicit; #372: the Show mode 'active') */
 async function openWithHideInactiveSaved() {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
-  await context.addInitScript(() => { if (window.localStorage.getItem('agent-lens:ui-prefs') === null) window.localStorage.setItem('agent-lens:ui-prefs', JSON.stringify({ v: 1, prefs: { hideInactive: true } })) })
+  await context.addInitScript(() => { if (window.localStorage.getItem('agent-lens:ui-prefs') === null) window.localStorage.setItem('agent-lens:ui-prefs', JSON.stringify({ v: 1, prefs: { show: 'active' } })) })
   const page = await context.newPage()
   await page.goto(`${server.url}/?scenario=guided`)
   const dialog = page.getByRole('dialog')
@@ -121,22 +122,24 @@ async function openWithHideInactiveSaved() {
   const stored = () => page.evaluate(async () => {
     await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())))
     const raw = window.localStorage.getItem('agent-lens:ui-prefs')
-    const v = raw ? JSON.parse(raw)?.prefs?.hideInactive : undefined
-    return typeof v === 'boolean' ? String(v) : null
+    const v = raw ? JSON.parse(raw)?.prefs?.show : undefined
+    return v === 'active' ? 'true' : v === 'all' ? 'false' : null
   })
-  const hideToggle = page.getByRole('button', { name: 'Hide inactive agents' })
+  // Behind More at every width (one-line bar): opened when the toggle is read or pressed, closed again before the tour is used
+  const hideToggle = () => topbarButton(page, /^Hide inactive/)
   assert.equal(await stored(), 'true')
   // The team step targets api-dev while it is idle: shown by the tour, while the toggle still reflects the preference
   const team = GUIDED_STEPS.findIndex(s => s.id === 'team')
   await page.getByRole('combobox', { name: 'Go to step' }).selectOption(String(team))
   await page.getByText(`Step ${team + 1} of ${GUIDED_STEPS.length}`).waitFor()
   await apiDevListed(page, true)
-  assert.equal(await hideToggle.getAttribute('aria-pressed'), 'true')
+  assert.equal(await (await hideToggle()).getAttribute('aria-pressed'), 'true')
+  await closeMore(page)
   assert.equal(await stored(), 'true')
   return { page, dialog, stored, hideToggle }
 }
 
-test('the tour shows inactive agents without changing the saved Hide inactive agents preference', async () => {
+test('the tour shows inactive agents without changing the saved Hide inactive preference', async () => {
   const { page, dialog, stored } = await openWithHideInactiveSaved()
   await dialog.getByRole('button', { name: 'Exit tour' }).click()
   await dialog.waitFor({ state: 'detached' })
@@ -145,10 +148,12 @@ test('the tour shows inactive agents without changing the saved Hide inactive ag
   assert.equal(await stored(), 'true')
 })
 
-test('during the tour the Hide inactive agents toggle reflects and changes the real preference', async () => {
+test('during the tour the Hide inactive toggle reflects and changes the real preference', async () => {
   const { page, dialog, stored, hideToggle } = await openWithHideInactiveSaved()
-  await hideToggle.click()
-  assert.equal(await hideToggle.getAttribute('aria-pressed'), 'false')
+  const toggle = await hideToggle()
+  await toggle.click()
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'false')
+  await closeMore(page)
   assert.equal(await stored(), 'false')
   // The tour keeps showing its agents either way
   await apiDevListed(page, true)
@@ -156,7 +161,8 @@ test('during the tour the Hide inactive agents toggle reflects and changes the r
   await dialog.waitFor({ state: 'detached' })
   // After the tour, the preference set during it applies: inactive agents stay shown
   assert.equal(await stored(), 'false')
-  assert.equal(await hideToggle.getAttribute('aria-pressed'), 'false')
+  assert.equal(await (await hideToggle()).getAttribute('aria-pressed'), 'false')
+  await closeMore(page)
   await apiDevListed(page, true)
 })
 

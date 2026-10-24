@@ -6,6 +6,7 @@ import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import * as web from '../web/lib/event-normalize'
+import { truncationBannerState } from '../web/lib/event-loss'
 import * as ext from '../extension/src/event-normalize'
 import * as extConst from '../extension/src/constants'
 
@@ -103,20 +104,39 @@ test('parseNormalizationStats never invents a number: bad counters read as 0', (
   assert.deepEqual(web.parseNormalizationStats(null), web.createStats())
   assert.deepEqual(web.parseNormalizationStats([1, 2]), web.createStats())
   const parsed = web.parseNormalizationStats({ ignoredEvents: 3.9, malformed: -2, droppedByCap: NaN, clampedFields: '7', duplicateEvents: Infinity, extra: 5 })
-  assert.deepEqual(parsed, { ignoredEvents: 3, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0 })
+  assert.deepEqual(parsed, { ignoredEvents: 3, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0, missedUpdates: 0 })
+  assert.equal(web.parseNormalizationStats({ missedUpdates: 2.5 }).missedUpdates, 2)
   assert.equal(web.parseNormalizationStats({ ignoredEvents: 1e300 }).ignoredEvents, web.NORM_NUM_MAX)
 })
 
 test('banner rules: duplicates and clamping alone never claim the graph is truncated; dismissal is per total', () => {
   const s = web.createStats()
-  assert.equal(web.shouldShowTruncationBanner(s, undefined), false)
-  assert.equal(web.shouldShowTruncationBanner({ ...s, duplicateEvents: 50, clampedFields: 50 }, undefined), false)
+  assert.equal(truncationBannerState(s, 0, undefined).show, false)
+  assert.equal(truncationBannerState({ ...s, duplicateEvents: 50, clampedFields: 50 }, 0, undefined).show, false)
   const cut = { ...s, ignoredEvents: 2, malformed: 1, droppedByCap: 4 }
   assert.deepEqual(web.truncationHeadline(cut), { events: 3, nodes: 4 })
   assert.equal(web.truncationTotal(cut), 7)
-  assert.equal(web.shouldShowTruncationBanner(cut, undefined), true)
-  assert.equal(web.shouldShowTruncationBanner(cut, 7), false, 'dismissed at this total')
-  assert.equal(web.shouldShowTruncationBanner({ ...cut, droppedByCap: 5 }, 7), true, 'comes back when more is dropped')
+  assert.equal(truncationBannerState(cut, 0, undefined).show, true)
+  assert.equal(truncationBannerState(cut, 0, 7).show, false, 'dismissed at this total')
+  assert.equal(truncationBannerState({ ...cut, droppedByCap: 5 }, 0, 7).show, true, 'comes back when more is dropped')
+})
+
+test('updates the source holds but the reader did not read (#420) have their own counter: they truncate the graph but are not ignored events', () => {
+  const missed = { ...web.createStats(), missedUpdates: 2 }
+  assert.equal(web.isTruncated(missed), true)
+  assert.equal(web.truncationTotal(missed), 2)
+  assert.deepEqual(web.truncationHeadline(missed), { events: 0, nodes: 0 }, 'not counted as events ignored')
+  assert.equal(truncationBannerState(missed, 0, undefined).show, true)
+  assert.equal(ext.isTruncated({ ...ext.createStats(), missedUpdates: 1 }), true)
+})
+
+test('sumNormalizationStats adds sessions up and stays capped (#366)', () => {
+  const a = { ...web.createStats(), ignoredEvents: 2, droppedByCap: 1 }
+  const b = { ...web.createStats(), ignoredEvents: 3, malformed: 4 }
+  assert.deepEqual(web.sumNormalizationStats([a, b]), { ...web.createStats(), ignoredEvents: 5, malformed: 4, droppedByCap: 1 })
+  assert.deepEqual(web.sumNormalizationStats([]), web.createStats())
+  const big = { ...web.createStats(), ignoredEvents: web.NORM_NUM_MAX }
+  assert.equal(web.sumNormalizationStats([big, big]).ignoredEvents, web.NORM_NUM_MAX)
 })
 
 // The same behaviour suite as the extension's, run against the web copy: a bug that only the mirror

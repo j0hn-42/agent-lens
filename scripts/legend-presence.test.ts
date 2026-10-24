@@ -157,3 +157,15 @@ test('holdPresence keeps the legend order, does not mutate its input and refresh
   assert.equal(next.lastSeen.get('shape-main'), 8)
   assert.deepEqual(next.shown, ['shape-main', 'link-flight'])
 })
+
+test('loop and repeat marks (#377): a row only for a mark drawn on an agent of the scene, pointing at that agent', () => {
+  const a = agent({ id: 'k:a', name: 'alpha' })
+  const b = agent({ id: 'k:b', name: 'beta' })
+  assert.ok(!has(derive({ agents: [a, b] }), 'mark-loop'), 'no mark, no row')
+  const p = derive({ agents: [a, b], repeatMarks: new Map([['k:a', { kind: 'repeated' }], ['k:b', { kind: 'loop' }], ['k:hidden', { kind: 'loop' }]]) })
+  assert.ok(has(p, 'mark-loop') && has(p, 'mark-repeated'))
+  assert.equal(p.agentFor['mark-loop'], 'k:b')
+  assert.equal(p.agentFor['mark-repeated'], 'k:a')
+  const hiddenOnly = derive({ agents: [a], repeatMarks: new Map([['k:hidden', { kind: 'loop' }]]) })
+  assert.ok(!has(hiddenOnly, 'mark-loop'), 'a mark of an agent not drawn proves nothing')
+})

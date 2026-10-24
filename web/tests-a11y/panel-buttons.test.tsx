@@ -1,12 +1,15 @@
-// #124: every panel of PANEL_BUTTON_IDS has a top bar button (aria-pressed, title, shortcut) and an entry in the help dialog.
+// #124: every panel of PANEL_BUTTON_IDS has a top bar button (aria-pressed, a tooltip or title, shortcut) and an entry in the help
+// dialog. #523: the seven panel buttons (icons under 1280 px) have a role=tooltip linked by aria-describedby instead of a title.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup } from '@testing-library/react'
 
+import { setViewportWidth } from './mobile-media'
 import { TopBar, PANEL_BUTTON_IDS, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { SHORTCUTS } from '@/lib/shortcuts'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
+import { openMore } from './topbar-more'
 
 afterEach(() => {
   cleanup()
@@ -24,14 +27,20 @@ const props: TopBarProps = {
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
-test('every panel button has aria-pressed, a title and a keyboard shortcut listed in the help dialog table', () => {
+/** The tooltip text of a button: its role=tooltip next to it (#523; linked by aria-describedby when it says more than the name) or its native title (Sessions). */
+const tipText = (btn: HTMLElement) => {
+  const tip = btn.parentElement?.querySelector('[role="tooltip"]')
+  return tip?.textContent ?? btn.getAttribute('title') ?? ''
+}
+
+test('every panel button has aria-pressed, a tooltip and a keyboard shortcut listed in the help dialog table', () => {
   render(<TopBar {...props} />)
   const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
   for (const [panel, id] of Object.entries(PANEL_BUTTON_IDS)) {
     const btn = document.getElementById(id)
     assert.ok(btn, `${panel}: no top bar button #${id}`)
     assert.ok(btn.hasAttribute('aria-pressed'), `${panel}: aria-pressed`)
-    assert.ok(btn.getAttribute('title'), `${panel}: title`)
+    assert.ok(tipText(btn), `${panel}: tooltip`)
     const key = btn.getAttribute('aria-keyshortcuts')
     assert.ok(key, `${panel}: aria-keyshortcuts`)
     assert.ok(byKey.has(key), `${panel}: shortcut "${key}" missing from SHORTCUTS`)
@@ -55,15 +64,37 @@ test('in VS Code the Context button exposes why the panel is unavailable', () =>
   render(<TopBar {...props} isVSCode />)
   const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
   assert.ok(btn, 'the Context button stays visible')
-  assert.match(btn.getAttribute('title') ?? '', /standalone relay.*not available in VS Code/i)
-  const described = btn.getAttribute('aria-describedby')
-  assert.ok(described, 'aria-describedby')
-  assert.match(document.getElementById(described)!.textContent ?? '', /standalone relay.*not available in VS Code/i)
+  // Its tooltip, linked by aria-describedby, so screen readers read it after the name (#523)
+  assert.match(tipText(btn), /standalone relay.*not available in VS Code/i)
+  assert.match(document.getElementById(btn.getAttribute('aria-describedby') ?? '')?.textContent ?? '', /not available in VS Code/)
+})
+
+// #357, WCAG 1.4.10: with the System toggle the side panel group is wider than a 320 px viewport; it wraps like the
+// toolbar around it instead of pushing Files and Context out of the screen (e2e reflow-320 measures the real layout).
+test('the side panel group keeps every toggle in it: on one line in the bar, wrapping in More under 1024 px', () => {
+  const view = render(<TopBar {...props} />)
+  const group = () => document.querySelector<HTMLElement>('[role="group"][aria-label="Side panels"]')!
+  const all = () => {
+    for (const panel of ['files', 'conversation', 'context', 'system', 'cost'] as const) {
+      assert.ok(group().contains(document.getElementById(PANEL_BUTTON_IDS[panel])), `${panel} toggle stays in the group`)
+    }
+  }
+  // From 1024 px the group is in the one-line bar: it never wraps there
+  assert.doesNotMatch(group().className, /\bflex-wrap\b/)
+  all()
+  try {
+    setViewportWidth(900)
+    openMore()
+    assert.ok(view.container.querySelector('[data-topbar-menu]')!.contains(group()), 'under 1024 px the group is in More')
+    // At 320 px the five toggles do not fit on one line of More (WCAG 1.4.10)
+    assert.match(group().className, /\bflex-wrap\b/)
+    all()
+  } finally { setViewportWidth(1440) }
 })
 
 test('outside VS Code the Context button has no unavailability note', () => {
   render(<TopBar {...props} />)
   const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
-  assert.doesNotMatch(btn.getAttribute('title') ?? '', /not available/i)
-  assert.equal(btn.getAttribute('aria-describedby'), null)
+  assert.doesNotMatch(tipText(btn), /not available/i)
+  assert.match(tipText(btn), /CLAUDE\.md/)
 })

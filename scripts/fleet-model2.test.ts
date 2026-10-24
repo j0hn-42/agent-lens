@@ -8,7 +8,7 @@ import {
 } from '../web/hooks/simulation/archive'
 import { MAX_TEAMS, eventMatchesSelection, createTeamTracker } from '../web/hooks/simulation/team-info'
 import {
-  activeSessionIds, finishedSessionIds, visibilityKey, parseShowFinished, finishedToggleLabel, ACTIVE_WINDOW_MS,
+  activeSessionIds, finishedSessionIds, visibilityKey, parseShowFinished, ACTIVE_WINDOW_MS,
 } from '../web/hooks/simulation/session-visibility'
 import { ALL_SESSIONS_ID } from '../web/lib/bridge-types'
 import { CLUSTER_LAYOUT } from '../web/lib/canvas-constants'
@@ -76,7 +76,6 @@ test('visibility helpers: key, preference parsing, toggle label', () => {
   assert.notEqual(visibilityKey(new Set(['a'])), visibilityKey(new Set(['a', 'b'])))
   assert.equal(parseShowFinished('true'), true)
   for (const v of [null, undefined, '', 'false', '1', 'TRUE']) assert.equal(parseShowFinished(v), false)
-  assert.equal(finishedToggleLabel(3), 'Show finished sessions (3)')
 })
 
 test("'All' delivery: finished sessions are excluded only while the filter is given; teams and single tabs unaffected", () => {

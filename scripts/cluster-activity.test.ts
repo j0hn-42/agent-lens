@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { computeClusters, clusterLabelLines, clusterAnnouncement, effectiveClusterState } from '../web/components/agent-visualizer/canvas/cluster-model'
+import { buildA11yModel } from '../web/components/agent-visualizer/canvas/a11y-model'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function agent(over: Record<string, unknown> = {}): any {
@@ -72,4 +73,47 @@ test('halo cost counts agents the display hides (collapsed branch), geometry sta
   const unknownHidden = agent({ id: 's1:u', tokenStatus: 'unavailable', tokensUsed: 0 })
   const q = computeClusters([lead, peer], undefined, { costAgents: [lead, peer, unknownHidden] })
   assert.match(q[0].costText, /^at least /, 'a hidden agent with no data makes the halo a lower bound')
+})
+
+// ─── #367 a halo never states a stale status as current ─────────────────────
+
+test('a halo whose working agents are stale says "last known", not "working" (#367)', () => {
+  const now = 1_700_000_000_000
+  const old = now - 10 * 60_000
+  const main = agent({ id: 's1:main', isMain: true, state: 'thinking', lastEventAt: old, freshnessSource: 'live' })
+  const sub = agent({ id: 's1:sub', state: 'waiting_permission', lastEventAt: old, freshnessSource: 'live', x: 80 })
+  const [c] = computeClusters([main, sub], undefined, { now })
+  assert.equal(c.statusText, 'last known: waiting for permission')
+  assert.match(clusterAnnouncement(c), /last known: waiting for permission/)
+  // Without a clock the status reads as before
+  assert.equal(computeClusters([main, sub])[0].statusText, 'waiting for permission')
+})
+
+test('a halo keeps the proven status of its fresh agents and adds a higher stale one as last known (#367)', () => {
+  const now = 1_700_000_000_000
+  const fresh = agent({ id: 's1:main', isMain: true, state: 'thinking', lastEventAt: now - 1_000, freshnessSource: 'live' })
+  const staleWait = agent({ id: 's1:sub', state: 'waiting_permission', lastEventAt: now - 10 * 60_000, freshnessSource: 'live', x: 80 })
+  assert.equal(computeClusters([fresh, staleWait], undefined, { now })[0].statusText, 'working, last known: waiting for permission')
+  const staleIdle = agent({ id: 's1:sub', state: 'idle', lastEventAt: now - 10 * 60_000, freshnessSource: 'live', x: 80 })
+  assert.equal(computeClusters([fresh, staleIdle], undefined, { now })[0].statusText, 'working')
+})
+
+test('a team halo with a stale working teammate is not announced as working (#367)', () => {
+  const now = 1_700_000_000_000
+  const old = now - 10 * 60_000
+  const lead = agent({ id: 's1:lead', isMain: true, teamName: 'alpha', kind: 'main', state: 'idle', lastEventAt: old, freshnessSource: 'live' })
+  const mate = agent({ id: 's1:mate', kind: 'teammate', teamName: 'alpha', state: 'idle', activity: 'working', lastEventAt: old, freshnessSource: 'live', x: 100 })
+  const [c] = computeClusters([lead, mate], undefined, { now })
+  assert.equal(c.kind, 'team')
+  assert.equal(c.statusText, 'last known: working')
+})
+
+test('the outline cluster heading carries the last known halo status (#367)', () => {
+  const now = 1_700_000_000_000
+  const old = now - 10 * 60_000
+  const main = agent({ id: 's1:main', isMain: true, state: 'thinking', lastEventAt: old, freshnessSource: 'live' })
+  const sub = agent({ id: 's1:sub', state: 'thinking', lastEventAt: old, freshnessSource: 'live', x: 80 })
+  const model = buildA11yModel(new Map([[main.id, main], [sub.id, sub]]), new Map(), [], new Map(), { now })
+  assert.match(model.clusters[0].text, /last known: working/)
+  assert.doesNotMatch(model.clusters[0].text, /, working,/)
 })

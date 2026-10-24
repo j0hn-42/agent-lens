@@ -43,6 +43,7 @@ export const TOOL_DEDUP_WINDOW_S = 3
 
 // ─── LocalStorage keys ─────────────────────────────────────────────────────
 
+/** Former localStorage key of the sound: now in the preference blob (#372), read once as a migration */
 export const SOUND_PREF_KEY = 'agent-viz-sound'
 
 // ─── Mock scenario buffer ──────────────────────────────────────────────────
@@ -77,6 +78,7 @@ export const TOOL_MIN_DISPLAY_S = 4.0
 export const TOOL_EXPIRY_S = 300
 /** Delays the user can pick for the orphan-call expiry */
 export const TOOL_EXPIRY_CHOICES_S = [60, 120, 300, 600, 1800] as const
+/** Former localStorage key of the expiry: now in the preference blob (#372), read once as a migration */
 export const TOOL_EXPIRY_KEY = 'agent-viz-tool-expiry-s'
 
 /** Reads a stored expiry delay; anything that is not one of the offered choices falls back to the default. */
@@ -88,23 +90,43 @@ export function parseToolExpiryS(raw: string | null | undefined): number {
 /** Live setting read by the simulation on each frame and each seek (set from the canvas controls). */
 export const toolExpiryConfig = { seconds: TOOL_EXPIRY_S }
 
-/** Loads the stored delay into the live setting and returns it (storage may be unavailable). */
-export function loadToolExpiryS(): number {
-  try { toolExpiryConfig.seconds = parseToolExpiryS(window.localStorage.getItem(TOOL_EXPIRY_KEY)) } catch { /* default */ }
-  return toolExpiryConfig.seconds
-}
-
-/** Applies and stores a new delay; a value outside the choices falls back to the default. */
+/**
+ * Applies a delay to the live setting and returns it; a value outside the choices falls back to the default.
+ * Stored by the caller in the preference blob (#372): the former key TOOL_EXPIRY_KEY is only read there, once.
+ */
 export function setToolExpiryS(seconds: number): number {
   const next = parseToolExpiryS(String(seconds))
   toolExpiryConfig.seconds = next
-  try { window.localStorage.setItem(TOOL_EXPIRY_KEY, String(next)) } catch { /* storage unavailable */ }
   return next
 }
 /** Seconds a discovery card stays visible before fading */
 export const DISCOVERY_HOLD_S = 8
 /** Speed multiplier for discovery lerp toward target position */
 export const DISCOVERY_LERP_SPEED = 3
+/**
+ * File cards made from the paths a Glob / Grep output lists (#438, web/lib/search-discoveries.ts).
+ * At most `maxPerCall` cards per call: the other paths, and any the 200-character capture cut, are not drawn;
+ * each card says how many files the call reported and how many are shown (a11y list, tooltip, popup).
+ */
+export const SEARCH_DISCOVERY = {
+  maxPerCall: 5,
+  /** Distance from the tool card centre to the column of cards, to its right */
+  offsetX: 230,
+  /** Vertical distance between two cards of the same call */
+  gapY: 40,
+} as const
+/** Flow from a search card to its file cards (#384, canvas/search-flow.ts) */
+export const SEARCH_FLOW = {
+  /** Trips a chip makes along its line per second */
+  speed: 0.45,
+  chipRadius: 2.5,
+  arrowLength: 7,
+  arrowHalfWidth: 3.5,
+  /** Gap between a card edge and the end of the line */
+  edgeGap: 2,
+  /** Seconds of session time after the call completed during which the chips travel; the line and arrowhead stay */
+  chipWindowS: 3,
+} as const
 /** Seconds a message bubble is considered visible (for pruning) */
 export const BUBBLE_VISIBLE_S = 12
 
@@ -274,6 +296,9 @@ export const AGENT_DRAW = {
   stateLabelGap: 13,
   /** Width of the dark outline drawn behind label text */
   labelHaloWidth: 3,
+  /** Label opacity from which its plate is fully opaque; below it the plate fades with the label (under 25 % the
+   *  text is not legible on the scene ground, an opaque plate would cut an edge for nothing) */
+  labelPlateFullAlpha: 0.25,
   /** Agent name label width multiplier of radius */
   labelWidthMultiplier: 4.5,
   /** Scanline gradient half-height */
@@ -342,6 +367,8 @@ export const STATS_OVERLAY = {
   /** Y offset above agent radius (legacy; the live layout comes from overlay-layout.ts) */
   yOffset: 25,
   boxWidth: 124,
+  /** Widest the box grows for a qualified text ("at least 99 tools · 1:02:33"); a longer line drops its duration (#366) */
+  maxBoxWidth: 240,
   boxHeight: 20,
   borderRadius: 3,
   fontSize: 11,
@@ -369,14 +396,27 @@ export const TOOL_DRAW = {
   tokenFontSize: 11,
   /** Y offset for two-line card layout */
   twoLineOffset: 7,
+  /** Side (world px) of the square icon a card becomes when its text would be unreadable (LOD.cardTextMinZoom, #378) */
+  iconSize: 28,
+  /** Glyph size (world px) on that icon */
+  iconGlyphSize: 16,
+  /** Dot radius (world px) on the icon of a tool without glyph (MCP ring, unknown tools dot) */
+  iconDotRadius: 3.5,
+  /** Smallest on-screen radius (px) of that dot or ring */
+  iconDotMinPx: 2,
+  /** Smallest on-screen width (px) of the strokes on the icon: glyph, MCP ring, running ring, error cross */
+  iconMinStrokePx: 1.25,
+  /** On-screen half size (px) of the cross that marks a failed call on its icon */
+  iconErrorMarkPx: 3,
 } as const
 
 // ─── MCP tool call drawing constants ────────────────────────────────────────
 
 export const MCP_DRAW = {
   /** Server badge above the card */
-  badgeHeight: 11,
-  badgeFontSize: 9,
+  badgeHeight: 13,
+  /** LOD.minTextPx: the badge is only drawn with the card text, from 100 %, so it is never under that size there (#378) */
+  badgeFontSize: 11,
   badgePadX: 5,
   badgeGap: 3,
   /** Orbiting dots around a running MCP card */
@@ -536,20 +576,38 @@ export const HIT_DETECTION = {
 // ─── Level of detail (zoom thresholds) ──────────────────────────────────────
 
 export const LOD = {
-  /** Below this zoom, hide secondary text: stats, token labels, tool/discovery/bubble text, cost pills */
+  /**
+   * Smallest on-screen size (px) of a canvas text that follows the zoom (#378). Below 100% the agent
+   * labels are held at this size (the overlay plan then hides or shortens the ones that collide);
+   * tool-card and bubble text, drawn at 11 world px, is replaced by the card icon or the bubble count chip.
+   */
+  minTextPx: 11,
+  /**
+   * Below this zoom, hide secondary overlays: token labels held at minTextPx under the agent label, link bubbles,
+   * and the stats box and cost pill (held at minTextPx above it, so a Stats or Cost button that is on shows them
+   * where the auto-fit usually lands)
+   */
   detailMinZoom: 0.6,
-  /** Below this zoom, hide agent names and state labels too (only shapes remain) */
+  /**
+   * Below this zoom, hide the secondary text drawn at 11 world px or more and not held at minTextPx: context
+   * percentage, discovery text, particle labels, phase and team halo labels (11 / 11).
+   * In the hysteresis band under it, that text is enlarged to stay at minTextPx (textHoldScale).
+   */
+  detailTextMinZoom: 1,
+  /** Below this zoom, a tool card is drawn as its icon and a bubble stack as its count chip: their 11 px text would fall under minTextPx (11 / 11) */
+  cardTextMinZoom: 1,
+  /** Below this zoom, hide agent names and state labels too (only shapes remain): the nodes are too small to carry a label held at minTextPx */
   labelMinZoom: 0.35,
+  /**
+   * Hysteresis of every threshold above: a level that is shown is dropped only once the zoom falls this
+   * fraction under its threshold, and shown again at the threshold itself. A zoom that hovers at a
+   * threshold (wheel steps, auto-fit easing) then flips a level once instead of making it blink.
+   * In the band, card text can be drawn down to minTextPx × (1 − hysteresis), about 10 px.
+   */
+  hysteresis: 0.08,
 } as const
 
 // ─── State presentation (colour + text, so state never relies on colour alone) ──
-
-/** Canvas-local state colours that differ from colors.ts so that every state is
- *  visually distinct (WCAG 1.4.1): thinking vs idle, waiting_permission vs tool_calling. */
-export const STATE_COLOR_OVERRIDES: Readonly<Record<string, string>> = {
-  thinking: '#b79cff',
-  waiting_permission: '#ff7ad9',
-}
 
 /** Short state label drawn under every agent name */
 export const STATE_LABEL_SHORT: Readonly<Record<string, string>> = {
@@ -586,6 +644,7 @@ export const A11Y_ANNOUNCE_MAX = 3
 /** Global cap on bright flashes per second (WCAG 2.3.1) */
 export const FLASH_MAX_PER_SECOND = 2
 
+/** Former localStorage keys of 'Freeze motion' and 'Pin cards': now in the preference blob (#372), read once as a migration */
 export const ANIM_PAUSE_KEY = 'agent-viz-pause-animations'
 export const NEVER_HIDE_KEY = 'agent-viz-never-hide'
 export const LEGEND_OPEN_KEY = 'agent-viz-legend-open'
@@ -633,8 +692,23 @@ export const ORCHESTRATOR_DRAW = {
   badgeHeight: 16,
   /** Gap between the node top and the badge */
   badgeGap: 14,
-  /** Accent of the crown badge (the crown SHAPE and the text carry the meaning, not the colour) */
-  accent: '#ffd166',
+  // Colours of the crown and of the pill: crownAccent / crownInk of the scene palette (lib/scene-state-colors.ts, #381).
+  // The crown SHAPE and the text carry the meaning, not the colour.
+} as const
+
+/**
+ * Loop / repeat badge on the upper-left rim of an agent node (#377): the mirror of the crown, which holds the
+ * upper-right rim. A SHAPE on a dark disc (circular arrow = loop, double chevron = repeated), static, no text.
+ * Layout only: what earns a badge is decided by lib/repeat-marks, with no threshold of its own.
+ */
+export const REPEAT_BADGE_DRAW = {
+  /** Centre at (x - offset * r, y - offset * r) */
+  offset: 0.8,
+  /** Glyph size; the disc radius is size + 2, like the crown */
+  size: ORCHESTRATOR_DRAW.badgeFontSize - 1,
+  /** Outline of the disc */
+  ringWidth: 1.5,
+  glyphWidth: 1.6,
 } as const
 
 export const EDGE_BUBBLE = {
@@ -673,6 +747,20 @@ export const CLUSTER_DRAW = {
   padding: 56,
 } as const
 
+/**
+ * Workspace zone: the rounded rectangle drawn around all the clusters of one project when several projects
+ * are on screen. The layout reserves the same padding, so two zones never touch.
+ */
+export const WORKSPACE_ZONE = {
+  /** Space between the outermost halo and the left, right and bottom edge (world px) */
+  padSide: 60,
+  /** Space above the highest halo: room for the header and for the cluster label chips */
+  padTop: 100,
+  cornerRadius: 28,
+  /** Header font size on screen (px); the world size grows below zoom 1 so it stays readable */
+  headerFontSize: 13,
+} as const
+
 export const PLACEMENT = {
   /** Gap kept between two placed labels (screen px) */
   gap: 3,
@@ -688,8 +776,6 @@ export const PLACEMENT = {
 /** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
 /** Mirrors SNAPSHOT_STALE_AFTER_MS of extension/src/constants.ts (a test compares them) */
 export const STALE_AFTER_MS = 30_000
-/** A status that comes from history (not seen live) expires after this long (ms) */
-export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
 /** A terminal status (error / interrupted) stays visible this long (ms), then the agent reads "closed" */
 export const TERMINAL_STATUS_VISIBLE_MS = 2 * 60_000
 /** A live agent silent for more than this long (ms) is reported as silent for N min, or as waiting for a permission (#226) */
@@ -700,10 +786,8 @@ export const FRESHNESS_TICK_MS = 1000
 export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
 
 export const FRESHNESS_DRAW = {
-  /** Neutral grey of a stale node (state colours say "live") */
-  staleColor: '#8a94a0',
-  /** Colour of the "last known state" label: opaque light grey, >= 4.5:1 on the void and on the violet session halo */
-  staleTextColor: '#c5ced8',
+  // Colours: staleMark (the grey of a stale node; state colours say "live") and staleText (its "last known state" label, opaque,
+  // >= 4.5:1 on the void and on the violet session halo) of the scene palette (lib/scene-state-colors.ts, #381)
   /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
   staleAlpha: 0.45,
   /** Max width (px) of the "last known state" line */

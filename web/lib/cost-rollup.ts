@@ -6,9 +6,11 @@
  */
 import { agentCost } from './cost'
 import { USAGE_LABELS, isValue, usageFromAgent } from './usage'
+import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatTokens } from './utils'
 import type { AgentLike, AgentNode, SessionRow } from './session-tree'
 import type { SessionInfo } from './bridge-types'
+import { replayLostForAgents } from './event-loss'
 
 /** Deeper branches are cut and the total flagged incomplete (also keeps the walk bounded). */
 export const ROLLUP_MAX_DEPTH = 64
@@ -17,9 +19,13 @@ export const ROLLUP_MAX_AGENTS = 20_000
 
 export const ROLLUP_UNKNOWN_TEXT = 'unknown'
 export const ROLLUP_INCOMPLETE_TEXT = '(incomplete)'
+
+/** The three words of a total (#501): English here, the interface language through card-text.rollupText. */
+export interface RollupWords { unknown: string; incomplete: string; estimated: string }
+const ROLLUP_WORDS_EN: RollupWords = { unknown: ROLLUP_UNKNOWN_TEXT, incomplete: ROLLUP_INCOMPLETE_TEXT, estimated: USAGE_LABELS.estimated }
 /** Accessible explanation of the incomplete badge. */
 export const ROLLUP_INCOMPLETE_HELP =
-  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, or branches are nested too deeply, so the real figure is higher.'
+  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay (or the VS Code extension) could not replay events of a session this total counts, so the real figure may differ.'
 
 export interface RollupTotal {
   tokens: number
@@ -34,6 +40,11 @@ export interface RollupTotal {
   complete: boolean
   /** True when a counted figure is an estimate, not an announced count */
   estimated: boolean
+  /**
+   * True when the relay could not replay events of a session the total counts (#366). The token sum adds context
+   * readings, which are absolute (a lost compaction can lower one), and the cost prices them (#591): both are then incomplete, neither a lower bound.
+   */
+  replayLoss?: boolean
 }
 
 type CostAgent = AgentLike & { model?: string }
@@ -113,6 +124,34 @@ export function rollupFamily(roots: ReadonlyArray<AgentNode<CostAgent>>): Rollup
 }
 
 /**
+ * A total over a graph that may be incomplete (#366): with events the relay could not replay (`lost` > 0) the total is
+ * flagged incomplete ("(incomplete)") and `replayLoss` (the token and cost cells then claim no direction). The sums are unchanged.
+ */
+export function rollupUnderLoss(total: RollupTotal, lost: number): RollupTotal {
+  return lost > 0 ? { ...total, complete: false, replayLoss: true } : total
+}
+
+/** Agents of these branches, walked iteratively within the same budget as a total (each agent once). */
+function branchAgents(roots: ReadonlyArray<AgentNode<CostAgent>>): CostAgent[] {
+  const out: CostAgent[] = []
+  const seen = new Set<string>()
+  const stack = [...roots]
+  while (stack.length > 0 && out.length < ROLLUP_MAX_AGENTS) {
+    const n = stack.pop()!
+    if (seen.has(n.agent.id)) continue
+    seen.add(n.agent.id)
+    out.push(n.agent)
+    for (const c of n.children) stack.push(c)
+  }
+  return out
+}
+
+/** Events the relay could not replay for the sessions of the agents of a branch, each session counted once (#366). */
+export function branchReplayLost(root: AgentNode<CostAgent>, lost: ReadonlyMap<string, number> | null | undefined): number {
+  return replayLostForAgents(lost, branchAgents([root]))
+}
+
+/**
  * Totals for the rows of the sessions panel, by row id: a session row gets its session's total, a
  * team row the total of the whole family (all its member sessions) counting each agent once.
  */
@@ -124,12 +163,17 @@ export function rollupRows(
    * when a member session has no agent data at all.
    */
   whole?: { sessions: ReadonlyArray<SessionInfo>; forests: ReadonlyMap<string, AgentNode[]> },
+  /** Events the relay could not replay, per session id (#366): a total that counts such a session is a lower bound */
+  lost?: ReadonlyMap<string, number> | null,
 ): Map<string, RollupTotal> {
   const out = new Map<string, RollupTotal>()
+  // The sessions of the agents a total counts (and the row's own session), each once
+  const lostOf = (roots: ReadonlyArray<AgentNode>, sessionIds: Iterable<string> = []): number =>
+    lost && lost.size > 0 ? replayLostForAgents(lost, [...branchAgents(roots), ...Array.from(sessionIds, sessionId => ({ sessionId }))]) : 0
   const byTeam = new Map<string, AgentNode[]>()
   for (const row of rows) {
     if (row.kind !== 'session') continue
-    out.set(row.id, rollupFamily(row.roots))
+    out.set(row.id, rollupUnderLoss(rollupFamily(row.roots), lostOf(row.roots, [row.id])))
     if (row.teamName) {
       const list = byTeam.get(row.teamName)
       if (list) list.push(...row.roots)
@@ -138,19 +182,24 @@ export function rollupRows(
   }
   for (const row of rows) {
     if (row.kind !== 'team' || !row.teamName) continue
-    if (!whole) { out.set(row.id, rollupFamily(byTeam.get(row.teamName) ?? [])); continue }
+    if (!whole) {
+      const roots = byTeam.get(row.teamName) ?? []
+      out.set(row.id, rollupUnderLoss(rollupFamily(roots), lostOf(roots)))
+      continue
+    }
     const members = whole.sessions.filter(s => s.teamName === row.teamName)
-    const total = rollupFamily(members.flatMap(s => whole.forests.get(s.id) ?? []))
+    const roots = members.flatMap(s => whole.forests.get(s.id) ?? [])
+    const total = rollupFamily(roots)
     // A member session without any agent data is a missing link, not a zero
     if (members.some(s => (whole.forests.get(s.id) ?? []).length === 0)) total.complete = false
-    out.set(row.id, total)
+    out.set(row.id, rollupUnderLoss(total, lostOf(roots, members.map(s => s.id))))
   }
   return out
 }
 
-/** "$0.123 · 4.2k", plus the incomplete badge; "unknown" when no agent had a known token count. */
-export function formatRollup(total: RollupTotal): string {
-  if (total.known === 0) return ROLLUP_UNKNOWN_TEXT
-  const text = `${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${USAGE_LABELS.estimated}` : ''}`
-  return total.complete ? text : `${text} ${ROLLUP_INCOMPLETE_TEXT}`
+/** "~$0.123 · 4.2k" (a context cost estimate, #364), plus the incomplete badge; "unknown" when no agent had a known token count. */
+export function formatRollup(total: RollupTotal, words: RollupWords = ROLLUP_WORDS_EN): string {
+  if (total.known === 0) return words.unknown
+  const text = `${COST_LABELS.mark}${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${words.estimated}` : ''}`
+  return total.complete ? text : `${text} ${words.incomplete}`
 }

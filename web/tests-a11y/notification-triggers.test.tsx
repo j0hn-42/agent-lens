@@ -65,7 +65,7 @@ test('triggers: crossing the cost threshold notifies once, with the qualified fi
   hook.rerender({ value: 6 })
   hook.rerender({ value: 7 })
   assert.equal(FakeNotification.shown.length, 1)
-  assert.equal(FakeNotification.shown[0].body, 'Cost reached $6.00 (threshold $5.00)')
+  assert.equal(FakeNotification.shown[0].body, 'Context cost estimate reached ~$6.00 (threshold $5.00)')
 })
 
 test('triggers: nothing is sent while the history replays', () => {
@@ -86,7 +86,7 @@ test('triggers: turning a rule off hides its alert, the others still fire', () =
   assert.equal(FakeNotification.shown.length, 0)
   hook.rerender({ agents: [blocked('s1:a', 'error'), blocked('s2:a', 'waiting_permission')] })
   assert.equal(FakeNotification.shown.length, 1)
-  assert.equal(FakeNotification.shown[0].body, '1 waiting')
+  assert.equal(FakeNotification.shown[0].body, '1 agent waiting')
 })
 
 test('native channel (VS Code): sends the item to the extension, no browser permission, not gated on document.hidden', async () => {
@@ -99,7 +99,7 @@ test('native channel (VS Code): sends the item to the extension, no browser perm
   assert.equal(FakeNotification.asked, 0, 'the browser permission is irrelevant in VS Code')
   assert.equal(hook.result.current.notifyState, 'on')
   hook.rerender({ agents: [blocked('s1:a', 'error')] })
-  assert.deepEqual(sent, [{ trigger: 'attention', title: 'Agent Lens', body: '1 error' }])
+  assert.deepEqual(sent, [{ trigger: 'attention', title: 'Agent Lens', body: '1 agent in error' }])
   assert.equal(FakeNotification.shown.length, 0)
 })
 
@@ -115,8 +115,8 @@ test('rules hook: persisted per browser, defaults without storage', () => {
 })
 
 const settingsProps = (over: Record<string, unknown> = {}) => ({
-  open: true, onClose: noop, hexGrid: true, onHexGridChange: noop, muted: false, onToggleMute: noop, showFinished: false,
-  onShowFinishedChange: noop, hideInactive: true, onHideInactiveChange: noop, singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
+  open: true, onClose: noop, hexGrid: true, onHexGridChange: noop, muted: false, onToggleMute: noop,
+  showMode: 'active' as const, onShowModeChange: noop, singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
   onOpenShortcuts: noop, ...over,
 })
 
@@ -126,6 +126,8 @@ test('settings: a Notifications section with one named switch per trigger and a 
   const view = render(<SettingsDialog {...settingsProps({
     notifications: { state: 'on', onToggle: () => { toggled++ }, rules: DEFAULT_RULES, onRulesChange: (r: NotificationRules) => changes.push(r) },
   })} />)
+  // Settings sit in tabs since #533: the Notifications section is in its own tab
+  fireEvent.click(view.getByRole('tab', { name: 'Notifications and announcements' }))
   view.getByRole('region', { name: 'Notifications' })
   const master = view.getByRole('switch', { name: /Enable notifications/ }) as HTMLInputElement
   assert.equal(master.checked, true)
@@ -149,9 +151,11 @@ test('settings: a Notifications section with one named switch per trigger and a 
 
 test('settings: notifications blocked or unsupported are said, never silently off', () => {
   const blockedView = render(<SettingsDialog {...settingsProps({ notifications: { state: 'denied', onToggle: noop, rules: DEFAULT_RULES, onRulesChange: noop } })} />)
+  fireEvent.click(blockedView.getByRole('tab', { name: 'Notifications and announcements' }))
   blockedView.getByText(/blocked in the browser settings/)
   blockedView.unmount()
   const unsupported = render(<SettingsDialog {...settingsProps({ notifications: { state: 'unsupported', onToggle: noop, rules: DEFAULT_RULES, onRulesChange: noop } })} />)
+  fireEvent.click(unsupported.getByRole('tab', { name: 'Notifications and announcements' }))
   unsupported.getByText(/not available in this environment/)
 })
 

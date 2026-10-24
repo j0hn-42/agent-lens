@@ -3,24 +3,25 @@ import type { Particle, Edge, DepthParticle, TeamSummary } from '@/lib/agent-typ
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import {
-  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
+  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold,
 } from '@/lib/canvas-constants'
 import { BloomRenderer } from '@/components/agent-visualizer/bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from '@/components/agent-visualizer/background-layer'
 import {
   type VisualEffect,
-  drawTetherLine, drawEffects, drawAgents, drawMessageBubblesWorld,
+  drawEffects, drawAgents, drawMessageBubblesWorld,
   drawEdges, getActiveEdgeIds,
   delegationPathEdges, drawDelegationPath, createPathAnimation,
   drawParticles, buildEdgeMap, drawToolCalls,
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
-  drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
-  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
+  drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom, discoveryCardScale, frameLevel,
+  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
-import { measureTextCached } from '@/components/agent-visualizer/canvas/render-cache'
+import { searchFlowSegments, searchFlowMoves, drawSearchFlow } from '@/components/agent-visualizer/canvas/search-flow'
+import { measureTextCached, getToolCardSize } from '@/components/agent-visualizer/canvas/render-cache'
 import type { Transform } from '@/components/agent-visualizer/canvas/camera-fit'
 import { sceneAgents, costScope } from '@/components/agent-visualizer/canvas/scene'
 import type { CollapseMemory, CollapseView } from '@/components/agent-visualizer/canvas/branch-collapse'
@@ -28,14 +29,17 @@ import { drawBranchBadges } from '@/components/agent-visualizer/canvas/draw-bran
 import type { NavNode } from '@/components/agent-visualizer/canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, type KeyedEdgeBubble } from '@/components/agent-visualizer/canvas/edge-bubble-set'
 import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
+import { MOBILE_QUERY, TOUCH_TARGET_PX } from '@/lib/mobile-view'
 import { createHaloEaser } from '@/components/agent-visualizer/canvas/halo-geometry'
-import { planKey } from '@/components/agent-visualizer/canvas/overlay-plan'
+import { planKey, toolCardRects } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
 import { createPerfStats, drawPerfOverlay, countPaintCalls } from '@/components/agent-visualizer/canvas/perf-overlay'
 import { createDrawGate } from '@/components/agent-visualizer/canvas/draw-gate'
 import { sceneStamp, sceneAnimating } from '@/components/agent-visualizer/canvas/scene-stamp'
+import { repeatMarks, type RepeatMark } from '@/lib/repeat-marks'
 import { viewRectFor } from '@/components/agent-visualizer/canvas/view-cull'
 import { MOTION_LAYERS, layerIsCalm, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
+import { sceneTheme } from '@/lib/scene-state-colors'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 import { deriveFileConflicts, type FileConflict } from '@/lib/file-conflicts'
 import type { FileAttention } from '@/lib/agent-types'
@@ -61,6 +65,8 @@ interface DrawLoopDeps {
   heldBubbleKeysRef: MutableRefObject<ReadonlySet<string>>
   selectedClusterKeyRef: MutableRefObject<string | null>
   clustersRef: MutableRefObject<Cluster[]>
+  /** Agent names the last planned frame does not draw (#594): read by the "N names hidden" button */
+  hiddenAgentNamesRef?: MutableRefObject<number>
   // Latest props
   linksPropRef: MutableRefObject<Map<string, AgentLink> | undefined>
   teamsRef: MutableRefObject<Map<string, TeamSummary> | undefined>
@@ -83,6 +89,8 @@ interface DrawLoopDeps {
   updateDragLerp: CanvasDragLerp
   refreshInsetsIfStale: (w: number, h: number, timestamp: number) => void
   getSafeArea: (w: number, h: number) => ReturnType<typeof import('@/components/agent-visualizer/canvas/camera-fit').safeRect>
+  /** UI over the canvas that reserves no edge (the collapsed Conversation pill), in canvas px */
+  getCovers: () => ReadonlyArray<import('@/components/agent-visualizer/canvas/camera-fit').Rect>
   effectsRef: MutableRefObject<VisualEffect[]>
   detectStateChanges: () => void
 }
@@ -117,6 +125,8 @@ function syncSceneIntoDrawProps(d: DrawLoopDeps): void {
     { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null },
     d.hasFocusRef.current ? d.focusedNodeRef.current : null, d.collapseMemoryRef.current, s)
   d.collapseViewRef.current = scene.collapse
+  // The hidden agents drawn all the same are laid out by the force layout too (#554)
+  p.onLayoutKeepIds?.(scene.keptIds)
   p.agents = scene.agents
   p.collapse = scene.collapse
   p.toolCalls = scene.toolCalls
@@ -157,6 +167,9 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   // Delegation path (#56): restarts whenever the selected node changes
   const pathAnimRef = useRef(createPathAnimation())
   const drawOptsRef = useRef<DrawOpts>({ reducedMotion: false, zoom: 1, showCost: false, showStats: false })
+  const repeatCacheRef = useRef<{ health?: unknown; waste?: unknown; agents?: unknown; marks: ReadonlyMap<string, RepeatMark> }>({ marks: new Map() })
+  // Level of detail of the previous frame: the thresholds keep a hysteresis band so text does not blink (#378)
+  const lodRef = useRef<DrawOpts['lod']>(undefined)
   // Stable ref so the rAF loop always calls the latest draw without re-subscribing
   const drawRef = useRef<(timestamp: number) => void>(() => {})
 
@@ -199,6 +212,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       transform: deps.transformRef.current, width: p.dimensions.width, height: p.dimensions.height, dpr: deps.dprRef.current,
       epoch: tracker.epoch,
       keys: [
+        sceneTheme(), // a theme switch recolours the agent states: redraw a still scene
         p.selectedAgentId, p.hoveredAgentId, p.selectedToolCallId, p.selectedDiscoveryId, p.selectedLinkId,
         p.showStats, p.showHexGrid, !!p.showCostOverlay, !!p.isDragging, !!p.pauseAutoFit,
         hover?.type, hover?.id, focused?.type, focused?.id, deps.selectedClusterKeyRef.current,
@@ -206,7 +220,12 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         MOTION_LAYERS.map(l => layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, l) ? '1' : '0').join(''),
       ],
     })
-    const animating = sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
+    // A chip travelling to a file card (SEARCH_FLOW.chipWindowS after its Grep completed) keeps the full frame
+    // rate, unless the links layer is calm (static line then). It reads the scene the last frame drew (p, filtered by
+    // Hide inactive and closed branches, re-synced on every drawn frame), not the raw simulation: a hidden card draws nothing.
+    const flowMoves = !layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, 'links')
+      && searchFlowMoves(p.discoveries, p.toolCalls, getToolCardSize, s.isPlaying ? s.currentTime : null)
+    const animating = flowMoves || sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
     const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating, moving: deps.isCameraBusy() || !!p.isDragging })
     if (!draw) perfRef.current.skippedFrames++
     return !draw
@@ -261,15 +280,34 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
       const opts = drawOptsRef.current
+      // The scene follows the theme (#381): agent states, labels, links, halos, cards and grid
+      const theme = sceneTheme()
+      opts.theme = theme
       opts.reducedMotion = reducedMotion
       opts.zoom = transform.scale
+      const lod = lodForZoom(transform.scale, lodRef.current)
+      lodRef.current = lod
+      opts.lod = lod
+      // Hit-testing sizes the discovery cards as this frame draws them (#378)
+      frameLevel.lod = lod
       opts.showCost = !!showCostOverlay
       opts.showStats = showStats
       opts.showSessionLabels = hasSeveralSessions(agents.values())
       opts.teams = deps.teamsRef.current
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
+      opts.replayLost = deps.drawPropsRef.current.replayLost
       opts.maskText = deps.presentationRef.current.mask
+      // Loop / repeat badges (#377): re-derived only when the verdicts, the ledger or the drawn agents change
+      {
+        const health = deps.drawPropsRef.current.health
+        const waste = deps.simulationRef.current?.waste
+        const cache = repeatCacheRef.current
+        if (cache.health !== health || cache.waste !== waste || cache.agents !== agents) {
+          repeatCacheRef.current = { health, waste, agents, marks: repeatMarks(health, waste, agents.keys()) }
+        }
+        opts.repeatMarks = repeatCacheRef.current.marks
+      }
       // Elements outside the viewport (with a margin) are not drawn; ?perf=full turns this off for baseline measurements
       opts.view = PERF_BASELINE ? undefined : viewRectFor(transform, w, h)
 
@@ -281,10 +319,11 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       deps.updateDragLerp(agents, onAgentDrag)
 
       // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
-      const clusters = computeClusters(agents.values(), deps.teamsRef.current, { sessions: deps.sessionsRef.current, costAgents: costScope(deps.simulationRef.current).agents.values() })
+      const clusters = computeClusters(agents.values(), deps.teamsRef.current, { sessions: deps.sessionsRef.current, costAgents: costScope(deps.simulationRef.current).agents.values(), now: Date.now(), replayLost: opts.replayLost })
       // Halos follow the agents that appear, finish or get hidden without jumping (a snap under reduced motion)
       haloEaserRef.current.apply(clusters, deltaTime, reducedMotion)
       deps.clustersRef.current = clusters
+      const workspaceZones = computeWorkspaceZones(clusters)
       const hoverTarget = deps.hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
       const edgeBubbles: KeyedEdgeBubble[] = []
@@ -302,16 +341,24 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       for (const b of cappedEdgeBubbles) if (deps.heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod: lodForZoom(transform.scale),
+          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys,
+          // Below 768 px the bubble zones are touch targets of 44 px (#514)
+          touchTargetPx: typeof window !== 'undefined' && window.matchMedia?.(MOBILE_QUERY).matches ? TOUCH_TARGET_PX : 0,
+          transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod,
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: deps.simTimeRef.current, teams: deps.teamsRef.current,
           isBubbleHeld: id => expiryHold.neverHide || expiryHold.paused || expiryHold.agentIds.has(id),
+          // Cards are drawn above labels and bubbles: keep those texts off them (#378)
+          toolCards: toolCardRects(toolCalls.values(), toolCardSize),
+          // Halo titles move off the workspace headers and the collapsed Conversation pill (#378)
+          workspaceZones, covers: deps.getCovers(), replayLost: opts.replayLost,
         })
         : EMPTY_PLAN
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)
       opts.plan = overlay === EMPTY_PLAN ? undefined : overlay.plan
       opts.crowded = overlay.crowded
+      if (deps.hiddenAgentNamesRef) deps.hiddenAgentNamesRef.current = overlay.hiddenAgentNames
       const activeClusterKey = (selectedAgentId
         ? clusters.find(c => c.memberIds.includes(selectedAgentId))?.key
         : undefined) ?? deps.selectedClusterKeyRef.current
@@ -340,12 +387,12 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       let activeAgentPos: { x: number; y: number; color: string } | undefined
       for (const [, agent] of agents) {
         if (agent.state === 'thinking' || agent.state === 'tool_calling' || agent.state === 'waiting_permission') {
-          activeAgentPos = { x: agent.x, y: agent.y, color: stateColor(agent.state) }
+          activeAgentPos = { x: agent.x, y: agent.y, color: stateColor(agent.state, theme) }
           break
         }
       }
 
-      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, calmOf('background'))
+      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, calmOf('background'), theme)
 
       ctx.save()
       ctx.translate(transform.x, transform.y)
@@ -366,9 +413,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
 
       // Draw order (bottom to top) matches hit-test priority in reverse:
       // bubbles sit under tool/discovery cards so interactive cards are never covered.
-      drawDiscoveryConnections(ctx, discoveries, agents)
+      drawDiscoveryConnections(ctx, discoveries, agents, theme)
       // Team halos sit under everything; links (communication edges) under the nodes
       opts.reducedMotion = calmOf('links')
+      drawWorkspaceZones(ctx, workspaceZones, opts)
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
       drawSessionLinks(ctx, sessionLinkSegments(clusters, deps.sessionLinksRef.current ?? []), opts)
       drawPhaseLabels(ctx, phaseLabels(agents.values()), opts)
@@ -390,6 +438,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         deps.hoverTargetRef.current?.type === 'link' ? deps.hoverTargetRef.current.id : null,
         timeRef.current, opts,
       )
+      drawSearchFlow(ctx, searchFlowSegments(discoveries, toolCalls, getToolCardSize, deps.simulationRef.current.isPlaying ? deps.simTimeRef.current : null), timeRef.current, opts)
       opts.reducedMotion = calmOf('agents')
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
       drawBranchBadges(ctx, agents, deps.drawPropsRef.current.collapse, opts.focusedAgentId ?? null, opts)
@@ -403,22 +452,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       if (!opts.reducedMotion) drawEffects(ctx, deps.effectsRef.current)
       opts.reducedMotion = reducedMotion
 
-      // Tether from the selected node to its detail card
-      if (selectedAgentId) {
-        const agent = agents.get(selectedAgentId)
-        if (agent) drawTetherLine(ctx, agent, transform, h)
-      } else if (selectedToolCallId) {
-        const tool = toolCalls.get(selectedToolCallId)
-        if (tool) drawTetherLine(ctx, tool, transform, h, toolCardSize(tool).w / 2)
-      } else if (selectedDiscoveryId) {
-        const disc = discoveries.find(d => d.id === selectedDiscoveryId)
-        if (disc) drawTetherLine(ctx, disc, transform, h, getDiscoveryCardDimensions(disc.label, disc.content.split('\n')).cardW / 2)
-      }
-
       // Keyboard focus ring (distinct from hover/selection glow)
       const focusedNow = deps.hasFocusRef.current ? deps.focusedNodeRef.current : null
       if (focusedNow) {
-        const shape = focusShapeFor(focusedNow, deps.drawPropsRef.current)
+        const shape = focusShapeFor(focusedNow, deps.drawPropsRef.current, discoveryCardScale(opts))
         if (shape) drawFocusRing(ctx, shape, transform.scale)
       }
 
@@ -430,7 +467,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       // Focusable buttons over the edge bubbles, at the places the overlay plan chose
       if (deps.bubbleLayerRef.current) {
         const specs: BubbleButtonSpec[] = []
-        if (opts.plan && lodForZoom(transform.scale).details) {
+        if (opts.plan && lod.details) {
           for (const b of cappedEdgeBubbles) {
             const place = opts.plan.get(planKey.edgeBubble(b.key))
             if (!place || place.hidden || !place.rect) continue
@@ -444,7 +481,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         syncBubbleButtons(deps.bubbleLayerRef.current, specs)
       }
 
-      if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed, deps.presentationRef.current.mask) }
+      if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed, deps.presentationRef.current.mask, deps.drawPropsRef.current.replayLost) }
       if (bloomRef.current && !calmOf('effects')) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders

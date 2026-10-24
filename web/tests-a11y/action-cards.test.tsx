@@ -3,7 +3,7 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, within } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup'
@@ -25,12 +25,109 @@ const show = (toolName: string, inputData: Record<string, unknown>) =>
     />,
   )
 
-test('Edit: a +N -M summary with a spoken equivalent', () => {
+test('Edit: says what the figures are (lines replaced), not a diff count (#383)', () => {
   const { getByRole } = show('Edit', { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' })
   const summary = getByRole('group', { name: 'Edit summary' })
-  assert.match(summary.textContent ?? '', /\+2/)
-  assert.match(summary.textContent ?? '', /-3/)
-  assert.match(summary.textContent ?? '', /2 lines added, 3 lines removed/)
+  assert.equal(summary.textContent?.replace(/\s+/g, ' ').trim(), '3 lines replaced by 2')
+})
+
+test('Edit: an insertion and a deletion are named as such (#383)', () => {
+  const ins = show('Edit', { file_path: '/a.ts', old_string: '', new_string: 'a\nb' })
+  assert.equal(ins.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), '2 lines inserted')
+  cleanup()
+  const del = show('Edit', { file_path: '/a.ts', old_string: 'a\nb', new_string: '' })
+  assert.equal(del.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), 'text removed from 2 lines')
+})
+
+const summaryText = (r: ReturnType<typeof show>) => r.getByRole('group', { name: 'Edit summary' }).textContent?.replace(/\s+/g, ' ').trim()
+
+test('Edit: a failed call does not claim lines replaced, a deleted or inserted line (#383)', () => {
+  const failed = (data: Record<string, unknown>) => render(
+    <ToolDetailPopup tool={{ id: 't1', toolName: 'Edit', args: '', state: 'error', inputData: data }} position={{ x: 10, y: 10 }} onClose={() => {}} />,
+  )
+  assert.equal(summaryText(failed({ file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' })), 'call failed, not applied: asked old 3 lines, new 2 lines')
+  cleanup()
+  assert.equal(summaryText(failed({ file_path: '/a.ts', old_string: '', new_string: 'a' })), 'call failed, not applied: asked old 0 lines, new 1 line')
+})
+
+const ended = (state: 'error' | 'cancelled' | 'expired', data: Record<string, unknown>) => render(
+  <ToolDetailPopup tool={{ id: 't1', toolName: 'Edit', args: '', state, inputData: data }} position={{ x: 10, y: 10 }} onClose={() => {}} />,
+)
+
+test('Edit: a cancelled or expired call does not claim a change either (#383 review)', () => {
+  const data = { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' }
+  assert.equal(summaryText(ended('cancelled', data)), 'call cancelled, not applied: asked old 3 lines, new 2 lines')
+  cleanup()
+  assert.equal(summaryText(ended('expired', data)), 'no result received, not known to be applied: asked old 3 lines, new 2 lines')
+})
+
+test('Edit: on an unapplied call the lines are read as asked, never as Removed / Added (#383 review)', () => {
+  for (const state of ['error', 'cancelled', 'expired'] as const) {
+    const r = ended(state, { file_path: '/a.ts', old_string: 'foo', new_string: 'bar' })
+    const text = r.container.textContent ?? ''
+    assert.match(text, /Asked old: .*foo/, state)
+    assert.match(text, /Asked new: .*bar/, state)
+    assert.doesNotMatch(text, /Removed:|Added:/, state)
+    cleanup()
+  }
+  const ok = show('Edit', { file_path: '/a.ts', old_string: 'foo', new_string: 'bar' })
+  assert.match(ok.container.textContent ?? '', /Removed: .*foo/)
+  assert.match(ok.container.textContent ?? '', /Added: .*bar/)
+})
+
+test('MultiEdit: the blocks of a failed call are read as asked too (#383 review)', () => {
+  const r = render(<ToolDetailPopup tool={{ id: 't1', toolName: 'MultiEdit', args: '', state: 'error', inputData: { file_path: '/a.ts', edits: [{ old_string: 'a', new_string: 'b' }] } }} position={{ x: 10, y: 10 }} onClose={() => {}} />)
+  assert.doesNotMatch(r.container.textContent ?? '', /Removed:|Added:/)
+  assert.match(r.container.textContent ?? '', /Asked old: /)
+})
+
+test('Transcript: a tool_call row that ended in error or was cancelled does not say "replaced" (#383 review)', () => {
+  const call = (callOutcome?: 'error' | 'cancelled'): ConversationMessage => ({
+    id: 'm1', type: 'tool_call', content: '> Edit', timestamp: 1, toolName: 'Edit', toolUseId: 'tu1',
+    inputData: { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' }, ...(callOutcome ? { callOutcome } : {}),
+  })
+  const text = (m: ConversationMessage) => { const r = render(<TranscriptMessage message={m} />); const t = r.container.textContent ?? ''; cleanup(); return t }
+  assert.match(text(call()), /3 lines replaced by 2/)
+  assert.match(text(call('error')), /call failed, not applied: asked old 3 lines, new 2 lines/)
+  assert.match(text(call('cancelled')), /call cancelled, not applied/)
+  assert.doesNotMatch(text(call('error')), /replaced|Removed:/)
+})
+
+test('Edit: a removed word is not called a deleted line (#383)', () => {
+  // old_string may be part of a line: the call proves text was removed from 1 line, not that the line went
+  assert.equal(summaryText(show('Edit', { file_path: '/a.ts', old_string: 'foo', new_string: '' })), 'text removed from 1 line')
+})
+
+test('Edit: nothing in either string, no summary (#383)', () => {
+  const { queryByRole } = show('Edit', { file_path: '/a.ts', old_string: '', new_string: '' })
+  assert.equal(queryByRole('group', { name: 'Edit summary' }), null)
+})
+
+test('MultiEdit: blocks of different kinds are not summed into a replacement (#383)', () => {
+  const r = show('MultiEdit', {
+    file_path: '/a.ts',
+    edits: [
+      { old_string: '', new_string: 'a\nb' },
+      { old_string: 'a\nb\nc', new_string: '' },
+    ],
+  })
+  const summary = within(r.getByRole('group', { name: 'Edit summary' }))
+  summary.getByText('old: 3 lines, new: 2 lines', { exact: true })
+  summary.getByText('2 blocks', { exact: true })
+  assert.doesNotMatch(r.getByRole('group', { name: 'Edit summary' }).textContent ?? '', /replaced|inserted|removed/)
+})
+
+test('MultiEdit: blocks of one kind keep the verb (#383)', () => {
+  const r = show('MultiEdit', {
+    file_path: '/a.ts',
+    edits: [
+      { old_string: '', new_string: 'a\nb' },
+      { old_string: '', new_string: 'c' },
+    ],
+  })
+  const summary = within(r.getByRole('group', { name: 'Edit summary' }))
+  summary.getByText('3 lines inserted', { exact: true })
+  summary.getByText('2 blocks', { exact: true })
 })
 
 test('MultiEdit: every block is shown, numbered, with the block count', () => {
@@ -42,9 +139,10 @@ test('MultiEdit: every block is shown, numbered, with the block count', () => {
     ],
   })
   const summary = getByRole('group', { name: 'Edit summary' })
-  assert.match(summary.textContent ?? '', /2 blocks/)
-  assert.match(summary.textContent ?? '', /\+3/)
-  assert.match(summary.textContent ?? '', /-2/)
+  // Exact spans: the sentence and the block count are adjacent, "replaced by 32 blocks" must not pass
+  within(summary).getByText('2 blocks', { exact: true })
+  within(summary).getByText('2 lines replaced by 3', { exact: true })
+  assert.doesNotMatch(summary.textContent ?? '', /[+-]\d/)
   assert.equal(getAllByText(/^Block \d of 2$/).length, 2)
 })
 

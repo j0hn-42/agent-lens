@@ -21,12 +21,13 @@ import * as path from 'path'
 import * as os from 'os'
 import { AgentEvent, SessionInfo } from './protocol'
 import {
-  ACTIVE_SESSION_AGE_S, INACTIVITY_TIMEOUT_MS, NORM_MAX_LINE_CHARS, ORCHESTRATOR_NAME, PI_MAX_WATCHED_SESSIONS,
+  ACTIVE_SESSION_AGE_S, NORM_MAX_LINE_CHARS, ORCHESTRATOR_NAME, PI_MAX_WATCHED_SESSIONS,
   POLL_FALLBACK_MS, PREVIEW_MAX, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_SESSION_FILE_BYTES,
   SCAN_INTERVAL_MS, SESSION_ID_DISPLAY, WATCH_SCAN_DEBOUNCE_MS,
 } from './constants'
 import { safeWatch, readTrackedLines, readLinesChunked, foldPathCase, isPathInside, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
+import { displayCwd } from './display-cwd'
 import { ostr } from './event-normalize'
 import { PiEventParser, PiEventState, createPiEventState, isSupportedPiVersion } from './pi-event-parser'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
@@ -38,8 +39,6 @@ const PI_LABEL_PREFIX = 'Pi '
 /** The session header is a handful of fields; a first line larger than this is not one. */
 const HEADER_MAX_BYTES = 64 * 1024
 const HEADER_CHUNK_BYTES = 8 * 1024
-/** A cwd longer than this is not a path this adapter shows. */
-const CWD_MAX = 4096
 /** Pi's own id rule (session-manager.ts assertValidSessionId) without the dot, which the observations
  *  and MCP id pattern refuse, plus a length cap. A session whose id has a dot is not shown. */
 const SESSION_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$/
@@ -49,8 +48,6 @@ const SESSION_ID_MAX = 128
  *  resumed old session is still found. */
 const QUICK_SCAN_FILES_PER_DIR = 20
 const FULL_SCAN_EVERY = 30
-/** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
-const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/
 
 interface WatchedPiSession {
   sessionId: string
@@ -58,14 +55,12 @@ interface WatchedPiSession {
   cwd?: string
   fileWatcher: fs.FSWatcher | null
   pollTimer: NodeJS.Timeout | null
-  inactivityTimer: NodeJS.Timeout | null
   fileSize: number
   /** Bytes past the last newline of the previous read, prepended to the next chunk. */
   fileTail: string
   sessionStartTime: number
   lastActivityTime: number
   sessionDetected: boolean
-  sessionCompleted: boolean
   label: string
   eventState: PiEventState
   parser: PiEventParser
@@ -109,7 +104,7 @@ export function piSessionIdFromFile(name: string): string | null {
 }
 
 /** The session header (first line), read in bounded chunks. The cwd is kept only when it is an
- *  absolute path of at most CWD_MAX characters with no control or bidi character. */
+ *  path accepted by displayCwd (display-cwd.ts). */
 export function readPiSessionHeader(filePath: string): PiSessionHeader {
   try {
     const fd = fs.openSync(filePath, 'r')
@@ -137,7 +132,7 @@ export function readPiSessionHeader(filePath: string): PiSessionHeader {
       // A format this adapter was not checked against is not read at all: no session, no event
       if (!isSupportedPiVersion(header.version)) return { cwd: null, final: true, unsupported: true }
       const cwd = header.cwd
-      if (typeof cwd !== 'string' || !cwd || cwd.length > CWD_MAX || UNSAFE_PATH_CHARS.test(cwd) || !path.isAbsolute(cwd)) {
+      if (typeof cwd !== 'string' || !displayCwd(cwd)) {
         return { cwd: null, final: true }
       }
       const startMs = typeof header.timestamp === 'string' ? Date.parse(header.timestamp) : NaN
@@ -169,14 +164,19 @@ export class PiSessionWatcher implements AgentSessionWatcher {
   private versionWarned = false
   /** Read position of released sessions: a log that resumes restarts where it stopped (no history replay). */
   private retired = new Map<string, RetiredPiSession>()
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
+  private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
   private readonly _onSessionLifecycle = new TypedEventEmitter<SessionLifecycleEvent>()
+  /** A retired session forgotten for good: reattached, its history is read again from the start (#592) */
+  private readonly _onSessionReleased = new TypedEventEmitter<string>()
 
   readonly onEvent = this._onEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
+  readonly onSessionReleased = this._onSessionReleased.event
 
   /** Workspace path used as a filter: a session is attached only if its header cwd is this path or
    *  inside it. Pass null/undefined to attach to any Pi session. */
@@ -184,21 +184,22 @@ export class PiSessionWatcher implements AgentSessionWatcher {
 
   isActive(): boolean {
     for (const s of this.sessions.values()) {
-      if (s.sessionDetected && !s.sessionCompleted) return true
+      if (s.sessionDetected) return true
     }
     return false
   }
 
   isSessionActive(sessionId: string): boolean {
     const s = this.sessions.get(sessionId)
-    return !!s && s.sessionDetected && !s.sessionCompleted
+    return !!s && s.sessionDetected
   }
 
   getActiveSessions(): SessionInfo[] {
     return Array.from(this.sessions.values()).map(s => ({
       id: s.sessionId,
       label: s.label,
-      status: s.sessionCompleted ? 'completed' : 'active',
+      // No end is observed for this runtime: a silence never completes a session (#360)
+      status: 'active',
       startTime: s.sessionStartTime,
       lastActivityTime: s.lastActivityTime,
       runtime: 'pi',
@@ -364,7 +365,6 @@ export class PiSessionWatcher implements AgentSessionWatcher {
   private retire(id: string, s: WatchedPiSession): void {
     s.fileWatcher?.close()
     if (s.pollTimer) clearInterval(s.pollTimer)
-    if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     this.sessions.delete(id)
     this.retired.delete(id)
     this.retired.set(id, {
@@ -373,7 +373,7 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     })
     if (this.retired.size > PI_MAX_WATCHED_SESSIONS * 4) {
       const oldest = this.retired.keys().next().value
-      if (oldest !== undefined) this.retired.delete(oldest)
+      if (oldest !== undefined) { this.retired.delete(oldest); this._onSessionReleased.fire(oldest) }
     }
   }
 
@@ -381,7 +381,7 @@ export class PiSessionWatcher implements AgentSessionWatcher {
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
-      if (!s.sessionCompleted || (now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+      if ((now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
       this.retire(id, s)
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
@@ -413,7 +413,7 @@ export class PiSessionWatcher implements AgentSessionWatcher {
 
     // Parser built once per session so the delegate closures capture the right session
     const parser = new PiEventParser({
-      emit: (event) => this._onEvent.fire({ ...event, sessionId }),
+      emit: (event) => this._onEvent.fire({ ...event, sessionId, ...(this.historyDepth > 0 ? { replayed: true } : {}) }),
       elapsed: () => {
         const s = this.sessions.get(sessionId)
         return s ? (Date.now() - s.sessionStartTime) / 1000 : 0
@@ -438,14 +438,12 @@ export class PiSessionWatcher implements AgentSessionWatcher {
       ...(header.cwd ? { cwd: header.cwd } : {}),
       fileWatcher: null,
       pollTimer: null,
-      inactivityTimer: null,
       fileSize: 0,
       fileTail: '',
       // The header says when the session started; a file time is only a fallback
       sessionStartTime: header.startMs ?? (stat.birthtimeMs || stat.mtimeMs),
       lastActivityTime: stat.mtimeMs,
       sessionDetected: false,
-      sessionCompleted: false,
       label,
       eventState: createPiEventState(),
       parser,
@@ -474,11 +472,16 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     // fs.watch sometimes silently stops after a long idle — poll as a backup.
     session.pollTimer = setInterval(() => this.readNewLines(sessionId), POLL_FALLBACK_MS)
 
-    this.resetInactivityTimer(sessionId)
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
   }
 
+  /** The events emitted while the history is read are marked `replayed` (#390). */
   private drainHistory(session: WatchedPiSession, size: number): void {
+    this.historyDepth++
+    try { this.drainHistoryLines(session, size) } finally { this.historyDepth-- }
+  }
+
+  private drainHistoryLines(session: WatchedPiSession, size: number): void {
     try {
       for (const line of readLinesChunked(session.filePath, size, undefined, session)) {
         try { session.parser.processLine(line, session.eventState) }
@@ -517,36 +520,10 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     if (!lines) return
     session.lastActivityTime = Date.now()
 
-    // New content in a session marked complete on inactivity means the user resumed it.
-    if (session.sessionCompleted) {
-      session.sessionCompleted = false
-      this._onSessionLifecycle.fire(this.lifecycle('started', session))
-      log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
-    }
-
     for (const line of lines) {
       try { session.parser.processLine(line, session.eventState) }
       catch (err) { log.debug('Parser threw on line:', err) }
     }
-
-    this.resetInactivityTimer(sessionId)
-  }
-
-  private resetInactivityTimer(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    if (session.inactivityTimer) { clearTimeout(session.inactivityTimer) }
-    session.inactivityTimer = setTimeout(() => runGuarded(() => {
-      if (session.sessionCompleted) return
-      session.sessionCompleted = true
-      this._onEvent.fire({
-        time: (Date.now() - session.sessionStartTime) / 1000,
-        type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME, sessionEnd: true, inactivity: true },
-        sessionId,
-      })
-      this._onSessionLifecycle.fire(this.lifecycle('ended', session))
-    }, err => log.warn('Fin de session Pi en échec :', err)), INACTIVITY_TIMEOUT_MS)
   }
 
   dispose(): void {
@@ -557,7 +534,6 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     for (const s of this.sessions.values()) {
       s.fileWatcher?.close()
       if (s.pollTimer) clearInterval(s.pollTimer)
-      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     }
     this.sessions.clear()
     this.retired.clear()
@@ -565,5 +541,6 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     this._onEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
+    this._onSessionReleased.dispose()
   }
 }

@@ -1,0 +1,80 @@
+{
+  "comment": "Shared contract of the tray JSON line protocol (docs/tray.md, #510). Read by app-tray/src/protocol-contract.test.ts (Node driver) and app-tray/native/trayproto/contract_test.go (Go binary). A line is written here without its final newline. driverToBinaryRefused is checked by the Go side only: the driver has no parser for the lines it writes, so the Node side only checks that the section is there (#613).",
+  "driverToBinary": [
+    {
+      "name": "real French menu with every item (deriveMenu)",
+      "scenario": { "locale": "fr", "status": { "relayVersion": "0.10.0", "sessionCount": 2, "skippedSessions": { "tooOld": 1 } }, "port": 3001, "ownsRelay": true },
+      "message": {
+        "type": "menu",
+        "tooltip": "Agent Lens : 2 sessions suivies",
+        "items": [
+          { "id": "open", "label": "Ouvrir l’interface", "enabled": true },
+          { "id": "copyUrl", "label": "Copier l’URL locale", "enabled": true },
+          { "id": "state", "label": "2 sessions suivies", "enabled": false },
+          { "id": "skipped", "label": "Sessions non suivies : au moins 1", "enabled": false },
+          { "id": "quit", "label": "Quitter et arrêter le relais", "enabled": true }
+        ]
+      },
+      "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"Agent Lens : 2 sessions suivies\",\"items\":[{\"id\":\"open\",\"label\":\"Ouvrir l’interface\",\"enabled\":true},{\"id\":\"copyUrl\",\"label\":\"Copier l’URL locale\",\"enabled\":true},{\"id\":\"state\",\"label\":\"2 sessions suivies\",\"enabled\":false},{\"id\":\"skipped\",\"label\":\"Sessions non suivies : au moins 1\",\"enabled\":false},{\"id\":\"quit\",\"label\":\"Quitter et arrêter le relais\",\"enabled\":true}]}"
+    },
+    {
+      "name": "real English menu, attached, no proven state (deriveMenu)",
+      "scenario": { "locale": "en", "status": null, "port": null, "ownsRelay": false },
+      "message": {
+        "type": "menu",
+        "tooltip": "Agent Lens: Tracked sessions: unknown",
+        "items": [
+          { "id": "open", "label": "Open the interface", "enabled": false },
+          { "id": "copyUrl", "label": "Copy local URL", "enabled": false },
+          { "id": "state", "label": "Tracked sessions: unknown", "enabled": false },
+          { "id": "quit", "label": "Close the icon, the relay keeps running", "enabled": true }
+        ]
+      },
+      "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"Agent Lens: Tracked sessions: unknown\",\"items\":[{\"id\":\"open\",\"label\":\"Open the interface\",\"enabled\":false},{\"id\":\"copyUrl\",\"label\":\"Copy local URL\",\"enabled\":false},{\"id\":\"state\",\"label\":\"Tracked sessions: unknown\",\"enabled\":false},{\"id\":\"quit\",\"label\":\"Close the icon, the relay keeps running\",\"enabled\":true}]}"
+    },
+    {
+      "name": "a label with a newline stays on one line",
+      "message": { "type": "menu", "tooltip": "a\nb", "items": [] },
+      "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"a\\nb\",\"items\":[]}"
+    },
+    {
+      "name": "quit",
+      "message": { "type": "quit" },
+      "line": "{\"v\":1,\"type\":\"quit\"}"
+    }
+  ],
+  "driverToBinaryRefused": [
+    { "name": "not JSON", "line": "menu please" },
+    { "name": "not an object", "line": "[1,2]" },
+    { "name": "null", "line": "null" },
+    { "name": "no version", "line": "{\"type\":\"quit\"}" },
+    { "name": "wrong version", "line": "{\"v\":2,\"type\":\"quit\"}" },
+    { "name": "version as a string", "line": "{\"v\":\"1\",\"type\":\"quit\"}" },
+    { "name": "unknown type", "line": "{\"v\":1,\"type\":\"exec\",\"cmd\":\"rm -rf /\"}" },
+    { "name": "extra key on quit", "line": "{\"v\":1,\"type\":\"quit\",\"now\":true}" },
+    { "name": "extra key on menu", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[],\"url\":\"http://127.0.0.1:3001\"}" },
+    { "name": "menu without items", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\"}" },
+    { "name": "menu without tooltip", "line": "{\"v\":1,\"type\":\"menu\",\"items\":[]}" },
+    { "name": "tooltip not a string", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":3,\"items\":[]}" },
+    { "name": "items not an array", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":{}}" },
+    { "name": "unknown item id", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"exec\",\"label\":\"x\",\"enabled\":true}]}" },
+    { "name": "item with an extra key", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"x\",\"enabled\":true,\"command\":\"open\"}]}" },
+    { "name": "item without enabled", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"x\"}]}" },
+    { "name": "enabled not a boolean", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"x\",\"enabled\":1}]}" },
+    { "name": "label not a string", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":null,\"enabled\":true}]}" },
+    { "name": "the same item twice", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"a\",\"enabled\":true},{\"id\":\"open\",\"label\":\"b\",\"enabled\":true}]}" },
+    { "name": "trailing data after the object", "line": "{\"v\":1,\"type\":\"quit\"} {\"v\":1,\"type\":\"quit\"}" },
+    { "name": "a key written twice", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"a\",\"tooltip\":\"b\",\"items\":[]}" },
+    { "name": "a tooltip with a bidi override (RLO)", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"Agent \\u202eLens\",\"items\":[]}" },
+    { "name": "a label with NUL", "line": "{\"v\":1,\"type\":\"menu\",\"tooltip\":\"t\",\"items\":[{\"id\":\"open\",\"label\":\"a\\u0000b\",\"enabled\":true}]}" }
+  ],
+  "binaryToDriver": [
+    { "name": "ready", "message": { "type": "ready" }, "line": "{\"v\":1,\"type\":\"ready\"}" },
+    { "name": "closed", "message": { "type": "closed" }, "line": "{\"v\":1,\"type\":\"closed\"}" },
+    { "name": "click open", "message": { "type": "click", "id": "open" }, "line": "{\"v\":1,\"type\":\"click\",\"id\":\"open\"}" },
+    { "name": "click copyUrl", "message": { "type": "click", "id": "copyUrl" }, "line": "{\"v\":1,\"type\":\"click\",\"id\":\"copyUrl\"}" },
+    { "name": "click state", "message": { "type": "click", "id": "state" }, "line": "{\"v\":1,\"type\":\"click\",\"id\":\"state\"}" },
+    { "name": "click skipped", "message": { "type": "click", "id": "skipped" }, "line": "{\"v\":1,\"type\":\"click\",\"id\":\"skipped\"}" },
+    { "name": "click quit", "message": { "type": "click", "id": "quit" }, "line": "{\"v\":1,\"type\":\"click\",\"id\":\"quit\"}" }
+  ]
+}

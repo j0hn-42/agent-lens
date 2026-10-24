@@ -8,8 +8,8 @@ import {
   SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES, ORCHESTRATOR_NAME,
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
-import { ClaudeSessionPipeline } from './claude-session-pipeline'
-import { safeWatch, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { ClaudeSessionPipeline, listedStartTimes } from './claude-session-pipeline'
+import { safeWatch, foldPathCase, listSubagentTranscripts, newestSessionMtime } from './fs-utils'
 import { encodeProjectDirName, PROJECT_DIR_NAME_MAX } from './project-dir'
 import { scanSubagentsDir, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -65,6 +65,8 @@ export class SessionWatcher implements AgentSessionWatcher {
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new vscode.EventEmitter<string>()
   private readonly _onSessionLifecycle = new vscode.EventEmitter<SessionLifecycleEvent>()
+  /** An unwatched session: rediscovered, its history is emitted again (#592) */
+  private readonly _onSessionReleased = new vscode.EventEmitter<string>()
 
   /** Tracking of one transcript, shared with the relay (claude-session-pipeline.ts) */
   private readonly pipeline = new ClaudeSessionPipeline({
@@ -95,6 +97,7 @@ export class SessionWatcher implements AgentSessionWatcher {
   readonly onHookEvent = this._onHookEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
+  readonly onSessionReleased = this._onSessionReleased.event
 
   /** Whether any session is actively being tailed */
   isActive(): boolean {
@@ -129,12 +132,17 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.reconciler.forgetSession(sessionId)
     this.sessions.delete(sessionId)
     this.teamWatcher?.forgetSession(sessionId)
+    // A transcript that grows again is attached anew and its history re-emitted (claude-session-pipeline.ts, attach)
+    this._onSessionReleased.fire(sessionId)
   }
 
-  /** Drop sessions that ended longer ago than the discovery window (they cannot be rediscovered). */
+  /**
+   * Stop watching sessions with no activity for longer than the discovery window, ended or only silent:
+   * nothing is announced (a silence is not an end, #360), and a transcript that grows again is rediscovered.
+   */
   private pruneEndedSessions(now = Date.now()): void {
     for (const s of [...this.sessions.values()]) {
-      if (s.sessionCompleted && (now - s.lastActivityTime) / 1000 > ACTIVE_SESSION_AGE_S) this.unwatchSession(s.sessionId)
+      if ((now - s.lastActivityTime) / 1000 > ACTIVE_SESSION_AGE_S) this.unwatchSession(s.sessionId)
     }
   }
 
@@ -153,7 +161,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         id: s.sessionId,
         label: s.label,
         status: s.sessionCompleted ? 'completed' as const : 'active' as const,
-        startTime: s.sessionStartTime,
+        ...listedStartTimes(s),
         lastActivityTime: s.lastActivityTime,
         runtime: 'claude',
         ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
@@ -168,6 +176,11 @@ export class SessionWatcher implements AgentSessionWatcher {
   /** Re-emit session start + conversation events for a newly connected webview.
    *  If sessionIds is provided, only replay those sessions. */
   replaySessionStart(sessionIds?: string[]): void {
+    // What is re-sent here was read before, not seen now: the webview must not show it as live (#361)
+    this.reconciler.asReplayed(() => this.resendSessionStart(sessionIds))
+  }
+
+  private resendSessionStart(sessionIds?: string[]): void {
     for (const [sessionId, session] of this.sessions) {
       if (!session.sessionDetected) { continue }
       if (sessionIds && !sessionIds.includes(sessionId)) { continue }
@@ -265,9 +278,12 @@ export class SessionWatcher implements AgentSessionWatcher {
         listSessions: () => [...this.sessions.values()]
           .filter(s => s.sessionDetected)
           .map(s => ({ sessionId: s.sessionId, filePath: s.filePath, startTime: s.sessionStartTime })),
-        emitTeamInfo: (sessionId, payload) => this.emit({
-          time: this.elapsed(sessionId), type: 'team_info', payload: { ...payload },
-        }, sessionId),
+        emitTeamInfo: (sessionId, payload, opts) => {
+          const send = () => this.emit({ time: this.elapsed(sessionId), type: 'team_info', payload: { ...payload } }, sessionId)
+          // Re-sent after the lead was rediscovered: known state, marked replayed like the history read again (#592)
+          if (opts?.replayed) this.reconciler.asReplayed(send)
+          else send()
+        },
         emitInbox: (sessionId, from, to, content) => this.parser.emitInboxMessage(sessionId, from, to, content),
         setLeadAlias: (sessionId, leadName) => this.parser.setLeadAlias(sessionId, leadName),
         onSessionTags: (sessionId) => {
@@ -517,32 +533,17 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private watchSession(sessionId: string, filePath: string): void {
-    const session = this.pipeline.newSession(sessionId, filePath, this.newestMtime(filePath, sessionId))
-    this.sessions.set(sessionId, session)
     const header = readSessionHeader(filePath)
+    const session = this.pipeline.newSession(sessionId, filePath, {
+      lastActivityTime: newestSessionMtime(filePath, sessionId), recordedStartTime: header.startMs,
+    })
+    this.sessions.set(sessionId, session)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
     if (header.branch) this.sessionBranch.set(sessionId, header.branch)
     this.pipeline.attach(session)
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
-
-  /** Get the newest mtime across a session's main JSONL and its subagent files. */
-  private newestMtime(filePath: string, sessionId: string): number {
-    let newest: number
-    try { newest = fs.statSync(filePath).mtimeMs } catch { return Date.now() }
-    const subDir = path.join(path.dirname(filePath), sessionId, 'subagents')
-    try {
-      if (fs.existsSync(subDir)) {
-        for (const f of fs.readdirSync(subDir)) {
-          if (!f.endsWith('.jsonl')) continue
-          const mt = fs.statSync(path.join(subDir, f)).mtimeMs
-          if (mt > newest) newest = mt
-        }
-      }
-    } catch { /* expected if subagents dir doesn't exist yet */ }
-    return newest
-  }
 
   private elapsed(sessionId?: string): number {
     return this.pipeline.elapsed(sessionId)
@@ -555,6 +556,8 @@ export class SessionWatcher implements AgentSessionWatcher {
   /** Submit an event received from the Claude Code hooks; delivered on `onHookEvent` unless the transcript already reported it. */
   submitHookEvent(event: AgentEvent): void {
     this.reconciler.submit(event, { source: 'hook' })
+    // After the event: a SessionEnd closes the session once its agent_complete is delivered (#360)
+    this.pipeline.observeHookEvent(event)
   }
 
   dispose(): void {
@@ -577,5 +580,6 @@ export class SessionWatcher implements AgentSessionWatcher {
     this._onHookEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
+    this._onSessionReleased.dispose()
   }
 }

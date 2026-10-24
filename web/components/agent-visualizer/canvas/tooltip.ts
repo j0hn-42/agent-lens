@@ -2,6 +2,8 @@ import type { Agent, Discovery } from '@/lib/agent-types'
 import type { SimulationState } from '@/hooks/simulation/types'
 import { STATE_LABEL_LONG } from '@/lib/canvas-constants'
 import { formatModelName } from '@/lib/utils'
+import { listedFileText } from '@/lib/ui-glossary'
+import { deriveFreshness, lastKnownStateText } from '@/hooks/simulation/freshness'
 import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from './team-style'
 import type { NavNode } from './keyboard-nav'
 
@@ -12,12 +14,13 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
   if (node.type === 'agent') {
     const a = sim.agents.get(node.id)
     if (!a) return null
+    const stale = deriveFreshness(a, Date.now()) === 'stale'
     const lines = [
-      `State: ${STATE_LABEL_LONG[a.state] ?? a.state}`,
+      stale ? `State: ${lastKnownStateText(a.state)}` : `State: ${STATE_LABEL_LONG[a.state] ?? a.state}`,
       `Model: ${a.model ? formatModelName(a.model) : 'unknown'}`,
     ]
     if (a.kind === 'teammate') {
-      lines.unshift(`Teammate${a.teamName ? ` of team ${cleanText(a.teamName)}` : ''}: ${teammateActivity(a) ?? agentStatusText(a)}`)
+      lines.unshift(`Teammate${a.teamName ? ` of team ${cleanText(a.teamName)}` : ''}${stale ? '' : `: ${teammateActivity(a) ?? agentStatusText(a)}`}`)
     }
     if (a.archived) lines.unshift('Archived: finished, kept so its conversation stays reachable')
     if (a.task) lines.push(`Task: ${a.task.length > 160 ? a.task.slice(0, 159) + '…' : a.task}`)
@@ -32,7 +35,7 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
   }
   const d = sim.discoveries.find(x => x.id === node.id)
   if (!d) return null
-  return { title: d.label, lines: [`Discovery: ${d.type}`] }
+  return { title: d.label, lines: [d.listing ? listedFileText(d.listing) : `Discovery: ${d.type}`] }
 }
 
 /** Anchor the tooltip above its node in screen space; hide when the node is gone or off-canvas. */

@@ -4,7 +4,7 @@
 //   pnpm --dir web run test:e2e
 //
 // The demo server is started on a free port by demo-server.ts and stopped at the end (its log is in
-// web/test-results/demo-server.log). Set E2E_BASE_URL to test a server that is already running instead.
+// web/test-results/demo-server-demo.log). Set E2E_BASE_URL to test a server that is already running instead.
 // Needs a browser: `pnpm --dir web exec playwright install chromium` (CI does this).
 import { test, before, after, describe } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -16,6 +16,7 @@ import { compareViolations, type KnownViolation } from '../axe-compare'
 import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 
 const known: KnownViolation[] = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'known-violations.json'), 'utf8'),
@@ -43,7 +44,8 @@ async function open(options: { width?: number; height?: number; reducedMotion?: 
   })
   const page = await context.newPage()
   await page.goto(BASE_URL)
-  await page.getByRole('button', { name: 'Files' }).waitFor()
+  // The Sessions button is in the bar at every width (under 768 px Files is folded behind More, #476)
+  await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   await waitForStableLayout(page)
   return { page, close: () => context.close() }
 }
@@ -70,7 +72,7 @@ function expectClean(scenario: string, r: { unexpected: string[]; stale: string[
 }
 
 describe('demo mode: axe-core, serious and critical only', () => {
-  const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['conversation', 'Conversation'], ['timeline', 'Timeline'], ['cost', '$Cost']]
+  const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['conversation', 'Conversation'], ['timeline', 'Timeline'], ['cost', 'Cost']]
   for (const [name, button] of panels) {
     test(`e2e: ${name}`, async () => {
       const { page, close } = await open()
@@ -88,7 +90,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
-      await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
+      await page.getByRole('slider', { name: 'Playback position' }).waitFor()
       expectClean('e2e:review-mode', await axeFailures(page, 'e2e:review-mode'))
     } finally { await close() }
   })
@@ -96,7 +98,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
   test('e2e: keyboard shortcuts dialog', async () => {
     const { page, close } = await open()
     try {
-      await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
+      await (await topbarButton(page, 'Keyboard shortcuts')).click()
       await page.getByRole('dialog').waitFor()
       expectClean('e2e:shortcuts-dialog', await axeFailures(page, 'e2e:shortcuts-dialog'))
     } finally { await close() }
@@ -188,7 +190,8 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
   // Click like a user; if another element intercepts the pointer, record it and fall back to the keyboard
   // so the remaining steps still run.
   async function openPanelChecked(page: Page, name: RegExp, f: Findings, where: string) {
-    const btn = page.getByRole('button', { name }).first()
+    // Under 768 px the panel buttons are behind More (#476)
+    const btn = (await topbarButton(page, name)).first()
     try {
       await btn.click({ timeout: 3000 })
     } catch {
@@ -198,8 +201,10 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
       await btn.focus()
       await page.keyboard.press('Space')
     }
+    // Under 768 px More folds again once a panel opens: the panel is then a drawer and its button is not rendered
     await page.waitForFunction(
-      (source: string) => Array.from(document.querySelectorAll('button[aria-pressed="true"]')).some(b => new RegExp(source, 'i').test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? ''))),
+      (source: string) => !!document.querySelector('[data-mobile-drawer]')
+        || Array.from(document.querySelectorAll('button[aria-pressed="true"]')).some(b => new RegExp(source, 'i').test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? ''))),
       name.source,
     )
     await waitForStableLayout(page)
@@ -213,7 +218,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
         const f: Findings = { rules: new Set(), details: [] }
         record(f, width, 'initial', await page.evaluate<Measure>(MEASURE))
         await page.getByRole('button', { name: 'Pause and review history' }).click()
-        await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
+        await page.getByRole('slider', { name: 'Playback position' }).waitFor()
         await waitForStableLayout(page)
         record(f, width, 'review mode', await page.evaluate<Measure>(MEASURE))
         for (const [label, re] of [['files panel', /^Files/], ['conversation panel', /^Conversation/]] as const) {
@@ -245,6 +250,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             view: rect(Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === 'View')),
             viewPanel: rect(q('[role="dialog"][aria-label="View settings"]')),
             panel: rect(q('[data-dock-panel="files"]')),
+            tourOffer: rect(q('[data-tour-offer]')),
           }
         })()`) as Promise<Record<string, { x: number; y: number; w: number; h: number } | null>>
         type R = { x: number; y: number; w: number; h: number }
@@ -256,7 +262,12 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             assert.ok(!hit(r[names[i]]!, r[names[j]]!), `${where} @${width}px: ${names[i]} ${JSON.stringify(r[names[i]])} overlaps ${names[j]} ${JSON.stringify(r[names[j]])}`)
           }
         }
-        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'view', 'controlBar'], 'canvas overlays')
+        // The tour offer of the first launch (#377) shows from 600 px wide, clear of the other overlays
+        if (width >= 600) {
+          await page.locator('[data-tour-offer]').waitFor({ timeout: 15_000 })
+          await waitForStableLayout(page)
+        }
+        check(await rectsOf(), [...(width >= 600 ? ['tourOffer'] : []), 'legend', 'zoomIn', 'fit', 'view', 'controlBar'], 'canvas overlays')
         // The View panel opens from the keyboard, stays clear of the legend and the control bar, and Escape gives the focus back.
         const viewButton = page.getByRole('button', { name: 'View', exact: true })
         await viewButton.focus()
@@ -274,7 +285,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
         await page.mouse.click(2, 2)
         assert.equal(await page.getByRole('dialog', { name: 'View settings' }).count(), 0, 'a click outside closes the panel')
         await waitForStableLayout(page)
-        await page.getByRole('button', { name: /^Context/ }).first().click()
+        await (await topbarButton(page, /^Context/)).first().click()
         await waitForStableLayout(page)
         check(await rectsOf(), ['panel', 'topbar', 'controlBar'], 'context panel')
       } finally { await close() }
@@ -412,7 +423,7 @@ describe('demo mode: keyboard', () => {
         return !!count && Number(count[1]) >= 8
       }, undefined, { timeout: 30000 })
       await page.getByRole('button', { name: 'Pause and review history' }).click()
-      const slider = page.getByRole('slider', { name: 'Timeline position' })
+      const slider = page.getByRole('slider', { name: 'Playback position' })
       await slider.focus()
       const value = async () => Number(await slider.getAttribute('aria-valuenow'))
       const max = Number(await slider.getAttribute('aria-valuemax'))
@@ -483,19 +494,52 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
       await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
       const menu = page.getByRole('menu', { name: 'Context menu' })
       await menu.waitFor()
-      const items = menu.getByRole('menuitem')
+      const items = menu.locator('[role="menuitem"], [role="menuitemcheckbox"]')
       const count = await items.count()
       assert.ok(count >= 2, `expected at least two menu items, got ${count}`)
       const labels = (await items.allTextContents()).map(s => s.trim())
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'first item is focused on open')
+      // the expected role is read from each item, so an action turned menuitemcheckbox by mistake still shows
+      const roles = await items.evaluateAll(els => els.map(e => e.getAttribute('role')))
+      const expected = (i: number) => `${roles[i]}:${labels[i]}`
+      assert.equal(await activeLabel(page), expected(0), 'first item is focused on open')
       await page.keyboard.press('ArrowDown')
-      assert.equal(await activeLabel(page), `menuitem:${labels[1]}`, 'ArrowDown moves to the next item')
+      assert.equal(await activeLabel(page), expected(1), 'ArrowDown moves to the next item')
       await page.keyboard.press('ArrowUp')
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'ArrowUp moves back')
+      assert.equal(await activeLabel(page), expected(0), 'ArrowUp moves back')
       await page.keyboard.press('End')
-      assert.equal(await activeLabel(page), `menuitem:${labels[count - 1]}`, 'End focuses the last item')
+      assert.equal(await activeLabel(page), expected(count - 1), 'End focuses the last item')
       await page.keyboard.press('Home')
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'Home focuses the first item')
+      assert.equal(await activeLabel(page), expected(0), 'Home focuses the first item')
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'detached' })
+    } finally { await close() }
+  })
+
+  // #380: aria-checked follows the real overlay state (index.tsx wiring), not only the pure item builder
+  test('context menu: Toggle grid and Toggle stats report the state they switch', async () => {
+    const { page, close } = await open()
+    try {
+      const menu = page.getByRole('menu', { name: 'Context menu' })
+      const openMenu = async () => {
+        await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
+        await menu.waitFor()
+      }
+      const checked = (name: string) => menu.getByRole('menuitemcheckbox', { name, exact: true })
+      const waitChecked = (name: string, value: 'true' | 'false') =>
+        menu.locator(`[role="menuitemcheckbox"][aria-checked="${value}"]`, { hasText: name }).waitFor({ timeout: 5000 })
+      await openMenu()
+      assert.equal(await checked('Toggle grid').getAttribute('aria-checked'), 'true', 'the hex grid is on by default')
+      assert.equal(await checked('Toggle stats').getAttribute('aria-checked'), 'false', 'stats are off by default')
+      await checked('Toggle grid').click()
+      await menu.waitFor({ state: 'detached' })
+      await openMenu()
+      await waitChecked('Toggle grid', 'false')
+      assert.equal(await checked('Toggle grid').getAttribute('aria-checked'), 'false', 'Toggle grid turned the grid off')
+      await checked('Toggle stats').click()
+      await menu.waitFor({ state: 'detached' })
+      await openMenu()
+      await waitChecked('Toggle stats', 'true')
+      assert.equal(await checked('Toggle stats').getAttribute('aria-checked'), 'true', 'Toggle stats turned the stats on')
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
     } finally { await close() }
@@ -505,7 +549,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     const { page, close } = await open()
     try {
       const menu = await openMenuByKeyboard(page)
-      assert.ok(await menu.getByRole('menuitem').count() >= 1)
+      assert.ok(await menu.locator('[role="menuitem"], [role="menuitemcheckbox"]').count() >= 1)
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
       assert.equal(await graphHasFocus(page), true, 'focus returns to the graph surface that opened the menu')

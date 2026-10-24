@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  combineUsage, usageFromAgent, formatTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
+  combineUsage, usageFromAgent, formatTokenUsage, formatCtxTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
 } from '../web/lib/usage'
 
 test('combineUsage: unavailable parts degrade an otherwise exact total to partial', () => {
@@ -33,7 +33,7 @@ test('formatTokenUsage: unavailable, partial (at least) and estimated (badge)', 
 
 test('formatCostUsage mirrors the token total with a currency format', () => {
   assert.equal(formatCostUsage({ value: null, status: 'unavailable', estimated: false }), USAGE_LABELS.unavailable)
-  assert.equal(formatCostUsage({ value: 0.5, status: 'partial', estimated: true }), `${USAGE_LABELS.atLeast} $0.500 ${USAGE_LABELS.estimated}`)
+  assert.equal(formatCostUsage({ value: 0.5, status: 'partial', estimated: true }), `${USAGE_LABELS.atLeast} ~$0.500 ${USAGE_LABELS.estimated}`)
 })
 
 test('readTokenCost: only a finite non-negative number is a value; anything else is null (not 0)', () => {
@@ -64,4 +64,19 @@ test('isValue: only finite non-negative numbers', () => {
   assert.equal(isValue(0), true)
   assert.equal(isValue(3.5), true)
   for (const bad of [-1, NaN, Infinity, '5', null, undefined]) assert.equal(isValue(bad), false)
+})
+
+test('the Cost panel token total says "ctx tokens" (#545 review): the size of the contexts now, not a consumption', () => {
+  assert.equal(formatCtxTokenUsage({ value: 5_300_000, status: 'partial', estimated: true }), 'at least 5.3M estimated ctx tokens')
+  assert.equal(formatCtxTokenUsage({ value: 11_000, status: 'available', estimated: false }), '11k ctx tokens')
+  assert.equal(formatCtxTokenUsage({ value: 11_000, status: 'available', estimated: false }), `${formatTokenUsage({ value: 11_000, status: 'available', estimated: false })} ctx tokens`)
+})
+
+test('formatCtxTokenUsage: a total both partial and under loss reads "(incomplete)", never "at least" (#591 review)', () => {
+  const both = { value: 120_000, status: 'partial' as const, estimated: false, incomplete: true }
+  assert.equal(formatCtxTokenUsage(both), `120k ctx tokens ${USAGE_LABELS.incomplete}`)
+  // Estimated too: the estimate stays, the lower bound goes
+  assert.equal(formatCtxTokenUsage({ ...both, estimated: true }), `120k ${USAGE_LABELS.estimated} ctx tokens ${USAGE_LABELS.incomplete}`)
+  // Partial without loss keeps its lower bound
+  assert.equal(formatCtxTokenUsage({ ...both, incomplete: false }), 'at least 120k ctx tokens')
 })

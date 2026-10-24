@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import { CAMERA } from '@/lib/canvas-constants'
-import { hitTestAt, type HitTarget, type ResolvedLink } from '@/components/agent-visualizer/canvas/index'
+import { hitTestAt, frameLevel, type HitTarget, type ResolvedLink } from '@/components/agent-visualizer/canvas/index'
 import {
   keyToAction, stepFocus, buildNodeOrder, locateNode, sameNode, type NavNode,
 } from '@/components/agent-visualizer/canvas/keyboard-nav'
@@ -96,7 +96,8 @@ export function useCanvasInteraction({
   const hitTest = useCallback((clientX: number, clientY: number): HitTarget | null => {
     const pos = screenToCanvas(clientX, clientY)
     const p = drawPropsRef.current
-    return hitTestAt(pos.x, pos.y, p, simTimeRef.current, transformRef.current.scale)
+    // With the level of detail of the last drawn frame: a discovery card enlarged in the hysteresis band is hit as drawn (#378)
+    return hitTestAt(pos.x, pos.y, p, simTimeRef.current, transformRef.current.scale, frameLevel.lod)
   }, [screenToCanvas, drawPropsRef, simTimeRef, transformRef])
 
   const updateHover = useCallback((target: HitTarget | null) => {
@@ -173,11 +174,8 @@ export function useCanvasInteraction({
     const dragTarget = dragTargetRef.current
     if (dragging && dragTarget) {
       if (dragTarget.type === 'canvas') {
-        userHasNavigatedRef.current = true
-        const dx = e.clientX - dragTarget.startX
-        const dy = e.clientY - dragTarget.startY
-        const t = transformRef.current
-        transformRef.current = { ...t, x: t.x + dx, y: t.y + dy }
+        // panBy also drops the auto-fit target, or its lerp would keep pulling the camera back while the pointer holds the pan (#440)
+        panBy(e.clientX - dragTarget.startX, e.clientY - dragTarget.startY)
         const now = performance.now()
         const elapsed = Math.max(now - lastPanPosRef.current.time, 1) / 1000
         panVelocityRef.current = {
@@ -195,7 +193,7 @@ export function useCanvasInteraction({
         }
       }
     }
-  }, [screenToCanvas, hitTest, updateHover, mainCanvasRef, zoomBy, userHasNavigatedRef, transformRef, panVelocityRef])
+  }, [screenToCanvas, hitTest, updateHover, mainCanvasRef, zoomBy, panBy, panVelocityRef])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     const wasPinching = pinchRef.current !== null || gestureConsumedRef.current
@@ -274,8 +272,7 @@ export function useCanvasInteraction({
       if (!rect) return
       zoomBy(delta, e.clientX - rect.left, e.clientY - rect.top)
     } else {
-      const prev = transformRef.current
-      transformRef.current = { ...prev, x: prev.x - e.deltaX, y: prev.y - e.deltaY }
+      panBy(-e.deltaX, -e.deltaY)
     }
   }
   useEffect(() => {

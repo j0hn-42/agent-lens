@@ -1,29 +1,33 @@
 import * as vscode from 'vscode'
 import { VisualizerPanel } from './webview-provider'
+import { startPanelPage } from './panel-start'
 import { JsonlEventSource } from './event-source'
+import { wireJsonlSourceToPanel } from './jsonl-panel'
 import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
 import { startPiRuntime } from './pi-runtime'
 import { startGeminiRuntime } from './gemini-runtime'
+import { startOpenCodeRuntime } from './opencode-runtime'
 import { promptHookSetupIfNeeded, configureClaudeHooks, installControlHook, removeControlHook, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
 import { getOperatorControl } from './operator-control'
 import { parseOpenTerminalMessage, openSessionTerminal, OPEN_TERMINAL_FAILURE_TEXT } from './open-terminal'
-import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
+import { type AgentRuntime, type AgentRuntimeMode } from './session-runtime'
 
 const log = createLogger('Extension')
 
 type ConfiguredRuntimeMode = AgentRuntimeMode | 'auto'
 
 let eventSource: JsonlEventSource | undefined
+let eventSourceWiring: { dispose(): void } | undefined
 let runtimes: AgentRuntime[] = []
 
 function readConfiguredMode(): ConfiguredRuntimeMode {
   const raw = vscode.workspace.getConfiguration('agentVisualizer').get<string>('runtime', 'auto')
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' || raw === 'opencode' ? raw : 'auto'
 }
 
 interface StartRuntimesResult {
@@ -62,6 +66,11 @@ async function startRuntimes(
     try { runtimes.push(startGeminiRuntime(context)) }
     catch (err) { log.error('Gemini CLI runtime failed to start:', err); failures.push('gemini') }
   }
+  if (mode === 'opencode' || mode === 'auto') {
+    log.info('Starting OpenCode runtime...')
+    try { runtimes.push(startOpenCodeRuntime(context)) }
+    catch (err) { log.error('OpenCode runtime failed to start:', err); failures.push('opencode') }
+  }
   return { runtimes, failures }
 }
 
@@ -86,7 +95,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ─── Settings: autoOpen and eventLogPath (#174) ────────────────────────────
 
-  // Open the panel on the first detected session (Claude, Codex, Copilot, Pi or Gemini CLI) when autoOpen is on.
+  // Open the panel on the first detected session (Claude, Codex, Copilot, Pi, Gemini CLI or OpenCode) when autoOpen is on.
   // Read at event time, so toggling the setting needs no reload.
   for (const r of runtimes) {
     context.subscriptions.push(r.watcher.onSessionDetected(() => autoOpenIfEnabled(context)))
@@ -185,7 +194,7 @@ function applyEventLogPath(context: vscode.ExtensionContext): void {
 }
 
 /** Only prompt for Claude hook setup if a Claude runtime is active —
- *  otherwise a Codex-, Copilot-, Pi- or Gemini-only user would see an irrelevant prompt. */
+ *  otherwise a Codex-, Copilot-, Pi-, Gemini- or OpenCode-only user would see an irrelevant prompt. */
 function promptHookSetupIfNeededForClaude(context: vscode.ExtensionContext): void {
   if (runtimes.some(r => r.mode === 'claude')) {
     promptHookSetupIfNeeded(context)
@@ -225,29 +234,18 @@ function wirePanel(panel: VisualizerPanel): void {
         if (readyHandled) { return }
         readyHandled = true
         log.info('Webview ready')
-        // Allow events to flow before replay — replay emits through the
-        // same onEvent listener, and it's synchronous so no live events
-        // can interleave. Events before this point were gated (dropped),
-        // and replayExistingContent covers them from the JSONL file.
-        panel.markReady()
-        // Clear stale webview state from any previous panel instance
-        panel.postMessage({ type: 'reset', reason: 'panel-reopened' })
-        // Send environment-derived config (e.g. CLAUDE_CODE_DISABLE_1M_CONTEXT)
-        if (isDisable1MContext()) {
-          panel.postMessage({ type: 'config', config: { disable1MContext: true } })
+        // Order, replay and the loss figure of this page: panel-start.ts (#592). Nothing is read again: the events
+        // emitted before this page was ready are counted there, minus what the replay re-sends
+        {
+          const page = startPanelPage(panel, {
+            collectActiveSessions, replaySessions,
+            disable1MContext: isDisable1MContext, hooksConfigured: areHooksConfigured,
+            connectionStatus: combinedConnectionStatus,
+            isCurrent: () => VisualizerPanel.getCurrent() === panel,
+          })
+          // A closed panel's figure is no longer updated nor kept in memory
+          panel.onDisposed(() => page.end())
         }
-        // Hooks-configured flag for the empty-state checklist (read defensively, never throws)
-        panel.postMessage({ type: 'config', config: { hooksConfigured: areHooksConfigured() } })
-        // Report current connection status and replay active sessions
-        // Send session list FIRST so the webview selects a session
-        // before replay events arrive (otherwise they have no selected
-        // session to match and are only buffered, not delivered).
-        const sessions = collectActiveSessions()
-        if (sessions.length > 0) {
-          panel.postMessage({ type: 'session-list', sessions })
-          replaySessions(sessions.map(s => s.id))
-        }
-        panel.setConnectionStatus('watching', combinedConnectionStatus())
         break
 
       case 'request-connect':
@@ -353,10 +351,9 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
   eventSource = source
   context.subscriptions.push(source)
 
-  // Resolve the panel at event time: the log may be configured before any panel is open
-  source.onEvent((event) => {
-    VisualizerPanel.getCurrent()?.sendEvent(event)
-  })
+  // Resolve the panel at event time: the log may be configured before any panel is open. The file is not read again
+  // when a page opens (a later page never gets these events), but it is when connected again: counted once (#592)
+  eventSourceWiring = wireJsonlSourceToPanel(source)
 
   source.onStatus((status) => {
     VisualizerPanel.getCurrent()?.setConnectionStatus(
@@ -374,6 +371,8 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
 }
 
 function disconnectEventSource(): void {
+  eventSourceWiring?.dispose()
+  eventSourceWiring = undefined
   if (eventSource) {
     eventSource.dispose()
     eventSource = undefined

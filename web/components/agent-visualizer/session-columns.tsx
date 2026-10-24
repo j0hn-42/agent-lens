@@ -13,7 +13,8 @@
 import { useEffect, useRef } from 'react'
 import { COLORS } from '@/lib/colors'
 import { createChrono } from '@/lib/active-time'
-import { COLUMN_LABELS, agentTimeCell, type ColumnCell } from '@/lib/session-columns'
+import { columnLabel, agentTimeCell, type ColumnCell } from '@/lib/session-columns'
+import { useLocale, useT } from '@/lib/locale'
 import type { Freshness } from '@/hooks/simulation/freshness'
 import type { ActiveTimeFields } from '@/lib/active-time'
 
@@ -23,16 +24,16 @@ import type { ActiveTimeFields } from '@/lib/active-time'
  * DOM order is the column order. Narrow panel: [name / model tokens time] stacked.
  */
 export const ROW_GRID =
-  'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_8ch] ' +
-  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_8ch_10ch_11ch] ' +
-  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_8ch_10ch_11ch] ' +
+  'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_9ch] ' +
+  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_9ch_10ch_14ch] ' +
+  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_9ch_10ch_14ch] ' +
   '@max-[440px]:flex @max-[440px]:flex-wrap'
 const WHEN_COST = 'hidden @min-[520px]:block'
 const WHEN_BRANCH = 'hidden @min-[640px]:block'
 const NAME_CELL = '@max-[440px]:basis-full'
 const SECOND_LINE = 'col-span-full flex flex-wrap items-center gap-x-2 text-[11px]'
 
-type ColumnKey = Exclude<keyof typeof COLUMN_LABELS, 'name'>
+type ColumnKey = 'model' | 'runtime' | 'branch' | 'tokens' | 'cost' | 'time' | 'activity'
 
 const CELL_CLASS: Record<ColumnKey, string> = {
   model: 'min-w-0 truncate text-left @max-[440px]:max-w-full',
@@ -46,7 +47,8 @@ const CELL_CLASS: Record<ColumnKey, string> = {
 
 /** Visible label of a cell, only shown once the columns are stacked (the header is hidden then). */
 function StackedLabel({ column }: { column: ColumnKey }) {
-  return <span aria-hidden="true" className="hidden @max-[440px]:inline" style={{ color: COLORS.textDim }}>{COLUMN_LABELS[column]} </span>
+  const { locale } = useLocale()
+  return <span aria-hidden="true" className="hidden @max-[440px]:inline" style={{ color: COLORS.textDim }}>{columnLabel(column, locale)} </span>
 }
 
 interface ColumnValueProps {
@@ -58,11 +60,14 @@ interface ColumnValueProps {
 
 /** A static cell. Known value: "<column>, <wording>" for assistive tech, the compact text for the eye. */
 export function ColumnValue({ column, cell, title }: ColumnValueProps) {
+  const { locale } = useLocale()
+  const tip = title ?? cell.label
+  const text = <span aria-hidden="true">{cell.text}</span>
   return (
-    <span className={CELL_CLASS[column]} style={{ color: COLORS.textMuted }} title={title ?? cell.label} data-column={column}>
+    <span className={CELL_CLASS[column]} style={{ color: COLORS.textMuted }} title={tip} data-column={column}>
       {cell.empty
-        ? <><StackedLabel column={column} /><span aria-hidden="true">{cell.text}</span><span className="sr-only">{cell.label}</span></>
-        : <><StackedLabel column={column} /><span aria-hidden="true">{cell.text}</span><span className="sr-only">{COLUMN_LABELS[column]}, {cell.label}</span></>}
+        ? <><StackedLabel column={column} />{text}<span className="sr-only">{cell.label}</span></>
+        : <><StackedLabel column={column} />{text}<span className="sr-only">{columnLabel(column, locale)}, {cell.label}</span></>}
     </span>
   )
 }
@@ -103,6 +108,8 @@ interface LiveTimeProps {
  * the column has a fixed width, so the layout never shifts.
  */
 export function LiveTimeValue({ agent, freshness, now = Date.now, monotonic = () => performance.now() }: LiveTimeProps) {
+  const { locale } = useLocale()
+  const t = useT()
   const ref = useRef<HTMLSpanElement>(null)
   const agentRef = useRef(agent)
   agentRef.current = agent
@@ -110,7 +117,7 @@ export function LiveTimeValue({ agent, freshness, now = Date.now, monotonic = ()
   const live = since !== undefined && freshness === 'fresh'
 
   const chrono = live ? createChrono({ startedAt: since, wallNow: now(), monotonic }) : null
-  const cell = agentTimeCell(agent, freshness, chrono?.elapsedMs() ?? 0)
+  const cell = agentTimeCell(agent, freshness, chrono?.elapsedMs() ?? 0, locale)
 
   useEffect(() => {
     if (!live || since === undefined) return
@@ -124,9 +131,9 @@ export function LiveTimeValue({ agent, freshness, now = Date.now, monotonic = ()
 
   if (cell.empty) return <ColumnValue column="time" cell={cell} />
   return (
-    <span className={CELL_CLASS.time} style={{ color: COLORS.textMuted }} data-column="time" title="Active time">
+    <span className={CELL_CLASS.time} style={{ color: COLORS.textMuted }} data-column="time" title={t('cols.time.activeTitle')}>
       <StackedLabel column="time" />
-      <span className="sr-only">{COLUMN_LABELS.time}, active, </span>
+      <span className="sr-only">{t('cols.time.activeSr', { time: columnLabel('time', locale) })}{' '}</span>
       <span ref={ref} data-testid="row-active-time">{cell.text}</span>
     </span>
   )
@@ -134,6 +141,8 @@ export function LiveTimeValue({ agent, freshness, now = Date.now, monotonic = ()
 
 /** Visible header of the columns (hidden when stacked): sighted-only, each cell already names itself. */
 export function ColumnHeader() {
+  const { locale } = useLocale()
+  const L = (c: 'name' | 'model' | 'runtime' | 'branch' | 'tokens' | 'cost' | 'time' | 'activity') => columnLabel(c, locale)
   return (
     <div
       aria-hidden="true"
@@ -141,14 +150,14 @@ export function ColumnHeader() {
       className={`sticky top-0 z-10 pl-11 pr-8 pb-0.5 text-[11px] tracking-wider uppercase @max-[440px]:hidden ${ROW_GRID}`}
       style={{ background: COLORS.void, color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.controlBorder}` }}
     >
-      <span>{COLUMN_LABELS.name}</span>
-      <span>{COLUMN_LABELS.model}</span>
-      <span className={CELL_CLASS.runtime}>{COLUMN_LABELS.runtime}</span>
-      <span className={CELL_CLASS.branch}>{COLUMN_LABELS.branch}</span>
-      <span className="text-right">{COLUMN_LABELS.tokens}</span>
-      <span className={`${CELL_CLASS.cost}`}>{COLUMN_LABELS.cost}</span>
-      <span className="text-right">{COLUMN_LABELS.time}</span>
-      <span className={CELL_CLASS.activity}>{COLUMN_LABELS.activity}</span>
+      <span>{L('name')}</span>
+      <span>{L('model')}</span>
+      <span className={CELL_CLASS.runtime}>{L('runtime')}</span>
+      <span className={CELL_CLASS.branch}>{L('branch')}</span>
+      <span className="text-right">{L('tokens')}</span>
+      <span className={`${CELL_CLASS.cost}`}>{L('cost')}</span>
+      <span className="text-right">{L('time')}</span>
+      <span className={CELL_CLASS.activity}>{L('activity')}</span>
     </div>
   )
 }

@@ -5,13 +5,14 @@
  * the agent bubbles of the other clusters collapse to a small count chip, link bubbles and secondary
  * overlays are hidden, and agent labels shrink to one line. Pure: unit-testable under node:test.
  */
-import type { Agent, TeamSummary } from '../../../lib/agent-types'
+import type { Agent, TeamSummary, ToolCallNode } from '../../../lib/agent-types'
 import {
   AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
+  MIN_VISIBLE_OPACITY, ORCHESTRATOR_DRAW,
 } from '../../../lib/canvas-constants'
-import { agentCostUsage } from '../../../lib/cost'
 import { formatCostUsage } from '../../../lib/usage'
 import { bubbleAlpha } from './bubble-utils'
+import { statsLabel, agentCostUsageUnderLoss, contextBarText } from './loss-labels'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
 import {
@@ -19,8 +20,10 @@ import {
   orchestratorInfo,
 } from './team-style'
 import { estimateTextWidth, type EdgeBubble } from './edge-bubbles'
+import { labelScaleForZoom, textHoldScale } from './draw-options'
 import { clampRectToSafe, type Rect as FitRect } from './camera-fit'
 import { clusterLabelLines, clusterLabelAnchor, type Cluster } from './cluster-model'
+import { workspaceHeaderRect, type WorkspaceZone } from './workspace-zones'
 import {
   placeRects, overlayPriority, PRIORITY, type PlacementRequest, type Placement, type Rect, type Obstacle, type OverlayPlan,
 } from './label-placement'
@@ -35,6 +38,61 @@ export function contextBarShown(a: Pick<Agent, 'tokensUsed' | 'state' | 'opacity
 export function contextBlockHeight(radius: number, extraLines: number): number {
   const barBottom = radius + CONTEXT_BAR.yOffset + extraLines * AGENT_DRAW.stateLabelGap + CONTEXT_BAR.barHeight + CONTEXT_BAR.labelBoxExtra
   return barBottom - (radius + AGENT_DRAW.labelYOffset)
+}
+
+/** World size, at 100 %, of the label block drawn under an agent (its top is a.y + r + AGENT_DRAW.labelYOffset). */
+export interface AgentLabelBlock {
+  w: number
+  h: number
+  /** One-line form "name · status", with the context bar still hanging under it */
+  compactW: number
+  compactH: number
+}
+
+/**
+ * Label block of an agent as drawn (#378): name lines, status, the LEAD / MAIN pill line at its drawn width
+ * (pill padding included), the session line, and the context bar with its token line, which is often the
+ * widest line ("4.3k estimated / 1M tokens, window assumed"). The token line is drawn with the details
+ * level only. Below 100 % the block is drawn enlarged by labelScaleForZoom around its top centre.
+ */
+export function agentLabelBlock(
+  a: Agent, r: number, measure: (text: string) => number,
+  options: {
+    showSession: boolean; orchestrator: ReturnType<typeof orchestratorInfo>; details: boolean
+    /** Events the relay could not replay, per session id (#366): the token line is then the longer "at least" one */
+    replayLost?: ReadonlyMap<string, number>
+  },
+): AgentLabelBlock {
+  const layout = layoutAgentLabel(a, r, measure, options.showSession, options.orchestrator)
+  let groupW = 0
+  if (layout.groupLine) {
+    if (layout.badgeText) {
+      const rest = layout.groupLine.slice(layout.badgeText.length).trim()
+      groupW = estimateTextWidth(layout.badgeText, ORCHESTRATOR_DRAW.badgeFontSize) + 10 + (rest ? measure(rest) + 6 : 0)
+    } else groupW = measure(layout.groupLine)
+  }
+  const lines = layout.nameLines.length + 1 + (layout.sessionLine ? 1 : 0) + (layout.groupLine ? 1 : 0)
+  const widest = Math.max(
+    ...layout.nameLines.map(measure), measure(layout.statusLine),
+    layout.sessionLine ? measure(layout.sessionLine) : 0, groupW,
+  )
+  // The context bar hangs under the label block and moves with it: reserve its height, its background
+  // and its token line so a shifted label never lands on the bar and a card never covers its text
+  const barShown = contextBarShown(a)
+  const barW = barShown ? Math.max(CONTEXT_BAR.minWidth, r * CONTEXT_BAR.widthMultiplier) + 4 : 0
+  const tokenW = barShown && options.details
+    ? estimateTextWidth(contextBarText(a, options.replayLost), CONTEXT_BAR.fontSize)
+    : 0
+  const labelH = lines * AGENT_DRAW.stateLabelGap
+  const h = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
+  const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
+  const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
+  return {
+    w: Math.max(36, widest, barW, tokenW) + LABEL_PAD * 2,
+    h,
+    compactW: Math.max(measure(compactText), barW, tokenW) + LABEL_PAD * 2,
+    compactH: barShown ? h : AGENT_DRAW.stateLabelGap,
+  }
 }
 
 function insetRect(r: FitRect, by: number): FitRect {
@@ -61,7 +119,8 @@ export interface OverlayPlanInput {
   viewport: { w: number; h: number }
   /** Screen area free of overlaid UI (top bar, control bar, panels): cluster labels are clamped inside it */
   safeArea?: Rect
-  lod: { labels: boolean; details: boolean }
+  /** cardText false (or absent = true): agent bubbles are planned as their count chip only (#378) */
+  lod: { labels: boolean; details: boolean; cardText?: boolean; detailText?: boolean }
   showStats: boolean
   showCost: boolean
   showSessionLabels: boolean
@@ -72,11 +131,43 @@ export interface OverlayPlanInput {
   hoveredLinkId?: string | null
   /** Keys of the edge bubbles that are hovered / focused: planned just below the selected agent's labels (see HELD_BUBBLE_BOOST) */
   heldBubbleKeys?: ReadonlySet<string>
+  /**
+   * Minimum side (screen px) of the zone of an edge bubble or its count chip (44 below 768 px, #514). The zone is what
+   * the planner keeps free of other texts, so the zones of two bubbles never overlap; the drawing stays centred in it.
+   */
+  touchTargetPx?: number
   simTime: number
   /** Teams, to tell a team lead from a session's main agent in the label layout */
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
   /** Agent ids whose bubbles never expire (hovered / focused / paused) */
   isBubbleHeld: (agentId: string) => boolean
+  /**
+   * World rectangles of the tool cards drawn (see toolCardRects). Cards are drawn above the labels and
+   * bubbles, so these texts are moved off them, collapsed or hidden rather than left underneath (#378).
+   */
+  toolCards?: Iterable<Rect>
+  /** Workspace zones drawn this frame: no overlay covers their header chip (a halo title moves off it, #378) */
+  workspaceZones?: ReadonlyArray<WorkspaceZone>
+  /** Screen rectangles of UI laid over the canvas without reserving an edge (the collapsed Conversation pill): no overlay goes under them (#378) */
+  covers?: Iterable<Rect>
+  /** Events the relay could not replay, per session id (#366): the qualified stats text and cost pill are wider, the plan reserves what is drawn */
+  replayLost?: ReadonlyMap<string, number>
+}
+
+/**
+ * World rectangle, centred on the card, of every tool card that is drawn; `sizeOf` gives its size (the
+ * drawn size, see toolCardSize). Faded-out cards are skipped, as in drawToolCalls.
+ */
+export function toolCardRects<T extends Pick<ToolCallNode, 'x' | 'y' | 'opacity'>>(
+  toolCalls: Iterable<T>, sizeOf: (tool: T) => { w: number; h: number },
+): Rect[] {
+  const out: Rect[] = []
+  for (const t of toolCalls) {
+    if (!(t.opacity >= MIN_VISIBLE_OPACITY)) continue
+    const { w, h } = sizeOf(t)
+    out.push({ x: t.x - w / 2, y: t.y - h / 2, w, h })
+  }
+  return out
 }
 
 export interface OverlayHits {
@@ -94,6 +185,12 @@ export interface OverlayPlanResult {
   hits: OverlayHits
   /** Many agents on screen: secondary overlays are limited to the priority agents */
   crowded: boolean
+  /**
+   * Agents drawn in the canvas area (centre of the node inside the safe area, or the viewport without one) whose name
+   * this plan does not draw: the label is hidden, or no label is drawn at this zoom (#594). A label shortened to one
+   * line still draws the name. Agents off screen, faded out or filtered out of the scene are not counted.
+   */
+  hiddenAgentNames: number
 }
 
 /**
@@ -134,6 +231,7 @@ export const EMPTY_PLAN: OverlayPlanResult = {
   plan: new Map(),
   hits: { clusterLabels: new Map(), edgeBubbles: new Map(), edgeBubbleRects: new Map(), collapsedBubbles: new Map() },
   crowded: false,
+  hiddenAgentNames: 0,
 }
 
 export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
@@ -165,6 +263,18 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     obstacles.push({ owner: a.id, rect: { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 } })
   }
   const crowded = visibleAgents > PLACEMENT.crowdedItems
+  for (const card of input.toolCards ?? []) {
+    const rect = toScreen(t, card.x, card.y, card.w, card.h)
+    if (onScreen(rect, vp, 0)) obstacles.push({ rect, hard: true })
+  }
+  for (const z of input.workspaceZones ?? []) {
+    const h = workspaceHeaderRect(z, s)
+    const rect = toScreen(t, h.x, h.y, h.w, h.h)
+    if (onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
+  }
+  for (const rect of input.covers ?? []) {
+    if (rect.w > 0 && rect.h > 0 && onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
+  }
 
   // ─── Cluster labels (essential: never hidden, kept at the least-overlapping spot) ───
   const clusterRects = new Map<string, Rect>()
@@ -189,9 +299,14 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       priority: overlayPriority(PRIORITY.clusterLabel, { selected: priorityClusters.has(c.key) }),
       rect,
       essential: true,
+      // Drawn in screen space after the tool cards: a card under it never covers it, so it does not move it (#378)
+      aboveHard: true,
+      // Moved off a workspace header or a pill, it stays clear of the top bar and the control bar
+      shiftBounds: labelArea,
     })
   }
 
+  const labelScale = labelScaleForZoom(s)
   for (const a of visible) {
     const id = a.id
     const r = agentDrawRadius(a)
@@ -201,31 +316,26 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       focused: id === input.focusedAgentId,
       orchestrator: isOrchestrator(a),
       active: a.state === 'thinking' || a.state === 'tool_calling' || a.state === 'waiting_permission',
+      alert: a.state === 'error',
     }
     const isPriority = flags.selected || flags.hovered || flags.focused
     const secondaryAllowed = !crowded || isPriority
 
+    // Right edge (screen) of this agent's label block as reserved, enlarged below 100% (#378)
+    let labelRight: number | undefined
     // Agent label: full block, or one line "name · status" when the room is short
     if (input.lod.labels) {
       const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
-      const layout = layoutAgentLabel(a, r, measure, input.showSessionLabels && secondaryAllowed, orchestratorInfo(a, input.teams))
-      const lines = layout.nameLines.length + 1 + (layout.sessionLine ? 1 : 0) + (layout.groupLine ? 1 : 0)
-      const widest = Math.max(
-        ...layout.nameLines.map(measure), measure(layout.statusLine),
-        layout.sessionLine ? measure(layout.sessionLine) : 0, layout.groupLine ? measure(layout.groupLine) : 0,
-      )
-      const wW = Math.max(36, widest) + LABEL_PAD * 2
+      const block = agentLabelBlock(a, r, measure, {
+        showSession: input.showSessionLabels && secondaryAllowed, orchestrator: orchestratorInfo(a, input.teams), details: input.lod.details,
+        replayLost: input.replayLost,
+      })
       const top = a.y + r + AGENT_DRAW.labelYOffset
-      // The context bar hangs under the label block and moves with it: reserve its height so a shifted
-      // label never lands on the bar (or its token text)
-      const barShown = contextBarShown(a)
-      const labelH = lines * AGENT_DRAW.stateLabelGap
-      const blockH = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
-      const full = toScreen(t, a.x - wW / 2, top, wW, blockH)
-      const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
-      const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
-      const cW = measure(compactText) + LABEL_PAD * 2
-      const compact = toScreen(t, a.x - cW / 2, top, cW, barShown ? blockH : AGENT_DRAW.stateLabelGap)
+      // Drawn enlarged by labelScale around its top centre below 100% (held at LOD.minTextPx on screen, #378)
+      const k = labelScale
+      const full = toScreen(t, a.x - (block.w * k) / 2, top, block.w * k, block.h * k)
+      const compact = toScreen(t, a.x - (block.compactW * k) / 2, top, block.compactW * k, block.compactH * k)
+      labelRight = full.x + full.w
       requests.push({
         id: planKey.label(id),
         priority: overlayPriority(PRIORITY.agentLabel, flags),
@@ -239,27 +349,35 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     }
 
     // Stats box and cost pill, stacked above the node (same layout as the draw code)
-    const costUsage = agentCostUsage(a)
+    const costUsage = agentCostUsageUnderLoss(a, input.replayLost)
+    // Drawn from the detail zoom, held at LOD.minTextPx on screen (#378)
     const showStatsBox = input.lod.details && input.showStats && a.state !== 'complete'
     const showCostPill = input.lod.details && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
     if ((showStatsBox || showCostPill) && secondaryAllowed) {
       const layout = computeOverlayLayout({
         hasPercent: hasContextPercentFor(a), showStats: showStatsBox, showCost: showCostPill,
       })
+      // Below 100 % the draw code enlarges the whole stack around the top of the node (both texts are 11 px)
+      const top = a.y - r
       if (showStatsBox && layout.statsTop != null) {
+        const k = textHoldScale(STATS_OVERLAY.fontSize, s)
+        const w = statsLabel(a, input.replayLost).width * k
+        const h = STATS_OVERLAY.boxHeight * k
         requests.push({
           id: planKey.stats(id),
           priority: overlayPriority(PRIORITY.stats, flags),
-          rect: toScreen(t, a.x - STATS_OVERLAY.boxWidth / 2, a.y - r - layout.statsTop, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight),
+          rect: toScreen(t, a.x - w / 2, top - layout.statsTop * k, w, h),
           owner: id,
         })
       }
       if (showCostPill && layout.costTop != null) {
-        const pillW = estimateTextWidth(formatCostUsage(costUsage), 11) * 1.1 + COST_DRAW.pillPadding
+        const k = textHoldScale(11, s)
+        const pillW = (estimateTextWidth(formatCostUsage(costUsage), 11) * 1.1 + COST_DRAW.pillPadding) * k
+        const pillH = COST_DRAW.pillHeight * k
         requests.push({
           id: planKey.cost(id),
           priority: overlayPriority(PRIORITY.cost, flags),
-          rect: toScreen(t, a.x - pillW / 2, a.y - r - layout.costTop, pillW, COST_DRAW.pillHeight),
+          rect: toScreen(t, a.x - pillW / 2, top - layout.costTop * k, pillW, pillH),
           owner: id,
         })
       }
@@ -286,14 +404,20 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         const ay = a.y + AGENT_DRAW.bubbleCursorY
         const full = toScreen(t, ax, ay, w, h)
         const clusterBoost = (clusterOf.get(id) && priorityClusters.has(clusterOf.get(id) as string)) ? 500 : 0
+        // Bubble text would fall under LOD.minTextPx on screen: the count chip stands for the stack
+        const compactOnly = input.lod.cardText === false
+        // The chip is fixed: anchored right of the agent's own label block, which is enlarged below 100%
+        // and placed first, so the label never pushes its own chip out (#378)
+        const chipX = compactOnly && labelRight !== undefined ? Math.max(full.x, labelRight + PLACEMENT.gap) : full.x
         requests.push({
           id: planKey.bubbles(id),
           priority: overlayPriority(PRIORITY.agentBubbles, flags) + clusterBoost,
           rect: full,
-          compact: { x: full.x, y: full.y, w: PLACEMENT.chipW, h: PLACEMENT.chipH },
+          compact: { x: chipX, y: full.y, w: PLACEMENT.chipW, h: PLACEMENT.chipH },
           owner: id,
           fixed: true,
           ignoreObstacles: isPriority,
+          compactOnly,
         })
       }
     }
@@ -308,11 +432,13 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     const id = edgeBubblePlanId(b)
     const emphasised = b.linkId === input.selectedLinkId || b.linkId === input.hoveredLinkId
     const boost = input.heldBubbleKeys?.has(id) ? HELD_BUBBLE_BOOST : emphasised ? EMPHASISED_BUBBLE_BOOST : 0
-    const preferred = toScreen(t, b.anchor.x - b.w / 2, b.anchor.y - b.h - 10, b.w, b.h)
-    if (!onScreen(preferred, vp, 0)) continue
+    const drawn = toScreen(t, b.anchor.x - b.w / 2, b.anchor.y - b.h - 10, b.w, b.h)
+    if (!onScreen(drawn, vp, 0)) continue
+    const zoneMin = input.touchTargetPx ?? 0
+    const preferred = growTo(drawn, zoneMin)
     bubbleLinkOf.set(planKey.edgeBubble(id), b.linkId)
     const chip = (b.primary ?? true)
-      ? { x: preferred.x, y: preferred.y + preferred.h - PLACEMENT.chipH, w: PLACEMENT.chipW, h: PLACEMENT.chipH }
+      ? growTo({ x: drawn.x, y: drawn.y + drawn.h - PLACEMENT.chipH, w: PLACEMENT.chipW, h: PLACEMENT.chipH }, zoneMin)
       : undefined
     requests.push({
       id: planKey.edgeBubble(id),
@@ -341,7 +467,23 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     }
     else if (p.id.startsWith('bubbles:') && p.collapsed) hits.collapsedBubbles.set(p.id.slice('bubbles:'.length), toWorld(t, p.rect))
   }
-  return { plan, hits, crowded }
+  // Names the frame does not draw, among the agents drawn where the user can see them (#594)
+  const area = input.safeArea && input.safeArea.w > 0 && input.safeArea.h > 0 ? input.safeArea : { x: 0, y: 0, w: vp.w, h: vp.h }
+  let hiddenAgentNames = 0
+  for (const a of visible) {
+    const cx = a.x * s + t.x
+    const cy = a.y * s + t.y
+    if (cx < area.x || cx > area.x + area.w || cy < area.y || cy > area.y + area.h) continue
+    if (!input.lod.labels || plan.get(planKey.label(a.id))?.hidden !== false) hiddenAgentNames++
+  }
+  return { plan, hits, crowded, hiddenAgentNames }
+}
+
+/** The rect grown symmetrically to at least `min` px on each axis. */
+function growTo(r: Rect, min: number): Rect {
+  const dx = Math.max(0, (min - r.w) / 2)
+  const dy = Math.max(0, (min - r.h) / 2)
+  return dx === 0 && dy === 0 ? r : { x: r.x - dx, y: r.y - dy, w: r.w + dx * 2, h: r.h + dy * 2 }
 }
 
 /** World offset of a placement (screen px divided by the zoom). */

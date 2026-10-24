@@ -1,0 +1,315 @@
+/**
+ * `event-loss` SSE message of the relay (#366): how many events per session the relay can no longer replay
+ * (evicted from its buffer, or left out by the replay cap), sent once per connection before the replay.
+ * The VS Code extension sends the same message after each reset (#592, read through the bridge): the events emitted
+ * before that page was ready that it will never receive; and again, lower, while the page is open when a history read
+ * again reaches it (so a lower figure from it is not a new loss, see truncationBannerState).
+ * Pure (no React, no path aliases: node:test imports it). The message is untrusted: parsed field by field.
+ *
+ * The relay's figure is a total since the relay started, not what a given client is missing. It is a lower
+ * bound of what the view lacks only for the FIRST connection of a graph (the graph was empty, so none of
+ * those events had been received). A later connection that keeps the graph says nothing about it: the client
+ * already received most of those events live. See {@link acceptEventLoss}.
+ */
+import { truncationTotal, createStats, sumNormalizationStats, type NormalizationStats } from './event-normalize'
+import { ALL_SESSIONS_ID, parseTeamSelection, isUnionSelection } from './bridge-types'
+import type { UsageTotal } from './usage'
+
+export interface EventLoss {
+  /** Session id -> events the relay could not replay (positive safe integers only) */
+  evicted: Record<string, number>
+  /** Events of sessions the relay no longer names */
+  otherEvents: number
+  /**
+   * In a message only, for a client back from a cut link (`?since=`): session id -> events numbered after what it
+   * last received that it will never get (a lower bound). acceptEventLoss adds it to `evicted`; never stored as is.
+   */
+  gap?: Record<string, number>
+}
+
+/** The relay bounds its tally; the client bounds what it reads as well */
+const MAX_SESSIONS = 1000
+/** Entries looked at before giving up, junk included: a hostile object cannot make the loop long */
+const MAX_SCANNED = MAX_SESSIONS * 4
+/** A session id is far shorter than this */
+const MAX_KEY_LENGTH = 256
+
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0
+
+/** The message as a validated EventLoss; null when it is not an `event-loss` message. */
+export function parseEventLoss(data: unknown): EventLoss | null {
+  if (typeof data !== 'object' || data === null) return null
+  const d = data as { type?: unknown; evicted?: unknown; otherEvents?: unknown; gap?: unknown }
+  if (d.type !== 'event-loss' || !isCountMap(d.evicted)) return null
+  const evicted = parseCounts(d.evicted)
+  const gap = isCountMap(d.gap) ? parseCounts(d.gap) : null
+  return {
+    evicted, otherEvents: isCount(d.otherEvents) ? d.otherEvents : 0,
+    ...(gap && Object.keys(gap).length > 0 ? { gap } : {}),
+  }
+}
+
+const isCountMap = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Session id -> count, bounded and field by field: junk, prototype keys and long keys are left out. */
+function parseCounts(source: Record<string, unknown>): Record<string, number> {
+  const evicted: Record<string, number> = Object.create(null)
+  let kept = 0
+  let scanned = 0
+  for (const sid in source) {
+    if (kept >= MAX_SESSIONS || ++scanned > MAX_SCANNED) break
+    if (!Object.hasOwn(source, sid) || sid.length > MAX_KEY_LENGTH) continue
+    if (sid === '__proto__' || sid === 'constructor' || sid === 'prototype') continue
+    const n = source[sid]
+    if (!isCount(n)) continue
+    evicted[sid] = n
+    kept++
+  }
+  return { ...evicted }
+}
+
+const add = (a: number, b: number) => Math.min(a + b, Number.MAX_SAFE_INTEGER)
+
+/**
+ * Events the relay could not replay for the selection. One session: only its own count (a session the tally
+ * does not name is never claimed as lossy). All, or no selection: the sessions All shows (`allViewSessionIds`,
+ * #453: finished sessions are hidden by default and a project scope narrows it), never `otherEvents` then; only
+ * when All shows every session (null) is it the whole tally, `otherEvents` included.
+ * A team: only the sessions that belong to it (`teamSessionIds`), never `otherEvents`, which names no session;
+ * an unknown membership claims nothing.
+ */
+export function replayLostFor(
+  loss: EventLoss | null,
+  selectedId: string | null | undefined,
+  teamSessionIds: ReadonlySet<string> | null = null,
+  allViewSessionIds: ReadonlySet<string> | null = null,
+): number {
+  if (!loss) return 0
+  if (!selectedId || selectedId === ALL_SESSIONS_ID) {
+    if (allViewSessionIds) {
+      let shown = 0
+      for (const sid of allViewSessionIds) shown = add(shown, replayLostForSession(loss, sid))
+      return shown
+    }
+    let total = loss.otherEvents
+    for (const n of Object.values(loss.evicted)) total = add(total, n)
+    return total
+  }
+  if (parseTeamSelection(selectedId) !== null) {
+    let total = 0
+    if (teamSessionIds) for (const sid of teamSessionIds) total = add(total, replayLostForSession(loss, sid))
+    return total
+  }
+  return replayLostForSession(loss, selectedId)
+}
+
+/**
+ * Events the relay could not replay for ONE session (what an agent card reads for its agent's session): its
+ * own count only, 0 when the tally does not name it. Unlike replayLostFor, no session claims nothing (never
+ * the whole tally, never `otherEvents`).
+ */
+export function replayLostForSession(loss: EventLoss | null, sessionId: string | null | undefined): number {
+  if (!loss || !sessionId) return 0
+  return Object.hasOwn(loss.evicted, sessionId) ? loss.evicted[sessionId] : 0
+}
+
+/**
+ * Normalizer counters of the selection, over the same sessions as replayLostFor: one session, its own counters; All or a
+ * team, the sum over the sessions of the view (`viewSessionIds`: the ones All shows, or the team's; null = every session).
+ * A session the view leaves out is never counted in its notice, even when the simulation still holds its counters.
+ */
+export function viewNormalizationStats(
+  statsBySession: ReadonlyMap<string, NormalizationStats>,
+  selectedId: string | null | undefined,
+  viewSessionIds: ReadonlySet<string> | null,
+): NormalizationStats {
+  if (selectedId && !isUnionSelection(selectedId)) return statsBySession.get(selectedId) ?? createStats()
+  if (!viewSessionIds) return sumNormalizationStats(statsBySession.values())
+  const shown: NormalizationStats[] = []
+  for (const [sid, stats] of statsBySession) if (viewSessionIds.has(sid)) shown.push(stats)
+  return sumNormalizationStats(shown)
+}
+
+/**
+ * Which figure the view keeps. `connections` is how many times the link has been up since the graph was
+ * last emptied (a scope change reloads it). Only the first connection's totals count: they were received
+ * while the graph was empty. A later message's totals are the relay's cumulative ones, not what this graph lacks,
+ * so they are ignored and the first figure stays (the hole it described is still in the graph). What a later
+ * message adds is its `gap`: the events the cut link lost for THIS client (it reconnected with `?since=`), numbered
+ * after everything it received, so never counted before: added per session. A message that did not parse never
+ * clears a figure.
+ */
+export function acceptEventLoss(connections: number, current: EventLoss | null, incoming: EventLoss | null): EventLoss | null {
+  if (incoming === null) return current
+  if (connections <= 1) return incoming.gap ? { evicted: incoming.evicted, otherEvents: incoming.otherEvents } : incoming
+  const gap = incoming.gap
+  if (!gap || Object.keys(gap).length === 0) return current
+  const evicted: Record<string, number> = { ...(current?.evicted ?? {}) }
+  for (const [sid, n] of Object.entries(gap)) {
+    if (!Object.hasOwn(evicted, sid) && Object.keys(evicted).length >= MAX_SESSIONS) continue
+    evicted[sid] = add(Object.hasOwn(evicted, sid) ? evicted[sid] : 0, n)
+  }
+  return { evicted, otherEvents: current?.otherEvents ?? 0 }
+}
+
+/** Where the replay figure comes from: the relay's SSE stream, or the VS Code extension without a relay (#592) */
+export type LossSource = 'relay' | 'extension'
+
+/**
+ * Whether the truncation banner shows, and the total it was computed on (what a dismissal stores). Stateless: it reads
+ * only the total now and the one dismissed at, so a total that goes down for a moment (a view rebuilt) changes nothing
+ * once it is back, and nothing here ever rewrites a dismissal.
+ */
+export function truncationBannerState(
+  stats: NormalizationStats,
+  replayLost: number,
+  dismissedAt: number | undefined,
+  source: LossSource = 'relay',
+): { show: boolean; total: number } {
+  const lost = Number.isSafeInteger(replayLost) && replayLost > 0 ? replayLost : 0
+  const total = add(truncationTotal(stats), lost)
+  if (!(total > 0)) return { show: false, total }
+  if (dismissedAt === undefined) return { show: true, total }
+  // Relay (#569 review): a dismissal holds only at the total it was made at. More lost: back. LESS is a new loss too,
+  // never a smaller part of the old one: the relay restarted (its figure starts again from 0) or the graph was reloaded,
+  // so a dismissal stored for the tab before that no longer describes what the view lacks.
+  // VS Code extension (#605 review, round 4): it lowers its figure while the page is open (a history read again reaches
+  // it), and a lower figure is part of the loss already dismissed: only a total ABOVE the dismissed one brings the notice
+  // back. Honest limit: a new loss smaller than the gap between the dismissed total and the lowest total seen since is
+  // not signalled by the notice (the mark on the Sessions button and the indicator stay).
+  const show = source === 'extension' ? total > dismissedAt : total !== dismissedAt
+  return { show, total }
+}
+
+// ─── Dismissal of the truncation banner, for the tab (#567) ──────────────────
+
+/** sessionStorage key: a dismissal lasts as long as the tab, a new tab shows the banner again */
+const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
+/** Views remembered at most: the newest dismissals are kept */
+const MAX_DISMISSALS = 100
+/** A key is a prefix and a session id (MAX_KEY_LENGTH) */
+const MAX_DISMISS_KEY_LENGTH = MAX_KEY_LENGTH + 8
+
+/** What the dismissal helpers need of a Storage */
+export type DismissStore = Pick<Storage, 'getItem' | 'setItem'>
+
+/**
+ * The view a dismissal belongs to: the All view (no selection, or the All pseudo id) has one key, each other selection
+ * (a session, a team) its own. Prefixed, so a session id never names the All view.
+ */
+export function truncationDismissKey(selectedId: string | null | undefined): string {
+  return !selectedId || selectedId === ALL_SESSIONS_ID ? 'view:all' : `sel:${selectedId}`
+}
+
+/** The tab's sessionStorage, or null when it cannot be reached (reading it throws when site data is blocked). */
+export function tabStorage(): DismissStore | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage ?? null
+  } catch { return null }
+}
+
+/** Dismissals stored for the tab, view key -> total dismissed at. Untrusted: parsed entry by entry; never throws. */
+export function readTruncationDismissals(storage: DismissStore | null): Map<string, number> {
+  const out = new Map<string, number>()
+  if (!storage) return out
+  let parsed: unknown
+  try { parsed = JSON.parse(storage.getItem(TRUNCATION_DISMISS_STORAGE_KEY) ?? 'null') } catch { return out }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return out
+  let scanned = 0
+  for (const key of Object.keys(parsed)) {
+    if (out.size >= MAX_DISMISSALS || ++scanned > MAX_DISMISSALS * 4) break
+    if (key.length > MAX_DISMISS_KEY_LENGTH || key === '__proto__') continue
+    const n = (parsed as Record<string, unknown>)[key]
+    if (typeof n === 'number' && Number.isSafeInteger(n) && n >= 0) out.set(key, n)
+  }
+  return out
+}
+
+/** Store the dismissals for the tab (the newest MAX_DISMISSALS); false when the storage is missing or refuses. */
+export function writeTruncationDismissals(storage: DismissStore | null, dismissals: ReadonlyMap<string, number>): boolean {
+  if (!storage) return false
+  const entries = [...dismissals].slice(-MAX_DISMISSALS)
+  try {
+    storage.setItem(TRUNCATION_DISMISS_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)))
+    return true
+  } catch { return false }
+}
+
+/**
+ * What the All view counted for each session it shows (`allViewSessionIds`, as replayLostFor; null = every session): its
+ * normalizer counters, plus its replay loss. Sessions with nothing lost are left out.
+ */
+export function allViewSessionTotals(
+  statsBySession: ReadonlyMap<string, NormalizationStats>,
+  loss: EventLoss | null,
+  allViewSessionIds: ReadonlySet<string> | null,
+): Map<string, number> {
+  const totals = new Map<string, number>()
+  const bump = (sid: string, n: number) => { if (n > 0) totals.set(sid, add(totals.get(sid) ?? 0, n)) }
+  for (const [sid, stats] of statsBySession) if (!allViewSessionIds || allViewSessionIds.has(sid)) bump(sid, truncationTotal(stats))
+  if (loss) for (const sid of allViewSessionIds ?? Object.keys(loss.evicted)) bump(sid, replayLostForSession(loss, sid))
+  return totals
+}
+
+/**
+ * The dismissals after the user closed the banner of view `key` at `total` (a new map, the newest entry last).
+ * Dismissing the All view also covers each session it counted (`covered`, session id -> what All counted for it):
+ * opening one of them right after shows no banner at the same total. A higher total stored for a session is kept only
+ * while that session's own view still counts at least that much (`own`, allViewSessionTotals with every session): it is
+ * an earlier dismissal of a loss All does not show. Above what the session counts now, it is stale (the relay
+ * restarted) and is replaced, or the session would open on a banner the user just closed.
+ */
+export function dismissTruncation(
+  prev: ReadonlyMap<string, number>,
+  key: string,
+  total: number,
+  covered: ReadonlyMap<string, number> = new Map(),
+  own: ReadonlyMap<string, number> = covered,
+): Map<string, number> {
+  const next = new Map(prev)
+  const put = (sid: string, n: number) => {
+    const k = truncationDismissKey(sid)
+    const was = next.get(k)
+    next.delete(k)
+    next.set(k, was !== undefined && was > n && was <= (own.get(sid) ?? 0) ? was : n)
+  }
+  if (key === truncationDismissKey(ALL_SESSIONS_ID)) for (const [sid, n] of covered) put(sid, n)
+  next.delete(key)
+  next.set(key, total)
+  return next
+}
+
+/**
+ * A count over a graph that may be incomplete (#366). `lost` is replayLostFor() for the scope of the figure.
+ * Nothing lost: the plain count. Lost: "at least N", and a zero is "no X observed (incomplete)", never a clean zero.
+ */
+export function boundedCount(n: number, lost: number, singular: string, plural = `${singular}s`): string {
+  if (!(lost > 0)) return `${n} ${n === 1 ? singular : plural}`
+  if (n === 0) return `no ${singular} observed (incomplete)`
+  return `at least ${n} ${n === 1 ? singular : plural}`
+}
+
+/** Events the relay could not replay for the sessions of these agents, each session counted once (0 when none is named). */
+export function replayLostForAgents(lost: ReadonlyMap<string, number> | null | undefined, agents: Iterable<{ sessionId?: string }>): number {
+  if (!lost || lost.size === 0) return 0
+  const seen = new Set<string>()
+  let total = 0
+  for (const a of agents) {
+    if (!a.sessionId || seen.has(a.sessionId)) continue
+    seen.add(a.sessionId)
+    const n = lost.get(a.sessionId)
+    if (n !== undefined && n > 0) total = add(total, n)
+  }
+  return total
+}
+
+/**
+ * A ctx-token or cost total over a graph that may be incomplete (#366, #591). The figure adds context readings (or prices
+ * them), and a reading is ABSOLUTE: a lost event can raise it as well as lower it (a compaction shrinks the context, and the
+ * Cost panel says the cost "drops after a compaction"). So no lower bound is provable and none is claimed: with lost events
+ * the figure is flagged `incomplete` and reads "(incomplete)", never "at least". Nothing lost, or nothing known (null stays
+ * "not reported"): unchanged. (A per-tool BY TOOL sum is different: it adds per-call costs, a lost call can only add.)
+ */
+export function usageUnderLoss(usage: UsageTotal, lost: number): UsageTotal {
+  return lost > 0 && usage.status !== 'unavailable' && usage.value !== null ? { ...usage, incomplete: true } : usage
+}

@@ -7,9 +7,15 @@
  * figure or a status the app already proves: a cost keeps its qualification ("at least", "estimated"), an unknown cost
  * never triggers, a session first seen as completed (history) is never announced as finished.
  */
-import { formatAttention } from './attention'
-import { formatCostUsage, type UsageTotal } from './usage'
+import { DEFAULT_LOCALE, translate, type Locale, type MessageKey } from './messages'
+import { costUsageText, sessionAttentionLabel } from './card-text'
+import type { UsageTotal } from './usage'
 import { formatCost } from './utils'
+
+const tr = (locale: Locale, key: MessageKey, params: Record<string, string | number> = {}): string => translate(locale, key, params)
+const capitalize = (s: string): string => s[0].toUpperCase() + s.slice(1)
+const pluralKey =(locale: Locale, base: 'notify.complete', n: number, params: Record<string, string | number> = {}): string =>
+  tr(locale, `${base}.${new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'}`, { n, ...params })
 
 /** localStorage key of the rules (per browser; the master opt-in keeps its own key in use-attention-alerts) */
 export const NOTIFY_RULES_STORAGE_KEY = 'agent-lens:notify-rules'
@@ -99,14 +105,14 @@ const hasNew = (before: ReadonlySet<string>, now: ReadonlySet<string>): boolean 
 }
 
 /** What is new between two snapshots, for the enabled rules. `prev` null is the baseline: nothing is announced. */
-export function evaluateTriggers(prev: NotifySnapshot | null, cur: NotifySnapshot, rules: NotificationRules): NotifyItem[] {
+export function evaluateTriggers(prev: NotifySnapshot | null, cur: NotifySnapshot, rules: NotificationRules, locale: Locale = DEFAULT_LOCALE): NotifyItem[] {
   if (!prev) return []
   const items: NotifyItem[] = []
 
   const freshWaiting = rules.permission && hasNew(prev.waitingIds, cur.waitingIds)
   const freshError = rules.error && hasNew(prev.errorIds, cur.errorIds)
   if (freshWaiting || freshError) {
-    const body = formatAttention(rules.permission ? cur.waitingIds.size : 0, rules.error ? cur.errorIds.size : 0)
+    const body = sessionAttentionLabel(locale, { waiting: rules.permission ? cur.waitingIds.size : 0, errors: rules.error ? cur.errorIds.size : 0 })
     if (body) items.push({ trigger: 'attention', title: NOTIFY_TITLE, body })
   }
 
@@ -115,8 +121,8 @@ export function evaluateTriggers(prev: NotifySnapshot | null, cur: NotifySnapsho
     for (const [id, entry] of cur.sessions) {
       if (entry.status === 'completed' && prev.sessions.get(id)?.status === 'active') finished.push(entry.label)
     }
-    if (finished.length === 1) items.push({ trigger: 'complete', title: NOTIFY_TITLE, body: `Session finished: ${finished[0]}` })
-    else if (finished.length > 1) items.push({ trigger: 'complete', title: NOTIFY_TITLE, body: `${finished.length} sessions finished` })
+    // A session label is data: it is quoted as it is, inside the sentence of the interface language
+    if (finished.length > 0) items.push({ trigger: 'complete', title: NOTIFY_TITLE, body: pluralKey(locale, 'notify.complete', finished.length, { label: finished[0] }) })
   }
 
   if (rules.cost && cur.cost.value !== null && cur.cost.status !== 'unavailable') {
@@ -125,7 +131,8 @@ export function evaluateTriggers(prev: NotifySnapshot | null, cur: NotifySnapsho
       items.push({
         trigger: 'cost',
         title: NOTIFY_TITLE,
-        body: `Cost reached ${formatCostUsage(cur.cost)} (threshold ${formatCost(rules.costThresholdUsd)})`,
+        // "Context cost estimate": the message names what the figure is (#364); the qualifiers follow the language (#373)
+        body: tr(locale, 'notify.cost', { name: capitalize(tr(locale, 'topbar.context.costName')), value: costUsageText(locale, cur.cost), threshold: formatCost(rules.costThresholdUsd) }),
       })
     }
   }

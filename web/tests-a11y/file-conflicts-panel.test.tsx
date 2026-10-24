@@ -71,6 +71,33 @@ test('no conflict, no conflicts list', () => {
   assert.equal(queryByRole('list', { name: 'File conflicts' }), null)
 })
 
+// Replay loss (#366): the relay could not replay earlier events, so a zero is the observed part only and counts read "at least".
+const conflicted2: FileAttention = { ...conflicted, path: '/repo/src/c.ts' }
+
+test('under replay loss with no conflict, the panel says the zero covers only the observed part', () => {
+  const { getByTestId } = render(<FileAttentionPanel visible fileAttention={new Map([[pending.path, pending]])} onClose={noop} replayLost={6} />)
+  assert.equal(getByTestId('file-conflicts-incomplete').textContent, 'No conflict in the observed part: at least 6 earlier events were not replayed')
+})
+
+test('under replay loss, the conflicts heading reads "at least N conflicts"', () => {
+  const two = new Map([[conflicted.path, conflicted], [conflicted2.path, conflicted2]])
+  const { container } = render(<FileAttentionPanel visible fileAttention={two} onClose={noop} replayLost={6} />)
+  const heading = container.querySelector('#file-conflicts-heading')
+  assert.ok(heading?.textContent?.startsWith('at least 2 conflicts'), heading?.textContent ?? 'no heading')
+})
+
+test('under replay loss, the empty state and the file count are qualified', () => {
+  const empty = render(<FileAttentionPanel visible fileAttention={new Map()} onClose={noop} replayLost={6} />)
+  assert.ok(empty.getByText('No file observed (incomplete)'))
+  assert.equal(empty.queryByText('No files yet'), null)
+  cleanup()
+  const some = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} replayLost={6} />)
+  assert.ok(some.getByText('at least 2 files'))
+  cleanup()
+  const plain = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} />)
+  assert.ok(plain.getByText('2 files'))
+})
+
 test('the panel with conflicts has no axe violation', async () => {
   const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} onOpenFile={noop} agentLabel={agentLabel} />)
   assert.deepEqual(await violations(container), [])

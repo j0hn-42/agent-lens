@@ -11,7 +11,7 @@
 
 import { TOKENS, SHADOW_CARD, type ThemeId, type ThemeTokens } from './theme-tokens'
 
-// Neon palette (current look). The role-named keys at the end (surface ... info) are the neon design tokens.
+// Neon palette (current look). The role-named keys at the end (surface ... warn) are the neon design tokens.
 export const NEON_COLORS = {
   // Background
   void: '#050510',
@@ -45,6 +45,15 @@ export const NEON_COLORS = {
   contextToolResults: '#ffbb44', // amber — expensive!
   contextReasoning: '#cc88ff',  // purple — agent thinking
   contextSubagent: '#66ffaa',   // green — child agent results
+
+  // System panel severity (bar and status text; always paired with a word and an icon)
+  systemWarm: '#ff9944',
+  systemCritical: '#ff6666',
+
+  // Quota gauges (top bar): ok / low / critical, always paired with words
+  quotaOk: '#66ffaa',
+  quotaLow: '#ff9944',
+  quotaCritical: '#ff6666',
 
   // UI Chrome
   nodeInterior: 'rgba(10, 15, 40, 0.5)',
@@ -225,7 +234,7 @@ export const NEON_COLORS = {
   todoCompletedText: '#66ffaaa0', // >= 4.5:1 text as rendered — completed todo content, render WITHOUT an extra opacity
   todoPending: '#66ccffa0', // >= 4.5:1 as rendered — pending todo icon, render WITHOUT an extra opacity
   contentDim: '#aaeeffa0',
-  searchIcon: '#66ccff60',
+  searchIcon: '#66ccffa0', // >= 3:1 non-text as rendered — sole carrier of the WebSearch cue
 
   // ─── Panel header / chrome text ─────────────────────────────────────────────
 
@@ -234,56 +243,26 @@ export const NEON_COLORS = {
   scrollBtnText: '#66ccff',
   scrollbarThumb: 'rgba(102,204,255,0.5)', // >= 3:1 non-text — scrollbar thumb (mirrors globals.css)
 
-  // Status dot rings (non-color-only state cue)
-  statusDotRing: '#aaeeff',      // >= 3:1 non-text — light ring around a status dot on void/glass
-  statusDotRingInner: '#050510', // dark gap between dot and ring; ring-vs-gap contrast >= 3:1
-
   // Design tokens by role (neon values of the design system; new keys, nothing above depends on them)
   surface: '#0a0f1e',
-  surfaceRaised: '#121a30',
-  edge: '#1c3750',
   ink: '#aaeeff',
-  inkMuted: '#7fc3e0',
   accent: '#66ccff',
   onAccent: '#050510',
   focus: '#99e0ff',
   ok: '#66ffaa',
   warn: '#ffbb44',
-  danger: '#ff6666',
-  delegate: '#cc88ff',
-  info: '#22d3ee',
   shadowCard: '0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08)',
   glassBlur: 'blur(20px)',
 
   // Canvas scene colours (added for the canvas zone; neon keeps the literals the canvas always used)
-  perfBg: 'rgba(0, 0, 0, 0.75)',
-  perfText: '#cccccc',
-  fpsGood: '#44ff44',
-  fpsCaution: '#ffaa00',
-  fpsWarning: '#ff4444',
-  /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too) */
+  /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too). The canvas
+   *  draws these two states in them; the `state-thinking` / `state-waiting` tokens carry them for every theme's interface. */
   stateThinking: '#b79cff',
   stateWaitingPermission: '#ff7ad9',
-  /** Crown badge (LEAD / MAIN): fill and text on it */
-  crownFill: '#ffd166',
-  crownText: '#11161c',
-  /** Stale node and its "last known state" label */
-  staleNode: '#8a94a0',
-  staleText: '#c5ced8',
   /** Halo of a teammate whose team colour is missing */
   teamDefault: '#b794f6',
   /** Shadow under an agent node */
   depthShadow: 'rgba(0, 0, 0, 0.5)',
-  /** Halo colours of sessions */
-  session0: '#66ccff',
-  session1: '#7ee0a8',
-  session2: '#ffcc66',
-  session3: '#ff9ec7',
-  session4: '#b79cff',
-  session5: '#9ad0ff',
-  session6: '#ffa978',
-  session7: '#8de3de',
-
   commDispatchBg: 'rgba(80,140,255,0.14)',
   commDispatchBgSelected: 'rgba(80,140,255,0.26)',
   commDispatchText: '#9cc4ff',
@@ -305,6 +284,12 @@ export const NEON_COLORS = {
   swimlaneMessage: '#e0b0ff',
   textMutedOpaque: '#8fcfef',
   crownAccent: '#ffd166',
+
+  // Canvas labels (#381): the word on the LEAD / MAIN pill (on crownAccent), the grey of a stale node and of its
+  // "last known state" line (state colours say "live"; the word says stale)
+  crownInk: '#11161c',
+  staleMark: '#8a94a0',
+  staleText: '#c5ced8',
 } as const
 
 export type ColorKey = keyof typeof NEON_COLORS
@@ -384,12 +369,12 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     holoHot: t.focus,
 
     idle: accent,
-    thinking: accent,
+    thinking: t['state-thinking'],
     tool_calling: warn,
     complete: ok,
     error: danger,
     paused: t['context-system'],
-    waiting_permission: warn,
+    waiting_permission: t['state-waiting'],
 
     dispatch: delegate,
     return: ok,
@@ -398,6 +383,12 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     message: accent,
 
     contextSystem: t['context-system'],
+    systemWarm: t['system-warm'],
+    systemCritical: t['system-critical'],
+    quotaOk: t['quota-ok'],
+    quotaLow: t['quota-low'],
+    quotaCritical: t['quota-critical'],
+
     contextUser: accent,
     contextToolResults: warn,
     contextReasoning: delegate,
@@ -555,46 +546,20 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     scrollBtnText: accent,
     scrollbarThumb: ctl,
 
-    statusDotRing: ink,
-    statusDotRingInner: ground,
-
     surface,
-    surfaceRaised: raised,
-    edge,
     ink,
-    inkMuted: muted,
     accent,
     onAccent: t['on-accent'],
     focus: t.focus,
     ok,
     warn,
-    danger,
-    delegate,
-    info,
     shadowCard,
     glassBlur: 'none',
 
-    perfBg: rgba(surface, 0.9),
-    perfText: ink,
-    fpsGood: ok,
-    fpsCaution: warn,
-    fpsWarning: danger,
-    stateThinking: delegate,
-    stateWaitingPermission: info,
-    crownFill: accent,
-    crownText: t['on-accent'],
-    staleNode: t['context-system'],
-    staleText: muted,
+    stateThinking: t['state-thinking'],
+    stateWaitingPermission: t['state-waiting'],
     teamDefault: delegate,
     depthShadow: 'rgba(0, 0, 0, 0)',
-    session0: accent,
-    session1: ok,
-    session2: warn,
-    session3: delegate,
-    session4: info,
-    session5: mix(ok, info, 0.5),
-    session6: mix(warn, danger, 0.5),
-    session7: mix(delegate, danger, 0.5),
 
     commDispatchBg: rgba(info, 0.08),
     commDispatchBgSelected: rgba(info, 0.14),
@@ -616,11 +581,18 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     swimlaneMessage: delegate,
     textMutedOpaque: muted,
     crownAccent: accent,
+    crownInk: t['on-accent'],
+    staleMark: t['context-system'],
+    staleText: muted,
   }
 }
 
-/** Palette of a theme: neon is the literal legacy palette, the others are derived from their tokens. */
+/**
+ * Palette of a theme: neon is the literal legacy palette, the others are derived from their tokens.
+ * Neon's interface paints thinking and waiting for permission with the colours its canvas draws them in (#381): in the
+ * legacy palette they were the idle cyan and an amber next to the tool one. SCENE (NEON_COLORS) keeps the legacy values.
+ */
 export function paletteFor(id: ThemeId, tokens: Readonly<ThemeTokens> = TOKENS[id]): Palette {
-  if (id === 'neon') return { ...NEON_COLORS }
+  if (id === 'neon') return { ...NEON_COLORS, thinking: NEON_COLORS.stateThinking, waiting_permission: NEON_COLORS.stateWaitingPermission }
   return derivePalette(tokens, SHADOW_CARD[id])
 }

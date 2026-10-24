@@ -172,6 +172,24 @@ for (const entry of ENTRIES) {
       assert.equal((await request(a.port, 'GET', '/scope')).status, 405)
     })
 
+    it('answers 403 to a foreign Host or Origin, with no --allow-host given (#474, DNS rebinding)', async () => {
+      const foreignHosts = ['evil.example', `evil.example:${a.port}`, 'localhost.evil.example', '127.0.0.1.nip.io', 'box.tail1234.ts.net']
+      const paths = entry.rootCsp === CSP_STATIC_APP ? ['/events', '/status', '/'] : ['/events', '/status']
+      for (const p of paths) {
+        for (const host of foreignHosts) {
+          const r = await request(a.port, 'GET', p, { Host: host })
+          assert.equal(r.status, 403, `GET ${p} Host: ${host}`)
+          assert.ok(r.headers['content-security-policy'], `GET ${p} Host: ${host}: headers set on the 403`)
+        }
+      }
+      for (const origin of ['https://evil.example', 'null', `http://evil.example:${a.port}`]) {
+        assert.equal((await request(a.port, 'GET', '/events', { Origin: origin })).status, 403, `Origin: ${origin}`)
+      }
+      assert.equal((await request(a.port, 'GET', '/events', { 'Sec-Fetch-Site': 'cross-site' })).status, 403, 'Sec-Fetch-Site: cross-site')
+      // The loopback Host keeps working
+      assert.equal((await request(a.port, 'GET', '/status', { Host: `localhost:${a.port}` })).status, 200)
+    })
+
     it('serves the security headers on /status, on errors and on the root', async () => {
       assertStrictHeaders((await request(a.port, 'GET', '/status')).headers, CSP_API, 'GET /status')
       assertStrictHeaders((await request(a.port, 'GET', '/events?session=../x')).headers, CSP_API, '400 on /events')
@@ -257,11 +275,45 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     })
   }
 
-  it('--allow-host stops the start while token authentication is not shipped', async () => {
+  it('--allow-host without --token-file stops the start, and names --token-file (#517)', async () => {
     const r = await runToExit(['--allow-host', 'box.tail1234.ts.net'])
     assert.equal(r.code, 2, r.out)
     assert.match(r.out, /--allow-host/)
-    assert.match(r.out, /token/i)
+    assert.match(r.out, /--token-file/)
+  })
+
+  it('--token-file without --allow-host, or without a path, stops the start: a security flag is never a no-op (#517)', async () => {
+    const alone = await runToExit(['--token-file', path.join(fakeHome, 'unused-token')])
+    assert.equal(alone.code, 2, alone.out)
+    assert.match(alone.out, /--token-file/)
+    assert.equal(fs.existsSync(path.join(fakeHome, 'unused-token')), false, 'nothing written')
+    for (const args of [['--allow-host', 'box.tail1234.ts.net', '--token-file'], ['--allow-host', 'box.tail1234.ts.net', '--token-file=']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /--token-file/)
+    }
+  })
+
+  it('a --token-file that cannot be written (missing folder) stops the start before listening (#517)', async () => {
+    const r = await runToExit(['--allow-host', 'box.tail1234.ts.net', '--token-file', path.join(fakeHome, 'missing-dir', 'token')])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /Agent Lens:/)
+    // The write itself failed (#535): not one of the flag refusals, which also exit with 2 before any setup
+    assert.match(r.out, /ENOENT|no such file/i, `the reason is the failed write:\n${r.out}`)
+    assert.doesNotMatch(r.out, /needs --token-file|refused/, `not a flag refusal:\n${r.out}`)
+    assert.doesNotMatch(r.out, /Server running at/, 'stopped before listening')
+    // The token of this start is never printed: no pairing URL, no 256-bit base64url value
+    assert.doesNotMatch(r.out, /#pair=|[A-Za-z0-9_-]{43}/, `no token in the output:\n${r.out}`)
+    assert.equal(fs.existsSync(path.join(fakeHome, 'missing-dir')), false, 'nothing created')
+  })
+
+  it('--host ::1 stops the start without sending the user to --remote: the server listens on 127.0.0.1 only (#478 review, point 6)', async () => {
+    for (const args of [['--host', '::1'], ['--host', '[::1]'], ['--host=::1']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /127\.0\.0\.1/)
+      assert.doesNotMatch(r.out, /--remote/, `${args.join(' ')}: ::1 is loopback, --remote is not the answer`)
+    }
   })
 
   it('an invalid --allow-host and a non-loopback --host stop the start', async () => {
@@ -272,6 +324,229 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     // A security flag typed without its value must not be ignored
     assert.equal((await runToExit(['--host'])).code, 2)
     assert.equal((await runToExit(['--allow-host'])).code, 2)
+  })
+
+  it('a non-loopback --host without --remote stops the start and names --remote (#474)', async () => {
+    for (const host of ['0.0.0.0', '192.168.1.10']) {
+      const r = await runToExit(['--host', host])
+      assert.equal(r.code, 2, r.out)
+      assert.match(r.out, /--remote/)
+    }
+  })
+
+  it('--remote stops the start: alone (never an implicit 0.0.0.0), and with a --host while token and TLS are missing (#474)', async () => {
+    const alone = await runToExit(['--remote'])
+    assert.equal(alone.code, 2, alone.out)
+    assert.match(alone.out, /--host/)
+    const withHost = await runToExit(['--remote', '--host', '0.0.0.0'])
+    assert.equal(withHost.code, 2, withHost.out)
+    assert.match(withHost.out, /token/i)
+    // '--host --remote': the flag is not swallowed as the address
+    assert.equal((await runToExit(['--host', '--remote'])).code, 2)
+  })
+
+  it('the --flag=value forms and a flag after --import are not ignored (#474)', async () => {
+    for (const args of [['--host=0.0.0.0'], ['--remote=1'], ['--allow-host=box.tail1234.ts.net'], ['--import', '--host', '0.0.0.0']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+    }
+  })
+})
+
+describe('app entry point: --allow-host with --token-file pairs end to end (#517)', () => {
+  const TUNNEL = 'box.tail1234.ts.net'
+  const tokenDir = path.join(fakeHome, 'pairing')
+  const tokenFile = path.join(tokenDir, 'token')
+  const OLD = 'old content of a world-readable file'
+  let r: Running
+  let token = ''
+
+  function send(method: string, urlPath: string, headers: http.OutgoingHttpHeaders = {}, body?: string): Promise<Reply> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: r.port, method, path: urlPath, agent: false, headers: { 'User-Agent': `pair-${Math.random()}`, ...headers } }, res => {
+        let out = ''
+        res.setEncoding('utf8')
+        // An open stream (/events 200) is enough: do not wait for its end
+        if (res.headers['content-type']?.includes('text/event-stream')) { req.destroy(); return resolve({ status: res.statusCode ?? 0, headers: res.headers, body: '' }) }
+        res.on('data', c => { out += c })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: out }))
+      })
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error(`${method} ${urlPath}: no answer`)))
+      req.on('error', reject)
+      req.end(body)
+    })
+  }
+  const cookieOf = (reply: Reply) => String(reply.headers['set-cookie']?.[0] ?? '').split(';')[0]
+  const tunnelPost = (body: string, headers: http.OutgoingHttpHeaders = {}) =>
+    send('POST', '/pair', { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json', ...headers }, body)
+
+  before(async () => {
+    fs.mkdirSync(tokenDir, { recursive: true })
+    // A file left world-readable by someone else: it is replaced by an owner-only one, never written through
+    fs.writeFileSync(tokenFile, OLD, { mode: 0o644 })
+    if (process.platform !== 'win32') fs.chmodSync(tokenFile, 0o644)
+    r = await start(ENTRIES[1], ['--allow-host', TUNNEL, '--token-file', tokenFile])
+    // The banner is printed right after the listening line: let it arrive
+    await new Promise(res => setTimeout(res, SIGNAL_SETTLE_MS))
+    token = fs.readFileSync(tokenFile, 'utf8').trim()
+  })
+  after(() => { if (r && r.child.exitCode === null) r.child.kill('SIGKILL') })
+
+  it('writes a fresh 256-bit token to --token-file, owner only (0600), replacing a wider file', () => {
+    assert.match(token, /^[A-Za-z0-9_-]{43}$/)
+    assert.ok(!token.includes(OLD))
+    if (process.platform !== 'win32') assert.equal(fs.statSync(tokenFile).mode & 0o777, 0o600)
+  })
+
+  it('never prints the token when the output is not a terminal (a pipe, a service log): the banner points to the file', () => {
+    const out = r.output()
+    assert.ok(!out.includes(token), 'the token reached a non-terminal output')
+    assert.ok(out.includes(tokenFile), 'the banner names the token file')
+    assert.ok(out.includes(`https://${TUNNEL}/#pair=`), 'the banner gives the tunnel pairing URL (without the token)')
+    assert.ok(out.includes(`http://127.0.0.1:${r.port}/#pair=`), 'the banner gives the local pairing URL (without the token)')
+  })
+
+  it('through the tunnel Host: no cookie 401, wrong or missing token 401 with no cookie, the right token 204 + cookie that opens /status', async () => {
+    assert.equal((await send('GET', '/status', { Host: TUNNEL })).status, 401)
+    assert.equal((await send('GET', '/events', { Host: TUNNEL })).status, 401)
+    const other = token.startsWith('A') ? `B${token.slice(1)}` : `A${token.slice(1)}`
+    for (const body of [JSON.stringify({ token: other }), '{}', '']) {
+      const bad = await tunnelPost(body)
+      assert.equal(bad.status, 401, body)
+      assert.equal(bad.headers['set-cookie'], undefined)
+    }
+    assert.equal((await tunnelPost(JSON.stringify({ token }), { Origin: 'https://evil.example' })).status, 403)
+    const ok = await tunnelPost(JSON.stringify({ token }))
+    assert.equal(ok.status, 204, ok.body)
+    const cookie = cookieOf(ok)
+    assert.match(cookie, /^__Host-agent-lens-pair=[A-Za-z0-9_-]{43}$/)
+    assert.ok(!cookie.includes(token), 'the cookie is not the token')
+    assert.equal((await send('GET', '/status', { Host: TUNNEL, Cookie: cookie })).status, 200)
+    assert.equal((await send('GET', '/events', { Host: TUNNEL, Cookie: cookie })).status, 200)
+    // The pairing opens the read-only surface only
+    assert.equal((await send('GET', '/observations', { Host: TUNNEL, Cookie: cookie })).status, 403)
+  })
+
+  it('on a loopback Host too (an SSH -L tunnel, a port forward): every data route needs the pairing; the page that pairs still loads', async () => {
+    for (const host of [`127.0.0.1:${r.port}`, `localhost:${r.port}`, `[::1]:${r.port}`]) {
+      for (const p of ['/status', '/events', '/observations', '/statusline', '/issue-links?role=qa-engineer']) {
+        const reply = await send('GET', p, { Host: host })
+        assert.equal(reply.status, 401, `GET ${p} Host: ${host}`)
+        assert.equal(reply.body, 'Unauthorized')
+      }
+      assert.equal((await send('POST', '/scope', { Host: host, 'Content-Type': 'application/json' }, '{"scope":"all"}')).status, 401, `POST /scope Host: ${host}`)
+      assert.equal((await send('GET', '/', { Host: host })).status, 200, `the static app on ${host}`)
+    }
+    const local = `127.0.0.1:${r.port}`
+    const wrong = await send('POST', '/pair', { Host: local, Origin: `http://${local}`, 'Content-Type': 'application/json' }, '{}')
+    assert.equal(wrong.status, 401)
+    assert.equal((await send('POST', '/pair', { Host: local, Origin: 'https://evil.example', 'Content-Type': 'application/json' }, JSON.stringify({ token }))).status, 403)
+    const ok = await send('POST', '/pair', { Host: local, Origin: `http://${local}`, 'Content-Type': 'application/json' }, JSON.stringify({ token }))
+    assert.equal(ok.status, 204, ok.body)
+    const cookie = cookieOf(ok)
+    assert.equal((await send('GET', '/status', { Host: local, Cookie: cookie })).status, 200)
+    assert.equal((await send('GET', '/observations', { Host: local, Cookie: cookie })).status, 200)
+  })
+
+  it('never logs the token, even after pairing', () => {
+    assert.ok(!r.output().includes(token))
+  })
+})
+
+// openURL runs `xdg-open` (Linux) or `open` (macOS) found on PATH; Windows goes through the `start` shell builtin
+describe('app entry point: the browser is not opened while --allow-host is on (#517, #535)', { skip: process.platform === 'win32' }, () => {
+  const bin = path.join(fakeHome, 'fake-opener-bin')
+  const APP_OPENING: Entry = { ...ENTRIES[1], args: ['app/src/app.ts'] }
+  /** Time given to a browser launch after the start is complete (the positive case below shows it takes far less). */
+  const OPEN_SETTLE_MS = 1_500
+
+  before(() => {
+    fs.mkdirSync(bin, { recursive: true })
+    // Records every call instead of opening a browser
+    for (const name of ['xdg-open', 'open']) {
+      fs.writeFileSync(path.join(bin, name), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$AGENT_LENS_TEST_OPENER_LOG"\n', { mode: 0o755 })
+    }
+  })
+
+  async function startOpening(extraArgs: string[], log: string): Promise<Running> {
+    const r = await start(APP_OPENING, extraArgs, { AGENT_LENS_PORT: '0', PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, AGENT_LENS_TEST_OPENER_LOG: log })
+    // openURL runs after this line: the start is complete once it is printed
+    for (let i = 0; i < 200 && !r.output().includes('Waiting for agent events'); i++) await new Promise(res => setTimeout(res, 50))
+    assert.match(r.output(), /Waiting for agent events/)
+    return r
+  }
+
+  it('with --allow-host and --token-file (no --no-open), nothing is opened: the token never reaches a command line', async () => {
+    const log = path.join(fakeHome, 'opened-remote.log')
+    const tokenFile = path.join(fakeHome, 'open-check-token')
+    const r = await startOpening(['--allow-host', 'box.tail1234.ts.net', '--token-file', tokenFile], log)
+    try {
+      await new Promise(res => setTimeout(res, OPEN_SETTLE_MS))
+      assert.equal(fs.existsSync(log), false, `a browser was opened: ${fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : ''}`)
+      assert.ok(fs.existsSync(tokenFile), 'the remote start really ran')
+    } finally { r.child.kill('SIGKILL') }
+  })
+
+  it('without --allow-host (control: the fake opener is reached), the bare local URL is opened', async () => {
+    const log = path.join(fakeHome, 'opened-local.log')
+    const r = await startOpening([], log)
+    try {
+      for (let i = 0; i < OPEN_SETTLE_MS / 50 && !fs.existsSync(log); i++) await new Promise(res => setTimeout(res, 50))
+      assert.equal(fs.readFileSync(log, 'utf8').trim(), `http://127.0.0.1:${r.port}`)
+    } finally { r.child.kill('SIGKILL') }
+  })
+})
+
+describe('dev relay entry point: remote access flags stop the start (#474)', () => {
+  /** Runs the dev relay until it exits (rejects if it starts listening): a flag must not become the workspace path. */
+  function runDevRelayToExit(args: string[]): Promise<{ code: number | null; out: string }> {
+    return new Promise((resolve, reject) => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, AGENT_LENS_PORT: '0' }
+      delete childEnv.FORCE_COLOR
+      const child = spawn(process.execPath, ['--import', 'tsx', '--import', VSCODE_ALIAS, 'scripts/dev-relay.ts', ...args], { cwd: ROOT, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      children.push(child)
+      let out = ''
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`did not exit:\n${out}`)) }, STARTUP_TIMEOUT_MS)
+      const onData = (c: Buffer) => {
+        out += c.toString()
+        if (ENTRIES[0].listening.test(out)) { clearTimeout(timer); child.kill('SIGKILL'); reject(new Error(`started listening:\n${out}`)) }
+      }
+      child.stdout!.on('data', onData)
+      child.stderr!.on('data', onData)
+      child.once('exit', code => { clearTimeout(timer); resolve({ code, out }) })
+    })
+  }
+
+  it('--host, --remote and --allow-host are refused, never read as the workspace', async () => {
+    for (const args of [
+      ['--host', '0.0.0.0'], ['--remote'], ['--allow-host', 'box.tail1234.ts.net'], [workspace, '--remote', '--host', '0.0.0.0'],
+      ['--host=0.0.0.0'], ['--remote=1'], ['--allow-host=box.tail1234.ts.net'], ['--import', '--host', '0.0.0.0'],
+    ]) {
+      const r = await runDevRelayToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /loopback/i, args.join(' '))
+    }
+  })
+
+  it('an unknown option is refused, never read as the workspace', async () => {
+    const r = await runDevRelayToExit(['--hots', '0.0.0.0'])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /--hots/)
+  })
+})
+
+describe('app entry point: no environment variable opens the listener (#474)', () => {
+  it('AGENT_LENS_HOST / AGENT_LENS_REMOTE / HOST are ignored: the server still binds 127.0.0.1 only', async () => {
+    const r = await start(ENTRIES[1], [], { AGENT_LENS_PORT: '0', AGENT_LENS_HOST: '0.0.0.0', AGENT_LENS_REMOTE: '1', HOST: '0.0.0.0' })
+    try {
+      assert.equal(await accepts('127.0.0.1', r.port), true)
+      // Proof that holds without an external interface (unshare -rn): on Linux all of 127/8 reaches a socket bound to
+      // 0.0.0.0, so 127.0.0.2 is refused only when the server is bound to 127.0.0.1 exactly
+      if (process.platform === 'linux') assert.equal(await accepts('127.0.0.2', r.port), false, 'bound to more than 127.0.0.1')
+      const external = externalAddress()
+      if (external) assert.equal(await accepts(external, r.port), false, `reachable on ${external}`)
+      assert.equal((await request(r.port, 'GET', '/status', { Host: 'evil.example' })).status, 403)
+    } finally { r.child.kill('SIGKILL') }
   })
 })
 

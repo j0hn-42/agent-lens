@@ -8,7 +8,9 @@ import { renderHook, cleanup, act } from '@testing-library/react'
 import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge, PARSE_NOTICE_INTERVAL_MS } from '@/hooks/use-vscode-bridge'
+import { resetDefaultUiPreferencesStore, useUiPreferences } from '@/hooks/use-ui-preferences'
 import { BACKOFF_BASE_MS, POLL_INTERVAL_MS } from '@/lib/reconnect'
+import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 
 class FakeES {
   static all: FakeES[] = []
@@ -56,6 +58,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  resetDefaultUiPreferencesStore() // 'Show finished sessions' lives in the shared preference store (#372)
   mock.timers.reset()
   mock.restoreAll()
   for (const k of ENV_KEYS) setEnv(k, savedEnv[k])
@@ -228,6 +231,167 @@ test('disable1MContext comes from GET /status in relay mode, only when the relay
   await act(async () => FakeES.last.open())
   await tick(0)
   assert.equal(second.result.current.disable1MContext, false, 'Codex only: the Claude Code flag says nothing')
+})
+
+test('event-loss (#366): only the first connection of a graph counts, and it lives as long as the graph, not the link', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.eventLoss, null)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 }, otherEvents: 2 }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 })
+  // The link drops: the graph keeps its hole, so the figure stays
+  await act(async () => FakeES.last.fail())
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a cut link does not make the graph complete again')
+  // The relay reconnects and sends its cumulative total since it started: the graph was kept, so it says nothing about it
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 50 }, otherEvents: 9 }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a later connection never replaces the first figure')
+})
+
+test('event-loss (#366): a reconnection resumes from the relay cursor and adds the gap the cut link left', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 } }))
+  await act(async () => FakeES.last.send({ type: 'relay-cursor', instance: 'a1b2c3d4e5f60718', seq: 20 }))
+  await act(async () => FakeES.last.send({ ...agentEvent('a', 1), seq: 21 }))
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.last.url, 'http://127.0.0.1:4321/events?since=a1b2c3d4e5f60718.21')
+  await act(async () => FakeES.last.open())
+  // The relay's totals of this connection are ignored, its gap (events numbered after 21 this client never got) is added
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 90 }, gap: { a: 4, b: 2 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 7, b: 2 }, otherEvents: 0 })
+})
+
+test('event-loss (#366): a first connection without loss is not turned into a loss by a reconnection', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 5 } }))
+  assert.equal(result.current.eventLoss, null)
+})
+
+test('event-loss (#366): a scope change reloads the view, so the next connection is a first one again', async () => {
+  relayEnv('4321')
+  g.fetch = async (_url: string, init?: { method?: string }) =>
+    init?.method === 'POST' ? { ok: true, json: async () => ({ scope: 'all', allWorkspaces: true }) } : { ok: false }
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 })
+  // A reconnection before the scope change: the counter of connections is past the first one (#453: without it the
+  // test passed on code that took every figure, or that never reset the counter)
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => { await result.current.setRelayScope('all') })
+  assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { b: 4 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 4 }, otherEvents: 0 }, 'the first connection of the new graph counts: the counter was reset')
+  // And it is a first connection like any other: a later one is ignored
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { b: 40 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 4 }, otherEvents: 0 }, 'a reconnection after the scope change says nothing about the new graph')
+})
+
+test('event-loss (#453): All counts only the sessions it shows (finished ones hidden by default), never otherEvents then', async () => {
+  relayEnv('4321')
+  const hook = renderHook(() => ({ bridge: useVSCodeBridge(), ui: useUiPreferences() }))
+  const result = { get current() { return hook.result.current.bridge } }
+  await act(async () => FakeES.last.open())
+  const now = Date.now()
+  await act(async () => realDispatch({ type: 'session-list', sessions: [
+    { id: 'live', label: 'live', status: 'active', startTime: now, lastActivityTime: now },
+    { id: 'old', label: 'old', status: 'completed', startTime: now - 86_400_000, lastActivityTime: now - 86_400_000 },
+  ] }))
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { live: 3, old: 50 }, otherEvents: 9 }))
+  await act(async () => result.current.selectSession(ALL_SESSIONS_ID))
+  assert.equal(result.current.selectedSessionId, ALL_SESSIONS_ID)
+  assert.equal(result.current.showFinished, false)
+  assert.deepEqual([...(result.current.allViewSessionIds ?? [])], ['live'], 'the finished session is out of the view')
+  assert.equal(result.current.replayLost, 3, 'the loss of the hidden finished session and of unnamed sessions is not claimed')
+  assert.deepEqual([...(result.current.viewSessionIds ?? [])], ['live'], 'the notice adds up the normalizer counters of the same sessions')
+  // Showing the finished sessions (Show mode 'all', written in the preferences) makes All every session: the whole tally counts again
+  await act(async () => hook.result.current.ui.setPref('show', 'all'))
+  assert.equal(result.current.allViewSessionIds, null)
+  assert.equal(result.current.replayLost, 62)
+  assert.equal(result.current.viewSessionIds, null)
+})
+
+test('event-loss (#366): a team view counts the sessions of the team, for the replay loss and for the notice alike', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  const now = Date.now()
+  await act(async () => realDispatch({ type: 'session-list', sessions: [
+    { id: 'lead', label: 'lead', status: 'active', startTime: now, lastActivityTime: now, teamName: 'T' },
+    { id: 'solo', label: 'solo', status: 'active', startTime: now, lastActivityTime: now },
+  ] }))
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { lead: 2, solo: 30 } }))
+  await act(async () => result.current.selectSession('team:T'))
+  assert.equal(result.current.selectedSessionId, 'team:T')
+  assert.ok(result.current.viewSessionIds?.has('lead'), JSON.stringify([...(result.current.viewSessionIds ?? [])]))
+  assert.equal(result.current.viewSessionIds?.has('solo'), false)
+  assert.equal(result.current.replayLost, 2)
+})
+
+test('event-loss (#366): outside relay mode there is none', () => {
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.eventLoss, null)
+  assert.equal(result.current.replayLost, 0)
+})
+
+test('event-loss (#592): in VS Code (no relay) the figure comes from the extension, after each reset and again when it goes down; a reset empties it', async () => {
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(FakeES.all.length, 0, 'no relay stream')
+  assert.equal(result.current.eventLoss, null)
+  assert.equal(result.current.eventLossSource, 'extension', 'the figure goes down while the page is open: a lower total is no new loss (#605 review round 3)')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 })
+  const now = Date.now()
+  await act(async () => realDispatch({ type: 'session-list', sessions: [{ id: 'a', label: 'a', status: 'active', startTime: now, lastActivityTime: now }] }))
+  assert.equal(result.current.replayLost, 3, 'the same surfaces as with the relay: All counts the sessions it shows')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: 'junk' }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 }, 'a message that does not parse never clears a figure')
+  // A session's history read again reached the page: the extension sends the page's figure again, lower; it replaces
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 1 } }))
+  assert.equal(result.current.replayLost, 1)
+  await act(async () => realDispatch({ type: 'event-loss', evicted: {} }))
+  assert.equal(result.current.replayLost, 0, 'sent empty: nothing is claimed any more')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
+  // The extension resets the graph when a new page is ready, then sends that page's figure (or none)
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+  assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { b: 1 }, gap: { b: 9 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 1 }, otherEvents: 0 }, 'no cut link to resume in VS Code: a gap is never added')
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+})
+
+test('event-loss (#592): a figure the extension sent before the view mounted is not lost', async () => {
+  realDispatch({ type: 'event-loss', evicted: { early: 4 } })
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.deepEqual(result.current.eventLoss, { evicted: { early: 4 }, otherEvents: 0 })
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
+  assert.equal(result.current.eventLoss, null)
+})
+
+test('event-loss (#592): with a relay stream, a figure from the frame is ignored (only the relay counts)', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => realDispatch({ type: 'event-loss', evicted: { a: 3 } }))
+  assert.equal(result.current.eventLoss, null)
+  assert.equal(result.current.eventLossSource, 'relay', 'a lower relay total is a restarted relay: a new loss (#569)')
+  await act(async () => realDispatch({ type: 'reset', reason: 'panel-reopened' }))
 })
 
 test('unmount closes the stream and cancels reconnect timers', async () => {

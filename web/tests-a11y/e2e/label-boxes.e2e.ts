@@ -1,0 +1,255 @@
+// Real-font check of the agent labels of a team of 10 at the fit zoom (#593, follow-up of #378).
+// scripts/canvas-label-collisions.test.ts proves the plan with a model of 0.6 to 1 em per glyph; here the REAL
+// canvas of the demo (?scenario=team10: an orchestrator and nine teammates) runs in Chromium and every text
+// the canvas paints is recorded with its REAL measureText (the platform's `monospace`, the font the canvas
+// asks for) and the transform in force, then the boxes of the visible agent labels are compared two by two.
+// Only the last complete frame counts. No dev server needed: the demo is started on a free port.
+// Only fillText is recorded (#613): the one strokeText of the canvas is the halo of a label, drawn with the same text at the
+// same place just before its fillText (draw-agents.ts, fillLabelText), so its box is the label's. No text is drawn on another
+// canvas: the sprites of render-cache.ts and bloom-renderer.ts hold gradients and copies of the frame, and no
+// OffscreenCanvas is used (the recorder patches CanvasRenderingContext2D, which would see any 2D canvas anyway).
+import { test, before, after } from 'node:test'
+import { strict as assert } from 'node:assert'
+import { chromium, type Browser, type Page } from 'playwright'
+import { startDemoServer, type DemoServer } from './demo-server'
+import { waitForStableLayout } from './stable-layout'
+
+let browser: Browser
+let server: DemoServer
+
+before(async () => {
+  server = await startDemoServer()
+  browser = await chromium.launch()
+}, { timeout: 240_000 })
+
+after(async () => {
+  await browser?.close()
+  await server?.stop()
+})
+
+export interface TextBox { text: string; font: string; x: number; y: number; w: number; h: number; alpha: number; modelW: number }
+
+/** Plain JS string (tsx would inject a __name helper the page lacks): records the paint calls of every 2D context. */
+const RECORDER = `(() => {
+  const proto = CanvasRenderingContext2D.prototype
+  const fill = proto.fillText
+  let cur = [], last = []
+  const raf = window.requestAnimationFrame.bind(window)
+  window.requestAnimationFrame = cb => raf(t => { if (cur.length) last = cur; cur = []; cb(t) })
+  proto.fillText = function (text, x, y, maxWidth) {
+    try {
+      const m = this.measureText(text)
+      const tf = this.getTransform()
+      const px = parseFloat(this.font.match(/([0-9.]+)px/)[1])
+      const left = this.textAlign === 'center' ? -m.width / 2 : this.textAlign === 'right' || this.textAlign === 'end' ? -m.width : 0
+      const asc = m.fontBoundingBoxAscent, desc = m.fontBoundingBoxDescent
+      const top = this.textBaseline === 'top' || this.textBaseline === 'hanging' ? 0 : this.textBaseline === 'middle' ? -(asc + desc) / 2 : -asc
+      const dpr = window.devicePixelRatio || 1
+      // the four corners go through the transform (scale and translation only in this canvas)
+      const x0 = (tf.a * (x + left) + tf.e) / dpr, x1 = (tf.a * (x + left + m.width) + tf.e) / dpr
+      const y0 = (tf.d * (y + top) + tf.f) / dpr, y1 = (tf.d * (y + top + asc + desc) + tf.f) / dpr
+      cur.push({ text: String(text), font: this.font, x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0), alpha: this.globalAlpha, modelW: String(text).length * px * 0.6 * Math.abs(tf.a) / dpr })
+    } catch (e) {}
+    return fill.call(this, text, x, y, maxWidth)
+  }
+  window.__lastFrameTexts = () => last
+})()`
+
+async function openTeam(width: number, height: number): Promise<{ page: Page; close: () => Promise<void> }> {
+  const context = await browser.newContext({ viewport: { width, height } })
+  // The first-run tour offer (#377) is marked as already made, as on any launch after the first: at 1280x800 its card
+  // covers the labels of research-agent and test-runner, which were counted as visible behind it (#613)
+  await context.addInitScript(`try { localStorage.setItem('agent-lens:tour-offered', '1') } catch {}`)
+  const page = await context.newPage()
+  await page.addInitScript(RECORDER)
+  await page.goto(`${server.url}/?scenario=team10`)
+  await page.getByRole('button', { name: 'Files' }).waitFor()
+  // the whole scenario is played within a few seconds: wait for the 10 agents to be listed in the graph outline (the
+  // text twin of the canvas). Not for a name painted on the canvas: the label plan hides the names that would collide,
+  // so at 1024x768 "performance-profiler" is painted for a few frames at most, or never (#594, CI run 39275573505).
+  await page.waitForFunction(
+    names => {
+      const outline = document.querySelector('section[aria-label="Agent graph outline"]')
+      const items = outline ? [...outline.querySelectorAll('[data-graph-node]')].map(b => b.textContent ?? '') : []
+      return names.every(n => items.some(t => t.startsWith(`${n},`)))
+    },
+    TEAM_NAMES, { timeout: 60_000 },
+  )
+  return { page, close: () => context.close() }
+}
+
+/** Boxes (CSS px, viewport) of the texts of the last frame, after a fit and a settled layout. */
+async function fittedTexts(page: Page): Promise<TextBox[]> {
+  await page.getByRole('button', { name: 'Fit to view' }).click()
+  await waitForStableLayout(page)
+  // let the camera animation and the label plan settle: the boxes must be unchanged over three samples
+  // The boxes are still when the same texts sit within 0.5 px of the previous sample: the agents keep a
+  // slight idle bob (about 0.1 px), and the diamond markers move all the time, so neither counts.
+  const sample = async () => (await page.evaluate(() => (window as unknown as { __lastFrameTexts: () => TextBox[] }).__lastFrameTexts())).filter(t => t.text !== '◆')
+  const still = (a: TextBox[], b: TextBox[]) => a.length === b.length && a.every((t, k) => t.text === b[k].text &&
+    Math.abs(t.x - b[k].x) <= 0.5 && Math.abs(t.y - b[k].y) <= 0.5 && Math.abs(t.w - b[k].w) <= 0.5 && Math.abs(t.alpha - b[k].alpha) <= 0.02)
+  let prev: TextBox[] = []
+  let same = 0
+  for (let i = 0; i < 40 && same < 2; i++) {
+    await page.waitForTimeout(250)
+    const cur = await sample()
+    same = still(prev, cur) ? same + 1 : 0
+    prev = cur
+  }
+  assert.ok(same >= 2, 'the label boxes did not settle within 10 s: a frame taken during the camera animation proves nothing')
+  return page.evaluate(() => (window as unknown as { __lastFrameTexts: () => TextBox[] }).__lastFrameTexts())
+}
+
+const TEAM_NAMES = [
+  'orchestrator', 'explore-agent', 'research-agent', 'security-reviewer', 'test-runner', 'migration-planner',
+  'api-contract-checker', 'docs-writer', 'lint-fixer', 'performance-profiler',
+]
+
+/**
+ * For each box, whether the page shows the canvas at its centre (no panel, bar, button or toast of the page drawn over
+ * it). elementFromPoint skips the elements with `pointer-events: none` (the toast container, #613): those are looked
+ * for apart, and one counts as covering when it is visible at that point and paints something there (a background, an
+ * image or an SVG, or its own text). Plain JS string: tsx would inject a __name helper the page lacks.
+ */
+const UNCOVERED = `(bs) => {
+  const paints = (el, x, y) => {
+    const cs = getComputedStyle(el)
+    if (cs.visibility !== 'visible' || Number(cs.opacity) === 0) return false
+    const r = el.getBoundingClientRect()
+    if (x < r.left || x >= r.right || y < r.top || y >= r.bottom) return false
+    const bg = cs.backgroundColor.match(/[0-9.]+/g)
+    if (cs.backgroundImage !== 'none' || (bg && (bg.length < 4 || Number(bg[3]) > 0))) return true
+    if (/^(IMG|SVG|VIDEO|CANVAS)$/i.test(el.tagName)) return true
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !n.textContent.trim()) continue
+      const range = document.createRange(); range.selectNodeContents(n)
+      for (const t of range.getClientRects()) if (x >= t.left && x < t.right && y >= t.top && y < t.bottom) return true
+    }
+    return false
+  }
+  return bs.map(b => {
+    const x = b.x + b.w / 2, y = b.y + b.h / 2
+    const canvas = document.elementFromPoint(x, y)
+    if (canvas?.tagName !== 'CANVAS') return false
+    for (const el of document.body.querySelectorAll('*')) {
+      if (el === canvas || el.contains(canvas) || getComputedStyle(el).pointerEvents !== 'none') continue
+      if (paints(el, x, y)) return false
+    }
+    return true
+  })
+}`
+
+async function uncovered(page: Page, boxes: readonly TextBox[]): Promise<boolean[]> {
+  return page.evaluate(`(${UNCOVERED})(${JSON.stringify(boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h })))})`) as Promise<boolean[]>
+}
+
+/** Strict overlap of two rectangles: boxes that only touch do not overlap. */
+const overlap = (a: TextBox, b: TextBox) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+test('control: the overlap test sees boxes that share a pixel and ignores boxes that only touch', () => {
+  const box = (x: number, y: number): TextBox => ({ text: 't', font: '', x, y, w: 50, h: 13, alpha: 1, modelW: 50 })
+  assert.equal(overlap(box(0, 0), box(49, 12)), true)
+  assert.equal(overlap(box(0, 0), box(50, 0)), false)
+  assert.equal(overlap(box(0, 0), box(0, 13)), false)
+})
+
+for (const [width, height] of [[1280, 800], [1920, 1080]] as const) {
+  test(`team of 10 at the fit zoom, ${width}x${height}: no two visible labels overlap, measured with the real font`, async () => {
+    const { page, close } = await openTeam(width, height)
+    try {
+      const all = await fittedTexts(page)
+      if (process.env.LABEL_DUMP) console.log(JSON.stringify(all, null, 1))
+      const visible = all.filter(t => t.alpha > 0.05 && t.w > 0 && t.x + t.w > 0 && t.y + t.h > 0 && t.x < width && t.y < height)
+      // The label plan hides the labels that would collide: the test is not vacuous only if several remain visible. A label
+      // painted under a panel or a button of the page is not seen (#613): only labels whose centre shows the canvas count
+      // here. The overlap check below still compares every painted box, covered or not (stricter).
+      const seen = await uncovered(page, visible)
+      const shown = TEAM_NAMES.filter(n => visible.some((t, k) => t.text === n && seen[k]))
+      console.log(`${width}x${height}: ${shown.length} of ${TEAM_NAMES.length} agent labels visible (${shown.join(', ')}), ${visible.length} text boxes compared`)
+      assert.ok(shown.includes('orchestrator'), 'the label of the orchestrator is visible')
+      assert.ok(shown.length >= 3, `at least 3 agent labels are visible (texts: ${visible.map(t => t.text).join(' | ')})`)
+      const clashes: string[] = []
+      for (let i = 0; i < visible.length; i++) {
+        for (let j = i + 1; j < visible.length; j++) {
+          if (overlap(visible[i], visible[j])) clashes.push(`"${visible[i].text}" ${JSON.stringify([visible[i].x, visible[i].y, visible[i].w, visible[i].h].map(Math.round))} on "${visible[j].text}" ${JSON.stringify([visible[j].x, visible[j].y, visible[j].w, visible[j].h].map(Math.round))}`)
+        }
+      }
+      assert.deepEqual(clashes, [], `${clashes.length} overlapping text boxes at ${width}x${height}`)
+    } finally {
+      await close()
+    }
+  })
+}
+
+test('control: a label under an element with pointer-events none (like the toast container) is not counted visible (#613)', async () => {
+  const { page, close } = await openTeam(1280, 800)
+  try {
+    const all = await fittedTexts(page)
+    const orchestrator = all.find(t => t.text === 'orchestrator' && t.alpha > 0.05)
+    assert.ok(orchestrator, 'the label of the orchestrator is painted')
+    assert.deepEqual(await uncovered(page, [orchestrator]), [true], 'precondition: nothing covers it')
+    const x = orchestrator.x + orchestrator.w / 2, y = orchestrator.y + orchestrator.h / 2
+    for (const [name, style, text] of [
+      ['a panel', 'background: rgb(20, 20, 20)', ''],
+      ['a text', 'background: transparent; font: 16px monospace; color: white', 'Undo'],
+    ] as const) {
+      await page.evaluate(`(() => { const d = document.createElement('div'); d.id = 'cover-613'; d.textContent = ${JSON.stringify(text)};
+        d.style.cssText = 'position: fixed; z-index: 99; pointer-events: none; left: ${x - 30}px; top: ${y - 10}px; width: 60px; height: 20px; line-height: 20px; ${style}';
+        document.body.appendChild(d) })()`)
+      // elementFromPoint alone (the check before #613) still sees the canvas there
+      assert.equal(await page.evaluate(`document.elementFromPoint(${x}, ${y})?.tagName`), 'CANVAS', `${name}: elementFromPoint skips it`)
+      assert.deepEqual(await uncovered(page, [orchestrator]), [false], `${name} with pointer-events none covers the label`)
+      await page.evaluate(`document.getElementById('cover-613').remove()`)
+    }
+  } finally {
+    await close()
+  }
+})
+
+// #594: "N names hidden" is the plan's count of the frame drawn. With the whole team framed between the bars, it must
+// equal the team names the canvas did not paint in that frame (recorded with the real font, as above).
+for (const [width, height] of [[1024, 768], [1280, 800], [1920, 1080]] as const) {
+  test(`team of 10 at the fit zoom, ${width}x${height}: "N names hidden" equals the names not painted (#594)`, async () => {
+    const { page, close } = await openTeam(width, height)
+    try {
+      const all = await fittedTexts(page)
+      const visible = all.filter(t => t.alpha > 0.05 && t.w > 0 && t.x + t.w > 0 && t.y + t.h > 0 && t.x < width && t.y < height)
+      const shown = TEAM_NAMES.filter(n => visible.some(t => t.text === n || t.text.startsWith(`${n} ·`)))
+      const hidden = TEAM_NAMES.length - shown.length
+      assert.ok(hidden > 0, `precondition: names are hidden at ${width}x${height}`)
+      const button = page.locator('[data-hidden-names]')
+      const label = `${hidden} ${hidden === 1 ? 'name' : 'names'} hidden`
+      // the button reads the plan every 200 ms and shows a count once it held 500 ms with the camera at rest: wait for
+      // that number (no fixed delay); a wrong or missing number fails on the assertion below, with what was painted
+      await page.waitForFunction(
+        l => document.querySelector('[data-hidden-names]')?.textContent?.trim() === l, label, { timeout: 10_000 },
+      ).catch(() => undefined)
+      assert.equal((await button.textContent())?.trim(), label, `painted: ${shown.join(', ')}`)
+      console.log(`${width}x${height}: ${hidden} of ${TEAM_NAMES.length} names hidden, the button says "${(await button.textContent())?.trim()}"`)
+      // Its name is its text, and it opens the Sessions and agents list
+      await page.getByRole('button', { name: label, exact: true }).click()
+      await page.locator('#sessions-panel').waitFor({ state: 'visible', timeout: 10_000 })
+      // The list already open: a second press moves the focus to the list's Tab stop (a row), not the resize handle
+      await page.locator('[data-hidden-names]').click()
+      const focused = await page.evaluate(`(() => { const a = document.activeElement; return { row: !!a && a.hasAttribute('data-row-main'), inPanel: !!a && !!a.closest('#sessions-panel'), text: a ? (a.getAttribute('aria-label') || a.textContent || '').trim().slice(0, 60) : '' } })()`) as { row: boolean; inPanel: boolean; text: string }
+      assert.ok(focused.inPanel && focused.row, `focus on a row of the list (focused: "${focused.text}")`)
+    } finally {
+      await close()
+    }
+  })
+}
+
+test('the real monospace stays within the 0.6 to 1 em per glyph the plan models', async () => {
+  const { page, close } = await openTeam(1280, 800)
+  try {
+    const all = await fittedTexts(page)
+    const names = all.filter(t => TEAM_NAMES.includes(t.text))
+    assert.ok(names.length >= 3, `name lines found: ${names.length}`)
+    for (const t of names) {
+      const em = t.w / (t.modelW / 0.6)
+      assert.ok(em >= 0.6 * 0.999 && em <= 1 * 1.0001, `"${t.text}": ${em.toFixed(3)} em per glyph in ${t.font}`)
+    }
+  } finally {
+    await close()
+  }
+})

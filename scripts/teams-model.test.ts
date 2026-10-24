@@ -9,9 +9,12 @@ import {
   sanitizeTeamInfo, parseTeammateExtras, sanitizeColor, createTeamTracker, teamSessionIds, MAX_TEAM_MEMBERS,
 } from '../web/hooks/simulation/team-info'
 import { effectiveSpeed, computeSessionOffsets, applySessionOffsets, stampEventTimes } from '../web/hooks/simulation/stamp-time'
-import { buildTabModel, formatTeamSummary, runtimeBadge, formatAgentCounts } from '../web/lib/chrome-utils'
+import { buildTabModel, formatTeamSummary, runtimeBadge, viewCountsText } from '../web/lib/chrome-utils'
 import { teamSelectionId, parseTeamSelection, isUnionSelection, ALL_SESSIONS_ID, isSessionInfo } from '../web/lib/bridge-types'
 import type { SimulationEvent } from '../web/lib/agent-types'
+
+/** The full wording of viewCountsText for one session (formatAgentCounts is internal since #523). */
+const formatAgentCounts = (active: number, done: number, stale = 0, idle = 0, error = 0) => viewCountsText({ active, done, stale, idle, error }, null).spoken
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},
@@ -176,7 +179,7 @@ test('a duplicate spawn of a live agent does not make it idle', () => {
       { type: 'agent_spawn', payload: { name: 'w', parent: 'orchestrator' } },
       live === 'tool_calling'
         ? { type: 'tool_call_start', payload: { agent: 'w', tool: 'Bash', args: 'sleep 60' } }
-        : { type: 'message', payload: { agent: 'w', role: 'assistant', content: 'working' } },
+        : { type: 'message', payload: { agent: 'w', role: 'thinking', content: 'working' } },
       // a second source (hook server + session watcher) announces the same agent again
       { type: 'agent_spawn', payload: { name: 'w', parent: 'orchestrator' } },
     ])

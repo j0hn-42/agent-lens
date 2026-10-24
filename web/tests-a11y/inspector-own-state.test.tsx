@@ -52,6 +52,19 @@ test('pending permission: told apart from silence, and never shown for a history
   assert.equal(v.queryByTestId('inspector-silence'), null)
 })
 
+test('history status (#361): never "Live", and the clock is the time the history was received', () => {
+  const replayed = { ...base, id: 's6:main', name: 'Replayed', lastEventAt: NOW, freshnessSource: 'history' as const }
+  const v = render(<AgentDetailCard agent={replayed} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-freshness').textContent, 'From history')
+  assert.match(v.getByTestId('inspector-last-event').textContent ?? '', /^history received \d\d:\d\d:\d\d$/)
+  assert.ok(v.getByText('last known state: Thinking'), 'its state is only the last known one, from the moment it is received')
+  // 40 min later: still "From history", never "No longer reporting" (it was never seen reporting)
+  const old = { ...replayed, lastEventAt: NOW - 40 * 60_000 }
+  v.rerender(<AgentDetailCard agent={old} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-freshness').textContent, 'From history')
+  assert.equal(v.queryByTestId('inspector-silence'), null)
+})
+
 test('rapid selection change: the card for the new node replaces every value of the previous one', () => {
   const v = render(<AgentDetailCard key={anchor.id} agent={anchor} toolErrors={0} onClose={noop} freshnessClock={clock} />)
   assert.equal(v.getByTestId('inspector-freshness').textContent, 'Live')
@@ -95,4 +108,26 @@ test('gone card: Escape closes it through onEscape (or onClose), and does not bu
   v.rerender(<div><AgentGoneCard name="Peer" onClose={() => { closed++ }} /></div>)
   v.getByRole('dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
   assert.equal(closed, 1)
+})
+
+test('replay loss (#366): tool count and tool errors read "at least", a zero is never clean', () => {
+  const a = { ...anchor, toolCalls: 4 }
+  const v = render(<AgentDetailCard agent={a} toolErrors={0} replayLost={6} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-errors').textContent, 'no tool error observed (incomplete)')
+  assert.ok(v.getByText('at least 4 tools'))
+  v.rerender(<AgentDetailCard agent={a} toolErrors={2} replayLost={6} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-errors').textContent, 'at least 2 tool errors')
+  assert.ok(v.getByText(/at least 6 earlier events were not replayed/))
+  v.rerender(<AgentDetailCard agent={a} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-errors').textContent, '0 tool errors')
+  assert.ok(v.getByText('4 tools'))
+  assert.equal(v.queryByText(/not replayed/), null)
+})
+
+test('replay loss (#366): the context window is the last reading, incomplete (an absolute reading: no "at least", no "≥")', () => {
+  const a = { ...anchor, tokensUsed: 150_000, tokensMax: 200_000, tokenStatus: 'available' as const }
+  const v = render(<AgentDetailCard agent={a} toolErrors={0} replayLost={6} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-context').textContent, '150k / 200k (75%) (last reading, incomplete)')
+  v.rerender(<AgentDetailCard agent={a} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-context').textContent, '150k / 200k (75%)')
 })

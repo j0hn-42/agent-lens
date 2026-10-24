@@ -1,25 +1,28 @@
 'use client'
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS, themed } from '@/lib/colors'
 import { useThemeVersion } from '@/lib/theme'
-import { pluralize } from '@/lib/utils'
 import { usageFromAgent } from '@/lib/usage'
 import { deriveFreshness } from '@/hooks/simulation/freshness'
 import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
-import { getStateLabel } from '@/lib/state-labels'
+import { stateMarkerShape, stateMarkerBox } from '@/lib/session-state-marker'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
-import { SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
+import { runtimeBadge, sessionStatusKind, viewCountsText, type AgentStateCounts, type SessionStatusKind } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import {
-  buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
+  buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
-import { rollupBranch, rollupRows, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
-import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP } from '@/lib/session-model'
+import { rollupBranch, rollupRows, rollupUnderLoss, branchReplayLost, type RollupTotal } from '@/lib/cost-rollup'
+import { replayLostForAgents } from '@/lib/event-loss'
+import { observedSessions, isSessionObserved } from '@/lib/session-model'
+import { useLocale, useT } from '@/lib/locale'
+import { ACTIVE_WINDOW_MINUTES } from '@/lib/show-mode'
+import * as C from '@/lib/card-text'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
@@ -27,16 +30,15 @@ import {
   agentNamesBySession, branchOptions, effectiveFilter, filterSessionList, isFilterActive, projectOptions, runtimeOptions,
   type RuntimeFilter, type SessionFilter,
 } from '@/lib/session-filter'
-import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
-import { sessionHealthText, type HealthVerdict } from '@/lib/loop-detection'
-import { emptyMatch } from '@/lib/ui-glossary'
+import { summarizeAttention, type AttentionSummary } from '@/lib/attention'
+import type { HealthVerdict } from '@/lib/loop-detection'
 import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
 import { folderPrefixedLabel } from '@/lib/session-tabs'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
 import { clampLeftPanelWidth, leftPanelWidthBounds } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
-import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
+import { groupByPhase } from '@/lib/phase-groups'
 import { BlankCell, COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
 
 export type SessionListAgent = AgentLike
@@ -78,8 +80,14 @@ interface SessionListPanelProps {
   teamMemberCounts?: ReadonlyMap<string, number>
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
+  /** Agents of the view by state (#523: drawn in the header, moved from the top bar); absent = not drawn */
+  agentCounts?: AgentStateCounts
+  /** Permanent trace of a graph loss (#567: the TruncationIndicator), drawn in the header under the agent counts */
+  lossIndicator?: ReactNode
   /** Clock override for tests */
   now?: number
+  /** The relay is offline: no active session is proven to run, and durations stop at the last activity (#367) */
+  relayOffline?: boolean
   /** Sessions heard from in this run (defaults to the app-wide tracker fed by the simulation) */
   observedSessionIds?: ReadonlySet<string>
   /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
@@ -95,6 +103,18 @@ interface SessionListPanelProps {
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
   /** Why an empty list may be incomplete (#291): shown with the empty state when the scope is a single workspace */
   scopeHint?: string | null
+  /** 'Active only' filter (persisted by the parent, #372); when absent the panel keeps its own, on by default */
+  activeOnly?: boolean
+  onActiveOnlyChange?: (activeOnly: boolean) => void
+  /**
+   * #372: the setting 'Hide inactive' of the canvas (top bar and Settings), told in the line under the header next to
+   * Active only, so the two rules are seen side by side. Absent = not known here: the line says nothing of the canvas.
+   */
+  canvasHideInactive?: boolean
+  /** The guided tour shows the inactive agents for a moment (#613): the setting is on, the canvas does not apply it now */
+  canvasHidePausedByTour?: boolean
+  /** Events the relay could not replay, per session id (#366): the tokens and costs of such a session are lower bounds */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 const STATE_COLOR: Record<string, string> = themed(() => ({
@@ -105,17 +125,20 @@ const STATE_COLOR: Record<string, string> = themed(() => ({
   complete: COLORS.complete,
 }))
 
-/** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
+/** Marker with one shape per state (lib/session-state-marker, #381), so neither colour nor the pulse is ever the only cue. */
 function StateMarker({ state }: { state: string }) {
-  const color = STATE_COLOR[state] ?? COLORS.idle
-  if (state === 'complete') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✓</span>
-  if (state === 'error') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✕</span>
-  const hollow = state === 'idle' || state === 'paused'
+  const color = STATE_COLOR[state] ?? (state === 'paused' ? COLORS.paused : COLORS.idle)
+  const shape = stateMarkerShape(state)
+  if (shape === 'check' || shape === 'cross') {
+    return <span aria-hidden="true" data-state-marker={shape} className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>{shape === 'check' ? '✓' : '✕'}</span>
+  }
+  const box = stateMarkerBox(shape, color)
   return (
     <span
       aria-hidden="true"
-      className={`inline-block w-2 h-2 mx-0.5 rounded-full shrink-0 ${state === 'waiting_permission' ? 'motion-safe:animate-pulse' : ''}`}
-      style={{ background: hollow ? 'transparent' : color, border: `2px solid ${color}` }}
+      data-state-marker={shape}
+      className={`inline-block shrink-0 ${box.className} ${state === 'waiting_permission' ? 'motion-safe:animate-pulse' : ''}`}
+      style={box.style}
     />
   )
 }
@@ -133,18 +156,21 @@ function SessionMarker({ kind }: { kind: SessionStatusKind }) {
 }
 
 /** "Σ $0.12 · 4.2k (incomplete)": the (incomplete) badge is spelled out for screen readers. */
-function RollupLabel({ total, label }: { total: RollupTotal; label: string }) {
-  const text = formatRollup(total)
+function RollupLabel({ total, label }: { total: RollupTotal; label: 'rollup.branch' | 'rollup.session' | 'rollup.family' }) {
+  const { locale } = useLocale()
+  const t = useT()
+  const text = C.rollupText(total, locale)
+  const help = C.rollupIncompleteHelp(locale)
   return (
     <span
       className="shrink-0 tabular-nums"
-      style={{ color: total.complete && total.known > 0 ? COLORS.textMuted : COLORS.waiting_permission }}
-      title={total.complete ? undefined : ROLLUP_INCOMPLETE_HELP}
+      style={{ color: total.complete && total.known > 0 ? COLORS.textMuted : COLORS.warn }}
+      title={total.complete ? undefined : help}
     >
-      <span className="sr-only">{label}, </span>
+      <span className="sr-only">{t(label)}, </span>
       <span aria-hidden="true">Σ </span>
       {text}
-      {!total.complete && <span className="sr-only">. {ROLLUP_INCOMPLETE_HELP}</span>}
+      {!total.complete && <span className="sr-only">. {help}</span>}
     </span>
   )
 }
@@ -157,19 +183,38 @@ interface AgentItemProps {
   freshnessNow: number
   /** What this row and its subtree show (agentTreeSignature): equal signature = nothing to rebuild */
   sig: string
+  /** Events the relay could not replay, per session id (#366) */
+  lost?: ReadonlyMap<string, number>
+}
+
+/**
+ * The state cell of an agent row. Alone, the state word is short and an ellipsis may cut it (its tooltip has it).
+ * A quote of the canvas word followed by its gloss (French, #502) is never cut: the gloss carries what is proper to the
+ * row (how long the agent has been silent, its last known state), and a tooltip reaches neither the keyboard nor touch.
+ * So the cell wraps, and a stale row, whose quote is long ("last known state: Waiting for permission"), takes its own
+ * line under the name, at 320 px included (WCAG 1.4.10). Such a cell has no tooltip: nothing in it is hidden, and a
+ * title cannot declare the language of the English quote inside a French sentence (WCAG 3.1.2).
+ */
+function stateCellClass(drawn: string | undefined, stale: boolean): string {
+  if (!drawn) return 'max-w-[45%] shrink-0 truncate'
+  return stale ? 'basis-full min-w-0 whitespace-normal break-words' : 'max-w-[45%] shrink-0 min-w-0 whitespace-normal break-words'
 }
 
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
-const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
+const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow, lost }: AgentItemProps) {
   useThemeVersion() // memoized row: repaint on a theme switch
+  const t = useT() // memoized row: re-render on a language switch
+  const { locale } = useLocale()
   const a = node.agent
   rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
-  const { detail, stale, role } = agentRowView(a, freshnessNow)
+  const { detail, stale, role, drawn } = agentRowView(a, freshnessNow, locale)
   // The orchestrator plus its sub-agents, each counted once (issue #58)
-  const branch = useMemo(() => (node.children.length > 0 ? rollupBranch(node) : null), [node])
+  // A lower bound when the relay or the VS Code extension could not replay events of a session this total counts (#366, #592)
+  const branch = useMemo(() => (node.children.length > 0 ? rollupUnderLoss(rollupBranch(node), branchReplayLost(node, lost)) : null), [node, lost])
   // This agent alone (its sub-agents are in the branch total)
-  const own = useMemo(() => rollupBranch({ agent: node.agent, children: [] }), [node.agent])
+  const ownLost = replayLostForAgents(lost, [node.agent])
+  const own = useMemo(() => rollupUnderLoss(rollupBranch({ agent: node.agent, children: [] }), ownLost), [node.agent, ownLost])
   return (
     <li>
       <button
@@ -182,37 +227,44 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         className={`${ROW_GRID} w-full min-h-6 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
-        <span className={`flex min-w-0 items-center gap-x-1.5 ${COLUMN_CLASSES.name}`}>
+        <span className={`flex min-w-0 items-center gap-x-1.5 ${drawn && stale ? 'flex-wrap' : ''} ${COLUMN_CLASSES.name}`}>
           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
           <StateMarker state={stale ? 'idle' : a.state} />
           <span className="sr-only">{role}, </span>
           <span className="truncate min-w-[6ch] flex-1" title={a.name}>{a.name}</span>
-          <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
+          <span
+            className={stateCellClass(drawn, stale)}
+            title={drawn ? undefined : detail}
+            style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}
+          >
+            {/* drawn = drawnStatusText, the function draw-agents.ts draws the English status line with under this agent (a teammate's activity, "last known state: …" when stale): the row quotes it, then glosses it (as the legend does) */}
+            {drawn && <><span lang="en" data-i18n-exempt="" data-drawn-state="">{drawn}</span> : </>}{detail}
+          </span>
         </span>
-        <ColumnValue column="model" cell={modelCell(a.model)} title={a.model} />
+        <ColumnValue column="model" cell={modelCell(a.model, locale)} title={a.model} />
         <BlankCell column="runtime" />
         <BlankCell column="branch" />
-        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a))} />
-        <ColumnValue column="cost" cell={costCell(own)} />
+        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a), locale, ownLost > 0)} />
+        <ColumnValue column="cost" cell={costCell(own, locale)} />
         <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
         <BlankCell column="activity" />
         {branch && (
           <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
-            <RollupLabel total={branch} label="branch total" />
+            <RollupLabel total={branch} label="rollup.branch" />
           </span>
         )}
       </button>
       {node.children.length > 0 && (
-        <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
+        <ul className="list-none p-0 m-0" aria-label={t('sessions.subAgentsOf', { name: a.name })}>
           <AgentNodes
             nodes={node.children} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
-            freshnessNow={freshnessNow}
+            freshnessNow={freshnessNow} lost={lost}
           />
         </ul>
       )}
     </li>
   )
-}, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent)
+}, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent && prev.lost === next.lost)
 
 interface AgentNodesProps {
   nodes: ReadonlyArray<AgentNode<SessionListAgent>>
@@ -220,24 +272,27 @@ interface AgentNodesProps {
   selectedAgentId: string | null
   onSelectAgent: (id: string) => void
   freshnessNow: number
+  lost?: ReadonlyMap<string, number>
 }
 
 /**
  * Sibling rows. The agents of a workflow that announced phases are grouped under one named group per
  * phase, in order of first appearance (#146); everything else is listed exactly as before.
  */
-function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentNodesProps) {
+function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow, lost }: AgentNodesProps) {
+  const t = useT()
   const row = (n: AgentNode<SessionListAgent>, d: number) => (
     <AgentItem
       key={n.agent.id} node={n} depth={d} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
-      freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
+      freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)} lost={lost}
     />
   )
   return (
     <>
       {groupByPhase(nodes.map(n => ({ node: n, teamKind: n.agent.teamKind, phase: n.agent.phase }))).map(seg => {
         if (seg.kind === 'plain') return seg.items.map(i => row(i.node, depth))
-        const label = phaseSegmentLabel(seg)
+        // "Phase 2": the word is the same in both languages and the phase name is the workflow's own
+        const label = seg.kind === 'phase' ? `Phase ${seg.phase}` : seg.kind === 'none' ? t('sessions.phase.none') : ''
         return (
           <li key={`${seg.kind}:${label}`}>
             <div role="group" aria-label={label}>
@@ -256,10 +311,13 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, lossIndicator, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange, canvasHideInactive, canvasHidePausedByTour, replayLost,
 }: SessionListPanelProps) {
+  const { locale } = useLocale()
+  const t = useT()
   const listRef = useRef<HTMLDivElement>(null)
+  const searchHintId = useId()
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
   const [wantedWidth, setWantedWidth] = useState(SESSIONS_PANEL_WIDTH)
   useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
@@ -305,7 +363,9 @@ export function SessionListPanel({
   const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
-  const [activeOnly, setActiveOnly] = useState(true)
+  const [ownActiveOnly, setOwnActiveOnly] = useState(true)
+  const activeOnly = storedActiveOnly !== undefined ? storedActiveOnly : ownActiveOnly
+  const setActiveOnly = (next: boolean) => { setOwnActiveOnly(next); onActiveOnlyChange?.(next) }
 
   // Search and project / runtime filter (#125)
   const [query, setQuery] = useState('')
@@ -330,7 +390,7 @@ export function SessionListPanel({
   const announceMatches = (next: SessionFilter) => {
     const names = agentNamesBySession(agents.values())
     const n = filterSessionList(sessions, next, id => names.get(id) ?? []).length
-    setAnnouncement(n === 0 ? emptyMatch('sessions') : `${pluralize(n, 'session')} shown`)
+    setAnnouncement(n === 0 ? t('sessions.empty.match') : C.sessionsShownText(locale, n))
   }
 
   // Agents waiting for a permission or in error, per session (#126)
@@ -359,7 +419,7 @@ export function SessionListPanel({
   const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   // Session and team (family) totals; the team total counts an agent shared by two sessions once
-  const rollups = useMemo(() => rollupRows(rows, { sessions, forests }), [rows, sessions, forests])
+  const rollups = useMemo(() => rollupRows(rows, { sessions, forests }, replayLost), [rows, sessions, forests, replayLost])
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
   // Inline rename (#246): one row at a time; Enter saves, Escape or leaving the field cancels
@@ -379,7 +439,7 @@ export function SessionListPanel({
     setRenaming(null)
     if (save && onRenameSession) {
       onRenameSession(id, draft)
-      setAnnouncement(sanitizeAlias(draft) === null ? 'Original name restored' : `Session renamed to ${sanitizeAlias(draft)}`)
+      setAnnouncement(sanitizeAlias(draft) === null ? t('sessions.announce.restored') : t('sessions.announce.renamed', { name: sanitizeAlias(draft)! }))
     }
     // Back on the row, whatever way the field was left
     if (refocusRow) requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-row-key="session:${id}"]`)?.focus())
@@ -387,7 +447,7 @@ export function SessionListPanel({
 
   const toggleCollapsed = (id: string, collapse: boolean) => {
     const label = sessions.find(s => s.id === id)?.label ?? id
-    setAnnouncement(`Agents of ${label} ${collapse ? 'collapsed' : 'expanded'}`)
+    setAnnouncement(t(collapse ? 'sessions.announce.collapsed' : 'sessions.announce.expanded', { label }))
     setCollapsed(prev => {
       const next = new Set(prev)
       if (collapse) next.add(id)
@@ -449,6 +509,9 @@ export function SessionListPanel({
     return () => el.removeEventListener('keydown', onKey)
   }, [])
 
+  const viewCounts = agentCounts
+    ? viewCountsText(agentCounts, selectedSessionId === ALL_SESSIONS_ID ? (allSessionCount ?? sessions.length) : null, locale)
+    : null
   const firstTabStop = rows.length > 0 ? rows[0].id : undefined
   const stopId = rows.some(r => r.id === selectedSessionId) ? selectedSessionId : firstTabStop
 
@@ -463,19 +526,20 @@ export function SessionListPanel({
       zIndex={Z.sidePanel}
       width={panelWidth}
       labelledBy="session-list-title"
-      attrs={{ id: 'sessions-panel', [INSPECTOR_KEEP_ATTR]: '' }}
+      attrs={{ id: 'sessions-panel', [INSPECTOR_KEEP_ATTR]: '', lang: locale }}
     >
-      <DockResizer edge="right" bounds={bounds} width={panelWidth} onWidthChange={resizePanel} label="Resize sessions panel" controls="sessions-panel" />
+      <DockResizer edge="right" bounds={bounds} width={panelWidth} onWidthChange={resizePanel} label={t('sessions.resize', { name: t('sessions.title') })} valueText={px => t('sessions.resize.value', { px })} controls="sessions-panel" />
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
+          closeLabel={t('common.close')}
           titleId="session-list-title"
           actions={(
             <button
               type="button"
               aria-pressed={activeOnly}
-              onClick={() => { setAnnouncement(`${activeOnly ? 'All sessions' : 'Active sessions only'}: ${(activeOnly ? sessions : filterActiveSessions(sessions, selectedSessionId, isObserved)).length} shown`); setActiveOnly(v => !v) }}
-              title="Hide sessions that are finished"
+              onClick={() => { setAnnouncement(t(activeOnly ? 'sessions.announce.all' : 'sessions.announce.activeOnly', { n: (activeOnly ? sessions : filterActiveSessions(sessions, selectedSessionId, isObserved)).length })); setActiveOnly(!activeOnly) }}
+              title={t('sessions.activeOnlyHelp')}
               className={`min-h-6 px-2 rounded text-[11px] ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
               style={{
                 background: activeOnly ? COLORS.toggleActive : COLORS.toggleInactive,
@@ -483,24 +547,50 @@ export function SessionListPanel({
                 color: activeOnly ? COLORS.holoBright : COLORS.textMuted,
               }}
             >
-              Active only
+              {t('sessions.activeOnly')}
             </button>
           )}
         >
-          <span className="text-[11px] tracking-wider" style={{ color: COLORS.textPrimary }}>
-            SESSIONS
+          <span className="text-[11px] uppercase tracking-wider" style={{ color: COLORS.textPrimary }}>
+            {t('sessions.title')}
           </span>
           <span className="text-[11px]" style={{ color: COLORS.textMuted }}>
-            {activeCount} active / {sessions.length}
+            {t('sessions.count', { active: activeCount, total: sessions.length })}
           </span>
         </PanelHeader>
+        {/* #372 (owner's decision): the two visibility filters stay, with their different rules; this line shows both
+            states as set, so a session listed on the canvas and not here (or the reverse) is explained. Plain text, no
+            control; the separator is drawn, not read */}
+        <p data-testid="sessions-filter-scope" className="m-0 px-2 pb-1.5 text-[11px]" style={{ color: COLORS.textMuted }}>
+          {/* "all sessions" only when nothing narrows the list: search, project, runtime and branch count as much as Active only */}
+          <span>{t(activeOnly ? (filtering ? 'sessions.scope.list.activeOnlyFiltered' : 'sessions.scope.list.activeOnly') : (filtering ? 'sessions.scope.list.filtered' : 'sessions.scope.list.all'))}</span>
+          {canvasHideInactive !== undefined && (
+            <>
+              <span aria-hidden="true">{' \u00b7 '}</span>
+              <span>{!canvasHideInactive ? t('sessions.scope.canvas.off')
+                : canvasHidePausedByTour ? t('sessions.scope.canvas.tour')
+                : selectedSessionId === ALL_SESSIONS_ID ? t('sessions.scope.canvas.hideAll', { n: ACTIVE_WINDOW_MINUTES })
+                : t('sessions.scope.canvas.hideOne')}</span>
+            </>
+          )}
+        </p>
+        {viewCounts && (
+          // #523: the agent counts of the view, moved from the top bar with the same text, in the interface language
+          // (#500); the full wording is read, the compact one drawn
+          <p data-testid="sessions-agent-counts" className="m-0 px-2 pb-1.5 text-[11px] tabular-nums" style={{ color: COLORS.textMuted }}>
+            <span aria-hidden="true">{viewCounts.drawn}</span>
+            <span className="sr-only">{viewCounts.spoken}</span>
+          </p>
+        )}
+        {lossIndicator}
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
-        <div role="search" aria-label="Search and filter sessions" className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">
+        <div role="search" aria-label={t('sessions.search.group')} className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">
           <input
             type="search"
-            aria-label="Search sessions"
-            placeholder="Search name, project, branch, agent"
+            aria-label={t('sessions.search')}
+            placeholder={t('sessions.search')}
+            aria-describedby={searchHintId}
             value={query}
             onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
             className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}
@@ -508,57 +598,60 @@ export function SessionListPanel({
           />
           {(projects.length > 1 || filter.projectId !== null) && (
             <select
-              aria-label="Filter by project"
+              aria-label={t('sessions.filter.project')}
               value={filter.projectId ?? ''}
               onChange={e => { const projectId = e.target.value || null; changeFilter({ projectId }); announceMatches({ ...filter, projectId }) }}
               className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
-              <option value="">All projects</option>
+              <option value="">{t('sessions.filter.allProjects')}</option>
               {projects.map(p => <option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}
             </select>
           )}
           {(runtimes.length > 1 || filter.runtime !== null) && (
             <select
-              aria-label="Filter by runtime"
+              aria-label={t('sessions.filter.runtime')}
               value={filter.runtime ?? ''}
               onChange={e => { const runtime = (e.target.value || null) as RuntimeFilter | null; changeFilter({ runtime }); announceMatches({ ...filter, runtime }) }}
               className={`min-h-6 rounded px-1 text-[11px] ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
-              <option value="">All runtimes</option>
+              <option value="">{t('sessions.filter.allRuntimes')}</option>
               <option value="claude">Claude Code</option>
               <option value="codex">Codex</option>
               <option value="copilot">GitHub Copilot</option>
               <option value="pi">Pi</option>
               <option value="gemini">Gemini CLI</option>
+              <option value="opencode">OpenCode</option>
             </select>
           )}
           {(branches.length > 0 || filter.branch !== null) && (
             <select
-              aria-label="Filter by branch (recorded at session start)"
+              aria-label={t('sessions.filter.branch')}
               value={filter.branch ?? ''}
               onChange={e => { const branch = e.target.value || null; changeFilter({ branch }); announceMatches({ ...filter, branch }) }}
               className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
-              <option value="">All branches</option>
+              <option value="">{t('sessions.filter.allBranches')}</option>
               {branches.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           )}
           {filtering && (
             <button
               type="button"
-              onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null, branch: null }); setAnnouncement(`Filter cleared: ${pluralize(sessions.length, 'session')} shown`) }}
+              onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null, branch: null }); setAnnouncement(C.filterClearedText(locale, sessions.length)) }}
               className={`min-h-6 px-2 rounded text-[11px] ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
-              Clear filter
+              {t('sessions.filter.clear')}
             </button>
           )}
+          {/* Visible text, not a title: a title shows only on mouse hover */}
+          <p id={searchHintId} className="m-0 w-full text-[10px]" style={{ color: COLORS.textMuted }}>{t('sessions.search.hint')}</p>
           {filtering && (
             <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
-              Filter applies to this list only; the canvas still shows every session of the view, except that the project also narrows the All view.
+              {t('sessions.filter.scope')}
             </p>
           )}
         </div>
@@ -570,11 +663,11 @@ export function SessionListPanel({
           {rows.length > 0 && <ColumnHeader />}
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
-              {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+              {filtering && sessions.length > 0 ? t('sessions.empty.match') : activeOnly && sessions.length > 0 ? t('sessions.empty.active') : t('sessions.empty.none')}
               {scopeHint && !filtering && <span className="block mt-1">{scopeHint}</span>}
             </div>
           )}
-          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents" data-sensitive="">
+          <ul className="list-none p-0 m-0 space-y-0.5" aria-label={t('sessions.title')} data-sensitive="">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
               const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
@@ -582,9 +675,11 @@ export function SessionListPanel({
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
               if (row.kind === 'project') {
+                // The heading of the sessions outside any repository is ours (session-tree), a project name is data
+                const heading = row.id === 'project:none' ? t('sessions.project.none') : row.projectName
                 return (
-                  <li key={row.id} className="mt-1.5 px-2 pt-1 text-[11px] tracking-wider uppercase truncate" style={{ color: COLORS.textDim }} title={row.projectName}>
-                    <span className="sr-only">Project </span>{row.projectName}
+                  <li key={row.id} className="mt-1.5 px-2 pt-1 text-[11px] tracking-wider uppercase truncate" style={{ color: COLORS.textDim }} title={heading}>
+                    <span className="sr-only">{t('sessions.project')}{' '}</span>{heading}
                   </li>
                 )
               }
@@ -598,11 +693,11 @@ export function SessionListPanel({
                       onClick={() => onSelectSession(ALL_SESSIONS_ID)}
                       className={rowBase} style={rowStyle}
                     >
-                      <span className="flex-1">All sessions</span>
-                      <span style={{ color: COLORS.textDim }}>{pluralize(allSessionCount ?? sessions.length, 'session')}</span>
+                      <span className="flex-1">{t('sessions.allSessions')}</span>
+                      <span style={{ color: COLORS.textDim }}>{C.sharedNounCount(allSessionCount ?? sessions.length, 'session')}</span>
                     </button>
                     {row.roots.length > 0 && (
-                      <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label="Agents without a listed session">
+                      <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label={t('sessions.noListedSession')}>
                         {row.roots.map(n => (
                           <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)} />
                         ))}
@@ -616,7 +711,7 @@ export function SessionListPanel({
                 const key = row.teamName!
                 const name = teams?.get(key)?.name ?? key
                 const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0, teams?.get(key)?.kind)
+                const summary = C.teamSummaryText(locale, name, members, teamWorking?.get(key) ?? 0, teams?.get(key)?.kind)
                 return (
                   <li key={row.id}>
                     <button
@@ -626,17 +721,20 @@ export function SessionListPanel({
                       title={summary} className={`${rowBase} mt-1`} style={rowStyle}
                     >
                       <span className="truncate">{summary}</span>
-                      <span className="sr-only">, whole team in one view</span>
-                      {rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="family total" />}
+                      <span className="sr-only">{t('sessions.team.wholeView')}</span>
+                      {rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="rollup.family" />}
                     </button>
                   </li>
                 )
               }
 
               const session = row.session!
-              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId)
-              const unobserved = kind === 'unobserved' || kind === 'indexed' || kind === 'imported'
-              const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : kind === 'imported' ? SESSION_IMPORTED_HELP : SESSION_NOT_OBSERVED_HELP
+              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId, relayOffline)
+              const unobserved = kind === 'unobserved' || kind === 'indexed' || kind === 'imported' || kind === 'offline'
+              const statusHelp = C.sessionStatusHelp(locale, kind === 'indexed' || kind === 'imported' || kind === 'offline' ? kind : 'unobserved')
+              const statusText = C.sessionStatusText(locale, kind)
+              const attentionOf = (id: string) => C.sessionAttentionLabel(locale, attention.bySession.get(id))
+              const loopOf = (id: string) => C.sessionLoopText(locale, health?.get(id))
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
               const isCollapsed = collapsed.has(session.id)
@@ -648,7 +746,7 @@ export function SessionListPanel({
                   <div className="group flex items-center">
                     <button
                       type="button"
-                      aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} agents of ${session.label}`}
+                      aria-label={t(isCollapsed ? 'sessions.expand' : 'sessions.collapse', { label: session.label })}
                       aria-expanded={hasAgents ? !isCollapsed : undefined}
                       disabled={!hasAgents}
                       onClick={() => toggleCollapsed(session.id, !isCollapsed)}
@@ -670,7 +768,7 @@ export function SessionListPanel({
                           type="text"
                           value={draft}
                           maxLength={ALIAS_MAX_LENGTH}
-                          aria-label={`New name for session ${session.originalLabel ?? session.label}`}
+                          aria-label={t('sessions.rename.field', { label: session.originalLabel ?? session.label })}
                           aria-describedby="session-rename-help"
                           onChange={e => setDraft(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(false) } }}
@@ -678,7 +776,7 @@ export function SessionListPanel({
                           className={`min-h-6 min-w-0 flex-1 rounded border bg-transparent px-1 text-xs ${FOCUS_RING}`}
                           style={{ color: COLORS.textPrimary, borderColor: COLORS.controlBorder }}
                         />
-                        <span id="session-rename-help" className="sr-only">Enter saves, Escape cancels, an empty name restores the original</span>
+                        <span id="session-rename-help" className="sr-only">{t('sessions.rename.help')}</span>
                       </form>
                     ) : (
                     <button
@@ -695,47 +793,47 @@ export function SessionListPanel({
                           ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
                           : <SessionMarker kind={kind} />}
                         <span className="sr-only">
-                          {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${statusHelp}` : SESSION_STATUS_TEXT[kind]}
+                          {statusText}{unobserved ? <>. {statusHelp}</> : null}
                           ,{' '}
                         </span>
-                        {badge && <span className="sr-only">{badge.label} session, </span>}
-                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? `${tabName} (renamed; original: ${session.originalLabel})` : tabName}>{tabName}</span>
-                        {session.originalLabel && <span className="sr-only">, renamed, original name {session.originalLabel}</span>}
+                        {badge && <span className="sr-only">{t('sessions.runtimeSession', { runtime: badge.label })}{' '}</span>}
+                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? t('sessions.renamedTitle', { name: tabName, original: session.originalLabel }) : tabName}>{tabName}</span>
+                        {session.originalLabel && <span className="sr-only">{t('sessions.renamedSr', { original: session.originalLabel })}</span>}
                       </span>
-                      <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
-                      <ColumnValue column="runtime" cell={runtimeCell(session.runtime)} />
-                      <ColumnValue column="branch" cell={branchCell(session.branch)} title={session.branch} />
-                      <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
-                      <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null)} />
-                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime)} />
-                      <ColumnValue column="activity" cell={activityCell(session, currentTime)} />
+                      <ColumnValue column="model" cell={modelCell(modelId, locale)} title={modelId} />
+                      <ColumnValue column="runtime" cell={runtimeCell(session.runtime, locale)} />
+                      <ColumnValue column="branch" cell={branchCell(session.branch, locale)} title={session.branch} />
+                      <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null, locale)} />
+                      <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null, locale)} />
+                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime, relayOffline, locale)} />
+                      <ColumnValue column="activity" cell={activityCell(session, currentTime, locale)} />
                       <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
                         {unobserved && (
                           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }} title={statusHelp}>
-                            {SESSION_STATUS_TEXT[kind]}
+                            {statusText}
                           </span>
                         )}
-                        {sessionAttentionText(attention.bySession.get(session.id)) && (
+                        {attentionOf(session.id) && (
                           <span className="shrink-0 font-semibold" data-testid="session-attention" style={{ color: attention.bySession.get(session.id)!.waiting > 0 ? COLORS.waiting_permission : COLORS.error }}>
-                            <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
+                            <span aria-hidden="true">! </span>{attentionOf(session.id)}
                           </span>
                         )}
-                        {sessionHealthText(health?.get(session.id)) && (
-                          <span className="shrink-0 font-semibold" data-testid="session-health" style={{ color: COLORS.waiting_permission }}>
-                            <span aria-hidden="true">⟳ </span>{sessionHealthText(health?.get(session.id))}
+                        {loopOf(session.id) && (
+                          <span className="shrink-0 font-semibold" data-testid="session-health" style={{ color: COLORS.warn }}>
+                            <span aria-hidden="true">⟳ </span>{loopOf(session.id)}
                           </span>
                         )}
                         {/* Cost and activity have their own columns from this width on */}
-                        {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="session total" /></span>}
-                        <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                        {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="rollup.session" /></span>}
+                        <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? t('sessions.activityUnknown') : C.relativeTimeText(locale, session.lastActivityTime, currentTime)}</span>
                       </span>
                     </button>
                     )}
                     {onRenameSession && renaming !== session.id && (
                       <button
                         type="button"
-                        aria-label={`Rename session ${session.label}`}
-                        title="Rename session (F2)"
+                        aria-label={t('sessions.rename', { label: session.label })}
+                        title={t('sessions.rename.title')}
                         onMouseDown={e => e.preventDefault()}
                         onClick={() => startRename(session.id)}
                         className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
@@ -747,8 +845,8 @@ export function SessionListPanel({
                     {onExportSession && renaming !== session.id && canExportSession?.(session.id) && (
                       <button
                         type="button"
-                        aria-label={`Export session ${session.label} as an HTML replay`}
-                        title="Export as a standalone HTML replay (secrets redacted, best effort)"
+                        aria-label={t('sessions.export', { label: session.label })}
+                        title={t('sessions.export.title')}
                         onClick={() => onExportSession(session.id)}
                         className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                         style={{ color: COLORS.textMuted }}
@@ -758,8 +856,8 @@ export function SessionListPanel({
                     )}
                     <button
                       type="button"
-                      aria-label={`Close session ${session.label}`}
-                      title="Close session"
+                      aria-label={t('sessions.hide', { label: session.label })}
+                      title={t('sessions.hide', { label: session.label })}
                       onClick={() => onCloseSession(session.id)}
                       className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                       style={{ color: COLORS.tabClose }}
@@ -769,8 +867,8 @@ export function SessionListPanel({
                   </div>
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
-                    <ul className="list-none m-0 ml-3 pl-2 pr-6 py-0.5" style={{ borderLeft: `2px solid ${COLORS.controlBorder}` }} aria-label={`Agents of ${session.label}`}>
-                      <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
+                    <ul className="list-none m-0 ml-3 pl-2 pr-6 py-0.5" style={{ borderLeft: `2px solid ${COLORS.controlBorder}` }} aria-label={t('sessions.agentsOf', { label: session.label })}>
+                      <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} lost={replayLost} />
                     </ul>
                     </CollapsibleSection>
                   )}

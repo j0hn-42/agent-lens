@@ -220,3 +220,23 @@ test('describeWaste says what was observed, without a verdict', () => {
   const cmd = only(run([main, ...call('main', 'Bash', { command: 'ls' }), ...call('main', 'Bash', { command: 'ls' })]))
   assert.equal(describeWaste(cmd), 'same Bash command run again 1 time, right after itself')
 })
+
+test('a read after a context compaction of that agent is not a repeat: the content left its context (#368)', () => {
+  const s = run([main, ...read('main', '/a.ts'), { type: 'context_compacted', payload: { agent: 'main', trigger: 'auto' } }, ...read('main', '/a.ts')])
+  assert.deepEqual(listWaste(s.waste), [])
+})
+
+test('a compaction of another agent does not excuse the re-read (#368)', () => {
+  const s = run([main, sub, ...read('main', '/a.ts'), { type: 'context_compacted', payload: { agent: 'worker', trigger: 'auto' } }, ...read('main', '/a.ts')])
+  assert.equal(only(s).repeats, 1)
+})
+
+test('a read after a failed read of the same file is not a repeat: nothing entered the context (#368)', () => {
+  const s = run([main, ...read('main', '/a.ts', {}, { isError: true }), ...read('main', '/a.ts')])
+  assert.deepEqual(listWaste(s.waste), [])
+})
+
+test('a read after a cancelled read of the same file is not a repeat either (#368)', () => {
+  const s = run([main, ...read('main', '/a.ts', {}, { outcome: 'cancelled' }), ...read('main', '/a.ts')])
+  assert.deepEqual(listWaste(s.waste), [])
+})

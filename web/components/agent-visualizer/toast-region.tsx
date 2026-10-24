@@ -84,6 +84,7 @@ export function ToastRegion({ toasts, onAction, onDismiss, onPause, undoKey = nu
           {toasts.map(t => (
             <div
               key={t.id}
+              lang={t.lang}
               className="glass-card flex items-center gap-3 px-3 py-1.5 text-xs font-mono max-w-[calc(100vw-24px)]"
               style={{ color: COLORS.textPrimary }}
             >

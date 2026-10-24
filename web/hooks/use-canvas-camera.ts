@@ -1,11 +1,16 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import {
-  computeFitBounds, fitToView, fitInsets, circleBounds, NO_INSETS, clusterSetSignature, shouldResumeAutoFit, contentStamp,
-  type Transform, type Insets, type AutoFitState,
+  computeFitBounds, fitContent, fitToView, fitInsets, circleBounds, NO_INSETS, clusterSetSignature, shouldResumeAutoFit, contentStamp,
+  safeRect, autoFitStepShare, stepTowardAnchored,
+  type Transform, type Insets, type AutoFitState, type FitBoundsInput, type WorldBounds, type Rect,
 } from '@/components/agent-visualizer/canvas/camera-fit'
 import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
-import { CAMERA } from '@/lib/canvas-constants'
+import { computeWorkspaceZones } from '@/components/agent-visualizer/canvas/workspace-zones'
+import { agentLabelBlock, type AgentLabelBlock } from '@/components/agent-visualizer/canvas/overlay-plan'
+import { estimateTextWidth } from '@/components/agent-visualizer/canvas/edge-bubbles'
+import { agentDrawRadius, hasSeveralSessions, orchestratorInfo } from '@/components/agent-visualizer/canvas/team-style'
+import { CAMERA, AGENT_DRAW } from '@/lib/canvas-constants'
 import { INITIAL_FOLLOW, pickFollowAgent, stepFollow, followTransform, type FollowState } from '@/lib/presentation'
 
 export type { Transform }
@@ -24,6 +29,8 @@ interface CameraOptions {
     selectedAgentId: string | null
     pauseAutoFit?: boolean
     isDragging: boolean
+    /** Events the relay could not replay, per session id (#366): the token lines framed are the drawn "at least" ones */
+    replayLost?: ReadonlyMap<string, number>
   }>
   simTimeRef: MutableRefObject<number>
   dimensions: { width: number; height: number }
@@ -38,6 +45,8 @@ interface CameraOptions {
   scopeKey?: string
   /** Presentation mode (#245): when `follow` is set the camera centres on the agent that worked last instead of fitting the content */
   presentationRef?: MutableRefObject<{ follow: boolean; mask: boolean }>
+  /** Reduced motion (OS, freeze toggle, all layers calm): no pan inertia, the camera jumps to its target instead of easing */
+  reducedMotionRef?: MutableRefObject<boolean>
 }
 
 export function useCanvasCamera({
@@ -52,6 +61,7 @@ export function useCanvasCamera({
   getInsets,
   scopeKey,
   presentationRef,
+  reducedMotionRef,
 }: CameraOptions) {
   const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 })
   const userHasNavigatedRef = useRef(false)
@@ -67,6 +77,8 @@ export function useCanvasCamera({
   const fitSettleRef = useRef(0)
   const followStateRef = useRef<FollowState>(INITIAL_FOLLOW)
   const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
+  // The last fit target with the bounds it frames and its safe area: while part of them is off screen the camera catches up (#378)
+  const fitTargetRef = useRef<{ target: Transform; bounds: WorldBounds; safe: Rect } | null>(null)
 
   // Initialize transform centered on first agents
   useEffect(() => {
@@ -92,7 +104,7 @@ export function useCanvasCamera({
   }, [])
 
   const computeFitTransform = useCallback((): Transform | null => {
-    const { agents, toolCalls, discoveries, dimensions, selectedAgentId } = drawPropsRef.current
+    const { agents, toolCalls, discoveries, dimensions, selectedAgentId, replayLost } = drawPropsRef.current
     if (agents.size === 0) return null
 
     // Determine focus scope: if a non-main agent is selected, focus on it + descendants
@@ -107,12 +119,26 @@ export function useCanvasCamera({
     // No result cache: the simulation mutates its Maps in place, so a reference-keyed cache would keep
     // the bounds of the first (unsettled) layout forever.
     const clusters = clustersRef?.current ?? []
-    const bounds = computeFitBounds({
-      agents: agents.values(), toolCalls: toolCalls.values(), discoveries, clusters, focusScope,
-      simTime: simTimeRef.current ?? 0,
-    })
+    // Label blocks are framed at their drawn size (enlarged below 100 %), with the session line the draw
+    // loop adds when several sessions are on screen (#378). Measured once per fit, not once per refit round.
+    const showSession = hasSeveralSessions(agents.values())
+    const measure = (text: string) => estimateTextWidth(text, AGENT_DRAW.labelFontSize)
+    const blocks = new Map<Agent, AgentLabelBlock>()
+    const labelBlock = (a: Agent) => {
+      let b = blocks.get(a)
+      if (!b) { b = agentLabelBlock(a, agentDrawRadius(a), measure, { showSession, orchestrator: orchestratorInfo(a), details: true, replayLost }); blocks.set(a, b) }
+      return b
+    }
+    const input: FitBoundsInput = {
+      agents: Array.from(agents.values()), toolCalls: Array.from(toolCalls.values()), discoveries, clusters, focusScope,
+      zones: computeWorkspaceZones(clusters), simTime: simTimeRef.current ?? 0,
+    }
     const insets = fitInsets(getInsets?.(), !focusScope && clusters.length > 0)
-    return fitToView(bounds, dimensions, insets)
+    // fitContent's last bounds are the ones its transform frames (each round fits the bounds it just asked for)
+    let framed: WorldBounds | null = null
+    const target = fitContent(k => (framed = computeFitBounds(k === null ? input : { ...input, labelBlock, labelScale: k })), dimensions, insets)
+    fitTargetRef.current = target && framed ? { target, bounds: framed, safe: safeRect(dimensions, insets) } : null
+    return target
   }, [getDescendantIds, drawPropsRef, simTimeRef, clustersRef, getInsets])
 
   const doZoomToFit = useCallback(() => {
@@ -121,16 +147,18 @@ export function useCanvasCamera({
     if (target) targetTransformRef.current = target
   }, [computeFitTransform])
 
-  useEffect(() => {
-    if (zoomToFitTrigger && zoomToFitTrigger > 0) doZoomToFit()
-  }, [zoomToFitTrigger, doZoomToFit])
-
   // Selection changes cancel any in-flight camera lerp, but never re-enable auto-fit:
   // once the user panned/zoomed manually the camera stays where they put it
   // (an explicit "Fit to view" or the fit trigger re-enables it).
+  // Declared before the fit trigger: effects run in order, so a fit requested in the same render as a new
+  // selection (the agent menu's "Zoom to fit", #377) is not cancelled, and frames that new selection.
   useEffect(() => {
     targetTransformRef.current = null
   }, [selectedAgentId])
+
+  useEffect(() => {
+    if (zoomToFitTrigger && zoomToFitTrigger > 0) doZoomToFit()
+  }, [zoomToFitTrigger, doZoomToFit])
 
   const screenToCanvas = useCallback((screenX: number, screenY: number) => {
     const canvas = mainCanvasRef.current
@@ -213,7 +241,9 @@ export function useCanvasCamera({
 
     // Pan inertia
     const inertia = panVelocityRef.current
-    if (inertia.active) {
+    if (inertia.active && reducedMotionRef?.current) {
+      inertia.vx = 0; inertia.vy = 0; inertia.active = false
+    } else if (inertia.active) {
       transformRef.current = { ...transform, x: transform.x + inertia.vx, y: transform.y + inertia.vy }
       inertia.vx *= ANIM.inertiaDecay
       inertia.vy *= ANIM.inertiaDecay
@@ -290,11 +320,16 @@ export function useCanvasCamera({
     // Smooth lerp toward target
     const target = targetTransformRef.current
     if (target) {
-      const lerpSpeed = ANIM.autoFitLerp
       const t = transformRef.current
-      const nx = t.x + (target.x - t.x) * lerpSpeed
-      const ny = t.y + (target.y - t.y) * lerpSpeed
-      const ns = t.scale + (target.scale - t.scale) * lerpSpeed
+      // A fit target catches up while what it frames sticks out of the safe area; every other target (zoom to a
+      // halo, keep the focus visible, presentation follow) eases as before
+      const fit = fitTargetRef.current?.target === target ? fitTargetRef.current : null
+      const lerpSpeed = reducedMotionRef?.current ? 1 : autoFitStepShare(t, fit?.bounds ?? null, fit?.safe ?? null, ANIM.autoFitLerp, ANIM.autoFitCatchUpLerp)
+      // A fit step keeps the centre of the safe area on its way to the target's (no sideways swing while zooming out)
+      const step = fit && lerpSpeed < 1
+        ? stepTowardAnchored(t, target, lerpSpeed, { x: fit.safe.x + fit.safe.w / 2, y: fit.safe.y + fit.safe.h / 2 })
+        : { x: t.x + (target.x - t.x) * lerpSpeed, y: t.y + (target.y - t.y) * lerpSpeed, scale: t.scale + (target.scale - t.scale) * lerpSpeed }
+      const nx = step.x, ny = step.y, ns = step.scale
       if (Math.abs(target.x - nx) < 0.5 && Math.abs(target.y - ny) < 0.5 && Math.abs(target.scale - ns) < 0.001) {
         targetTransformRef.current = null
         transformRef.current = { x: target.x, y: target.y, scale: target.scale }
@@ -302,7 +337,7 @@ export function useCanvasCamera({
         transformRef.current = { x: nx, y: ny, scale: ns }
       }
     }
-  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets, presentationRef])
+  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets, presentationRef, reducedMotionRef])
 
   /** Is the camera still going somewhere (lerp to a target, pan inertia, auto-fit refreshing its target)? The draw loop then keeps its frame rate. */
   const isCameraBusy = useCallback(() => {

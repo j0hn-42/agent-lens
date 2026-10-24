@@ -8,11 +8,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
-import { PresentationSubtitle } from '@/components/agent-visualizer/presentation-subtitle'
+import { PresentationBadge, PresentationSubtitle } from '@/components/agent-visualizer/presentation-subtitle'
+import { setLocaleChoice } from '@/lib/locale'
 import { usePresentationSubtitle } from '@/hooks/use-presentation'
 import { PRESENTATION_STORAGE_KEY } from '@/lib/presentation'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import type { Agent } from '@/lib/agent-types'
+import { pressInMore } from './topbar-more'
 
 // jsdom's storage is on window only; the app reads the bare global
 Object.defineProperty(globalThis, 'localStorage', { value: window.localStorage, configurable: true })
@@ -38,26 +40,26 @@ const press = async (key: string) => { await act(async () => { fireEvent.keyDown
 
 test('V starts presentation mode: announced, with a named stop button; V stops it', async () => {
   const r = await mount()
-  assert.equal(r.queryByRole('button', { name: 'Stop presentation mode' }), null, 'off at start')
+  assert.equal(r.queryByRole('button', { name: 'Presentation mode · V to stop' }), null, 'off at start')
   await press('v')
   assert.match(statusText(r.container), /Presentation mode on/)
-  assert.ok(r.getByRole('button', { name: 'Stop presentation mode' }))
+  assert.ok(r.getByRole('button', { name: 'Presentation mode · V to stop' }))
   await press('v')
   assert.match(statusText(r.container), /Presentation mode off/)
-  assert.equal(r.queryByRole('button', { name: 'Stop presentation mode' }), null)
+  assert.equal(r.queryByRole('button', { name: 'Presentation mode · V to stop' }), null)
 })
 
 test('the stop button is keyboard operable and Escape also stops the mode', async () => {
   const r = await mount()
   await press('v')
-  const stop = r.getByRole('button', { name: 'Stop presentation mode' })
+  const stop = r.getByRole('button', { name: 'Presentation mode · V to stop' })
   assert.equal(stop.tagName, 'BUTTON')
   await act(async () => { fireEvent.click(stop) })
   await settle()
-  assert.equal(r.queryByRole('button', { name: 'Stop presentation mode' }), null)
+  assert.equal(r.queryByRole('button', { name: 'Presentation mode · V to stop' }), null)
   await press('v')
   await press('Escape')
-  assert.equal(r.queryByRole('button', { name: 'Stop presentation mode' }), null, 'Escape leaves the mode when nothing else is open')
+  assert.equal(r.queryByRole('button', { name: 'Presentation mode · V to stop' }), null, 'Escape leaves the mode when nothing else is open')
 })
 
 test('masking marks the document while the mode is on and clears it when it stops', async () => {
@@ -97,9 +99,11 @@ test('panels that show the content of a session carry data-sensitive (blurred un
 
 test('Settings has a Presentation section with named switches that persist', async () => {
   const r = await mount()
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /settings/i })) })
+  await pressInMore(() => r.getByRole('button', { name: /settings/i }))
   await settle()
   const dialog = r.getByRole('dialog')
+  // Settings sit in tabs since #533: Presentation is in the "Sessions and presentation" tab
+  await act(async () => { fireEvent.click(r.getByRole('tab', { name: 'Sessions and presentation' })) })
   const section = dialog.querySelector('section[aria-label="Presentation"]') as HTMLElement
   assert.ok(section, 'Presentation section')
   for (const name of ['Subtitles of transitions', 'Mask sensitive data', 'Follow the active agent']) {
@@ -111,7 +115,7 @@ test('Settings has a Presentation section with named switches that persist', asy
   assert.equal(JSON.parse(localStorage.getItem(PRESENTATION_STORAGE_KEY) ?? '{}').mask, false)
   await act(async () => { fireEvent.click(r.getByRole('switch', { name: /^Presentation mode/ })) })
   await settle()
-  assert.ok(r.container.ownerDocument.querySelector('button[aria-label="Stop presentation mode"]'))
+  assert.ok(r.container.ownerDocument.querySelector('button[lang="en"][title="Stop presentation mode (V)"]'))
 })
 
 // ── Subtitle hook ─────────────────────────────────────────────────────────────
@@ -160,6 +164,24 @@ test('subtitle: masked, the agent is named by its role', async () => {
   await settle()
   const text = r.getByRole('status', { name: 'Presentation subtitle' }).textContent ?? ''
   assert.equal(text, 'Main agent: Thinking → Complete')
+})
+
+test('badge: its text, name and tooltip follow the language (#613)', () => {
+  for (const [locale, text, name, title] of [
+    ['en', 'Presentation mode · V to stop', 'Presentation mode · V to stop', 'Stop presentation mode (V)'],
+    ['fr', 'Mode présentation · V pour arrêter', 'Mode présentation · V pour arrêter', 'Arrêter le mode présentation (V)'],
+  ] as const) {
+    setLocaleChoice(locale)
+    try {
+      const r = render(<PresentationBadge onStop={() => {}} />)
+      const button = r.getByRole('button', { name })
+      assert.equal(button.textContent, text, locale)
+      assert.equal(button.getAttribute('title'), title, locale)
+      cleanup()
+    } finally {
+      setLocaleChoice('auto')
+    }
+  }
 })
 
 test('subtitle: replayed history says nothing', async () => {

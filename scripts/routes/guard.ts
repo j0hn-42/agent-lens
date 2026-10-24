@@ -7,7 +7,7 @@ import * as http from 'http'
 import { isLoopbackAddress, type KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { statusRateKey, isCrossOriginRequest } from '../../extension/src/relay-guards'
 import { applySecurityHeaders } from '../server-hardening'
-import { requestHostClass, isRemoteCrossOrigin, remoteRateKey } from '../remote-access'
+import { requestHostClass, isRemoteCrossOrigin, isRemotePaired, remoteRateKey } from '../remote-access'
 
 export type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
 
@@ -19,7 +19,8 @@ export interface GuardOptions {
   /** Refuse aussi (403) les requêtes d'un autre site (Origin / Sec-Fetch-Site) : pour les routes qui lancent un processus. */
   rejectCrossOrigin?: boolean
   /** Noms d'hôte de tunnel acceptés en plus du loopback (--allow-host, #241). Réservé aux routes en lecture seule ;
-   *  pour ces hôtes, seule l'origine https://<hôte> est acceptée. Absent : loopback seul. */
+   *  pour ces hôtes, seule l'origine https://<hôte> est acceptée, et le cookie d'appairage est exigé (401 sinon, #475).
+   *  Absent : loopback seul. */
   allowedHosts?: readonly string[]
   /** Limiter key for loopback callers (default: peer + Origin + User-Agent). Routes that start a process use the peer
    *  address alone: Origin and User-Agent are chosen by the client, so keying on them lets a caller reset its own budget. */
@@ -43,7 +44,7 @@ export function sendJson(req: http.IncomingMessage, res: http.ServerResponse, st
   res.end(req.method === 'HEAD' ? undefined : body)
 }
 
-/** Enveloppe un handler : 403 (pair/Host non loopback, ou autre site), 405 (méthode), 429 (débit), sinon le handler. */
+/** Enveloppe un handler : 403 (pair/Host non loopback, ou autre site), 401 (tunnel non appairé), 405 (méthode), 429 (débit), sinon le handler. */
 export function guardedRoute(options: GuardOptions, handler: RouteHandler): RouteHandler {
   const methods = options.methods ?? ['GET', 'HEAD']
   const allow = methods.join(', ')
@@ -55,6 +56,12 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
     }
     if (hostClass === 'allowed' && isRemoteCrossOrigin(req.headers, req.headers.host ?? '')) {
       return sendPlain(res, 403, 'Forbidden')
+    }
+    // Through a tunnel, nothing is read without a live pairing cookie (#475); same 401 for every reason. The pairing of
+    // a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest), the first step of
+    // every createRelay caller that passes allowedHosts (remote-gate-wiring.test.ts, #535)
+    if (hostClass === 'allowed' && !isRemotePaired(req, options.allowedHosts ?? [])) {
+      return sendPlain(res, 401, 'Unauthorized', { 'Cache-Control': 'no-store' })
     }
     if (hostClass === 'loopback' && options.rejectCrossOrigin && isCrossOriginRequest(req.headers, req.headers.host)) {
       return sendPlain(res, 403, 'Forbidden')

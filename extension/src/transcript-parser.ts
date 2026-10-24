@@ -36,9 +36,10 @@ import {
   buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, sanitizeAgentName, sanitizeMessageContent,
   MessageDeduper, type TeamLinkEvents,
 } from './team-links'
+import { globListingOf } from './search-listing'
 import { sanitizeTeamField, parseTeammateSpawnResult, type TeammateSpawnResult } from './teammate'
 import { createLogger } from './logger'
-import { asyncLaunchOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
+import { asyncLaunchOf, resumedAgentOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
 
 const log = createLogger('TranscriptParser')
 
@@ -363,6 +364,8 @@ export class TranscriptParser {
           toolUseId: launch.toolUseId,
           isError: n.terminalStatus !== 'completed',
           ...(durationS !== undefined ? { durationS } : {}),
+          // The notice's own duration was recorded by the runtime, not measured here (#365)
+          ...(n.durationMs !== undefined ? { durationSource: 'recorded' } : {}),
         },
       }, sessionId)
       this.delegate.emit({
@@ -760,6 +763,11 @@ export class TranscriptParser {
     if (!pending) { return }
     const toolName = pending.name
     const isSubagentTool = toolName === 'Task' || toolName === 'Agent'
+    // A SendMessage that resumed a finished background subagent: its next completed notice finishes it again (#433)
+    if (toolName === 'SendMessage' && block.is_error !== true) {
+      const resumed = resumedAgentOf(toolUseResult)
+      if (resumed) this.backgroundLaunches.resume(resumed, sessionId ?? '')
+    }
     // Subagent reports are kept up to MESSAGE_MAX so the full report can be shown
     const result = summarizeResult(block.content, isSubagentTool ? MESSAGE_MAX : RESULT_MAX)
     const tokenCost = estimateTokensFromContent(block.content)
@@ -789,6 +797,7 @@ export class TranscriptParser {
       ? block.is_error
       : !isSubagentTool && detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
+    const listing = isError ? null : globListingOf(toolName, toolUseResult)
 
     // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
     // returns nor completes here.
@@ -848,6 +857,8 @@ export class TranscriptParser {
         tokenSource: 'estimated',
         toolUseId: block.tool_use_id,
         ...(discovery ? { discovery } : {}),
+        // The files a Glob's structured result proves it listed (#451); a failed call lists none
+        ...(!isError && listing ? { listing } : {}),
         ...(isError ? { isError, errorMessage } : {}),
         ...(isError && INTERRUPTED_RESULT.test(result) ? { outcome: 'cancelled' } : {}),
       },
@@ -959,6 +970,8 @@ export class TranscriptParser {
                   const record = this.getSubagentRegistry(session.sessionId)
                     .registerDispatch(toolBlock.id, resolveSubagentChildName(toolBlock.input), ORCHESTRATOR_NAME)
                   record.spawned = true
+                  // Known, not announced: the subagent file watcher owes its spawn while it shows no end (#446)
+                  this.getSubagentRegistry(session.sessionId).markFromHistory(record)
                   session.spawnedSubagents.add(record.name)
                   this.subagentChildNames.set(toolBlock.id, record.name)
                   if (sanitizeTeamField(toolBlock.input.team_name) && this.teammateSpawnIds.size < 256) {
@@ -978,11 +991,18 @@ export class TranscriptParser {
                 const asyncLaunch = launched && (launched.name === 'Agent' || launched.name === 'Task')
                   && !this.teammateSpawnIds.has(resultBlock.tool_use_id) ? asyncLaunchOf(parsedEntry.toolUseResult) : null
                 const childName = this.subagentChildNames.get(resultBlock.tool_use_id)
+                if (launched?.name === 'SendMessage' && resultBlock.is_error !== true) {
+                  const resumed = resumedAgentOf(parsedEntry.toolUseResult)
+                  if (resumed) this.backgroundLaunches.resume(resumed, session.sessionId)
+                }
                 if (asyncLaunch && childName) {
                   this.backgroundLaunches.register({
                     toolUseId: resultBlock.tool_use_id, childName, parent: ORCHESTRATOR_NAME, sessionId: session.sessionId,
                     ...(asyncLaunch.agentId ? { agentId: asyncLaunch.agentId } : {}),
                   })
+                  // The receipt names the subagent's file (agent-<agentId>.jsonl): bind it to this dispatch (#446)
+                  const record = this.getSubagentRegistry(session.sessionId).getByToolUseId(resultBlock.tool_use_id)
+                  if (record && asyncLaunch.agentId) this.getSubagentRegistry(session.sessionId).bindFileKey(record, asyncLaunch.agentId)
                 }
                 // Clear matched pending tool call
                 session.pendingToolCalls.delete(resultBlock.tool_use_id)
@@ -1037,6 +1057,18 @@ export class TranscriptParser {
       session.fileTail = ''
       return []
     }
+  }
+
+  /**
+   * Is this subagent dispatch still open, as far as the transcript proves (#446)? A synchronous dispatch
+   * until its tool_result, a background one until a terminal <task-notification> (a SendMessage resume
+   * re-opens it, #433). A teammate spawn is not a subagent run (its own watcher announces it).
+   */
+  isSubagentDispatchOpen(session: WatchedSession, toolUseId: string): boolean {
+    if (this.teammateSpawnIds.has(toolUseId)) return false
+    const pending = session.pendingToolCalls.get(toolUseId)
+    if (pending && (pending.name === 'Agent' || pending.name === 'Task')) return true
+    return this.backgroundLaunches.has(toolUseId)
   }
 
   /** Pre-scan: a launch already notified as finished in the history is no longer open (nothing is emitted). */

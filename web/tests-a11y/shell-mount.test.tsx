@@ -9,6 +9,7 @@ import { vscodeBridge } from '@/lib/vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair, getPair } from '@/lib/pair-filter-store'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { clickInMore } from './topbar-more'
 
 // Web Audio is not in jsdom: a deep no-op stub
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
@@ -66,10 +67,11 @@ async function mountTwoSessions() {
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
     post(spawn('sb', 'main-b', { isMain: true }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
   const agentItems = () => Array.from(r.container.querySelectorAll('li')).map(li => li.textContent ?? '')
   await waitUntil(() => ['main-a', 'worker-a', 'main-b'].every(n => agentItems().some(t => t.startsWith(n))), 'the three agents are drawn')
-  await wait(300)
+  // the halos carry the session meta once the layout has grouped the agents: wait for that, not for a fixed time (#440)
+  await waitUntil(() => (r.container.textContent ?? '').includes('Session payments-api, 2 agents') && (r.container.textContent ?? '').includes('Session web-app, 1 agent'), 'both session halos are drawn')
   return r
 }
 
@@ -82,8 +84,11 @@ function shiftClickAt(el: Element, x: number, y: number) {
 /** Shift-click scan over the area where the layout puts the agents, until `done` holds (jsdom has no layout).
  *  A Shift-click on the agent already picked toggles it off, so a hit on the same agent must be undone, not counted. */
 function shiftClickScan(el: Element, done: () => boolean): boolean {
-  for (let x = 280; x <= 520; x += 4) {
-    for (let y = 130; y <= 270; y += 4) {
+  // Step 8: an agent is hit within at least 12 px of its centre (HIT_DETECTION.minAgentRadiusPx), so no agent slips between
+  // two probes. Step 4 cost 10-25 s per pass on a loaded machine (2000 probes, each a React update): the 25 s deadline
+  // then left room for one or two passes, and the first one often runs before the layout has settled (#440).
+  for (let x = 280; x <= 520; x += 8) {
+    for (let y = 130; y <= 270; y += 8) {
       const before = getPair()
       shiftClickAt(el, x, y)
       if (done()) return true
@@ -117,10 +122,9 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     post({ type: '__vscode-bridge-init' })
     post({
       type: 'session-list',
-      sessions: [
-        info('sa', 'payments-api', '/w/payments'),
-        { ...info('sb', 'web-app', '/w/web'), status: 'completed', lastActivityTime: Date.now() - 3 * 3_600_000 },
-      ],
+      // One session: since #372 one toggle shows the idle agents AND the finished sessions ('all'), so a finished second
+      // session would be drawn too once the idle agents are shown
+      sessions: [info('sa', 'payments-api', '/w/payments')],
     })
   })
   await wait(100)
@@ -130,9 +134,8 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Hide inactive agents' })) })
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
   await waitUntil(() => r.container.textContent?.includes('Session payments-api, 2 agents') ?? false, 'the payments-api halo is drawn')
-  await wait(300)
   await openSessions(r)
   const tab = () => sessionRow(r, /payments-api/)
   assert.equal(sessionRows(r)[0].getAttribute('aria-current'), 'true', 'All is selected before the click')

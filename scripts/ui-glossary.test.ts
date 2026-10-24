@@ -3,20 +3,40 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
+  PANEL_NAMES, PANEL_SUMMARIES, COST_LABELS, HIERARCHY_TERMS, emptyState, emptyMatch, hiddenPanelsText,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
+import { MESSAGES } from '../web/lib/messages'
+import { MESSAGE_DOMAINS } from '../web/lib/messages/domains'
 import {
   EMPTY_MESSAGES, EMPTY_SEARCH, COLLAPSED_TEXT_MAX, TOOL_MESSAGE_TYPES, buildFeedMessages, latestFeedMessage,
   filterBySearch, tabForSelection,
 } from '../web/lib/feed-utils'
 import type { ConversationMessage } from '../web/hooks/simulation/types'
 
+/**
+ * The source files of the message catalog: the assembly point, its REGISTERED domain files (#612) and shared.ts (the one
+ * French panel name the domains share), in a fixed order. Only these may hold accented text: domains.ts or any other
+ * file of that folder that is not a domain is checked like any source (#613).
+ */
+const CATALOG_FILES = [
+  join('web/lib', 'messages.ts'), join('web/lib', 'messages', 'shared.ts'),
+  ...Object.keys(MESSAGE_DOMAINS).sort().map(name => join('web/lib', 'messages', `${name}.ts`)),
+]
+
+test('the accent allow-list is the assembly point, shared.ts and the registered domains, not every file of web/lib/messages/ (#613)', () => {
+  assert.ok(!CATALOG_FILES.includes(join('web/lib', 'messages', 'domains.ts')))
+  for (const f of CATALOG_FILES) assert.ok(existsSync(f), `${f} exists`)
+  assert.equal(CATALOG_FILES.length, 2 + Object.keys(MESSAGE_DOMAINS).length)
+  // A file of the folder that is neither registered nor shared.ts (a future helper) is not allowed
+  assert.ok(!CATALOG_FILES.includes(join('web/lib', 'messages', 'future-helper.ts')))
+})
+
 const msg = (id: string, type: ConversationMessage['type'], timestamp: number, content: string, extra: Partial<ConversationMessage> = {}): ConversationMessage =>
   ({ id, type, timestamp, content, ...extra })
 
 test('the glossary fixes the panel names and the agent hierarchy', () => {
-  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats' })
+  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files & repeats', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats', system: 'System' })
   assert.equal(HIERARCHY_TERMS.main, 'Main')
   assert.equal(HIERARCHY_TERMS.lead, 'Lead')
 })
@@ -24,23 +44,31 @@ test('the glossary fixes the panel names and the agent hierarchy', () => {
 test('one empty-state wording: "No <things> yet", shared by the glossary and the message lists', () => {
   assert.equal(emptyState('files'), 'No files yet')
   assert.equal(emptyMatch('messages'), 'No matching messages')
-  assert.equal(CONVERSATION_LABELS.empty, 'No messages yet')
-  assert.equal(EMPTY_MESSAGES, CONVERSATION_LABELS.empty)
-  assert.equal(EMPTY_SEARCH, CONVERSATION_LABELS.emptySearch)
+  assert.equal(EMPTY_MESSAGES, 'No messages yet')
+  assert.equal(EMPTY_SEARCH, 'No matching messages')
 })
 
 test('the Conversation button is named with its shortcut and the pill/close controls use the same name', () => {
-  assert.equal(openPanelLabel('conversation', 'C'), 'Conversation (C)')
-  assert.equal(CONVERSATION_LABELS.buttonLabel, 'Conversation (C)')
-  assert.equal(CONVERSATION_LABELS.buttonText, 'Conversation')
-  assert.equal(CONVERSATION_LABELS.open, 'Open Conversation')
-  assert.equal(CONVERSATION_LABELS.close, 'Close Conversation')
+  // The top bar names come from messages.ts since #523 (an icon under 1280 px); in English they are the glossary names
+  assert.equal(MESSAGES.en['topbar.panel.conversation.name'], `${PANEL_NAMES.conversation} (C)`)
+  // Cost too since #613 (it was "$Cost", read "dollar Cost"; its shortcut $ is in the tooltip)
+  for (const p of ['files', 'timeline', 'stats', 'cost'] as const) assert.equal(MESSAGES.en[`topbar.panel.${p}.name`], PANEL_NAMES[p])
+  assert.equal(MESSAGES.en['topbar.panel.context.name'], `${PANEL_NAMES.context} (P)`)
+  assert.equal(MESSAGES.en['topbar.panel.system.name'], `${PANEL_NAMES.system} (Y)`)
+  // One source for the English tooltips (#545 review): built from the glossary, never a copy that can drift
+  assert.equal(MESSAGES.en['topbar.panel.cost.tooltip'], `Cost overlay ($). ${COST_LABELS.method}`)
+  assert.equal(MESSAGES.en['topbar.panel.context.tooltip'], `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`)
+  // The catalog is messages.ts and its domain files (#612): none of them copies a glossary text by hand
+  const catalog = CATALOG_FILES.map(f => readFileSync(f, 'utf8')).join('\n')
+  assert.ok(CATALOG_FILES.length > 2, 'the domain files of the catalog are read')
+  assert.equal(catalog.includes(COST_LABELS.method), false, 'the catalog does not copy COST_LABELS.method by hand')
+  assert.equal(catalog.includes(PANEL_SUMMARIES.context), false, 'the catalog does not copy PANEL_SUMMARIES.context by hand')
 })
 
 test('the shortcuts table names the panels with the glossary words; key C toggles the Conversation panel', () => {
   const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
   assert.equal(byKey.get('c')!.description, 'Toggle Conversation panel')
-  assert.equal(byKey.get('f')!.description, 'Toggle Files panel')
+  assert.equal(byKey.get('f')!.description, 'Toggle Files & repeats panel')
   assert.equal(byKey.get('t')!.description, 'Toggle Timeline panel')
   assert.equal(byKey.get('$')!.description, 'Toggle Cost overlay')
   for (const s of SHORTCUTS) assert.ok(!/transcript|chat|message feed/i.test(s.description), `old vocabulary in: ${s.description}`)
@@ -92,15 +120,16 @@ test('Tempo labels are centralised in the glossary, in English (#123)', async ()
   const glossary = await import('../web/lib/ui-glossary')
   const lifecycle = await import('../web/lib/tool-lifecycle')
   const usage = await import('../web/lib/usage')
-  assert.deepEqual(glossary.USAGE_LABELS, { unavailable: 'not reported', atLeast: 'at least', estimated: 'estimated' })
+  assert.deepEqual(glossary.USAGE_LABELS, { unavailable: 'not reported', atLeast: 'at least', estimated: 'estimated', incomplete: '(incomplete)' })
   assert.equal(lifecycle.END_NOT_OBSERVED, glossary.END_NOT_OBSERVED)
   assert.equal(lifecycle.EXPIRED_WARNING, glossary.EXPIRED_WARNING)
   assert.equal(usage.USAGE_LABELS, glossary.USAGE_LABELS)
 })
 
 test('no accented character in UI code outside comments (the UI is English only, #123)', () => {
-  // The message catalog (#247) is the one place that carries translated text; the rest of the UI code stays accent free
-  const allowed = new Set<string>([join('web/lib', 'messages.ts')])
+  // The message catalog (#247) is the one place that carries translated text; the rest of the UI code stays accent free.
+  // Since #612 it is messages.ts plus its domain files in web/lib/messages/.
+  const allowed = new Set<string>(CATALOG_FILES)
   const hits: string[] = []
   const walk = (dir: string) => {
     if (!existsSync(dir)) return
@@ -118,4 +147,114 @@ test('no accented character in UI code outside comments (the UI is English only,
   }
   for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
   assert.deepEqual(hits, [], 'accented (non-English) text in UI code')
+})
+
+test('hidden panels sentence (#410): names the open panels a sheet hides, nothing when none', () => {
+  assert.equal(hiddenPanelsText([]), '')
+  assert.equal(hiddenPanelsText(['conversation']), '1 panel hidden: Conversation. Close the panel shown to see it.')
+  assert.equal(hiddenPanelsText(['detail', 'files', 'link']), '3 panels hidden: Agent card, Files & repeats, Link. Close the panel shown to see Link.')
+  assert.equal(hiddenPanelsText(['files', 'timeline']), '2 panels hidden: Files & repeats, Timeline. Close the panel shown to see Timeline.')
+  // Context takes the Files slot of the dock: it is named Context while it is the one open
+  assert.equal(hiddenPanelsText(['files'], { context: true }), '1 panel hidden: Context. Close the panel shown to see it.')
+})
+
+test('one name per thing (#372): Context, Timeline and Sessions never take a second meaning', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  // "Context" is the project panel; the model's token window is always the "Context window"
+  assert.equal(g.CONTEXT_WINDOW_NAME, 'Context window')
+  assert.notEqual(g.CONTEXT_WINDOW_NAME, PANEL_NAMES.context)
+  assert.equal(g.PANEL_SUMMARIES.context, 'project CLAUDE.md, memory, issues')
+  // "Timeline" is the panel; the control-bar slider is the playback position
+  assert.equal(g.PLAYBACK_LABELS.position, 'Playback position')
+  assert.ok(!g.PLAYBACK_LABELS.position.includes(PANEL_NAMES.timeline))
+  // The list opened by L has one name in the top bar, the Shortcuts dialog and the palette
+  assert.equal(g.SESSIONS_LIST_NAME, 'Sessions and agents')
+  const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
+  assert.equal(byKey.get('l')!.description, `Toggle ${g.SESSIONS_LIST_NAME} list`)
+  assert.equal(byKey.get('p')!.description, `Toggle ${PANEL_NAMES.context} panel (${g.PANEL_SUMMARIES.context})`)
+})
+
+test('hiding a session says what it does and that it comes back (#372)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.SESSION_LIST_LABELS.hide, 'Hide session (reappears on new activity or after a reconnect)')
+  // The accessible name and the tooltip say the same thing, return after a reconnect included
+  assert.equal(g.SESSION_LIST_LABELS.hideNamed('Refactor'), 'Hide session Refactor (reappears on new activity or after a reconnect)')
+  assert.equal(g.SESSION_LIST_LABELS.hidden('Refactor'), 'Session hidden: Refactor')
+  assert.equal(g.SESSION_LIST_LABELS.hiddenUnnamed, 'Session hidden')
+  assert.equal(g.SESSION_LIST_LABELS.activeOnly, 'Active only')
+  // 'Active only' is not the 10-minute window of the 'All' view: the tooltip says the rule it applies
+  // A session-ended also comes from the relay when it stops watching (size cap, read error, scope change):
+  // the tooltip must not call every hidden session one whose end was observed
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /end was observed/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /no longer watched/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /never heard from/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /no time limit/i)
+})
+
+test('the retired double meanings are gone from the UI code (#372)', () => {
+  const retired = ['Timeline position', 'Timeline scrubber', 'Context usage', 'Close session', 'Session closed', 'Toggle Sessions list', 'Hide sessions that are finished']
+  const hits: string[] = []
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.next') walk(p); continue }
+      if (!/\.(ts|tsx)$/.test(e.name)) continue
+      readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
+        const t = line.trim()
+        if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return
+        for (const word of retired) if (line.includes(word)) hits.push(`${p}:${i + 1}: ${word}`)
+      })
+    }
+  }
+  for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
+  assert.deepEqual(hits, [])
+})
+
+test('the top bar disclosure, More (one-line bar): its visible text starts its accessible name (2.5.3) and names what it holds', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.TOP_BAR_LABELS.more, 'More')
+  assert.ok(g.TOP_BAR_LABELS.moreName.startsWith(g.TOP_BAR_LABELS.more))
+  assert.equal(g.TOP_BAR_LABELS.moreName, 'More: scope, filters, quota and tools')
+  assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /agent counts/, 'no agent counts in the bar any more (#523: Sessions panel header)')
+  assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /tokens|cost/, 'no token total or cost in the bar any more (#523)')
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /scope.*filters.*quota.*tools/, 'More holds the scope, the filters, the quota and the tools at every width')
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /panel buttons too under 1024 px/, 'and the panel buttons under 1024 px')
+})
+
+test('folded with a filter on, the More button says so on screen and in its name (#378)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(1), 'More · 1 filter')
+  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(2), 'More · 2 filters')
+  const one = g.TOP_BAR_LABELS.moreNameWithFilters([g.TOP_BAR_LABELS.filterHideInactiveWithCount(3)])
+  assert.equal(one, 'More · 1 filter on: scope, filters, quota and tools (Hide inactive · finished sessions hidden: 3)')
+  // 2.5.3: the accessible name starts with the visible text
+  assert.ok(one.startsWith(g.TOP_BAR_LABELS.moreWithFilters(1)))
+  const two = g.TOP_BAR_LABELS.moreNameWithFilters([g.TOP_BAR_LABELS.filterHideInactive, 'Another filter'])
+  assert.ok(two.startsWith(g.TOP_BAR_LABELS.moreWithFilters(2)))
+  assert.match(two, /Hide inactive, Another filter/)
+})
+
+test('no ambiguous filter name: the top bar filter and the Sessions panel filter never share a name (#372)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  // Two different rules (agents, plus a 10-minute window in All / a list filter with no time limit): two names that
+  // neither equal nor contain each other, in the glossary and in each language of the interface
+  const pairs: Array<[string, string, string]> = [
+    ['glossary', g.TOP_BAR_LABELS.filterHideInactive, g.SESSION_LIST_LABELS.activeOnly],
+    ['en', MESSAGES.en['show.hideInactive'], MESSAGES.en['sessions.activeOnly']],
+    ['fr', MESSAGES.fr['show.hideInactive'], MESSAGES.fr['sessions.activeOnly']],
+  ]
+  for (const [where, bar, panel] of pairs) {
+    const a = bar.toLowerCase(), b = panel.toLowerCase()
+    assert.notEqual(a, b, `${where}: same name`)
+    assert.ok(!a.includes(b) && !b.includes(a), `${where}: "${bar}" and "${panel}" contain each other`)
+  }
+  // No other message of either language takes the exact name of one of these two filters
+  for (const l of ['en', 'fr'] as const) {
+    const owners = new Map<string, string>([[MESSAGES[l]['show.hideInactive'], 'show.hideInactive'], [MESSAGES[l]['sessions.activeOnly'], 'sessions.activeOnly']])
+    for (const [key, value] of Object.entries(MESSAGES[l])) {
+      const owner = owners.get(value)
+      if (owner !== undefined) assert.equal(key, owner, `${l}: ${key} reuses the name of ${owner}`)
+    }
+  }
 })

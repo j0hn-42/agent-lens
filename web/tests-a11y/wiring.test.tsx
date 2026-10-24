@@ -4,11 +4,15 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
-import { render, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, act, renderHook } from '@testing-library/react'
 
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+import { useReviewControls } from '@/hooks/use-review-controls'
+import { PanelDock } from '@/components/agent-visualizer/panel-dock'
+import { useUiPreferences } from '@/hooks/use-ui-preferences'
+import { createPrefsStore, type PrefsStore, type StorageLike } from '@/lib/ui-preferences'
 
 afterEach(() => {
   cleanup()
@@ -31,7 +35,7 @@ function reviewBar(over: Partial<React.ComponentProps<typeof ControlBar>> = {}) 
 test('review scrubber: arrow, Home and End keys call onSeek through the real handler', () => {
   const seeks: number[] = []
   const { getByRole } = reviewBar({ onSeek: t => seeks.push(t) })
-  const slider = getByRole('slider', { name: 'Timeline position' })
+  const slider = getByRole('slider', { name: 'Playback position' })
   assert.equal(slider.tabIndex, 0, 'scrubber is focusable')
   fireEvent.keyDown(slider, { key: 'ArrowRight' })
   fireEvent.keyDown(slider, { key: 'ArrowLeft' })
@@ -104,11 +108,11 @@ function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boo
   const rec = (name: string) => () => { props.calls.push(name) }
   useKeyboardShortcuts({
     togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleSessionList: rec('sessions'), toggleConversation: rec('conversation'),
-    toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'),
+    toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'), toggleSystem: rec('system'),
     toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'), toggleFullscreen: rec('fullscreen'), togglePresentation: rec('presentation'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
     clearSelection: rec('clearSelection'), toggleMute: rec('mute'), setSpeed: () => { props.calls.push('speed') },
-    openShortcuts: rec('shortcuts'), undoLast: () => { props.calls.push('undo'); return false },
+    openShortcuts: rec('shortcuts'), openSettings: rec('settings'), undoLast: () => { props.calls.push('undo'); return false },
     singleKeyEnabled: props.singleKey ?? true,
   })
   return <button type="button" onClick={() => props.calls.push('button-click')}>Action</button>
@@ -141,13 +145,35 @@ test('Escape from a focused button still closes panels (works after Tab navigati
   assert.deepEqual(calls, ['closeTop'])
 })
 
-test('single-key shortcuts are inert when disabled, but Escape and ? keep working', () => {
+test('single-key shortcuts, including ?, are inert when disabled, but Escape keeps working (#376)', () => {
   const calls: string[] = []
   render(<Harness calls={calls} closeResult singleKey={false} />)
   fireEvent.keyDown(document.body, { key: 't' })
   fireEvent.keyDown(document.body, { key: 'Escape' })
   fireEvent.keyDown(document.body, { key: '?' })
-  assert.deepEqual(calls, ['closeTop', 'shortcuts'])
+  assert.deepEqual(calls, ['closeTop'])
+})
+
+test('letters work with a button focused (focus returned by Escape), Space still belongs to the button (#376)', () => {
+  const calls: string[] = []
+  const { getByRole } = render(<Harness calls={calls} closeResult />)
+  const button = getByRole('button', { name: 'Action' })
+  button.focus()
+  fireEvent.keyDown(button, { key: 'y' })
+  fireEvent.keyDown(button, { key: 'p' })
+  fireEvent.keyDown(button, { key: 'l' })
+  fireEvent.keyDown(button, { key: ' ' })
+  assert.deepEqual(calls, ['system', 'context', 'sessions'])
+})
+
+test('Shift decides between Files and Zoom to fit, not the case of the letter (Caps Lock) (#376)', () => {
+  const calls: string[] = []
+  render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: 'f' })
+  fireEvent.keyDown(document.body, { key: 'F', shiftKey: true })
+  fireEvent.keyDown(document.body, { key: 'F' })
+  fireEvent.keyDown(document.body, { key: 'f', shiftKey: true })
+  assert.deepEqual(calls, ['files', 'fit', 'files', 'fit'])
 })
 
 test('P toggles the Context panel and S the Stats panel (#124)', () => {
@@ -156,6 +182,14 @@ test('P toggles the Context panel and S the Stats panel (#124)', () => {
   fireEvent.keyDown(document.body, { key: 'p' })
   fireEvent.keyDown(document.body, { key: 'S' })
   assert.deepEqual(calls, ['context', 'stats'])
+})
+
+test('Y toggles the System panel', () => {
+  const calls: string[] = []
+  render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: 'y' })
+  fireEvent.keyDown(document.body, { key: 'Y' })
+  assert.deepEqual(calls, ['system', 'system'])
 })
 
 test('V toggles presentation mode, and is inert when single-key shortcuts are off (#245)', () => {
@@ -193,4 +227,101 @@ test('context menu: first item gets focus, arrows move it, Enter activates, Esca
   assert.ok(log.includes('remove'))
   fireEvent.keyDown(items[0], { key: 'Escape' })
   assert.ok(log.includes('close'))
+})
+
+test('the comma key opens Settings, from the page and from a focused button, and follows the single-key preference (#411)', () => {
+  const calls: string[] = []
+  const { getByRole, unmount } = render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: ',' })
+  fireEvent.keyDown(getByRole('button', { name: 'Action' }), { key: ',' })
+  assert.deepEqual(calls, ['settings', 'settings'])
+  unmount()
+  const off: string[] = []
+  render(<Harness calls={off} closeResult singleKey={false} />)
+  fireEvent.keyDown(document.body, { key: ',' })
+  assert.deepEqual(off, [])
+})
+
+function reviewControls(isReviewing: boolean) {
+  const speeds: number[] = []
+  const toasts: { message: string }[] = []
+  const hook = renderHook(() => useReviewControls({
+    sim: {
+      isPlaying: true, maxTimeReached: 10, play: noop, pause: noop, restart: noop, seekToTime: noop,
+      saveSnapshot: (() => ({})) as never, restoreSnapshot: noop, setSpeed: (v: number) => { speeds.push(v) },
+    },
+    bridge: { pendingEvents: [], selectedSessionIdRef: { current: null }, flushSessionEvents: noop } as never,
+    isReviewing, setIsReviewing: noop, pushToast: t => { toasts.push(t) },
+    seekingRef: { current: false }, zoomToFit: noop, autoPlay: false,
+  }))
+  return { hook, speeds, toasts }
+}
+
+test('keys 1 to 4 in live mode say that speed applies in review mode, and change nothing (#411)', () => {
+  const { hook, speeds, toasts } = reviewControls(false)
+  hook.result.current.setSpeedInReview(2)
+  assert.deepEqual(speeds, [])
+  assert.equal(toasts.length, 1)
+  assert.match(toasts[0].message, /review/i)
+})
+
+test('keys 1 to 4 in review mode change the speed without a toast (#411)', () => {
+  const { hook, speeds, toasts } = reviewControls(true)
+  hook.result.current.setSpeedInReview(2)
+  assert.deepEqual(speeds, [2])
+  assert.deepEqual(toasts, [])
+})
+
+// Active only (#372): PanelDock hands the stored preference to the Sessions panel and writes each change back.
+// Rendering the panel alone (keyboard.test.tsx) cannot notice that wiring being dropped.
+test('PanelDock: the Active only choice goes to the preferences store and survives a remount (#372)', () => {
+  const memory = new Map<string, string>()
+  const storage: StorageLike = {
+    getItem: k => memory.get(k) ?? null,
+    setItem: (k, v) => { memory.set(k, v) },
+    removeItem: k => { memory.delete(k) },
+  }
+  const sync = (fn: () => void) => { fn(); return () => {} }
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'old', label: 'Old one', status: 'completed' as const, startTime: 0, lastActivityTime: 1 },
+  ]
+  const ref = () => ({ current: null })
+  const props = {
+    panels: {
+      panelRefs: { files: ref(), sessions: ref(), context: ref(), system: ref(), timeline: ref() },
+      showFileAttention: false, showSessions: true, showContext: false, showSystem: false, showTimeline: false,
+      setShowFileAttention: noop, setShowSessions: noop, setShowContext: noop, setShowSystem: noop, setShowTimeline: noop,
+    },
+    sim: { fileAttention: new Map(), waste: undefined, agents: new Map(), timelineEntries: new Map(), currentTime: 0 },
+    bridge: {
+      sessions, selectedSessionId: 'live', sessionsWithActivity: new Set(['live']), sessionModels: new Map(),
+      selectSession: noop, renameSession: noop, useMockData: true, isVSCode: false, connectionStatus: 'connected',
+      teams: new Map(), teamWorking: new Map(), teamSummaries: new Map(), teamMemberCounts: new Map(), relayScope: null,
+      systemStats: [], quota: null,
+    },
+    selection: { selectedAgentId: null, handleAgentClick: noop },
+    attention: undefined, health: { bySession: undefined },
+    sessionActions: { handleCloseSession: noop, handleExportSession: noop, canExportSession: () => false },
+    allSessionCount: 2, listAgents: new Map(), agentLabel: (k: string) => k, openFile: noop,
+    fetchContext: async () => null, contextOrigin: '',
+  } as unknown as Omit<React.ComponentProps<typeof PanelDock>, 'uiPrefs'>
+  function Dock({ store }: { store: PrefsStore }) {
+    const uiPrefs = useUiPreferences(store)
+    return <PanelDock {...props} uiPrefs={uiPrefs} />
+  }
+
+  const store = createPrefsStore({ storage, schedule: sync })
+  const first = render(<Dock store={store} />)
+  const toggle = first.getByRole('button', { name: 'Active only' })
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true', 'on by default')
+  assert.equal(first.queryByText('Old one'), null)
+  fireEvent.click(toggle)
+  assert.equal(store.getSnapshot().sessionListActiveOnly, false, 'the click reaches the store')
+  first.unmount()
+
+  // A reload: a new store over the same storage
+  const again = render(<Dock store={createPrefsStore({ storage, schedule: sync })} />)
+  assert.equal(again.getByRole('button', { name: 'Active only' }).getAttribute('aria-pressed'), 'false')
+  assert.ok(again.queryByText('Old one'), 'the finished session is listed after the remount')
 })

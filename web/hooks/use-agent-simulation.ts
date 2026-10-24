@@ -5,24 +5,24 @@ import {
   Agent,
   Edge,
   SimulationEvent,
-  type TimelineEntry,
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { contextWindowSize } from '@/lib/context-window'
-import { ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
+import { contextWindowSize, contextWindowAssumed } from '@/lib/context-window'
+import { ANIM_SPEED, toolExpiryConfig, setToolExpiryS } from '@/lib/canvas-constants'
+import { readUiPrefs } from '@/hooks/use-ui-preferences'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
-import { processEventBatch, eventSessionId, type ProcessEventContext } from './simulation/process-event'
+import { processEventBatch, type ProcessEventContext } from './simulation/process-event'
 import { findToolSlot } from './simulation/tool-slot'
 import {
   createCatchUp, enqueueCatchUp, runCatchUpSlice, catchUpProgress, clearCatchUp, copyCatchUp,
   CATCH_UP_FRAME_BUDGET_MS, type CatchUpQueue, type CatchUpProgress,
 } from './simulation/catch-up'
 import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } from './simulation/stamp-time'
-import { agentKeyOf } from './simulation/types'
+import { clearHistoryState } from './simulation/clear-history'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 import { carryFreshness } from './simulation/freshness'
@@ -47,8 +47,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
   const foreignAttentionRef = useRef<ForeignAttention>(new Map())
   const [foreignAttention, setForeignAttention] = useState<ForeignAttention>(foreignAttentionRef.current)
-  // The stored orphan-call expiry delay is read once after mount (server and first client render match)
-  useEffect(() => { loadToolExpiryS() }, [])
+  // The stored orphan-call expiry delay (preference blob, #372) is read once after mount (server and first client render match)
+  useEffect(() => { setToolExpiryS(readUiPrefs().toolExpiryS) }, [])
 
   // ─── State management ──────────────────────────────────────────────────────
   // frameRef: source of truth, updated every animation frame (no React render).
@@ -86,6 +86,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
   // The layout centres a parent on the children that are drawn: it follows 'Hide inactive agents'
   useEffect(() => { layoutRef.current?.setHideInactive(hideInactive) }, [hideInactive])
+  // Hidden agents the canvas draws all the same (selected, hovered, keyboard focus): the layout places them too (#554)
+  const setLayoutKeepIds = useCallback((ids: ReadonlyArray<string | null | undefined>) => {
+    layoutRef.current?.setKeepIds(ids)
+  }, [])
 
   // ─── Force simulation sync ───────────────────────────────────────────────
   // Rebuilds the nodes and anchors, runs the initial ticks and writes the positions into frameRef.
@@ -112,6 +116,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     (modelId?: string): number => contextWindowSize(modelId, disable1MContext),
     [disable1MContext],
   )
+  const isContextWindowAssumed = useCallback((modelId?: string): boolean => contextWindowAssumed(modelId), [])
 
   // A burst of spawns schedules one deferred layout sync per agent: the first one runs, the others queued
   // behind it are skipped (each sync rebuilds every node, and it reads frameRef, so one sees every spawn)
@@ -127,9 +132,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     syncForceSimulation: requestForceSync,
     findToolSlot,
     getContextWindowSize,
+    isContextWindowAssumed,
     blockIdCounter,
     skipForceSync: skipForceSyncRef.current,
-  }), [requestForceSync, getContextWindowSize])
+  }), [requestForceSync, getContextWindowSize, isContextWindowAssumed])
 
   // ─── History catch-up (#210) ─────────────────────────────────────────────
   // Received events wait in this queue and are reduced a frame budget at a time, so a burst (switch to
@@ -325,39 +331,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       return
     }
     // Keep active agents but clear completed state and visual history
-    const prev = frameRef.current
-    const agents = new Map<string, Agent>()
-    for (const [id, agent] of prev.agents) {
-      if (agent.state !== 'complete') {
-        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
-      }
-    }
-
-    const edges = prev.edges.filter(e =>
-      e.type === 'parent-child' && agents.has(e.from) && agents.has(e.to)
-    )
-
-    const timelineEntries = new Map<string, TimelineEntry>()
-    for (const [id, entry] of prev.timelineEntries) {
-      if (agents.has(id)) {
-        timelineEntries.set(id, { ...entry, blocks: [] })
-      }
-    }
-
-    const conversations: SimulationState['conversations'] = new Map()
-    for (const id of agents.keys()) conversations.set(id, [])
-
-    const keptLocalIds = new Set(Array.from(agents.values()).map(a => a.id))
-    const eventLog = prev.eventLog.filter(e =>
-      e.type === 'agent_spawn' && typeof e.payload?.name === 'string'
-      && keptLocalIds.has(agentKeyOf(eventSessionId(e), e.payload.name))
-    )
-
-    const next = {
-      ...createEmptyState({ isPlaying: true, speed: prev.speed }),
-      agents, edges, timelineEntries, conversations,
-      eventLog, eventIndex: eventLog.length,
-    }
+    const next = clearHistoryState(frameRef.current)
     commitState(next)
     setTimeout(() => syncForceSimulation(next.agents, next.edges), 0)
   }, [syncForceSimulation, commitState, publishCatchUp])
@@ -440,6 +414,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     droppedEvents: state.droppedEvents,
     /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
     droppedMessages: state.droppedMessages,
+    /** What the normalizer discarded, per session (normalization_stats) */
+    normalizationStats: state.normalizationStats,
     /** Usage that belongs to no single agent (orphan / ambiguous), see lib/attribution */
     unattributed: state.unattributed,
     /** Agents of other sessions blocked on a permission (see lib/attention) */
@@ -448,6 +424,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     catchUp,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
+    setLayoutKeepIds,
     saveSnapshot, restoreSnapshot,
   }
 }

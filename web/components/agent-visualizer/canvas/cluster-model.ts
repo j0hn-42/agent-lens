@@ -8,13 +8,16 @@
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
 import { totalCostUsage } from '../../../lib/cost'
-import { formatCostUsage } from '../../../lib/usage'
+import { replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
+import { formatCostUsage, spokenCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
 import { groupByPhase } from '../../../lib/phase-groups'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
+import { deriveFreshness } from '../../../hooks/simulation/freshness'
 import {
-  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator,
+  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator, ellipsize,
+  type MeasureText,
 } from './team-style'
 import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 
@@ -22,7 +25,7 @@ import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 export interface SessionMeta {
   label?: string
   workspace?: string
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
   /** Repository of the session (both fields or none); see SessionInfo.projectId */
   projectId?: string
   projectName?: string
@@ -49,15 +52,20 @@ export interface Cluster {
   teamName?: string
   /** Team clusters only: an Agent Team or a Workflow run (reuses the team machinery) */
   teamKind?: GroupKind
-  runtime: 'Claude' | 'Codex' | 'Copilot' | 'Pi' | 'Gemini CLI'
+  runtime: 'Claude' | 'Codex' | 'Copilot' | 'Pi' | 'Gemini CLI' | 'OpenCode'
   workspace?: string
   /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
   projectName?: string
+  /** Id of that repository (set together with projectName); groups clusters into workspace zones */
+  projectId?: string
   status: ClusterStatus
   statusText: string
   /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
   cost: number | null
+  /** "~$0.12" on the halo label: a context cost estimate (#364) */
   costText: string
+  /** "context cost estimate $0.12": the same figure in words, for the announcement */
+  costSpoken: string
 }
 
 /** Session id of events that carry none (matches DEFAULT_SESSION_ID of the simulation) */
@@ -155,6 +163,19 @@ const STATUS_TEXT: Record<ClusterStatus, string> = {
   complete: STATE_LABEL_LONG.complete ?? 'complete',
 }
 
+/** Precedence of a halo status, as clusterStatus applies it */
+const STATUS_RANK: Record<ClusterStatus, number> = { complete: 0, idle: 1, working: 2, waiting: 3, error: 4 }
+
+/**
+ * Halo status text when some members are stale (#367): the status of the fresh members is the only proven
+ * one; a higher status seen only on stale members is worded "last known: ...", like a stale agent.
+ */
+function haloStatusText(fresh: ClusterStatus | undefined, lastKnown: ClusterStatus): string {
+  if (fresh !== undefined && STATUS_RANK[fresh] >= STATUS_RANK[lastKnown]) return STATUS_TEXT[fresh]
+  const known = `last known: ${STATUS_TEXT[lastKnown]}`
+  return fresh === undefined ? known : `${STATUS_TEXT[fresh]}, ${known}`
+}
+
 export interface ClusterOptions {
   /** Facts about sessions that the agents do not carry (workspace, label, runtime) */
   sessions?: ReadonlyMap<string, SessionMeta>
@@ -165,6 +186,13 @@ export interface ClusterOptions {
    * summed over them so the figure does not move with the display state (#106); geometry stays on the drawn agents.
    */
   costAgents?: Iterable<Agent>
+  /** Wall clock (ms): with it, a status only stale members show is worded as the last known one (#367) */
+  now?: number
+  /**
+   * Events the relay could not replay, per session id (#366): the halo cost is a lower bound when one of the sessions
+   * of the agents it sums lost events, each session counted once (the same rule as the Cost panel header)
+   */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: SessionMeta): string {
@@ -173,8 +201,8 @@ function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: S
   return label || cleanText(sessionId, 24) || 'session'
 }
 
-/** Name of the repository all the sessions belong to; undefined as soon as one of them has none or another one. */
-function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, SessionMeta>): string | undefined {
+/** Repository all the sessions belong to; undefined as soon as one of them has none or another one. */
+function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, SessionMeta>): { id: string; name: string } | undefined {
   let id: string | undefined
   let name: string | undefined
   for (const s of sessionIds) {
@@ -184,7 +212,7 @@ function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, Ses
     id = m.projectId
     name = cleanText(m.projectName, 40) || undefined
   }
-  return name
+  return id && name ? { id, name } : undefined
 }
 
 /**
@@ -243,8 +271,17 @@ export function computeClusters(
 
     const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
-    const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
-    const costUsage = totalCostUsage(costGroups.get(key) ?? members)
+    const statusOf = (ms: Agent[]): ClusterStatus =>
+      isTeam ? teamHaloStatus(ms.map(teamMemberState)) : clusterStatus(ms.map(effectiveClusterState))
+    const status = statusOf(members)
+    const now = options.now
+    const stale = now === undefined ? [] : members.filter(m => deriveFreshness(m, now) === 'stale')
+    const fresh = stale.length === 0 ? members : members.filter(m => !stale.includes(m))
+    const statusText = stale.length === 0
+      ? STATUS_TEXT[status]
+      : haloStatusText(fresh.length > 0 ? statusOf(fresh) : undefined, statusOf(stale))
+    const costMembers = costGroups.get(key) ?? members
+    const costUsage = usageUnderLoss(totalCostUsage(costMembers), replayLostForAgents(options.replayLost, costMembers))
 
     out.push({
       key,
@@ -257,13 +294,14 @@ export function computeClusters(
       sessionIds,
       teamName: isTeam ? cleanText(teamName, 40) : undefined,
       teamKind,
-      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : 'Claude',
+      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : runtimeRaw === 'opencode' ? 'OpenCode' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
-      ...(project ? { projectName: project } : {}),
+      ...(project ? { projectId: project.id, projectName: project.name } : {}),
       status,
-      statusText: STATUS_TEXT[status],
+      statusText,
       cost: costUsage.value,
       costText: formatCostUsage(costUsage),
+      costSpoken: spokenCostUsage(costUsage),
     })
   }
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
@@ -298,13 +336,35 @@ export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title'
   return { title: `${clusterNoun(c)} ${c.title} (${n})`, detail }
 }
 
+/**
+ * Cluster label lines cut to the room of their chip (#378). The title keeps its " (n)" member count and
+ * loses the end of the name instead ("Session payments-api · ref… (4)"), so a cut never leaves an
+ * orphan parenthesis; the detail line ends with an ellipsis instead of being clipped mid-character.
+ */
+export function fitClusterLabelLines(
+  lines: { title: string; detail: string }, titleWidth: number, detailWidth: number, measure: MeasureText,
+): { title: string; detail: string } {
+  let title = lines.title
+  if (measure(title) > titleWidth) {
+    const m = / \(\d+\)$/.exec(title)
+    const suffix = m ? m[0] : ''
+    const head = suffix ? title.slice(0, -suffix.length) : title
+    const room = titleWidth - measure(suffix)
+    title = suffix && room >= measure('x…')
+      ? ellipsize(head, room, measure) + suffix
+      : ellipsize(title, titleWidth, measure)
+  }
+  const detail = measure(lines.detail) > detailWidth ? ellipsize(lines.detail, detailWidth, measure) : lines.detail
+  return { title, detail }
+}
+
 /** Sentence read by assistive technology for a cluster heading. */
-export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): string {
+export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costSpoken'>): string {
   const n = c.memberIds.length
   const parts = [`${clusterNoun(c)} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
   if (c.projectName) parts.push(`project ${c.projectName}`)
   if (c.workspace) parts.push(`workspace ${c.workspace}`)
-  parts.push(c.statusText, `cost ${c.costText}`)
+  parts.push(c.statusText, c.costSpoken)
   return parts.join(', ')
 }
 

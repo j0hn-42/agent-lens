@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { COLORS, refreshColors } from '../web/lib/colors'
-import { FRESHNESS_DRAW } from '../web/lib/canvas-constants'
-import { TOKENS, extraVars } from '../web/lib/theme-tokens'
+import { scenePalette } from '../web/lib/scene-state-colors'
+import { TOKENS, THEME_IDS, extraVars } from '../web/lib/theme-tokens'
 
 // This file pins the neon pixels (BACKGROUNDS below are neon's void and glass); scripts/theme-contrast.test.ts covers every theme
 refreshColors('neon')
@@ -68,15 +68,17 @@ const TEXT_TOKENS = [
   'filePathActive', 'filePathInactive',
   'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText',
-  'costText', 'costTextDim',
+  'costText', 'costTextDim', 'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical',
   'roleAssistantText', 'roleThinkingText', 'roleUserText', 'roleCompactionText',
+  'tool', 'holoBright',
 ] as const
 
 // Tokens used for control borders, tracks and graphical objects (WCAG 1.4.11, 3:1)
 const NON_TEXT_TOKENS = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder',
   'playBtnBorder', 'reviewBtnBorder', 'liveResumeBorder',
-  'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
+  'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'systemWarm', 'systemCritical',
+  'quotaOk', 'quotaLow', 'quotaCritical',
 ] as const
 
 for (const [bgName, bg] of Object.entries(BACKGROUNDS)) {
@@ -112,11 +114,6 @@ test('empty-state hierarchy: textDim heading and textHint are distinct and both 
   for (const bg of Object.values(BACKGROUNDS)) {
     assert.ok(ratio(composite(COLORS.textHint, bg), bg) >= 4.5)
   }
-})
-
-test('status dot ring has >= 3:1 against its dark inner gap', () => {
-  const gap = composite(COLORS.statusDotRingInner, BACKGROUNDS.void)
-  assert.ok(ratio(composite(COLORS.statusDotRing, gap), gap) >= 3)
 })
 
 test('effectiveContrast applies the opacity multiplier', () => {
@@ -251,14 +248,6 @@ test('inputs keep a real outline on focus', () => {
   assert.ok(!/none/.test(v), v)
 })
 
-// ─── statusDotRing against the real backgrounds, effectiveContrast ──────────
-
-for (const [bgName, bg] of Object.entries(BACKGROUNDS)) {
-  test(`statusDotRing >= 3:1 on ${bgName} (real background, not only the gap)`, () => {
-    assert.ok(ratio(composite(COLORS.statusDotRing, bg), bg) >= 3)
-  })
-}
-
 test('effectiveContrast is monotonic across several opacities and matches the 1.0 case', () => {
   const opacities = [1, 0.8, 0.6, 0.4, 0.2]
   for (const token of ['textPrimary', 'textDim', 'todoCompletedText'] as const) {
@@ -313,9 +302,13 @@ test('COLORS.glassBorder is not used on buttons or inputs in web/components', ()
 
 // #145: the "last known state" label of a stale node is read over the dark violet halo of its session,
 // not only over the void. Dark violet worst case: the halo tint at its strongest.
-test('stale node label >= 4.5:1 on the void and on the dark violet session halo', () => {
-  for (const [name, bg] of Object.entries({ ...BACKGROUNDS, violetHalo: [0x2a, 0x18, 0x3a] as Rgb })) {
-    const r = ratio(composite(FRESHNESS_DRAW.staleTextColor, bg), bg)
-    assert.ok(r >= 4.5, `staleTextColor=${FRESHNESS_DRAW.staleTextColor} is ${r.toFixed(2)}:1 on ${name}`)
+// The label takes the scene palette of the theme (#381): checked in every theme.
+test('stale node label >= 4.5:1 on the void and on the dark violet session halo, in every theme', () => {
+  for (const id of THEME_IDS) {
+    const staleText = scenePalette(id).staleText
+    for (const [name, bg] of Object.entries({ ...BACKGROUNDS, violetHalo: [0x2a, 0x18, 0x3a] as Rgb })) {
+      const r = ratio(composite(staleText, bg), bg)
+      assert.ok(r >= 4.5, `${id}: staleText=${staleText} is ${r.toFixed(2)}:1 on ${name}`)
+    }
   }
 })

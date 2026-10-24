@@ -10,6 +10,9 @@ import { CheckIcon, GearIcon } from './feed-icons'
 import { extraVars } from '@/lib/theme-tokens'
 import { currentThemeId } from '@/lib/theme-dom'
 import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
+import { useLocale } from '@/lib/locale'
+import { DATA_EN, t as tr } from '@/lib/panel-text'
+import type { Locale } from '@/lib/messages'
 
 // ─── Message rendering utilities of the Conversation panel ───────────────────
 
@@ -52,7 +55,7 @@ export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?:
 }
 
 /** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. `ansi` renders SGR colors (Bash output). */
-function TruncatedText({ text, limit, query, color, ansi }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean }) {
+function TruncatedText({ text, limit, query, color, ansi, locale }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean; locale: Locale }) {
   const [showAll, setShowAll] = useState(false)
   // Truncation counts visible characters: escape sequences are parsed out before cutting
   const segments = ansi ? parseAnsi(text) : null
@@ -60,10 +63,12 @@ function TruncatedText({ text, limit, query, color, ansi }: { text: string; limi
   const t = truncateWithMarker(plain, limit)
   return (
     <>
-      {segments
-        ? <AnsiText segments={showAll ? segments : sliceAnsiSegments(segments, limit)} query={query} />
-        : <HighlightText text={showAll ? text : t.text} query={query} />}
-      {t.hidden > 0 && !showAll && <span style={{ color }}>{t.marker}</span>}
+      <span {...DATA_EN}>
+        {segments
+          ? <AnsiText segments={showAll ? segments : sliceAnsiSegments(segments, limit)} query={query} />
+          : <HighlightText text={showAll ? text : t.text} query={query} />}
+      </span>
+      {t.hidden > 0 && !showAll && <span style={{ color }}>{tr(locale, 'conv.marker', { n: t.hidden })}</span>}
       {t.hidden > 0 && (
         <button
           type="button"
@@ -72,7 +77,7 @@ function TruncatedText({ text, limit, query, color, ansi }: { text: string; limi
           className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
-          {showAll ? 'Show less' : `Show all (+${t.hidden} chars)`}
+          {showAll ? tr(locale, 'conv.showLess') : tr(locale, 'conv.showAll', { n: t.hidden })}
         </button>
       )}
     </>
@@ -87,6 +92,7 @@ export function TranscriptMessage({ message, searchQuery }: {
   message: ConversationMessage
   searchQuery?: string
 }) {
+  const { locale } = useLocale()
   switch (message.type) {
     case 'tool_call':
       return (
@@ -99,9 +105,9 @@ export function TranscriptMessage({ message, searchQuery }: {
         >
           <div className="flex items-center gap-1.5 mb-1">
             <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.userLabel }}><GearIcon size={11} /></span>
-            <span className="sr-only">Tool call:</span>
-            <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
-              <HighlightText text={message.toolName || 'Tool'} query={searchQuery} />
+            <span className="sr-only">{tr(locale, 'conv.tool.callSr')}</span>
+            <span {...DATA_EN} className="text-[11px] font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
+              <HighlightText text={message.toolName || tr(locale, 'conv.tool.fallbackName')} query={searchQuery} />
             </span>
           </div>
           {message.inputData ? (
@@ -110,9 +116,11 @@ export function TranscriptMessage({ message, searchQuery }: {
               inputData={message.inputData}
               args={message.content}
               compact
+              outcome={message.callOutcome}
+              locale={locale}
             />
           ) : (
-            <div className="text-xs font-mono" style={{ color: COLORS.contentDim }}>
+            <div {...DATA_EN} className="text-xs font-mono" style={{ color: COLORS.contentDim }}>
               <HighlightText text={message.content} query={searchQuery} />
             </div>
           )}
@@ -134,22 +142,22 @@ export function TranscriptMessage({ message, searchQuery }: {
         >
           <div className="flex items-center gap-1.5 mb-0.5">
             <span aria-hidden="true" className="text-[11px]">{isBash ? '$' : <CheckIcon size={11} />}</span>
-            <span className="sr-only">Tool result:</span>
+            <span className="sr-only">{tr(locale, 'conv.tool.resultSr')}</span>
             {message.toolName && (
-              <span className="text-[11px]">{message.toolName}</span>
+              <span {...DATA_EN} className="text-[11px]">{message.toolName}</span>
             )}
           </div>
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
-            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} />
+            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} locale={locale} />
           </div>
-          {!message.isError && <ResultPillView pill={message.resultPill} />}
+          {!message.isError && <ResultPillView pill={message.resultPill} locale={locale} />}
         </div>
       )
     }
 
     default:
       return (
-        <div className="rounded px-2.5 py-1.5 text-xs font-mono" style={{ color: COLORS.textFaint }}>
+        <div {...DATA_EN} className="rounded px-2.5 py-1.5 text-xs font-mono" style={{ color: COLORS.textFaint }}>
           {message.content}
         </div>
       )

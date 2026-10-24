@@ -17,7 +17,7 @@ import {
 import { summarizeInput, summarizeResult, extractFilePath, extractInputData, buildDiscovery } from './tool-summarizer'
 import { buildSubagentReportAsync, fallbackReport, isAllowedTranscriptPath } from './transcript-parser'
 import {
-  isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter, validateHookPayload,
+  isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter, validateHookPayload, isCursorHookPayload,
   AsyncLimiter, withTimeout, setConnectionsCheckingInterval,
 } from './hook-guards'
 import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
@@ -25,6 +25,7 @@ import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
 import { SessionNormalizer, CountersRegistry, sharedCounters } from './event-normalize'
 import { isSafeId } from './hook-guards'
+import { isQuotaPath } from './relay-guards'
 import { PermissionGate, sha256Json, decisionProof } from './permission-gate'
 
 const log = createLogger('HookServer')
@@ -89,6 +90,9 @@ export interface HookServerControl {
   token: string
 }
 
+/** A route injected by the relay (POST /quota, #467): it answers the request itself. */
+export type QuotaHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+
 export class HookServer implements vscode.Disposable {
   private server: http.Server | null = null
   private port: number
@@ -99,10 +103,13 @@ export class HookServer implements vscode.Disposable {
   /** SubagentStop transcript reads run one at a time with a bounded queue */
   private readonly transcriptLimiter = new AsyncLimiter(SUBAGENT_TRANSCRIPT_CONCURRENCY, SUBAGENT_TRANSCRIPT_MAX_QUEUE)
   private disposed = false
+  private quotaHandler: QuotaHandler | null = null
   /** Per-session input normalizers (bounded like sessionState): every emitted event goes through one */
   private readonly normalizers = new Map<string, SessionNormalizer>()
   /** Counters for requests that cannot be attributed to a session (invalid JSON, invalid session_id) */
   private readonly unattributed = new SessionNormalizer()
+  /** Cursor hook payloads ignored since start (#472) */
+  private cursorIgnored = 0
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
 
@@ -161,12 +168,35 @@ export class HookServer implements vscode.Disposable {
     res.end(msg, () => req.socket.destroy())
   }
 
+  /** Route POST /quota to `handler` (the relay's, with its own guards); null removes it and the path answers 404. */
+  setQuotaHandler(handler: QuotaHandler | null): void {
+    this.quotaHandler = handler
+  }
+
+  private quotaFailed(res: http.ServerResponse, e: unknown): void {
+    log.error('Quota handler failed:', e)
+    if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end('Internal Server Error') } else { res.destroy() }
+  }
+
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const remote = req.socket.remoteAddress
     if (!isLoopbackAddress(remote)) { return this.reject(req, res, 403, 'Forbidden') }
     // Host check stops DNS rebinding; hook clients (Node/curl) never send Origin, browsers always do on cross-site POSTs.
     if (!isLoopbackHostHeader(req.headers.host)) { return this.reject(req, res, 403, 'Forbidden') }
     if (req.headers.origin !== undefined) { return this.reject(req, res, 403, 'Forbidden') }
+
+    // Subscription quota from the status line script (#467): it only knows this port. Before hook validation,
+    // malformed counting and the hook IP limiter (the route has its own guards); no handler = not a route here.
+    if (isQuotaPath(req.url)) {
+      const handler = this.quotaHandler
+      if (!handler) { return this.reject(req, res, 404, 'Not Found') }
+      try {
+        Promise.resolve(handler(req, res)).catch(e => this.quotaFailed(res, e))
+      } catch (e) {
+        this.quotaFailed(res, e)
+      }
+      return
+    }
 
     if (req.method !== 'POST') {
       res.writeHead(200, { 'Content-Type': 'text/plain' })
@@ -209,6 +239,15 @@ export class HookServer implements vscode.Disposable {
       } catch {
         this.unattributed.noteMalformed()
         return this.reject(req, res, 400, 'Invalid JSON')
+      }
+      // Cursor (#472): a payload with Cursor's documented markers is never a Claude Code session. It is counted
+      // (getForeignHookStats) and answered like an accepted hook, before validation, the session limiter and the
+      // malformed counters: no session, no agent, no tool call, no state. See docs/relay-sources.md.
+      if (isCursorHookPayload(parsed)) {
+        this.noteCursorPayload()
+        res.writeHead(200)
+        res.end()
+        return
       }
       const checked = validateHookPayload(parsed)
       if (!checked.ok) {
@@ -285,6 +324,20 @@ export class HookServer implements vscode.Disposable {
     try { hash = sha256Json(toolInput) } catch { return null }
     const matches = [...open].filter(([, c]) => c.tool === toolName && c.inputSha256 === hash)
     return matches.length === 1 ? matches[0][0] : null
+  }
+
+  /**
+   * Hook payloads from another runtime that were ignored (#472). Only Cursor today. A trace for the logs and
+   * the tests, never shown as agent activity; it counts what reached this server, not what Cursor ran.
+   */
+  getForeignHookStats(): { cursor: number } {
+    return { cursor: this.cursorIgnored }
+  }
+
+  private noteCursorPayload(): void {
+    this.cursorIgnored++
+    // One line, the first time only: no field of the payload is logged (it may hold a user_email)
+    if (this.cursorIgnored === 1) { log.info('Ignored a Cursor hook payload (cursor_version or Cursor event name): Cursor sessions are not shown') }
   }
 
   /** Normalization counters of a session (or of the requests no session could be found for). */

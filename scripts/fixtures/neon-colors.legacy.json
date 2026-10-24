@@ -135,11 +135,9 @@
   "todoCompletedText": "#66ffaaa0",
   "todoPending": "#66ccffa0",
   "contentDim": "#aaeeffa0",
-  "searchIcon": "#66ccff60",
+  "searchIcon": "#66ccffa0",
   "panelLabel": "#66ccffa0",
   "panelLabelDim": "#66ccffa0",
   "scrollBtnText": "#66ccff",
-  "scrollbarThumb": "rgba(102,204,255,0.5)",
-  "statusDotRing": "#aaeeff",
-  "statusDotRingInner": "#050510"
+  "scrollbarThumb": "rgba(102,204,255,0.5)"
 }

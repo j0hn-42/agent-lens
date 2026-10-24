@@ -10,6 +10,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { clearPair } from '@/lib/pair-filter-store'
 import { dockStore } from '@/lib/panel-layout'
+import { clickInMore } from './topbar-more'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -20,6 +21,16 @@ afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair(); reset
 
 const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const wait = (ms = 200) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
+/** Poll an observable condition (inside act) instead of sleeping a fixed time: a loaded machine is slower, not wrong (#440). */
+async function waitUntil(cond: () => boolean, what: string, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!cond()) {
+    if (Date.now() > deadline) assert.fail(`timeout waiting for: ${what}`)
+    await wait(50)
+  }
+}
+const outlineAgents = (r: ReturnType<typeof render>) =>
+  Array.from(r.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Agent graph outline"] li > button'))
 const key = (k: string) => act(async () => { fireEvent.keyDown(document.body, { key: k }) })
 
 /** Demo mode: the shell has agents and messages without a relay. */
@@ -29,12 +40,13 @@ async function mountDemo() {
   await wait(100)
   const demo = r.queryByRole('button', { name: 'Load demo' })
   if (demo) await act(async () => { fireEvent.click(demo) })
-  await wait(2500)
+  await waitUntil(() => outlineAgents(r).length > 0, 'the demo agents are in the outline')
+  await wait(100)
   return r
 }
 
 const conversationRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Conversation' })
-const filesRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Files accessed by agents' })
+const filesRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Files & repeats observed' })
 const timelineRegion = (r: ReturnType<typeof render>) => r.queryByRole('region', { name: 'Execution timeline' })
 
 test('the top bar button is named Conversation (C) and toggles the panel; key C does the same', async () => {
@@ -110,8 +122,8 @@ test('selecting an agent opens the Conversation panel on that agent (no second c
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
-  await wait(1500)
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
+  await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   assert.equal(conversationRegion(r), null)
   // the canvas outline lists the agents as buttons: clicking one selects it like a canvas click
   const agentButton = Array.from(r.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Agent graph outline"] li > button'))
@@ -146,8 +158,8 @@ async function mountWithAgents() {
     post(spawn('sa', 'main-a', { isMain: true }))
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
-  await wait(1500)
+  clickInMore(() => r.getByRole('button', { name: /^Hide inactive/ })); await act(async () => {})
+  await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   return r
 }
 
@@ -202,26 +214,31 @@ test('Escape with focus on the page: Conversation first, the selection second (c
   assert.ok(agentCard(r) === null, 'press 2 clears the selection')
 })
 
-test('selecting an agent closes Files and the Cost overlay like the C / F toggles do: they share the right dock', async () => {
+test('selecting an agent keeps an open Files panel (no Conversation over it); Cost is independent of the right dock (#370)', async () => {
   const r = await mountWithAgents()
   const files = r.container.querySelector<HTMLElement>('#topbar-toggle-files')!
   await key('f')
   assert.ok(filesRegion(r), 'Files open')
   assert.equal(files.getAttribute('aria-pressed'), 'true', 'control: the Files toggle is on')
   await selectWorker(r)
-  assert.ok(conversationRegion(r), 'selection opened Conversation')
-  assert.ok(filesRegion(r) === null, 'Files closed by the selection path (openConversation)')
-  // A hidden-but-open panel would not show in a role query: the flag itself must be off
-  assert.equal(files.getAttribute('aria-pressed'), 'false', 'the Files flag is off, not just hidden by the dock')
+  assert.ok(agentCard(r), 'the selection shows the agent card')
+  assert.ok(filesRegion(r), 'Files stay open')
+  assert.equal(files.getAttribute('aria-pressed'), 'true', 'the Files flag is still on')
+  assert.equal(conversationRegion(r), null, 'Conversation did not open over Files')
 
-  // Cost overlay open (the toggle path closes Conversation); selecting ANOTHER agent must close Cost again
-  const cost = r.container.querySelector<HTMLElement>('#topbar-toggle-cost')!
-  await key('$')
-  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'control: the Cost overlay opened')
-  assert.ok(conversationRegion(r) === null, 'control: the toggle path closed Conversation')
+  // Closing Files, then selecting another agent: nothing exclusive is open, so Conversation follows the selection
+  await key('f')
+  assert.ok(filesRegion(r) === null, 'Files closed')
   await selectAgentNamed(r, 'main-a')
   assert.ok(conversationRegion(r), 'the new selection opened Conversation')
-  assert.equal(cost.getAttribute('aria-pressed'), 'false', 'Cost closed by the selection path (openConversation)')
+
+  // Cost neither closes Conversation nor is closed by it
+  const cost = r.container.querySelector<HTMLElement>('#topbar-toggle-cost')!
+  await key('$')
+  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'the Cost overlay opened')
+  assert.ok(conversationRegion(r), 'Conversation stays open beside Cost')
+  await key('f')
+  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'opening Files leaves Cost open')
 })
 
 // #116: below the sheet breakpoint (640 px = 200 % zoom, 320 px = 400 %) one panel fills the width and the newest

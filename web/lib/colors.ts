@@ -1,16 +1,19 @@
 /**
  * Color palette and role color definitions.
  *
- * Two palettes, one rule: the theme (any of the dark themes of theme-tokens.ts) applies to the INTERFACE ONLY.
+ * Two palettes: the theme (any of the dark themes of theme-tokens.ts) applies to the interface through COLORS, and to the
+ * canvas scene through lib/scene-state-colors.ts (#381).
  *
  * - COLORS is the interface palette (toolbar, menus, dialogs, side panels, legend, inspector, UI cards). It
  *   follows the active theme. Callers read `COLORS.<key>` at render time. The values are concrete colour
  *   strings, rebuilt from the `--lens-<role>` custom properties computed on :root (getComputedStyle) by
  *   `refreshColors()` whenever the theme changes (see lib/theme.ts). Read COLORS when you render, never cache
  *   a value at module load: it would go stale on a theme switch.
- * - SCENE is the scene palette: the page background and everything drawn on the canvas (nodes, links, halos,
- *   phase zones, particles, bloom, bubbles and tool cards, canvas labels, grid). It is the neon palette,
- *   frozen: the scene looks the same whatever theme is chosen. Never make SCENE depend on the theme.
+ * - SCENE is the neon scene palette, frozen: the page background (the scene ground, in every theme), the scene Neon draws
+ *   and the one a draw call without a theme draws. Never make SCENE depend on the theme. The canvas reads the theme's
+ *   scene through lib/scene-state-colors.ts: the agent state colours, and `scenePalette(theme)` for labels, links, halos,
+ *   cards and grid (#381). Parts of the canvas not moved yet (tool cards, bubbles, particles, cost overlay, effects) and
+ *   the DOM overlays on the canvas still read SCENE.
  *
  * Extracted from agent-types.ts to keep that file focused on type definitions.
  * All colors are re-exported from agent-types.ts for backward compatibility.
@@ -31,17 +34,20 @@ export type { ColorKey } from './theme-palette'
  */
 export const COLORS: { -readonly [K in ColorKey]: string } = paletteFor(DEFAULT_THEME)
 
-/** Scene palette: the neon colours the canvas and the page background have always used, whatever the theme. */
+/** Neon scene palette: the page background in every theme, and the scene of Neon (scenePalette('neon') holds the same colours). */
 export const SCENE: Readonly<Palette> = Object.freeze({ ...NEON_COLORS })
 
 /**
  * Interface colour of a state colour that the simulation stored as data (timeline blocks carry the scene colour they
  * were created with). The timeline lives in a side panel, so it paints the theme's equivalent role; a colour that is
- * not one of these roles is returned as is.
+ * not one of these roles is returned as is. The scene paints idle and thinking in the same cyan, so a caller that knows the
+ * block's state passes it: the role of that state wins when its scene colour matches (#381).
  */
 const STATE_KEYS = ['idle', 'thinking', 'tool', 'mcp', 'waiting_permission', 'error', 'complete', 'dispatch', 'return'] as const
-export function uiColor(sceneColor: string): string {
-  const key = STATE_KEYS.find(k => SCENE[k] === sceneColor)
+type StateKey = (typeof STATE_KEYS)[number]
+const isStateKey = (s: string | undefined): s is StateKey => (STATE_KEYS as readonly string[]).includes(s ?? '')
+export function uiColor(sceneColor: string, state?: string): string {
+  const key = isStateKey(state) && SCENE[state] === sceneColor ? state : STATE_KEYS.find(k => SCENE[k] === sceneColor)
   return key ? COLORS[key] : sceneColor
 }
 

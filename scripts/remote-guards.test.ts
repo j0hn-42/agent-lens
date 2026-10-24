@@ -22,6 +22,14 @@ process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 
 const TUNNEL = 'box.tail1234.ts.net'
+const TOKEN_FILE = path.join(fakeHome, 'pair-token')
+/** Pairing cookie of this file's tunnel client (#475), set in before() through the real POST /pair on the tunnel Host */
+let cookie = ''
+/** Pairing cookie of this file's loopback client (#517), set in before() through POST /pair on a loopback Host. A
+ *  pairing only opens the Host class it was made on (#535): the tunnel cookie reads nothing on a loopback Host. */
+let loopbackCookie = ''
+let pairToken = ''
+const logged: string[] = []
 
 type Relay = Awaited<ReturnType<typeof import('./relay').createRelay>>
 let relay: Relay
@@ -31,10 +39,17 @@ const open: http.ClientRequest[] = []
 
 interface Reply { status: number; headers: http.IncomingHttpHeaders; body: string }
 
-/** One request; with `keep` the reply resolves at the headers and the connection stays open (SSE). */
+/**
+ * One request; with `keep` the reply resolves at the headers and the connection stays open (SSE).
+ * Every request carries the pairing cookie of its Host class (#475, #535: the tunnel one for the tunnel Host, the loopback
+ * one otherwise) unless it sets its own Cookie header ('' = none): with an allow list, a loopback Host needs it too
+ * (#517), and a foreign Host is refused with or without it.
+ */
 function request(method: string, urlPath: string, headers: http.OutgoingHttpHeaders = {}, body?: string, keep = false): Promise<Reply> {
+  const viaTunnel = typeof headers.Host === 'string' && headers.Host.toLowerCase() === TUNNEL
+  const withCookie = !('Cookie' in headers) ? { Cookie: viaTunnel ? cookie : loopbackCookie } : {}
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, agent: false, headers: { 'User-Agent': `remote-${Math.random()}`, ...headers } }, res => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, agent: false, headers: { 'User-Agent': `remote-${Math.random()}`, ...withCookie, ...headers } }, res => {
       if (keep) { res.resume(); open.push(req); return resolve({ status: res.statusCode ?? 0, headers: res.headers, body: '' }) }
       let out = ''
       res.setEncoding('utf8')
@@ -54,9 +69,33 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     fs.mkdirSync(ws, { recursive: true })
     // Fail closed: an invalid allow list stops createRelay (and does not use up the per-process relay)
     await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', allowedHosts: ['*.ts.net'] }), /allowedHosts/)
-    relay = await createRelay({ workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], hooksProbe: () => true, issueLinksProbe: async () => [] })
-    server = http.createServer(createAppRequestHandler(relay))
-    port = await listenLoopback(server, 0)
+    // Fail closed (#475): a token file that cannot be written stops createRelay, before the relay is taken
+    await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], remotePairing: { tokenFile: path.join(fakeHome, 'missing', 'token') } }))
+    // Everything the relay logs while it starts and pairs: the token must never be in it
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map(k => {
+      const orig = console[k]
+      console[k] = (...a: unknown[]) => { logged.push(a.map(String).join(' ')); orig.apply(console, a) }
+      return () => { console[k] = orig }
+    })
+    try {
+      relay = await createRelay({
+        workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], hooksProbe: () => true, issueLinksProbe: async () => [], verbose: true,
+        remotePairing: { tokenFile: TOKEN_FILE, onToken: t => { pairToken = t }, rate: { burst: 50, perSecond: 50 } },
+      })
+      server = http.createServer(createAppRequestHandler(relay))
+      port = await listenLoopback(server, 0)
+      const paired = await request('POST', '/pair', { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json', Cookie: '' }, JSON.stringify({ token: pairToken }))
+      assert.equal(paired.status, 204, paired.body)
+      cookie = String(paired.headers['set-cookie']?.[0] ?? '').split(';')[0]
+      assert.ok(cookie, 'no pairing cookie')
+      const local = `127.0.0.1:${port}`
+      const pairedLocal = await request('POST', '/pair', { Host: local, Origin: `http://${local}`, 'Content-Type': 'application/json', Cookie: '' }, JSON.stringify({ token: pairToken }))
+      assert.equal(pairedLocal.status, 204, pairedLocal.body)
+      loopbackCookie = String(pairedLocal.headers['set-cookie']?.[0] ?? '').split(';')[0]
+      assert.ok(loopbackCookie && loopbackCookie !== cookie, 'no loopback pairing cookie')
+    } finally {
+      for (const restore of spies) restore()
+    }
   })
 
   after(() => {
@@ -106,7 +145,7 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     assert.equal(relay.debugState().statusRuns, before.statusRuns + 1, 'only the loopback /status above was computed')
   })
 
-  it('keeps the loopback surface unchanged (sensitive routes still answer on loopback)', async () => {
+  it('with the pairing cookie, a loopback Host keeps the whole loopback surface (sensitive routes answer)', async () => {
     assert.equal((await request('GET', '/observations')).status, 200)
     assert.notEqual((await request('GET', '/context?session=77777777-7777-4777-8777-777777777777')).status, 403)
     assert.equal((await request('GET', '/statusline')).status, 200)
@@ -193,7 +232,7 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     const single = http.createServer(createAppRequestHandler(relay))
     const singlePort = await listenLoopback(single, 0)
     try {
-      const reply = await raw(singlePort, `GET /status HTTP/1.1\r\nHost: ${TUNNEL}\r\nConnection: close\r\n\r\n`)
+      const reply = await raw(singlePort, `GET /status HTTP/1.1\r\nHost: ${TUNNEL}\r\nCookie: ${cookie}\r\nConnection: close\r\n\r\n`)
       assert.match(reply, /^HTTP\/1\.1 200 /)
       const other = await raw(singlePort, 'GET /status HTTP/1.1\r\nHost: other.ts.net\r\nConnection: close\r\n\r\n')
       assert.match(other, /^HTTP\/1\.1 403 /)
@@ -202,6 +241,157 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     }
   })
 
+  describe('pairing (#475): the tunnel Host reads nothing without the cookie of POST /pair', () => {
+    const json = { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json', Cookie: '' }
+
+    before(async () => {
+      // The cap test above leaves remote streams open: free their slots
+      for (const r of open.splice(0)) r.destroy()
+      for (let i = 0; i < 50 && relay.debugState().remoteSseClients > 0; i++) await new Promise(r => setTimeout(r, 20))
+      assert.equal(relay.debugState().remoteSseClients, 0)
+    })
+
+    it('createRelay wrote the token of this start to --token-file, mode 0600, and gave the same one to onToken', () => {
+      assert.match(pairToken, /^[A-Za-z0-9_-]{43}$/)
+      assert.equal(fs.readFileSync(TOKEN_FILE, 'utf8').trim(), pairToken)
+      if (process.platform !== 'win32') assert.equal(fs.statSync(TOKEN_FILE).mode & 0o777, 0o600)
+    })
+
+    it('never logs the token (the URL fragment and the token stay out of every log line)', () => {
+      assert.ok(logged.length > 0, 'nothing captured: the spy is not wired')
+      for (const line of logged) assert.ok(!line.includes(pairToken), line.slice(0, 120))
+    })
+
+    it('without the cookie, /events and /status answer 401 without detail, before any work; the static app still loads', async () => {
+      const before = relay.debugState()
+      // The cookie of a loopback pairing (#535) does not open the tunnel Host either
+      for (const c of ['', 'theme=dark', `__Host-agent-lens-pair=${'A'.repeat(43)}`, `__Host-agent-lens-pair=${pairToken}`, `${cookie}x`, `${cookie}; ${cookie}`, loopbackCookie]) {
+        const sse = await request('GET', '/events', { Host: TUNNEL, Cookie: c }, undefined, true)
+        assert.equal(sse.status, 401, `/events with ${JSON.stringify(c)}`)
+        open.pop()?.destroy()
+        const status = await request('GET', '/status', { Host: TUNNEL, Cookie: c })
+        assert.equal(status.status, 401, `/status with ${JSON.stringify(c)}`)
+        assert.equal(status.body, 'Unauthorized')
+        assert.equal(status.headers['content-security-policy'], CSP_API)
+      }
+      assert.equal(relay.debugState().statusRuns, before.statusRuns, 'no status computed for an unpaired client')
+      assert.equal(relay.debugState().remoteSseClients, before.remoteSseClients, 'no stream held by an unpaired client')
+      for (const p of ['/', '/theme.js']) assert.equal((await request('GET', p, { Host: TUNNEL, Cookie: '' })).status, 200, p)
+    })
+
+    it('the relay itself asks for the cookie, without the app gate (handleSSE, handleStatus)', async () => {
+      const bare = http.createServer((req, res) => { void (req.url === '/status' ? relay.handleStatus : relay.handleSSE)(req, res) })
+      const barePort = await listenLoopback(bare, 0)
+      const get = (p: string, headers: http.OutgoingHttpHeaders) => new Promise<number>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port: barePort, path: p, agent: false, headers }, res => { resolve(res.statusCode ?? 0); req.destroy() })
+        req.on('error', e => (e as NodeJS.ErrnoException).code === 'ECONNRESET' ? undefined : reject(e))
+        req.end()
+      })
+      try {
+        for (const p of ['/events', '/status']) {
+          assert.equal(await get(p, { Host: TUNNEL }), 401, `${p} without cookie`)
+          assert.equal(await get(p, { Host: TUNNEL, Cookie: cookie }), 200, `${p} with cookie`)
+          // The relay alone leaves a loopback Host to the app gate, which asks it for the cookie while remote access is on
+          // (#517, tested below through createAppRequestHandler and in entrypoints-hardening.test.ts)
+          assert.equal(await get(p, { Host: '127.0.0.1' }), 200, `${p} on loopback, relay alone`)
+        }
+      } finally {
+        bare.close()
+      }
+    })
+
+    it('POST /pair: wrong token, missing token, malformed body all get the same 401 and no cookie', async () => {
+      const other = pairToken.startsWith('A') ? `B${pairToken.slice(1)}` : `A${pairToken.slice(1)}`
+      for (const body of [JSON.stringify({ token: other }), '{}', '', 'token=' + pairToken, JSON.stringify({ token: pairToken, extra: 1 })]) {
+        const r = await request('POST', '/pair', json, body)
+        assert.equal(r.status, 401, body)
+        assert.equal(r.body, 'Unauthorized')
+        assert.equal(r.headers['set-cookie'], undefined)
+      }
+    })
+
+    it('POST /pair from another origin or another Host is refused (403); a foreign Host with a valid cookie reads nothing', async () => {
+      for (const headers of [{ Origin: 'https://evil.example' }, { Origin: `http://${TUNNEL}` }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+        const r = await request('POST', '/pair', { ...json, ...headers }, JSON.stringify({ token: pairToken }))
+        assert.equal(r.status, 403, JSON.stringify(headers))
+        assert.equal(r.headers['set-cookie'], undefined)
+      }
+      for (const host of ['evil.example', `${TUNNEL}.evil.example`]) {
+        assert.equal((await request('POST', '/pair', { ...json, Host: host }, JSON.stringify({ token: pairToken }))).status, 403, host)
+        assert.equal((await request('GET', '/status', { Host: host, Cookie: cookie })).status, 403, host)
+      }
+    })
+
+    it('the cookie opens /events and /status only: the sensitive routes and /launch stay 403', async () => {
+      for (const p of ['/context?session=77777777-7777-4777-8777-777777777777', '/issue-links?role=qa-engineer', '/observations', '/statusline']) {
+        assert.equal((await request('GET', p, { Host: TUNNEL, Cookie: cookie })).status, 403, p)
+      }
+      assert.equal((await request('POST', '/scope', { Host: TUNNEL, Cookie: cookie, 'Content-Type': 'application/json' }, '{"scope":"all"}')).status, 403)
+      // Launching an agent (#229) is never opened by a pairing either
+      assert.equal((await request('GET', '/launch', { Host: TUNNEL, Cookie: cookie })).status, 403, 'GET /launch')
+      assert.equal((await request('POST', '/launch', { Host: TUNNEL, Cookie: cookie, 'Content-Type': 'application/json' }, '{"repo":"o/n","issue":1,"role":"qa-engineer"}')).status, 403, 'POST /launch')
+    })
+
+    it('a loopback Host needs the pairing too once remote access is on (SSH -L, port forward, #517): 401 without detail, before any work', async () => {
+      const before = relay.debugState()
+      for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, undefined]) {
+        const h = host ? { Host: host } : {}
+        // The cookie of the TUNNEL pairing (#535) does not open a loopback Host: a pairing is bound to its Host class
+        for (const c of ['', 'theme=dark', `__Host-agent-lens-pair=${pairToken}`, `${cookie}x`, cookie]) {
+          for (const p of ['/status', '/observations', '/statusline', '/issue-links?role=qa-engineer', '/context?session=77777777-7777-4777-8777-777777777777']) {
+            const r = await request('GET', p, { ...h, Cookie: c })
+            assert.equal(r.status, 401, `${p} ${String(host)} ${JSON.stringify(c)}`)
+            assert.equal(r.body, 'Unauthorized')
+          }
+          const sse = await request('GET', '/events', { ...h, Cookie: c }, undefined, true)
+          assert.equal(sse.status, 401, `/events ${String(host)}`)
+          open.pop()?.destroy()
+          assert.equal((await request('POST', '/scope', { ...h, Cookie: c, 'Content-Type': 'application/json' }, '{"scope":"all"}')).status, 401)
+        }
+        // The page that pairs still loads
+        for (const p of ['/', '/theme.js']) assert.equal((await request('GET', p, { ...h, Cookie: '' })).status, 200, `${p} ${String(host)}`)
+      }
+      assert.equal(relay.debugState().statusRuns, before.statusRuns, 'no status computed for an unpaired loopback client')
+      assert.equal(relay.debugState().sseClients, before.sseClients, 'no stream held by an unpaired loopback client')
+      assert.equal(JSON.parse((await request('GET', '/status')).body).allWorkspaces, false, 'POST /scope without cookie changed nothing')
+    })
+
+    it('POST /pair on a loopback Host: its own http origin only; wrong token 401; the right token gets a cookie for the loopback surface', async () => {
+      const local = `127.0.0.1:${port}`
+      const loopJson = { Host: local, 'Content-Type': 'application/json', Cookie: '' }
+      for (const headers of [{ Origin: 'https://evil.example' }, { Origin: `https://${local}` }, { Origin: `http://localhost:${port}` }, { Origin: `https://${TUNNEL}` }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+        const r = await request('POST', '/pair', { ...loopJson, ...headers }, JSON.stringify({ token: pairToken }))
+        assert.equal(r.status, 403, JSON.stringify(headers))
+        assert.equal(r.headers['set-cookie'], undefined)
+      }
+      const wrong = await request('POST', '/pair', { ...loopJson, Origin: `http://${local}` }, '{}')
+      assert.equal(wrong.status, 401)
+      assert.equal(wrong.headers['set-cookie'], undefined)
+      const ok = await request('POST', '/pair', { ...loopJson, Origin: `http://${local}` }, JSON.stringify({ token: pairToken }))
+      assert.equal(ok.status, 204, ok.body)
+      const localCookie = String(ok.headers['set-cookie']?.[0] ?? '').split(';')[0]
+      assert.ok(localCookie && !localCookie.includes(pairToken))
+      assert.equal((await request('GET', '/observations', { Cookie: localCookie })).status, 200)
+      // GET /pair answers nothing that pairs
+      assert.equal((await request('GET', '/pair', { Cookie: '' })).headers['set-cookie'], undefined)
+    })
+
+    it('a pairing opens only the Host class it was made on (#535): a tunnel cookie reads nothing on loopback, and back', async () => {
+      const before = relay.debugState()
+      for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]) {
+        for (const p of ['/status', '/observations']) assert.equal((await request('GET', p, { Host: host, Cookie: cookie })).status, 401, `${p} ${host} with the tunnel cookie`)
+        assert.equal((await request('GET', '/status', { Host: host, Cookie: loopbackCookie })).status, 200, `${host} with the loopback cookie`)
+      }
+      for (const p of ['/status', '/events']) {
+        assert.equal((await request('GET', p, { Host: TUNNEL, Cookie: loopbackCookie }, undefined, p === '/events')).status, 401, `${p} tunnel with the loopback cookie`)
+        open.pop()?.destroy()
+      }
+      assert.equal((await request('GET', '/status', { Host: TUNNEL, Cookie: cookie })).status, 200, 'the tunnel cookie still opens the tunnel Host')
+      assert.equal(relay.debugState().remoteSseClients, before.remoteSseClients, 'no stream held with the wrong class of cookie')
+    })
+  })
+
+  // Last: it uses up the tunnel's SSE bucket
   it('rate-limits remote clients by tunnel name, whatever their User-Agent (the tunnel peer is always 127.0.0.1)', async () => {
     const statuses: number[] = []
     for (let i = 0; i < RELAY_SSE_RATE_BURST + 5; i++) {

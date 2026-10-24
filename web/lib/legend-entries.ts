@@ -7,10 +7,11 @@ export const LEGEND_ENTRIES = {
   shapes: ['shape-main', 'shape-sub', 'shape-tool', 'shape-discovery', 'shape-complete'],
   edges: ['edge-parent', 'edge-unverified', 'edge-tool', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'particle-dispatch', 'particle-return'],
   teams: ['team-ring', 'team-idle', 'team-working', 'team-done', 'team-archived', 'team-halo', 'session-halo', 'orchestrator', 'team-row'],
+  repeats: ['mark-loop', 'mark-repeated'],
   links: ['link-flight', 'link-recent', 'link-error', 'link-quiet', 'link-bubble'],
   context: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'],
   discoveries: ['disc-file', 'disc-pattern', 'disc-finding', 'disc-code'],
-  runtime: ['rt-claude', 'rt-codex', 'rt-copilot', 'rt-pi', 'rt-gemini'],
+  runtime: ['rt-claude', 'rt-codex', 'rt-copilot', 'rt-pi', 'rt-gemini', 'rt-opencode'],
 } as const
 
 export type LegendSectionId = keyof typeof LEGEND_ENTRIES

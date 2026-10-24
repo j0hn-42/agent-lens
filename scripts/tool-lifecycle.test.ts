@@ -56,6 +56,15 @@ test('the four outcomes: completed, failed, cancelled, and expired are distinct 
   assert.equal(only(expired).endObserved, false)
 })
 
+test('a failed tool call counts a tool error but does not put the agent in error (#363)', () => {
+  const failed = run([orch, start(), { type: 'tool_call_end', time: 2, payload: { agent: 'orchestrator', tool: 'Bash', toolUseId: 'toolu_1', result: 'exit 1', isError: true } }])
+  const agent = Array.from(failed.agents.values()).find(a => a.isMain)!
+  assert.equal(agent.toolErrors, 1)
+  // Neither error (#363) nor a thinking nobody observed (#362): idle between two steps
+  assert.equal(agent.state, 'idle')
+  assert.equal(agent.awaitingNextEvent, true)
+})
+
 test('readToolOutcome: explicit outcome wins over isError, unknown values fall back', () => {
   assert.equal(readToolOutcome({ outcome: 'cancelled', isError: true }), 'cancelled')
   assert.equal(readToolOutcome({ isError: true }), 'error')
@@ -207,4 +216,15 @@ test('a11y history keeps the outcome wording and the unobserved-end caveat after
   assert.equal(entry.state, 'expired')
   assert.equal(entry.warning, EXPIRED_WARNING)
   assert.equal(entry.result, '')
+})
+
+test('the tool_call row of the conversation carries how the call ended, matched by tool_use_id (#383 review)', () => {
+  const rows = (s: SimulationState) => Array.from(s.conversations.values())[0].filter(m => m.type === 'tool_call')
+  const end = (outcome: string, id = 'toolu_1') => ({ type: 'tool_call_end' as const, time: 2, payload: { agent: 'orchestrator', tool: 'Bash', toolUseId: id, outcome, ...(outcome === 'failed' ? { isError: true } : {}) } })
+  const failed = run([orch, start('toolu_1'), start('toolu_2', 1.5), end('failed')])
+  assert.deepEqual(rows(failed).map(m => m.callOutcome), ['error', undefined], 'only the matching call is marked')
+  const cancelled = run([orch, start(), end('cancelled')])
+  assert.equal(rows(cancelled)[0].callOutcome, 'cancelled')
+  const ok = run([orch, start(), end('completed')])
+  assert.equal(rows(ok)[0].callOutcome, undefined)
 })

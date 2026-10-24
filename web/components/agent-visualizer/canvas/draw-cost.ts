@@ -3,11 +3,14 @@ import { SCENE } from '../../../lib/colors'
 import { COST_DRAW, COST_PANEL } from '../../../lib/canvas-constants'
 import { formatTokens, formatCost } from '../../../lib/utils'
 import { agentCost, modelCostRate, agentCostUsage } from '../../../lib/cost'
-import { USAGE_LABELS, formatCostUsage, formatTokenUsage, type UsageTotal } from '../../../lib/usage'
+import { USAGE_LABELS, formatCostUsage, formatCtxTokenUsage, type UsageTotal } from '../../../lib/usage'
+import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
-import { truncateText } from './draw-misc'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
+import { agentCostUsageUnderLoss } from './loss-labels'
+import { truncateText, fitHeaderTokens } from './draw-misc'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercent } from './draw-agents'
 import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
@@ -45,13 +48,14 @@ export function drawCostLabels(
   toolCalls: Map<string, ToolCallNode>,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  // Cost pills are secondary text: hidden below the level-of-detail zoom threshold
-  if (!lodForZoom(opts.zoom).details) return
+  // Cost pills are secondary text: hidden under the detail zoom, held at LOD.minTextPx on screen where drawn (#378)
+  if (!lodOf(opts).details) return
+  const textScale = textHoldScale(11, opts.zoom)
   const toolsByAgent = groupToolsByAgent(toolCalls)
 
   for (const [, agent] of agents) {
     if (!isAgentVisible(agent)) continue
-    const costUsage = agentCostUsage(agent)
+    const costUsage = agentCostUsageUnderLoss(agent, opts.replayLost)
     if (costUsage.value === null || costUsage.value < COST_DRAW.minDisplayCost) continue
 
     const r = agentDrawRadius(agent)
@@ -76,6 +80,12 @@ export function drawCostLabels(
 
     ctx.save()
     ctx.translate(place.dx, place.dy)
+    // Enlarged with the stats box around the top of the node (the stack keeps its order), as the overlay plan reserves it
+    if (textScale !== 1) {
+      ctx.translate(agent.x, agent.y - r)
+      ctx.scale(textScale, textScale)
+      ctx.translate(-agent.x, -(agent.y - r))
+    }
     ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
     // Pill background
@@ -163,7 +173,10 @@ export function drawCostSummaryPanel(
   unattributed: Iterable<UnattributedUsage> = [],
   /** Presentation mode (#245): agent names are drawn as bullets */
   maskNames = false,
+  /** Events the relay could not replay per session id (#366): the totals of the sessions concerned are lower bounds ("at least") */
+  replayLost?: ReadonlyMap<string, number>,
 ) {
+  const lostOf = (a: { sessionId?: string }) => replayLostForAgents(replayLost, [a])
   // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
   const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
   // Usage that belongs to no single agent is shown apart, never folded into one (#61)
@@ -175,18 +188,25 @@ export function drawCostSummaryPanel(
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => { const usage = agentCostUsage(a); return { name: maskNames ? maskText(a.name) : a.name, usage, cost: usage.value ?? 0 } })
+    .map(a => { const usage = usageUnderLoss(agentCostUsage(a), lostOf(a)); return { name: maskNames ? maskText(a.name) : a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
   // the unattributed remainder counts in the session total
-  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), rest)
+  const sessionTotals = sessionUsage(agents.values(), rest)
+  const viewLost = replayLostForAgents(replayLost, [...agents.values(), ...rest])
+  const costUsage = usageUnderLoss(sessionTotals.cost, viewLost)
+  const tokenUsage = usageUnderLoss(sessionTotals.tokens, viewLost)
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
   const toolBreakdown = new Map<string, { tokens: number; cost: number; estimated: boolean; missing: boolean }>()
+  // (BY TOOL rows add per-call costs: a lost call can only add, so "at least" is proven there, unlike the context-priced figures above, #591)
   for (const [, tc] of toolCalls) {
     const entry = toolBreakdown.get(tc.toolName) || { tokens: 0, cost: 0, estimated: false, missing: false }
+    // A call of a session whose events were lost makes the figure of its tool a lower bound (#366)
+    const owner = agents.get(tc.agentId)
+    if (owner && lostOf(owner) > 0) entry.missing = true
     if (tc.tokenCost) {
       entry.tokens += tc.tokenCost
       entry.cost += agentCost(tc.tokenCost, agents.get(tc.agentId)?.model)
@@ -215,7 +235,10 @@ export function drawCostSummaryPanel(
   const restRows = hasRest ? 1 : 0
   // En-tête : tokens sous le coût quand la ligne dépasserait la largeur du panneau (zoom 200 % / 400 %)
   const headerCostText = formatCostUsage(costUsage)
-  const headerTokensText = `${formatTokenUsage(tokenUsage)} tokens`
+  // "ctx tokens", short for "tokens in context" (the 212 px panel has no room for it on a wrapped "at least … estimated"
+  // line, #364), defined in the graph legend: the size of the contexts now, not a consumption (#545 review). Screen
+  // readers read "tokens in context" in the top bar, which no longer draws it (#523)
+  const headerTokensText = formatCtxTokenUsage(tokenUsage)
   ctx.font = 'bold 12px monospace'
   const headerCostW = ctx.measureText(headerCostText).width
   ctx.font = '11px monospace'
@@ -245,8 +268,13 @@ export function drawCostSummaryPanel(
 
   ctx.font = '11px monospace'
   ctx.fillStyle = SCENE.textMuted
-  if (wrapHeader) ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding, y + HEADER_WRAP_H + 2)
-  else ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding + headerCostW + HEADER_GAP, y + 2)
+  if (wrapHeader) {
+    // Alone on its line it still has to fit the panel: smaller font, then ellipsis (#545 review)
+    const fit = fitHeaderTokens(ctx, headerTokensText, panelW - COST_PANEL.contentPadding * 2)
+    ctx.font = fit.font
+    ctx.fillText(fit.text, panelX + COST_PANEL.contentPadding, y + HEADER_WRAP_H + 2)
+    ctx.font = '11px monospace'
+  } else ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding + headerCostW + HEADER_GAP, y + 2)
 
   y += headerH
 
@@ -301,7 +329,7 @@ export function drawCostSummaryPanel(
     ctx.fillText(UNATTRIBUTED_LABEL, panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
     ctx.textAlign = 'right'
     const restEstimated = rest.some(u => u.estimated)
-    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}${restEstimated ? ` ${USAGE_LABELS.estimated}` : ''}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${COST_LABELS.mark}${formatCost(summary.unattributedCost)}${restEstimated ? ` ${USAGE_LABELS.estimated}` : ''}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
     y += lineH
   }
 

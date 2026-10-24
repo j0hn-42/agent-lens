@@ -9,7 +9,7 @@ import type { AgentLink } from '@/hooks/simulation/types'
 import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-model'
 import { GlassCard } from './glass-card'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
-import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, redactForCopy, copiedMessage, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { PanelHeader, useDialogBehavior, useDockPanel, dockAttrs } from './shared-ui'
 
@@ -30,15 +30,15 @@ const TYPE_COLOR: Record<LinkPanelEntry['type'], string> = themed(() => ({
  * receiver, direction, time and the full content (long messages collapse; "Show all" expands them).
  *
  * Semantics: a non-modal `role="dialog"`, like the other detail cards of the visualizer. It opens with
- * focus on the dialog, closes with Escape or the close button (and when focus leaves it), and gives
- * focus back to what opened it (useDialogBehavior). It does not trap focus or block the canvas: the
+ * focus on the dialog, closes with Escape or the close button (moving focus elsewhere does not close it:
+ * WCAG 3.2.2 / 2.4.3), and gives focus back to what opened it (useDialogBehavior). It does not trap focus or block the canvas: the
  * graph stays usable behind it, which is why it is not `aria-modal`.
  */
 export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   const titleId = useId()
   const descId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  useDialogBehavior(ref, onClose)
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   // Right dock, stacked above Files / Conversation (shared layout: never over another panel)
   const dock = useDockPanel('link', true)
   const { rect } = dock
@@ -87,14 +87,14 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
     content: e.content, isError: e.isError, truncatedChars: e.truncatedChars,
   })
   const copyEntry = async (e: LinkPanelEntry) => {
-    const ok = await copyText(e.content)
-    const cut = e.truncatedChars > 0 ? ` (truncated: ${e.truncatedChars} characters were cut)` : ''
-    notify(ok ? `${e.typeLabel} copied${cut}` : 'Copy failed: select the text and copy it by hand')
+    const { text, redactions } = redactForCopy(e.content)
+    const ok = await copyText(text)
+    notify(ok ? copiedMessage(e.typeLabel, e.truncatedChars, redactions) : 'Copy failed: select the text and copy it by hand')
   }
   const exportAll = () => {
     const title = `${model.fromName} and ${model.toName}: ${model.kindLabel}`
-    const md = conversationToMarkdown({ title, entries: model.entries.map(toExport), notes: exportNotes({ droppedText: model.droppedText }) })
-    notify(downloadText(exportFileName(title), md) ? 'Conversation exported as Markdown' : 'Export failed in this browser')
+    const { markdown: md, redactions } = conversationExport({ title, entries: model.entries.map(toExport), notes: exportNotes({ droppedText: model.droppedText }) })
+    notify(downloadText(exportFileName(title), md) ? exportSavedMessage(redactions) : EXPORT_FAILED_MESSAGE)
   }
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(collapsible.map(e => e.id)))
 

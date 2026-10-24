@@ -16,7 +16,7 @@ import { getToolCardSize } from './render-cache'
 import type { FocusShape } from './draw-misc'
 import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
 import { overlayHits } from './overlay-state'
-import { lodForZoom } from './draw-options'
+import { lodForZoom, discoveryCardScale, type LevelOfDetail } from './draw-options'
 import { findLinkAt, type ResolvedLink } from './link-geometry'
 import type { NavNode } from './keyboard-nav'
 import { badgeRect, badgeSizeText, branchBadge, type CollapseView } from './branch-collapse'
@@ -174,12 +174,16 @@ export function findDiscoveryAt(
   y: number,
   discoveries: Discovery[],
   scale = 1,
+  /** Factor the cards are drawn at (discoveryCardScale): the target is the card as drawn (#378) */
+  cardScale = 1,
 ): string | null {
   for (const disc of reverseValues(discoveries)) {
     if (disc.opacity < MIN_VISIBLE_OPACITY) continue
-    // Same dimensions as drawDiscoveries (shared helper)
+    // Same dimensions as drawDiscoveries (shared helper), enlarged around the centre like the drawing
     const lines = disc.content.split('\n')
-    const { cardW, cardH } = getDiscoveryCardDimensions(disc.label, lines)
+    const dims = getDiscoveryCardDimensions(disc.label, lines)
+    const cardW = dims.cardW * cardScale
+    const cardH = dims.cardH * cardScale
     if (pointInMinRect(x, y, disc.x - cardW / 2, disc.y - cardH / 2, cardW, cardH, scale, HIT_DETECTION.minTargetPx)) return disc.id
   }
   return null
@@ -237,6 +241,8 @@ export function hitTestAt(
   scene: { agents: Map<string, Agent>; toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[]; links?: ResolvedLink[]; collapse?: CollapseView },
   simTime: number,
   scale = 1,
+  /** Level of detail of the last drawn frame (hysteresis included); absent = the plain rule for `scale` */
+  lod?: LevelOfDetail,
 ): HitTarget | null {
   const agentId = findAgentAt(x, y, scene.agents, scale)
   if (agentId) return { type: 'agent', id: agentId }
@@ -244,7 +250,7 @@ export function hitTestAt(
   if (branchId) return { type: 'branch', id: branchId }
   const toolId = findToolCallAt(x, y, scene.toolCalls, scale)
   if (toolId) return { type: 'tool', id: toolId }
-  const discId = findDiscoveryAt(x, y, scene.discoveries, scale)
+  const discId = findDiscoveryAt(x, y, scene.discoveries, scale, discoveryCardScale({ zoom: scale, lod }))
   if (discId) return { type: 'discovery', id: discId }
   const bubbleId = findBubbleAgentAt(x, y, scene.agents, simTime, scale)
   if (bubbleId) return { type: 'bubble', id: bubbleId }
@@ -263,6 +269,8 @@ export function hitTestAt(
 export function focusShapeFor(
   node: NavNode,
   scene: { agents: Map<string, Agent>; toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[] },
+  /** Factor the discovery cards are drawn at (discoveryCardScale): the ring surrounds the card as drawn (#378) */
+  discoveryScale = 1,
 ): FocusShape | null {
   if (node.type === 'agent') {
     const a = scene.agents.get(node.id)
@@ -278,5 +286,5 @@ export function focusShapeFor(
   const d = scene.discoveries.find(x => x.id === node.id)
   if (!d) return null
   const { cardW, cardH } = getDiscoveryCardDimensions(d.label, d.content.split('\n'))
-  return { kind: 'rect', x: d.x, y: d.y, w: cardW, h: cardH }
+  return { kind: 'rect', x: d.x, y: d.y, w: cardW * discoveryScale, h: cardH * discoveryScale }
 }

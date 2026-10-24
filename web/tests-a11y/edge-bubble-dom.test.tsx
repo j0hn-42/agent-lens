@@ -115,6 +115,23 @@ test('a hovered button that is removed clears the hold (no pointerout is sent fo
   root.remove()
 })
 
+test('a focused bubble whose plan hides it stays inert and leaves the Tab order (#514)', () => {
+  const root = layer()
+  syncBubbleButtons(root, [spec('a')])
+  const b = root.querySelector('button') as HTMLButtonElement
+  b.focus()
+  assert.equal(document.activeElement, b)
+  syncBubbleButtons(root, [])
+  assert.equal(b.isConnected, true, 'focus is kept')
+  assert.equal(b.style.pointerEvents, 'none', 'not clickable')
+  assert.equal(b.tabIndex, -1, 'not reachable by Tab')
+  assert.equal(b.getAttribute('aria-hidden'), 'true', 'not announced as an available control')
+  syncBubbleButtons(root, [spec('a')])
+  assert.equal(b.tabIndex, 0)
+  assert.equal(b.hasAttribute('aria-hidden'), false)
+  root.remove()
+})
+
 test('wheel over a bubble is forwarded to the canvas (zoom keeps working)', () => {
   const root = layer()
   const canvas = document.createElement('canvas')

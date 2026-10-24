@@ -47,6 +47,12 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
 }
 
+/** The agentId a SendMessage result says it resumed ("Resuming agent"), undefined when it resumed none. */
+export function resumedAgentOf(toolUseResult: unknown): string | undefined {
+  if (!isRecord(toolUseResult) || toolUseResult.success !== true) return undefined
+  return sanitizeAgentName(toolUseResult.resumedAgentId) ?? undefined
+}
+
 /** The agentId of an async launch receipt, '' when it carries none; null when it is not one. */
 export function asyncLaunchOf(toolUseResult: unknown): { agentId?: string } | null {
   if (!isRecord(toolUseResult) || toolUseResult.status !== 'async_launched') return null
@@ -88,6 +94,8 @@ export function parseTaskNotifications(text: unknown): TaskNotification[] {
 export class BackgroundLaunches {
   private byToolUseId = new Map<string, BackgroundLaunch>()
   private byAgentId = new Map<string, string>()
+  /** Launches already finished, by agentId (bounded, oldest evicted): a SendMessage resume re-opens one (#433) */
+  private finished = new Map<string, BackgroundLaunch>()
 
   register(launch: BackgroundLaunch): void {
     this.delete(launch.toolUseId)
@@ -111,7 +119,28 @@ export class BackgroundLaunches {
     const launch = id ? this.byToolUseId.get(id) : undefined
     if (!launch || launch.sessionId !== sessionId) return undefined
     this.delete(launch.toolUseId)
+    if (launch.agentId) {
+      this.finished.delete(launch.agentId)
+      if (this.finished.size >= BACKGROUND_LAUNCHES_MAX) {
+        const oldest = this.finished.keys().next().value
+        if (oldest !== undefined) this.finished.delete(oldest)
+      }
+      this.finished.set(launch.agentId, launch)
+    }
     return launch
+  }
+
+  /**
+   * A finished launch resumed by a SendMessage whose result names `agentId` as resumed (#433): it is open
+   * again, and the next terminal notification for that task-id (its tool-use-id is the SendMessage call's)
+   * finishes it. Nothing is re-opened for an agent this session never saw finish.
+   */
+  resume(agentId: string, sessionId: string): boolean {
+    const launch = this.finished.get(agentId)
+    if (!launch || launch.sessionId !== sessionId) return false
+    this.finished.delete(agentId)
+    this.register({ ...launch, startTime: undefined })
+    return true
   }
 
   has(toolUseId: string): boolean {
@@ -128,6 +157,9 @@ export class BackgroundLaunches {
   clearSession(sessionId: string): void {
     for (const launch of [...this.byToolUseId.values()]) {
       if (launch.sessionId === sessionId) this.delete(launch.toolUseId)
+    }
+    for (const [agentId, launch] of [...this.finished]) {
+      if (launch.sessionId === sessionId) this.finished.delete(agentId)
     }
   }
 }

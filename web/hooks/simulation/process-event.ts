@@ -8,6 +8,7 @@ import {
   type TimelineBlock,
 } from '../../lib/agent-types'
 import type { UnattributedUsage } from '../../lib/attribution'
+import { parseNormalizationStats, type NormalizationStats } from '../../lib/event-normalize'
 import type { WasteLedger } from '../../lib/waste'
 import type { SimulationState, ConversationMessage, AgentLink } from './types'
 import { DEFAULT_SESSION_ID } from './types'
@@ -17,13 +18,16 @@ import { handleMessage, handleContextUpdate, handleContextCompacted } from './ha
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
 import { handleAgentLink, handleMessageSent } from './handle-link-events'
 import { handleTeamInfo, handleAgentActivity } from './handle-team-events'
-import { heardFrom, importedFrom } from './freshness'
+import { heardFrom, historyFrom, importedFrom } from './freshness'
+import { isHistoricalEvent, dropNewParticles, settleEntryAnimations } from './settle-replayed'
 import { advanceAgentActiveTime } from './track-active-time'
 
 export interface ProcessEventContext {
   syncForceSimulation: (agents: Map<string, Agent>, edges: Edge[]) => void
   findToolSlot: (agent: Agent, agents: Map<string, Agent>, toolCalls: Map<string, ToolCallNode>, currentTime: number) => { x: number; y: number }
   getContextWindowSize: (modelId?: string) => number
+  /** Whether `getContextWindowSize` fell back to a default for this model (#364); absent = never flagged */
+  isContextWindowAssumed?: (modelId?: string) => boolean
   blockIdCounter: { current: number }
   skipForceSync: boolean
 }
@@ -42,6 +46,8 @@ export interface MutableEventState {
   teams: Map<string, TeamSummary>
   unattributed: Map<string, UnattributedUsage>
   droppedMessages: Map<string, number>
+  /** Counters of what the normalizer discarded, per session (last normalization_stats wins) */
+  normalizationStats: Map<string, NormalizationStats>
   /** Written by the tool handlers through `wasteToken`, see lib/waste */
   waste: WasteLedger
   /** Owns `waste` for this call or batch: the ledger is copied once, then written in place */
@@ -77,6 +83,19 @@ export function pushTimelineBlock(
   return { ...entry, blocks }
 }
 
+/**
+ * Copy of `entry` with its last block closed at `currentTime` when it is still open (and, with `type`,
+ * only when it has that type); `entry` itself when there is nothing to close. Never mutates `entry`.
+ */
+export function closeTimelineBlock(entry: TimelineEntry, currentTime: number, type?: TimelineBlock['type']): TimelineEntry {
+  const last = entry.blocks.length - 1
+  if (last < 0 || entry.blocks[last].endTime) return entry
+  if (type && entry.blocks[last].type !== type) return entry
+  const blocks = entry.blocks.slice()
+  blocks[last] = { ...blocks[last], endTime: currentTime }
+  return { ...entry, blocks }
+}
+
 /** Shallow-compare two Maps by reference equality of values */
 function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
   if (a.size !== b.size) return false
@@ -101,6 +120,7 @@ function copyCollections(prev: SimulationState): MutableEventState {
     teams: new Map(prev.teams),
     unattributed: new Map(prev.unattributed),
     droppedMessages: new Map(prev.droppedMessages),
+    normalizationStats: new Map(prev.normalizationStats),
     waste: prev.waste,
     wasteToken: {},
   }
@@ -109,6 +129,7 @@ function copyCollections(prev: SimulationState): MutableEventState {
 /** Run the handler of one event on the mutable collections, at `currentTime`. */
 function applyEvent(event: SimulationEvent, currentTime: number, state: MutableEventState, ctx: ProcessEventContext): void {
   const sid = eventSessionId(event)
+  const keptParticles = state.particles.length
   switch (event.type) {
     case 'agent_spawn':       handleAgentSpawn(event.payload, currentTime, state, ctx, sid); break
     case 'agent_complete':    handleAgentComplete(event.payload, currentTime, state, ctx, sid); break
@@ -116,7 +137,7 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'model_detected':    handleModelDetected(event.payload, state, ctx, sid); break
     case 'tool_call_start':   handleToolCallStart(event.payload, currentTime, state, ctx, sid); break
     case 'tool_call_end':     handleToolCallEnd(event.payload, currentTime, state, ctx, sid); break
-    case 'message':           handleMessage(event.payload, currentTime, state, sid); break
+    case 'message':           handleMessage(event.payload, currentTime, state, ctx, sid); break
     case 'context_update':    handleContextUpdate(event.payload, state, sid); break
     case 'context_compacted': handleContextCompacted(event.payload, currentTime, state, sid); break
     case 'subagent_dispatch': handleSubagentDispatch(event.payload, currentTime, state, sid); break
@@ -126,7 +147,10 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'team_info':         handleTeamInfo(event.payload, state, ctx); break
     case 'agent_activity':    handleAgentActivity(event.payload, currentTime, state, ctx, sid); break
     case 'permission_requested': handlePermissionRequested(event.payload, currentTime, state, ctx, sid); break
+    case 'normalization_stats': state.normalizationStats.set(sid, parseNormalizationStats(event.payload)); break
   }
+  // A replayed or imported event describes the past: no particle travels for it
+  if (isHistoricalEvent(event)) dropNewParticles(state, keptParticles)
   // Particles normally expire as frames animate; a burst of events between two frames must not pile them up
   if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES)
 }
@@ -148,6 +172,7 @@ function publish(prev: SimulationState, state: MutableEventState, currentTime: n
     teams: mapsEqual(prev.teams, state.teams) ? prev.teams : state.teams,
     unattributed: mapsEqual(prev.unattributed, state.unattributed) ? prev.unattributed : state.unattributed,
     droppedMessages: mapsEqual(prev.droppedMessages, state.droppedMessages) ? prev.droppedMessages : state.droppedMessages,
+    normalizationStats: mapsEqual(prev.normalizationStats, state.normalizationStats) ? prev.normalizationStats : state.normalizationStats,
     waste: state.waste,
   }
 }
@@ -190,7 +215,8 @@ export interface EventBatchOptions {
   advanceClock?: boolean
   /**
    * Wall clock (ms) the events were received at (live path): after each event, the agents it touched are
-   * heard from at that time and, unless the event is a replayed one, their active span moves.
+   * heard from at that time (live, or 'history' for a replayed event, #361) and, unless the event is a replayed
+   * one, their active span moves.
    */
   receivedAt?: number
   /** Asked after each event; true stops the batch there (frame budget) */
@@ -215,17 +241,21 @@ export function processEventBatch(
   const writes = receivedAt !== undefined ? recordAgentWrites(state.agents) : null
   let currentTime = prev.currentTime
   let processed = 0
+  let allHistorical = true
   try {
     for (let i = from; i < events.length; i++) {
       const event = events[i]
       if (opts.advanceClock) currentTime = event.time
       writes?.before.clear()
       applyEvent(event, currentTime, state, ctx)
+      if (!isHistoricalEvent(event)) allHistorical = false
       if (writes && receivedAt !== undefined) {
         for (const [id, before] of writes.before) {
           const agent = Map.prototype.get.call(state.agents, id) as Agent | undefined
           if (!agent || agent === before) continue
-          const heard = event.imported ? importedFrom(agent, receivedAt) : heardFrom(agent, receivedAt)
+          const heard = event.imported ? importedFrom(agent, receivedAt)
+            : event.replayed ? historyFrom(agent, receivedAt)
+            : heardFrom(agent, receivedAt)
           Map.prototype.set.call(state.agents, id, event.replayed ? heard : advanceAgentActiveTime(before, heard, receivedAt))
         }
       }
@@ -235,5 +265,7 @@ export function processEventBatch(
   } finally {
     writes?.restore()
   }
+  // A batch made only of history shows where it ends up; a mixed one keeps the entry animation of its live events
+  if (allHistorical) settleEntryAnimations(state)
   return { state: publish(prev, state, currentTime), processed }
 }

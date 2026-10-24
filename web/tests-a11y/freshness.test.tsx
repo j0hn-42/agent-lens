@@ -4,13 +4,17 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act } from '@testing-library/react'
 import axe from 'axe-core'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { FreshnessAnnouncer } from '@/components/agent-visualizer/freshness-announcer'
 import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
+import { drawnStatusText } from '@/components/agent-visualizer/canvas/team-style'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { STALE_AFTER_MS, FRESHNESS_DRAW, TERMINAL_STATUS_VISIBLE_MS } from '@/lib/canvas-constants'
+import { scenePalette } from '@/lib/scene-state-colors'
 import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
 import type { SessionInfo } from '@/lib/bridge-types'
 
@@ -145,7 +149,7 @@ function agentRow(container: HTMLElement, name: string): HTMLElement {
   assert.ok(btn, `agent row ${name}`)
   return btn
 }
-const markerOf = (row: HTMLElement) => row.querySelector<HTMLElement>('span.rounded-full')!
+const markerOf = (row: HTMLElement) => row.querySelector<HTMLElement>('span[data-state-marker]')!
 const detailOf = (row: HTMLElement) => row.querySelector<HTMLElement>('span.shrink-0:not([aria-hidden]):not(.tabular-nums)')!
 
 function panelAgent(id: string, state: string, over: Record<string, unknown> = {}) {
@@ -161,7 +165,8 @@ test('stale agent in the panel: hollow grey marker and muted detail, unlike a fr
   const fresh = agentRow(container, 'live')
   const idle = agentRow(container, 'rest')
   assert.equal(markerOf(stale).style.background, 'transparent', 'a stale marker is hollow')
-  assert.notEqual(markerOf(fresh).style.background, 'transparent', 'a fresh working marker is filled')
+  assert.equal(markerOf(fresh).style.borderStyle, 'dashed', 'a fresh waiting marker is the dashed ring of a permission wait (#381)')
+  assert.notEqual(markerOf(fresh).style.cssText, markerOf(stale).style.cssText, 'which a stale marker is not')
   assert.equal(markerOf(stale).style.cssText, markerOf(idle).style.cssText, 'and looks like an idle one')
   assert.equal(detailOf(stale).style.color, detailOf(idle).style.color, 'stale detail uses the muted colour of a state-less row')
   assert.notEqual(detailOf(fresh).style.color, detailOf(stale).style.color, 'a fresh waiting detail has its own colour')
@@ -208,6 +213,19 @@ test('announcer: ONE polite aggregated message when agents turn stale, silent ot
   assert.equal(region.textContent, before, 'no repeat while nothing changes')
 })
 
+test('announcer: a live agent whose status now comes from a replayed history is not "no longer reporting" (#361)', () => {
+  const clock = fakeClock()
+  const live = new Map([['alpha', { id: 'alpha', name: 'alpha', state: 'thinking', lastEventAt: T0 }]])
+  const { getByRole, rerender } = render(<FreshnessAnnouncer agents={live} clock={clock} />)
+  const region = getByRole('status')
+  clock.advance(1000)
+  assert.equal(region.textContent, '', 'fresh: nothing to say')
+  const replayed = new Map([['alpha', { id: 'alpha', name: 'alpha', state: 'thinking', lastEventAt: T0 + 1000, freshnessSource: 'history' as const }]])
+  rerender(<FreshnessAnnouncer agents={replayed} clock={clock} />)
+  clock.advance(1000)
+  assert.equal(region.textContent, 'alpha shows a state read from history.')
+})
+
 // ─── Canvas ──────────────────────────────────────────────────────────────────
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -246,7 +264,9 @@ function drawOne(over: Record<string, unknown>, now: number): Call[] {
   const ctx = recordingContext(calls)
   ;(globalThis as any).Path2D = class {}
   ;(globalThis as any).document = { createElement: () => ({ getContext: () => ctx, width: 0, height: 0 }) }
-  drawAgents(ctx, new Map([['s1:a', canvasAgent('s1:a', over)]]), null, null, false, 0, undefined, now)
+  // Drawn in Neon: the state colours of the canvas follow the theme (#381), the stale grey does not
+  const opts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false, theme: 'neon' as const }
+  drawAgents(ctx, new Map([['s1:a', canvasAgent('s1:a', over)]]), null, null, false, 0, opts, now)
   return calls
 }
 
@@ -271,12 +291,12 @@ test('canvas: a fresh node (and a never-observed one) is neither dimmed nor labe
 })
 
 // Concrete drawn values (no comparison against the constants under test)
-const THINKING_COLOR = '#b79cff'
+const THINKING_COLOR = '#b79cff' // Neon's thinking (drawOne draws in Neon)
 const STALE_GREY = '#8a94a0'
 const STALE_TEXT = '#c5ced8' // neutral light grey, opaque: legible over the dark violet halo of a session (#145)
 
 test('canvas constants: the stale look is a grey, clearly dimmed (alpha well below 1)', () => {
-  assert.equal(FRESHNESS_DRAW.staleColor, STALE_GREY)
+  assert.equal(scenePalette('neon').staleMark, STALE_GREY)
   assert.equal(FRESHNESS_DRAW.staleAlpha, 0.45)
 })
 
@@ -302,4 +322,31 @@ test('canvas: the stale label reads "last known state: Thinking" in an opaque li
   const fresh = freshCalls.find(c => c.fn === 'fillText' && c.text === 'thinking')
   assert.ok(fresh, 'a fresh node still says its state in words')
   assert.equal(fresh.fillStyle, THINKING_COLOR, 'and in the state colour')
+})
+
+// ─── The status line has one source (#502) ───────────────────────────────────
+
+test('canvas: the status line drawn under a node is drawnStatusText, the function the Sessions rows quote (#502)', () => {
+  const now = T0 + STALE_AFTER_MS + 1
+  const cases: Array<[string, Record<string, unknown>, string]> = [
+    ['teammate at work', { kind: 'teammate', activity: 'working', lastEventAt: now }, 'working'],
+    ['teammate reported idle while its state still says thinking', { kind: 'teammate', activity: 'idle', lastEventAt: now }, 'idle'],
+    ['stale agent', { lastEventAt: T0 }, 'last known state: Thinking'],
+    ['stale teammate', { kind: 'teammate', activity: 'working', lastEventAt: T0 }, 'last known state: Thinking'],
+  ]
+  for (const [name, over, word] of cases) {
+    assert.equal(drawnStatusText(canvasAgent('s1:a', over), now), word, `${name}: precondition`)
+    const texts = drawOne(over, now).filter(c => c.fn === 'fillText').map(c => c.text)
+    assert.ok(texts.includes(word), `${name}: the canvas draws "${word}" (drew ${JSON.stringify(texts)})`)
+  }
+})
+
+test('canvas: draw-agents takes the status line from drawnStatusText and keeps no copy of its rule (#502)', () => {
+  // A copy of the rule in draw-agents would draw the same words today and drift apart later with no test failing:
+  // the status line is read from the one function, and the pieces of that rule are not called there
+  const src = fs.readFileSync(path.join(__dirname, '../components/agent-visualizer/canvas/draw-agents.ts'), 'utf8')
+  assert.ok(src.includes('drawnStatusText('), 'draw-agents.ts calls drawnStatusText')
+  for (const piece of ['lastKnownStateText', 'agentStatusText']) {
+    assert.equal(src.includes(piece), false, `draw-agents.ts does not compose the status line itself (${piece})`)
+  }
 })

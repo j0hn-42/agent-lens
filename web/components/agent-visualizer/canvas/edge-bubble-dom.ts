@@ -236,6 +236,7 @@ export function syncBubbleButtons(root: HTMLElement, specs: readonly BubbleButto
     b.style.opacity = ''
     b.style.pointerEvents = 'auto'
     delete b.dataset.unplaced
+    b.removeAttribute('aria-hidden')
     b.tabIndex = 0
   }
   const active = doc.activeElement
@@ -246,6 +247,8 @@ export function syncBubbleButtons(root: HTMLElement, specs: readonly BubbleButto
       // Keep focus: leave the button in place, invisible and inert, until the bubble is placed again
       b.style.opacity = '0'
       b.style.pointerEvents = 'none'
+      b.tabIndex = -1
+      b.setAttribute('aria-hidden', 'true')
       b.dataset.unplaced = 'true'
       if (st.hovered === key) { st.hovered = null; holdChanged = true }
       continue
