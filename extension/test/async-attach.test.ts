@@ -6,7 +6,7 @@
  * events are held meanwhile; the other sessions keep flowing.
  */
 import './helpers/alias-vscode'
-import { describe, it, afterEach } from 'node:test'
+import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -195,6 +195,55 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     assert.equal(session.fileWatcher, null)
     assert.equal(session.pollTimer, null)
     assert.deepEqual(r.delivered, [], 'nothing of a dropped session is delivered')
+  })
+
+  it('a session still queued is held already: its hook event is not delivered before its history (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
+    r.transcript(S2, prompt('Second') + history(64 * 1024, 'b'))
+    const s1 = r.session(S1)
+    const s2 = r.session(S2)
+    const p1 = r.pipeline.attach(s1)
+    const p2 = r.pipeline.attach(s2)
+    await underway(s1)
+    assert.equal(s2.seenToolUseIds.size, 0, 'S2 waits in the queue')
+    r.reconciler.submit({ time: 1, type: 'agent_idle', payload: { name: 'orchestrator' }, sessionId: S2 }, { source: 'hook' })
+    assert.deepEqual(r.delivered.filter(e => e.sessionId === S2), [], 'held, not delivered ahead of its agent_spawn')
+    await Promise.all([p1, p2])
+    const ofS2 = r.delivered.filter(e => e.sessionId === S2).map(e => e.type)
+    assert.ok(ofS2.includes('agent_spawn') && ofS2.includes('agent_idle'), 'both come out once its history is loaded')
+  })
+
+  it('an empty transcript released during the stat is never announced (#613)', async () => {
+    r = rig()
+    r.transcript(S1, '')
+    const session = r.session(S1)
+    const realStat = fs.promises.stat.bind(fs.promises)
+    const stat = mock.method(fs.promises, 'stat', async (...args: Parameters<typeof fs.promises.stat>) => {
+      r!.pipeline.release(session)
+      r!.sessions.delete(S1)
+      return realStat(...args)
+    })
+    try { await r.pipeline.attach(session) } finally { stat.mock.restore() }
+    assert.deepEqual(r.lifecycle, [], 'no started without an ended')
+    assert.deepEqual(r.delivered, [])
+  })
+
+  it('a release during the stat of a non-empty transcript leaves no parser state behind (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(64 * 1024, 'm'))
+    const session = r.session(S1)
+    const realStat = fs.promises.stat.bind(fs.promises)
+    const stat = mock.method(fs.promises, 'stat', async (...args: Parameters<typeof fs.promises.stat>) => {
+      r!.pipeline.release(session)
+      r!.sessions.delete(S1)
+      return realStat(...args)
+    })
+    try { await r.pipeline.attach(session) } finally { stat.mock.restore() }
+    const parser = r.pipeline.parser as unknown as { normalizers: Map<string, unknown>; registries: Map<string, unknown> }
+    assert.equal(parser.normalizers.has(S1), false, 'no normalizer')
+    assert.equal(parser.registries.has(S1), false, 'no subagent registry')
+    assert.deepEqual(r.lifecycle, [])
   })
 
   it('a SessionEnd observed while the history is read ends the session once the attach ended', async () => {

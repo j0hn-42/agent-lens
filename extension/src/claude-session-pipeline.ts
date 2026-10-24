@@ -160,7 +160,8 @@ export class ClaudeSessionPipeline {
    */
   attach(session: WatchedSession): Promise<void> {
     this.attaching.set(session.sessionId, session)
-    const run = this.attachQueue.then(() => this.attachNow(session))
+    const previous = this.attachQueue
+    const run = this.attachNow(session, previous)
     this.attachQueue = run.catch(() => {})
     return run
   }
@@ -170,24 +171,29 @@ export class ClaudeSessionPipeline {
     return this.attaching.size > 0 ? this.attachQueue : null
   }
 
-  private async attachNow(session: WatchedSession): Promise<void> {
+  private async attachNow(session: WatchedSession, previous: Promise<void>): Promise<void> {
     const { sessionId, filePath } = session
     const alive = () => this.attaching.get(sessionId) === session && this.host.sessions.get(sessionId) === session
     const slice = new TimeSlice(() => !alive())
     const withSessionHistory = this.host.withSessionHistory ?? (<T>(_id: string, load: () => Promise<T>) => load())
     try {
-      // One session per turn of the event loop; a session dropped while queued stops here
-      await slice.pause()
-      // The live flow (hooks) is already subscribed: the session's events arriving while the history is read
-      // are held and replayed, deduplicated against the history, when the load ends (issue #53)
-      await withSessionHistory(sessionId, () => this.loadHistory(session, slice))
+      // The live flow (hooks) is already subscribed: the session's events arriving while it is queued and while the
+      // history is read are held and replayed, deduplicated against the history, when the load ends (issue #53).
+      // The hold starts here, not when the attach comes up: a hook of a queued session must not be delivered
+      // ahead of its 'started' and its agent_spawn (#613).
+      await withSessionHistory(sessionId, async () => {
+        await previous
+        // One session per turn of the event loop; a session dropped while queued stops here
+        await slice.pause()
+        await this.loadHistory(session, slice, alive)
+      })
     } catch (err) {
-      if (err instanceof AttachCancelled) { this.endedWhileAttaching.delete(sessionId); return }
+      if (err instanceof AttachCancelled) { this.dropCancelled(session); return }
       this.endedWhileAttaching.delete(sessionId)
       if (this.attaching.get(sessionId) === session) this.attaching.delete(sessionId)
       throw err
     }
-    if (!alive()) { this.endedWhileAttaching.delete(sessionId); return }
+    if (!alive()) { this.dropCancelled(session); return }
     this.attaching.delete(sessionId)
 
     const guard = (fn: () => void) => (this.host.guard ? this.host.guard(fn, sessionId) : fn())
@@ -209,15 +215,32 @@ export class ClaudeSessionPipeline {
     if (this.endedWhileAttaching.delete(sessionId)) this.observeSessionEnd(sessionId)
   }
 
+  /**
+   * An attach that stopped because its session was released or replaced: no pending end, and the parser state a block
+   * in flight may have created after release() is freed, unless a newer session of the same id owns it now (#613).
+   */
+  private dropCancelled(session: WatchedSession): void {
+    const { sessionId } = session
+    this.endedWhileAttaching.delete(sessionId)
+    const current = this.host.sessions.get(sessionId)
+    if ((current === undefined || current === session) && !this.attaching.has(sessionId)) {
+      this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
+    }
+  }
+
   /** The history part of an attach: everything already in the transcript and its subagent files. */
-  private async loadHistory(session: WatchedSession, slice: TimeSlice): Promise<void> {
+  private async loadHistory(session: WatchedSession, slice: TimeSlice, alive: () => boolean): Promise<void> {
     const { sessionId, filePath } = session
     const stat = await fs.promises.stat(filePath)
+    // Released during the stat: nothing was read yet, so no slice would notice it (an empty transcript has none)
+    if (!alive()) throw new AttachCancelled()
     // Pre-scan existing content for dedup IDs + collect recent entries for catch-up.
     // It also starts the tail from the end of what it read (only NEW events go forward),
     // keeping an unfinished last line in fileTail.
     const catchUpEntries = await this.parser.prescanExistingContentAsync(filePath, stat.size, session, slice)
     this.parser.extractSessionLabel(catchUpEntries, session)
+    // The last block of the prescan may have run after a release: not announced, since nothing would end it
+    if (!alive()) throw new AttachCancelled()
 
     this.host.onDetected?.(sessionId)
     this.host.fireLifecycle('started', sessionId, session.label)
@@ -250,6 +273,8 @@ export class ClaudeSessionPipeline {
       return
     }
     let conversation = false
+    // A user or assistant line over NORM_MAX_LINE_CHARS is not parsed (the normalizer drops it, event-normalize.ts): its
+    // type is unknown, so it is no conversation turn and does not reopen a completed session (#613)
     for (const line of lines) {
       const type = this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
       if (type === 'user' || type === 'assistant') conversation = true
