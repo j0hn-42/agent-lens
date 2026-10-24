@@ -1,4 +1,5 @@
 // Real wiring of the cost figures on a collapsed scene (#106): halo, DOM mirror and Costs panel agree with the whole simulation.
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { sceneAgents, costScope } from '../web/components/agent-visualizer/canvas/scene'

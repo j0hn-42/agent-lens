@@ -20,10 +20,10 @@ function liveEntryText(id: LegendEntryId, locale: Locale): string {
   return translate(locale, key)
 }
 
-/** One sentence per legend entry, in English (the language the tests and the docs quote) */
-export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = Object.fromEntries(
-  LEGEND_ENTRY_IDS.map(id => [id, liveEntryText(id, 'en')]),
-) as Record<LegendEntryId, string>
+/** One sentence per legend entry, in English (the language the tests and the docs quote). Each one is written when
+ * read: no table is loaded when this module is (#662), the entries load one before their first render. */
+export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = Object.defineProperties({} as Record<LegendEntryId, string>,
+  Object.fromEntries(LEGEND_ENTRY_IDS.map(id => [id, { get: () => liveEntryText(id, 'en'), enumerable: true }])))
 
 /** `title`: a word that is the same in every language (Sessions), so it has no catalog key */
 interface Group { id: string; title?: string; entries: readonly LegendEntryId[] }

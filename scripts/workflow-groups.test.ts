@@ -1,5 +1,6 @@
 // Workflow groups (#79): a Workflow-tool run is displayed through the team machinery with
 // teamKind 'workflow'. Wording, sanitising, grouping, activity and halo rules. Synthetic data only.
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { formatTeamSummary } from '../web/lib/chrome-utils'

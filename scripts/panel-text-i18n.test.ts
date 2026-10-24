@@ -1,6 +1,7 @@
 // #373 (panels 1): the words of the Conversation, Context and Files panels in French and English. English output is
 // the one of the helpers the panels used before (no figure, count or qualifier changes); French keeps every number and
 // every qualifier ("au moins", "estimé", "incomplet", "non communiqué").
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as P from '../web/lib/panel-text'
