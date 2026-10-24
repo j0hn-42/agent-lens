@@ -87,3 +87,18 @@ test('drawAgents: the depth shadow sprite stays small from the detail zoom up (#
   const widest = Math.max(0, ...widths)
   assert.ok(widest > 0 && widest < 300, `sprite width ${widest}`)
 })
+
+test('drawAgents: the depth shadow keeps its screen size on a 2x display (#613)', () => {
+  // shadowBlur is in sprite pixels, then scaled by zoom * dpr: at dpr 2 the sprite is painted with half the blur
+  const widthAt = (dpr: number): number => {
+    const widths = spriteWidths(() => {
+      const { ctx } = watched()
+      drawAgents(ctx, map([agent(0, { scale: 1.37 })]), null, null, false, 0, opts(1, { dpr }))
+    })
+    return Math.max(0, ...widths)
+  }
+  const w1 = widthAt(1)
+  const w2 = widthAt(2)
+  assert.ok(w1 > 0 && w2 > 0, `sprites ${w1} / ${w2}`)
+  assert.ok(w2 < w1, `dpr 2 sprite (${w2} px) is not smaller than the dpr 1 one (${w1} px)`)
+})

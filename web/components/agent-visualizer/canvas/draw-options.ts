@@ -10,6 +10,8 @@ export interface DrawOpts {
   reducedMotion: boolean
   /** Current camera zoom (1 = 100%), used for level of detail. */
   zoom: number
+  /** Device pixel ratio of the canvas (absent = 1): sprites painted with a blur divide it by zoom x dpr to keep their screen size. */
+  dpr?: number
   /** Level of detail of this frame, with hysteresis (see lodForZoom); absent = derived from `zoom` */
   lod?: LevelOfDetail
   /** The cost overlay is active (affects the stacked overlay layout above agents). */

@@ -44,14 +44,14 @@ function MarkersLostMarker({ lost, locale }: { lost: number; locale: Locale }) {
   const text = formatMarkersLost(lost, locale)
   if (!text) return null
   return (
+    // The sentence is the visible text: a title is out of reach of keyboard and touch, and an abbreviation beside
+    // a hidden sentence would leave those users without the meaning (#613)
     <span
       data-markers-lost=""
-      title={text}
-      className="shrink-0 text-2xs font-mono rounded px-1"
+      className="min-w-0 text-2xs font-mono rounded px-1"
       style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
     >
-      <span className="sr-only">{text}</span>
-      <span aria-hidden="true">{translate(locale, "bar.markersLost", { n: lost })}</span>
+      {text}
     </span>
   )
 }

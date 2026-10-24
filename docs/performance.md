@@ -81,3 +81,5 @@ pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts --no-gate 
 | #660, idle gate | 10 | 0 | 0 | 1.6 |
 
 Before, the age written at every frame copied every live agent (about 12,000 objects a second with 200 agents) and handed the draw loop a new agents Map each time, so its caches keyed on it never hit. Now the Map is kept at rest and the frame does not run at all.
+
+Scope of the gain: it holds for a scene drawn as is. With "Hide inactive" on or a collapsed branch, the scene builder (`sceneAgents`) hands the draw loop a new agents Map each frame, so `repeatCacheRef` (keyed on that Map) still misses and re-derives the repeat marks at every frame. Only `edgeLookupCacheRef` (keyed on the particles and edges, which the scene builder does not copy) keeps hitting. The figures above were measured without either option.

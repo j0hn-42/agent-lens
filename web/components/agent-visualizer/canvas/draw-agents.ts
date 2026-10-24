@@ -305,12 +305,14 @@ export function drawContextRing(
 /**
  * Depth shadow as a pre-rendered sprite (#661): a shadowBlur per agent per frame is the costliest raster of the
  * canvas at 100+ agents. shadowBlur and its offsets are in screen px (they do not follow the transform), so the
- * sprite is painted with blur and offsets divided by the zoom, held in half-octave steps: the shadow keeps its
- * on-screen size within ~20 %, and the sprite is reused while the zoom moves inside a step. Only called from the
+ * sprite is painted with blur and offsets divided by the device scale (zoom x devicePixelRatio, since the sprite
+ * is drawn through the canvas transform, which includes the dpr), held in half-octave steps: the shadow keeps its
+ * on-screen size within ~20 % on a 1x and on a 2x display, and the sprite is reused while the scale moves inside a step. Only called from the
  * detail zoom (LOD.detailMinZoom), which bounds the sprite: it would grow as 1/zoom without that gate.
  */
-function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette, zoom: number) {
-  const step = 2 ** (Math.round(Math.log2(zoom > 0 ? zoom : 1) * 2) / 2)
+function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette, zoom: number, dpr: number) {
+  const deviceScale = zoom * (dpr > 0 ? dpr : 1)
+  const step = 2 ** (Math.round(Math.log2(deviceScale > 0 ? deviceScale : 1) * 2) / 2)
   const rq = Math.max(1, Math.round(r * 2) / 2)
   const blur = AGENT_DRAW.shadowBlur / step
   const ox = AGENT_DRAW.shadowOffsetX / step
@@ -871,7 +873,7 @@ export function drawAgents(
     ctx.globalAlpha = nodeAlpha
 
     // Under the detail zoom the shadow is not drawn: its sprite grows as 1/zoom (966 px at the minimum zoom, #661)
-    if (lod.details) drawDepthShadow(ctx, agent, r, scene, opts.zoom)
+    if (lod.details) drawDepthShadow(ctx, agent, r, scene, opts.zoom, opts.dpr ?? 1)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting, sceneTheme)
     if (!reducedMotion && live) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion, sceneTheme)

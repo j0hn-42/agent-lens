@@ -100,8 +100,8 @@ const HEX_MIN_PITCH_PX = 15
 /**
  * Level of detail of the hex grid (#646): draw one hexagon out of `stride` per axis, `stride` being a
  * power of two (1 = every hexagon). Without it the count grows as 1/scale² (142 000 at the minimum zoom).
- * The stride is 1 from a 15 px pitch up, so the default zoom is unchanged, and the count never exceeds
- * about 10 000 whatever the zoom.
+ * The stride is 1 from a 15 px pitch up, so the default zoom is unchanged, and the count stays under
+ * about viewport area / 15² (about 10 000 at 1920x1080, 15 400 at 2560x1440, 33 540 at 4K), whatever the zoom.
  */
 function hexGridStride(scale: number): number {
   const pitch = HEX_GRID_SIZE * 1.5 * scale
@@ -149,7 +149,9 @@ function drawHexGrid(
 
   for (let x = gridX; x < endX; x += stepX) {
     for (let y = gridY; y < endY; y += stepY) {
-      const offsetY = stride === 1 && ((x - startX) / (size * 1.5)) % 2 !== 0 ? hexHeight / 2 : 0
+      // Odd columns (counted from the world origin, not from the first drawn column) sit half a row lower:
+      // the even columns, the only ones a thinned grid keeps, then stay where they were when the stride changes.
+      const offsetY = stride === 1 && Math.abs(Math.round(x / (size * 1.5))) % 2 === 1 ? hexHeight / 2 : 0
       const cx = x
       const cy = y + offsetY
       const dist = Math.sqrt(cx * cx + cy * cy)

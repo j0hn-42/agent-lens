@@ -285,6 +285,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.theme = theme
       opts.reducedMotion = reducedMotion
       opts.zoom = transform.scale
+      opts.dpr = dpr
       const lod = lodForZoom(transform.scale, lodRef.current)
       lodRef.current = lod
       opts.lod = lod

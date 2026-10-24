@@ -249,11 +249,12 @@ export function syncBubbleButtons(root: HTMLElement, specs: readonly BubbleButto
     if (seen.has(key)) continue
     if (b === active) {
       // Keep focus: leave the button in place, invisible and inert, until the bubble is placed again
-      b.style.opacity = '0'
-      b.style.pointerEvents = 'none'
-      b.tabIndex = -1
-      b.setAttribute('aria-hidden', 'true')
-      b.dataset.unplaced = 'true'
+      // Only what changed is written, as for a placed button (#613): this runs every frame while the focus stays there
+      if (b.style.opacity !== '0') b.style.opacity = '0'
+      if (b.style.pointerEvents !== 'none') b.style.pointerEvents = 'none'
+      if (b.tabIndex !== -1) b.tabIndex = -1
+      if (b.getAttribute('aria-hidden') !== 'true') b.setAttribute('aria-hidden', 'true')
+      if (b.dataset.unplaced !== 'true') b.dataset.unplaced = 'true'
       if (st.hovered === key) { st.hovered = null; holdChanged = true }
       continue
     }
