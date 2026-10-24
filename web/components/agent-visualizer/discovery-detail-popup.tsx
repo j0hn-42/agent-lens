@@ -36,7 +36,7 @@ export function DiscoveryDetailPopup({ discovery, agentName, position, onClose }
     <DetailPopup position={position} width={POPUP.discovery.width} estimatedHeight={POPUP.discovery.estimatedHeight} onClose={onClose} titleId={titleId} sensitive>
       <PanelHeader onClose={onClose} titleId={titleId}>
         <span
-          className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded"
+          className="text-2xs font-mono font-bold px-1.5 py-0.5 rounded"
           style={{ background: typeColor + '20', color: typeColor, border: `1px solid ${typeColor}30` }}
         >
           {typeLabel}
@@ -72,13 +72,13 @@ export function DiscoveryDetailPopup({ discovery, agentName, position, onClose }
 
       {/* Origin: the call whose output listed this file (#438) */}
       {discovery.listing && (
-        <div className="mt-1.5 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+        <div className="mt-1.5 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
           {listedFileText(discovery.listing)}
         </div>
       )}
 
       {/* Agent attribution */}
-      <div className="mt-1.5 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+      <div className="mt-1.5 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
         agent: {agentName ?? discovery.agentId}
       </div>
     </DetailPopup>

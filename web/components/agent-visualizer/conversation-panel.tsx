@@ -322,11 +322,11 @@ export function ConversationPanel({
           <span id={pillPreviewId} hidden {...DATA_EN}>{preview}</span>
           <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: role.text }} />
           {/* Role as text too: colour alone must not carry it (WCAG 1.4.1) */}
-          <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
-          <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
+          <span className="text-2xs font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
+          <span className="text-2xs font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
             {truncateName(agentName, COLLAPSED_AGENT_NAME_MAX)}
           </span>
-          <span {...DATA_EN} className="text-[11px] font-mono truncate" style={{ color: role.text }}>
+          <span {...DATA_EN} className="text-2xs font-mono truncate" style={{ color: role.text }}>
             {preview}{latestMessage.content.length > PREVIEW_MAX ? '...' : ''}
           </span>
           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }}><ChevronIcon direction="down" /></span>
@@ -343,7 +343,7 @@ export function ConversationPanel({
 
   const droppedLocal = droppedText(locale, droppedCount)
   const droppedNote = droppedLocal ? (
-    <p className="text-[11px] font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedLocal}</p>
+    <p className="text-2xs font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedLocal}</p>
   ) : null
   const messageList = (
     <>
@@ -361,7 +361,7 @@ export function ConversationPanel({
     >
       {messages.length === 0 ? (
         <div className="flex items-center justify-center py-6">
-          <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+          <span className="text-2xs font-mono" style={{ color: COLORS.textMuted }}>
             {searching ? t('conv.emptySearch') : pairActive ? pairEmptyTextT(locale, pair, nameOfAgent) : t('conv.empty')}
           </span>
         </div>
@@ -447,7 +447,7 @@ export function ConversationPanel({
       aria-expanded={pickerOpen}
       title={t('conv.pair.title')}
       onClick={() => setPickerOpen(v => !v)}
-      className={`shrink-0 min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+      className={`shrink-0 min-h-6 ${TOUCH_TARGET} px-2 rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
       style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
     >
       {t('conv.pair.button')}
@@ -474,14 +474,14 @@ export function ConversationPanel({
         {/* Header */}
         <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0 max-md:flex-wrap" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <h2 id={titleId} className="m-0 text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
+            <h2 id={titleId} className="m-0 text-2xs font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
               {panelName(locale, 'conversation')}
             </h2>
-            <span className="text-[11px] font-mono whitespace-nowrap shrink-0" style={{ color: COLORS.panelLabelDim }}>
+            <span className="text-2xs font-mono whitespace-nowrap shrink-0" style={{ color: COLORS.panelLabelDim }}>
               {searching ? messageCountText(locale, totalCount, messages.length) : messageCountText(locale, totalCount)}
             </span>
             {presetAgent && presetColor && (
-              <span className="text-[11px] font-mono inline-flex items-center gap-1 min-w-0" style={{ color: presetColor }}>
+              <span className="text-2xs font-mono inline-flex items-center gap-1 min-w-0" style={{ color: presetColor }}>
                 <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: presetColor, boxShadow: `0 0 6px ${presetColor}` }} />
                 <span className="truncate" title={presetAgent.name}>{presetAgent.name}</span>
                 <span>{stateText(locale, presetAgent.state)}</span>
@@ -495,7 +495,7 @@ export function ConversationPanel({
               aria-pressed={showTools}
               title={t('conv.toolCalls.title')}
               onClick={() => setShowTools(v => !v)}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showTools ? COLORS.toggleActive : 'transparent',
                 color: showTools ? COLORS.assistantText : COLORS.textMuted,
@@ -509,7 +509,7 @@ export function ConversationPanel({
               disabled={messages.length === 0}
               onClick={exportConversation}
               title={t('conv.export.title')}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
               {t('conv.export')}
@@ -522,7 +522,7 @@ export function ConversationPanel({
               aria-expanded={showSearch}
               aria-controls={searchId}
               title={t('conv.search')}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showSearch ? COLORS.toggleActive : 'transparent',
                 color: showSearch ? COLORS.assistantText : COLORS.textMuted,
@@ -633,7 +633,7 @@ export function ConversationPanel({
                 type="button"
                 aria-expanded={pickerOpen}
                 onClick={() => setPickerOpen(v => !v)}
-                className={`min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                className={`min-h-6 ${TOUCH_TARGET} px-2 rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
                 style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
               >
                 {t('conv.pair.button')}
@@ -649,7 +649,7 @@ export function ConversationPanel({
                     value={value}
                     onChange={e => set(e.target.value)}
                     // No fixed width: a long agent name is no longer cut at 120 px; the panel width is the limit
-                    className={`min-h-6 ${TOUCH_TARGET} max-w-full min-w-0 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                    className={`min-h-6 ${TOUCH_TARGET} max-w-full min-w-0 rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
                     style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
                   >
                     <option value="">{label}</option>
@@ -667,12 +667,12 @@ export function ConversationPanel({
           <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? t('conv.teamsAndWorkflows') : t('conv.teams')} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING_INSET}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
             {teamGroups.map(g => (
               <div key={g.key} role="group" aria-label={teamChipTexts(locale, g).label}>
-                <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
+                <h3 className="text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
                   {teamChipTexts(locale, g).heading}
                 </h3>
                 <ul className="flex flex-wrap gap-x-2 gap-y-0.5 pb-1">
                   {g.items.map(a => (
-                    <li key={a.id} className="text-[11px] font-mono flex items-center gap-1" style={{ color: COLORS.textMuted }}>
+                    <li key={a.id} className="text-2xs font-mono flex items-center gap-1" style={{ color: COLORS.textMuted }}>
                       <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full" style={{ background: teamColorOf(a, teams) ?? COLORS.textMuted }} />
                       {a.name}
                       <span className="sr-only">, {hierarchyTermText(locale, a)}</span>
@@ -701,7 +701,7 @@ export function ConversationPanel({
         {/* Intentional: the log is not live (it would read every message). While pinned to the bottom the
             list is already in view; when scrolled up this polite status line announces only the unseen count. */}
         <div role="status" className="sr-only">{!isAtBottom && newCount > 0 ? newMessagesLabel : ''}</div>
-        <p role="status" data-testid="copy-feedback" className={`m-0 px-3 text-[11px] font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
+        <p role="status" data-testid="copy-feedback" className={`m-0 px-3 text-2xs font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {!isAtBottom && messages.length > 0 && (
           <div className="flex justify-center py-1 flex-shrink-0" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
@@ -709,7 +709,7 @@ export function ConversationPanel({
               type="button"
               aria-controls={listId}
               onClick={scrollToBottom}
-              className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.scrollBtnText }}
             >
               <ArrowDownIcon size={11} className="mr-1 align-[-1px]" />
@@ -789,7 +789,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       {count !== undefined && count > 0 && (
         <span aria-hidden="true" className="text-[10px] tabular-nums px-1 rounded" style={{ background: COLORS.holoBg10, color: COLORS.textMuted }}>{count}</span>
       )}
-      {done && <span aria-hidden="true" className="text-[11px]">{tr(locale, 'conv.tab.done')}</span>}
+      {done && <span aria-hidden="true" className="text-2xs">{tr(locale, 'conv.tab.done')}</span>}
       {hasUnread && (
         <>
           <span className="sr-only"> {tr(locale, 'conv.tab.unread')}</span>
@@ -865,30 +865,30 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
         <span className="flex items-center gap-1.5 mb-0.5 flex-wrap">
           {direction ? (
             <>
-              <span className="text-[11px] font-mono font-semibold break-all" style={{ color: role.text }}>
+              <span className="text-2xs font-mono font-semibold break-all" style={{ color: role.text }}>
                 {from}<span aria-hidden="true"> {'→'} </span><span className="sr-only"> {tr(locale, 'conv.row.to')} </span>{to}
               </span>
-              <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
+              <span className="text-2xs font-mono font-semibold" style={{ color: role.text }}>
                 <span aria-hidden="true">- </span><span className="sr-only">, </span>{roleLabel}
               </span>
             </>
           ) : (
-            <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
+            <span className="text-2xs font-mono font-semibold" style={{ color: role.text }}>
               {roleLabel}
             </span>
           )}
           {showAgent && !direction && (
-            <span className="text-[11px] font-mono truncate" title={agentName} style={{ color: COLORS.textMuted }}>
+            <span className="text-2xs font-mono truncate" title={agentName} style={{ color: COLORS.textMuted }}>
               {agentName}
             </span>
           )}
           {sessionChip && (
-            <span className="text-[11px] font-mono truncate max-w-[96px] px-1 rounded" title={tr(locale, 'conv.row.sessionTitle', { id: sessionChip })}
+            <span className="text-2xs font-mono truncate max-w-[96px] px-1 rounded" title={tr(locale, 'conv.row.sessionTitle', { id: sessionChip })}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}>
               {sessionChip}
             </span>
           )}
-          <time dateTime={time.iso} className="text-[11px] font-mono ml-auto shrink-0" style={{ color: COLORS.textMuted }}>
+          <time dateTime={time.iso} className="text-2xs font-mono ml-auto shrink-0" style={{ color: COLORS.textMuted }}>
             {time.label}
           </time>
         </span>
@@ -908,7 +908,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-label={direction ? tr(locale, 'conv.pair.rowAria', { direction }) : tr(locale, 'conv.pair.button')}
           onClick={onFilterPair}
-          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+          className={`text-2xs font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {tr(locale, 'conv.pair.button')}
@@ -920,7 +920,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-label={direction ? tr(locale, 'conv.row.copyAriaDir', { role: roleLabel.toLowerCase(), direction }) : tr(locale, 'conv.row.copyAria', { role: roleLabel.toLowerCase() })}
           onClick={onCopy}
-          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+          className={`text-2xs font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {tr(locale, 'conv.row.copy')}
@@ -933,7 +933,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-expanded={expanded}
           aria-controls={contentId}
-          className={`text-[11px] font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+          className={`text-2xs font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
           onClick={() => setExpanded(prev => !prev)}
         >
