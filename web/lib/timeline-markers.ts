@@ -1,9 +1,9 @@
 import type { TimelineEvent } from './agent-types'
 import type { ConversationMessage } from '../hooks/simulation/types'
-import { MAX_CONVERSATION_MESSAGES } from '../hooks/simulation/types'
+import { MAX_CONVERSATION_MESSAGES, MAX_EVENT_LOG } from '../hooks/simulation/types'
 
 /** Max scrubber markers kept (oldest are dropped and counted in `lost`), same bound as the event log */
-export const MAX_MARKERS = 5000
+const MAX_MARKERS = MAX_EVENT_LOG
 
 export interface MarkerResult {
   /** Markers sorted by time; a new array whenever something changed */

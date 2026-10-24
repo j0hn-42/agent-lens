@@ -2,8 +2,8 @@
 // the 200-message cap of appendConversation, and they are reset when a conversation is cleared or replaced.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createMarkerTracker, MAX_MARKERS } from '../web/lib/timeline-markers'
-import { appendConversation, MAX_CONVERSATION_MESSAGES, type ConversationMessage } from '../web/hooks/simulation/types'
+import { createMarkerTracker } from '../web/lib/timeline-markers'
+import { appendConversation, MAX_CONVERSATION_MESSAGES, MAX_EVENT_LOG as MAX_MARKERS, type ConversationMessage } from '../web/hooks/simulation/types'
 
 type Conv = Map<string, ConversationMessage[]>
 
