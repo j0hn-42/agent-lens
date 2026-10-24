@@ -86,8 +86,10 @@ test('the Next page renders the visualizer on the client only, once the boot dat
   const graph = eagerGraph('app/page.tsx')
   assert.ok(!graph.has('components/agent-visualizer/index.tsx'), 'the visualizer is a chunk of its own on the Next page')
   const client = fs.readFileSync(path.join(WEB, 'app', 'visualizer-client.tsx'), 'utf8')
-  assert.match(client, /from 'next\/dynamic'/)
-  assert.match(client, /ssr:\s*false/)
+  // A state, not Suspense: React 19 holds a Suspense reveal for 300 ms, next/dynamic would delay the first paint by that
+  assert.match(client, /lazyComponent</)
+  assert.doesNotMatch(client, /from 'next\/dynamic'/)
+  assert.match(client, /import\('@\/components\/agent-visualizer'\)/)
   assert.match(client, /prepareBoot\(\)/)
 })
 
