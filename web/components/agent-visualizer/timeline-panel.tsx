@@ -323,10 +323,12 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   }), [arrows, locale])
   const cappedButtons = useMemo(() => capMessageRows(messageRows), [messageRows])
   const activeArrow = arrows.find(a => a.id === activeArrowId)
-  const ariaLabel = timelineLabelText(locale, sortedEntries, currentTime)
+  const rangeLabel = timelineLabelText(locale, sortedEntries, currentTime)
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
   const droppedBlocks = useMemo(() => totalDroppedBlocks(sortedEntries), [sortedEntries])
+  // The name of the chart and the caption of its table say the older blocks they do not list (#613), not only the counter below
+  const ariaLabel = droppedBlocks > 0 ? `${rangeLabel}. ${olderBlocksText(locale, droppedBlocks)}` : rangeLabel
 
 
   // Bottom dock: centred above the control bar, narrowed by the chat / link / card beside it
