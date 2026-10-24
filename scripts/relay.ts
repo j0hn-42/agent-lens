@@ -1450,8 +1450,16 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (sinceSeq === null && /[?&]since=/.test(req.url ?? '')) log('[sse] since ignored: malformed, repeated, ahead or from another relay instance')
       const gap: Record<string, number> = {}
       const addGap = (sid: string, n: number) => { if (n > 0) gap[sid] = Math.min((gap[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER) }
+      // The client keeps its graph across a reconnection (reconnect.ts): it already has what is numbered up to `since`
+      // (#653). Nothing is lost by leaving it out; what the cap or the buffer cannot give back is still counted below.
+      let buffers: ReadonlyMap<string, readonly AgentEvent[]> = eventBuffer
+      if (sinceSeq !== null) {
+        const after = new Map<string, readonly AgentEvent[]>()
+        for (const [sid, events] of eventBuffer) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
+        buffers = after
+      }
       const replay = capReplayBatches(
-        buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped,
+        buildReplayBatches(buffers, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped,
         sinceSeq === null ? undefined : events => {
           for (const e of events) if (typeof e.sessionId === 'string' && (eventSeqs.get(e) ?? 0) > sinceSeq) addGap(e.sessionId, 1)
         },
