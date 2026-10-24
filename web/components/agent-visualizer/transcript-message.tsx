@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { COLORS, themed } from '@/lib/colors'
 import { ToolContentRenderer, ResultPillView } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
@@ -58,9 +58,12 @@ export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?:
 function TruncatedText({ text, limit, query, color, ansi, locale }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean; locale: Locale }) {
   const [showAll, setShowAll] = useState(false)
   // Truncation counts visible characters: escape sequences are parsed out before cutting
-  const segments = ansi ? parseAnsi(text) : null
-  const plain = segments ? segments.map(s => s.text).join('') : text
-  const t = truncateWithMarker(plain, limit)
+  // Parsed once per text (up to 4000 chars), not on every render of the row (#657)
+  const { segments, t } = useMemo(() => {
+    const segs = ansi ? parseAnsi(text) : null
+    const plain = segs ? segs.map(s => s.text).join('') : text
+    return { segments: segs, t: truncateWithMarker(plain, limit) }
+  }, [text, ansi, limit])
   return (
     <>
       <span {...DATA_EN}>
@@ -88,7 +91,7 @@ function TruncatedText({ text, limit, query, color, ansi, locale }: { text: stri
  * Tool activity rows of the Conversation panel (tool_call / tool_result). Conversation text, thinking and
  * agent-to-agent rows are rendered by the panel's own row component.
  */
-export function TranscriptMessage({ message, searchQuery }: {
+export const TranscriptMessage = memo(function TranscriptMessage({ message, searchQuery }: {
   message: ConversationMessage
   searchQuery?: string
 }) {
@@ -162,4 +165,4 @@ export function TranscriptMessage({ message, searchQuery }: {
         </div>
       )
   }
-}
+})

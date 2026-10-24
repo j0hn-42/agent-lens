@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { AUTO_SCROLL_THRESHOLD } from '@/lib/canvas-constants'
-import { resolveRenderWindow } from '@/lib/feed-utils'
+import { resolveRenderWindow, pruneMeasuredHeights } from '@/lib/feed-utils'
 
 const OVERSCAN = 10
 
@@ -29,6 +29,7 @@ export function useVirtualList<T extends { id: string }>(
   const heightsRef = useRef<Map<string, number>>(new Map())
   const elementsRef = useRef<Map<string, HTMLElement>>(new Map())
   const seenCountRef = useRef(0)
+  const scrollFrameRef = useRef<number | null>(null)
   const autoScrollRef = useRef(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
 
@@ -53,8 +54,22 @@ export function useVirtualList<T extends { id: string }>(
       setIsAtBottom(atBottom)
       if (atBottom) return
     }
-    setScrollTop(el.scrollTop)
+    // One state update per frame: a scroll burst re-renders the panel once, not once per event
+    if (scrollFrameRef.current != null) return
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      const live = containerRef.current
+      if (live) setScrollTop(live.scrollTop)
+    })
   }, [containerRef, autoScroll])
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = null
+  }, [])
+
+  // Measured heights of messages that left the list (trimmed history, other tab) are dropped
+  useEffect(() => { pruneMeasuredHeights(heightsRef.current, items) }, [items])
 
   useEffect(() => {
     const el = containerRef.current
