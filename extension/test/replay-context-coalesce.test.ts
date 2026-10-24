@@ -74,10 +74,11 @@ describe('replay buffer: context_update superseded at the same instant (#567)', 
     const flood: AgentEvent[] = []
     for (let i = 0; i < 3000; i++) flood.push(ev('tool_call_end', i, { agent: 'main' }), ctx('main', 5000 + i, i), ctx('main', 5000 + i, i))
     const { buf, evicted } = feed([...spawns, ...flood], { perSession: 1000, sessions: 10, total: 100000 })
-    assert.equal(buf.length, 1000, 'per-session cap unchanged')
+    // Per-session cap unchanged; a full buffer is trimmed in batches, back to 90 % of it (#652)
+    assert.ok(buf.length <= 1000 && buf.length >= 900, `per-session cap unchanged: ${buf.length}`)
     assert.equal(buf.filter(e => e.type === 'agent_spawn').length, RELAY_REPLAY_LIFECYCLE_RESERVE, 'every spawn kept')
     // 9000 sent, 3000 replaced (one per instant), the rest of the overflow is a counted loss
-    assert.equal(evicted.bySession.get('s'), 400 + 9000 - 3000 - 1000)
+    assert.equal(evicted.bySession.get('s'), 400 + 9000 - 3000 - buf.length)
   })
 
   it('a reading evicted by the cap is no longer a candidate: the next one is simply appended', () => {
