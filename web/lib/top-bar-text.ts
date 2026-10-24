@@ -6,7 +6,7 @@ import type { TeamSummary } from './agent-types'
 import { ALL_SESSIONS_ID, type ConnectionStatus, type SessionInfo } from './bridge-types'
 import type { ConnectionTone } from './chrome-utils'
 import { parseReconnectDetail } from './reconnect'
-import { groupHeadingText } from './card-text'
+import { attentionCounterText, groupHeadingText } from './card-text'
 import { translate, type Locale, type MessageKey } from './messages'
 import { selectionLabel } from './session-tree'
 
@@ -49,16 +49,7 @@ export function unobservedSessionsShortText(locale: Locale, n: number): string {
 
 // ─── Attention counter (#501) ────────────────────────────────────────────────
 
-/**
- * What the counter draws: "2 agents waiting / 1 agent in error". Spelled out (never "2 waiting"): the number alone
- * does not say what is counted. Zero parts are left out; empty when nothing is blocked.
- */
-export function attentionCounterText(locale: Locale, waiting: number, errors: number): string {
-  const parts: string[] = []
-  if (waiting > 0) parts.push(plural(locale, 'topbar.attention.waiting', waiting))
-  if (errors > 0) parts.push(plural(locale, 'topbar.attention.error', errors))
-  return parts.join(' / ')
-}
+export { attentionCounterText }
 
 /** Accessible name: starts with the visible text (WCAG 2.5.3), then says what a click does. */
 export function attentionAriaLabel(locale: Locale, waiting: number, errors: number): string {
