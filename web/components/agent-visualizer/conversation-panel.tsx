@@ -318,7 +318,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           // message of the conversation (data, "en") and an aria-label cannot declare a language (WCAG 3.1.2). The visible
           // role, agent and preview are all in this name (WCAG 2.5.3); the button content is not read a second time.
           aria-labelledby={`${pillLeadId} ${pillPreviewId}`}
-          title={agentName}
+          title={agentName.length > COLLAPSED_AGENT_NAME_MAX ? agentName : undefined}
           onClick={onOpen}
           className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING_INSET}`}
           style={{ maxWidth: PILL_MAX_WIDTH }}
