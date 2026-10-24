@@ -17,7 +17,7 @@ export const DEFAULT_LOCALE: Locale = 'en'
 
 export const LOCALE_STORAGE_KEY = 'agent-lens:locale'
 
-/** Every domain of domains.ts, as one type per language: a new domain is listed there only (#613) */
+/** Every domain of domains.ts, as one type per language: the key type follows that list (#613) */
 type Domain = (typeof MESSAGE_DOMAINS)[keyof typeof MESSAGE_DOMAINS]
 type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never
 type FrTable = UnionToIntersection<Domain['fr']>
