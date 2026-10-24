@@ -10,6 +10,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { AgentEvent, WatchedSession } from '../src/protocol'
 import { ClaudeSessionPipeline } from '../src/claude-session-pipeline'
+import { completeSessionHeader } from '../src/team-watcher'
+import { NORM_MAX_LINE_CHARS } from '../src/constants'
 
 const SESSION = '65565565-5655-4655-8655-655655655655'
 const MARK = 'single-parse-marker-655'
@@ -98,5 +100,57 @@ describe('live transcript lines are parsed once (#655)', () => {
     assert.deepEqual(reopened, [false])
     parsesWhileReading([user])
     assert.deepEqual(reopened, [false, true])
+  })
+
+  it('a user or assistant line over NORM_MAX_LINE_CHARS is dropped unparsed and does not reopen the session (#613)', () => {
+    const huge = { ...user, message: { role: 'user', content: `${MARK} ${'x'.repeat(NORM_MAX_LINE_CHARS)}` } }
+    assert.equal(parsesWhileReading([huge]), 0, 'not parsed at all')
+    assert.deepEqual(reopened, [false], 'its type is unknown, so it is no conversation turn')
+    assert.equal(events.filter(e => JSON.stringify(e).includes(MARK)).length, 0, 'and nothing is emitted from it')
+  })
+})
+
+/**
+ * The hosts read the same lines through onTranscriptLines: completeSessionHeader parses again, as long as the cwd of
+ * the session is unknown, the lines that name a cwd. "One parse per line" holds once the cwd is learnt (#613).
+ */
+describe('the host hook onTranscriptLines and the parse count (#655, #613)', () => {
+  let dir = ''
+  const realParse = JSON.parse
+  afterEach(() => { JSON.parse = realParse; fs.rmSync(dir, { recursive: true, force: true }) })
+
+  it('a line without cwd costs one parse; the line that teaches the cwd costs two; once learnt, one again', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-single-parse-host-'))
+    const file = path.join(dir, `${SESSION}.jsonl`)
+    fs.writeFileSync(file, '')
+    const sessions = new Map<string, WatchedSession>()
+    const cwd = new Map<string, string>()
+    const branch = new Map<string, string>()
+    const pipeline = new ClaudeSessionPipeline({
+      sessions,
+      submit: () => {},
+      fireLifecycle: () => {},
+      withHistory: load => load(),
+      onTranscriptLines: (id, lines) => { completeSessionHeader(id, lines, cwd, branch) },
+    })
+    const session = pipeline.newSession(SESSION, file)
+    sessions.set(SESSION, session)
+    await pipeline.attach(session)
+    const parses = (entries: unknown[]): number => {
+      fs.appendFileSync(file, entries.map(jl).join(''))
+      let count = 0
+      JSON.parse = ((text: string, reviver?: (k: string, v: unknown) => unknown) => {
+        if (typeof text === 'string' && text.includes(MARK)) count++
+        return realParse(text, reviver)
+      }) as typeof JSON.parse
+      try { pipeline.readNewLines(SESSION) } finally { JSON.parse = realParse }
+      return count
+    }
+    try {
+      assert.equal(parses([metadata]), 1, 'no cwd in the line: one parse')
+      assert.equal(parses([{ ...user, cwd: `/work/${MARK}` }]), 2, 'the line naming the cwd is parsed again by the host')
+      assert.equal(cwd.get(SESSION), `/work/${MARK}`)
+      assert.equal(parses([{ ...assistant, cwd: `/work/${MARK}` }]), 1, 'cwd known: one parse per line again')
+    } finally { pipeline.release(session) }
   })
 })
