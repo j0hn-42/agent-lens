@@ -471,7 +471,7 @@ export function AgentVisualizer() {
       />
 
       <SelectionOverlays
-        selection={selection} inspector={inspector} agents={agents} links={links} droppedMessages={droppedMessages}
+        selection={selection} inspector={inspector} agents={agents} currentTime={currentTime} links={links} droppedMessages={droppedMessages}
         health={health} bridge={bridge} selectedLinkId={selectedLinkId} onCloseLink={() => setSelectedLinkId(null)}
         onEscapeFromCard={escapeFromDetailCard} menuActions={menuActions}
       />

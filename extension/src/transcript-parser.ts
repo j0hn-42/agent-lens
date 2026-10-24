@@ -414,18 +414,36 @@ export class TranscriptParser {
     ctxSeen: Set<string>,
     sessionId?: string,
     ctxSeenMessages?: Set<string>,
-  ): void {
+  ): string | undefined {
+    return this.processParsedEntry(this.getNormalizer(sessionId).parseLine(line), agentName, ctxPending, ctxSeen, sessionId, ctxSeenMessages)
+  }
+
+  /**
+   * One transcript entry already parsed: the `type` of the entry, undefined when the line was not
+   * an object. The line is parsed once (#655); the caller reads the type here instead of parsing again.
+   */
+  private processParsedEntry(
+    parsed: Record<string, unknown> | undefined,
+    agentName: string,
+    ctxPending: Map<string, PendingToolCall>,
+    ctxSeen: Set<string>,
+    sessionId?: string,
+    ctxSeenMessages?: Set<string>,
+  ): string | undefined {
+    if (!parsed) return undefined
+    const type = typeof parsed.type === 'string' ? parsed.type : undefined
     try {
-      this.parseTranscriptLine(line, agentName, ctxPending, ctxSeen, sessionId, ctxSeenMessages)
+      this.parseTranscriptEntry(parsed, agentName, ctxPending, ctxSeen, sessionId, ctxSeenMessages)
     } catch (err) {
       // Untrusted input must never take the watcher down: count it and move on
       this.getNormalizer(sessionId).noteMalformed()
       log.debug('Skipping line that failed to parse:', err)
     }
+    return type
   }
 
-  private parseTranscriptLine(
-    line: string,
+  private parseTranscriptEntry(
+    parsed: Record<string, unknown>,
     agentName: string,
     ctxPending: Map<string, PendingToolCall>,
     ctxSeen: Set<string>,
@@ -433,8 +451,6 @@ export class TranscriptParser {
     ctxSeenMessages?: Set<string>,
   ): void {
     const norm = this.getNormalizer(sessionId)
-    const parsed = norm.parseLine(line)
-    if (!parsed) return
     norm.noteAgent(agentName)
 
     // Handle inline subagent progress events (newer Claude Code versions)
@@ -909,9 +925,8 @@ export class TranscriptParser {
       }
     }
 
-    // Re-wrap as a JSONL line and process through the normal pipeline
-    const innerLine = JSON.stringify(innerEntry)
-    this.processTranscriptLine(innerLine, subState.agentName, subState.pending, subState.seen, sessionId, subState.seenMessages)
+    // The inner entry is already parsed: it goes through the normal pipeline without being serialized again (#655)
+    this.processParsedEntry(innerEntry as unknown as Record<string, unknown>, subState.agentName, subState.pending, subState.seen, sessionId, subState.seenMessages)
   }
 
   /**

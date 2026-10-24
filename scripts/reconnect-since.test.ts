@@ -94,3 +94,24 @@ test('a connection that got no cursor sends none; a newer cursor (relay restarte
   await tick(BACKOFF_BASE_MS)
   assert.equal(FakeES.last.url, 'http://relay/events?session=s1&since=ffffffffffffffff.2')
 })
+
+// #653: what the client does at a reconnection decides whether the relay may replay only what was missed.
+test('a reconnection keeps what was delivered: nothing tells the app to empty its graph, the cursor is sent back (#653)', async () => {
+  start()
+  FakeES.last.open()
+  FakeES.last.send({ type: 'relay-cursor', instance: INSTANCE, seq: 10 })
+  const ev = { time: 1, type: 'message', sessionId: 's' }
+  FakeES.last.send({ type: 'agent-event', event: ev, seq: 11 })
+  const before = messages.length
+  FakeES.last.fail()
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.last.url, `http://relay/events?since=${INSTANCE}.11`)
+  FakeES.last.open()
+  FakeES.last.send({ type: 'agent-event', event: { time: 2, type: 'message', sessionId: 's' }, seq: 12 })
+  const types = messages.map(m => (m as { type?: string }).type)
+  assert.equal(messages.length, before + 1, 'only the new event reaches the app; the earlier ones stay delivered')
+  assert.ok(!types.includes('reset'), 'no reset message')
+  // A replayed copy of an event already delivered is still dropped (a relay of an older version replays everything)
+  FakeES.last.send({ type: 'agent-event', event: ev })
+  assert.equal(messages.length, before + 1, 'a replayed duplicate is dropped')
+})

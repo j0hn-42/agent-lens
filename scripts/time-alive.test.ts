@@ -6,6 +6,7 @@ import { computeNextFrame, type AnimateOptions } from '../web/hooks/simulation/a
 import { snapVisualState } from '../web/hooks/simulation/snap-visual-state'
 import { clearHistoryState } from '../web/hooks/simulation/clear-history'
 import type { SimulationEvent } from '../web/lib/agent-types'
+import { agentAge } from '../web/lib/agent-age'
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},
@@ -24,7 +25,8 @@ function spawned(time: number): SimulationState {
 /** A received event, played like the live catch-up does: the clock jumps to the event time */
 const receive = (s: SimulationState, event: SimulationEvent) => processEventBatch([event], s, ctx, { advanceClock: true }).state
 const frame = (s: SimulationState, t: number) => computeNextFrame(s, 0.1, t, t, s, options)
-const alive = (s: SimulationState) => Array.from(s.agents.values())[0].timeAlive
+/** The age the UI shows: read from the state's clock (#660) */
+const alive = (s: SimulationState) => agentAge(Array.from(s.agents.values())[0], s.currentTime)
 
 test('timeAlive follows the simulation clock when it jumps (event catch-up) (#383)', () => {
   const s0 = spawned(10)
