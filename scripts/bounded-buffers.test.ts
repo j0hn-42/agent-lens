@@ -1,7 +1,11 @@
 import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { trimOldest } from '../web/lib/bounded-buffer'
+import { trimOldest, pushBounded, bufferBytes, estimateEventBytes } from '../web/lib/bounded-buffer'
+import {
+  createSessionBuffers, appendSessionEvent, sessionEventCount, sessionEventsFrom, sessionBufferBytes, releaseSessionBuffer, clearSessionBuffers,
+} from '../web/lib/session-buffers'
+import type { SimulationEvent } from '../web/lib/agent-types'
 import { processEvent, pushTimelineBlock, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState } from '../web/hooks/simulation/types'
 import { visibleRowRange } from '../web/lib/timeline-rows'
@@ -91,4 +95,81 @@ test('olderBlocksText: singular and plural, in both languages (#659)', () => {
   assert.equal(olderBlocksText('fr', 1500), `${new Intl.NumberFormat('fr').format(1500)} blocs plus anciens non affichés`)
   assert.equal(olderBlocksText('en', 1), '1 older block not shown')
   assert.equal(olderBlocksText('en', 1500), '1,500 older blocks not shown')
+})
+
+// ─── Byte caps (#659): full buffers retained 314 MB with real payloads, measured (docs/performance.md) ──
+
+const big = (sessionId: string, time: number, chars: number, type = 'message'): SimulationEvent =>
+  ({ time, type: type as SimulationEvent['type'], payload: { agent: 'main', content: 'x'.repeat(chars) }, sessionId })
+
+test('estimateEventBytes follows the serialized size of the event (#659)', () => {
+  const small = estimateEventBytes(big('a', 0, 10))
+  const large = estimateEventBytes(big('a', 0, 10_010))
+  assert.ok(large - small >= 10_000 && large - small <= 10_100, `${small} -> ${large}`)
+})
+
+test('pushBounded: a byte cap trims the oldest in one batch and counts every dropped event (#659)', () => {
+  const buf: SimulationEvent[] = []
+  const capBytes = 100_000
+  let dropped = 0
+  const n = 400
+  for (let i = 0; i < n; i++) dropped += pushBounded(buf, big('a', i, 1000), 1_000_000, capBytes)
+  assert.ok(bufferBytes(buf) <= capBytes * 1.1, `bytes ${bufferBytes(buf)}`)
+  assert.ok(buf.length < n)
+  assert.equal(buf.length + dropped, n, 'kept + dropped = pushed: the base counter sees every drop')
+  assert.equal(buf[0].time, dropped, 'the oldest went first')
+  assert.equal(buf[buf.length - 1].time, n - 1)
+  // The count cap still applies
+  const b2: number[][] = []
+  let d2 = 0
+  for (let i = 0; i < 2000; i++) d2 += pushBounded(b2, [i], 1000, Number.MAX_SAFE_INTEGER)
+  assert.ok(b2.length <= 1100)
+  assert.equal(b2.length + d2, 2000)
+})
+
+test('pushBounded: one event larger than the cap is kept (the newest is never dropped) (#659)', () => {
+  const buf: SimulationEvent[] = []
+  pushBounded(buf, big('a', 0, 10), 100, 1000)
+  const d = pushBounded(buf, big('a', 1, 5000), 100, 1000)
+  assert.equal(d, 1)
+  assert.deepEqual(buf.map(e => e.time), [1])
+})
+
+test('session buffers: the byte cap frees the least recently written sessions, their count kept (#659)', () => {
+  const s = createSessionBuffers()
+  const capBytes = 200_000
+  for (let k = 0; k < 10; k++) {
+    for (let i = 0; i < 50; i++) appendSessionEvent(s, `s${k}`, big(`s${k}`, i, 1000), 's0', 5000, 50, capBytes)
+  }
+  assert.ok(sessionBufferBytes(s) <= capBytes, `bytes ${sessionBufferBytes(s)}`)
+  assert.ok(s.events.has('s0'), 'the protected session is kept')
+  assert.ok(s.events.has('s9'), 'the session being written is kept')
+  assert.ok(!s.events.has('s1'), 'the least recently written went first')
+  for (let k = 0; k < 10; k++) assert.equal(sessionEventCount(s, `s${k}`), 50, `s${k}: positions stay absolute, nothing lost silently`)
+  // Release and clear give the bytes back
+  const before = sessionBufferBytes(s)
+  releaseSessionBuffer(s, 's9')
+  assert.ok(sessionBufferBytes(s) < before)
+  clearSessionBuffers(s)
+  assert.equal(sessionBufferBytes(s), 0)
+})
+
+test('session buffers: one session above the byte cap drops its oldest events, counted in its base (#659)', () => {
+  const s = createSessionBuffers()
+  const capBytes = 100_000
+  appendSessionEvent(s, 'a', big('a', 0, 10, 'agent_spawn'), 'a', 5000, 50, capBytes)
+  for (let i = 1; i < 300; i++) appendSessionEvent(s, 'a', big('a', i, 1000), 'a', 5000, 50, capBytes)
+  assert.ok(sessionBufferBytes(s) <= capBytes, `bytes ${sessionBufferBytes(s)}`)
+  const kept = sessionEventsFrom(s, 'a', 0)
+  assert.ok(kept.length < 300)
+  assert.equal(sessionEventCount(s, 'a'), 300, 'dropped events are counted in the base')
+  assert.equal(kept[0].type, 'agent_spawn', 'the lifecycle event survives the byte trim')
+  assert.equal(kept[kept.length - 1].time, 299)
+})
+
+test('session buffers: the count trim gives its bytes back (#659)', () => {
+  const s = createSessionBuffers()
+  for (let i = 0; i < 30; i++) appendSessionEvent(s, 'a', big('a', i, 1000), null, 10, 50, 1e9)
+  const one = estimateEventBytes(big('a', 0, 1000))
+  assert.ok(Math.abs(sessionBufferBytes(s) - 10 * one) <= 20, `${sessionBufferBytes(s)} vs ${10 * one}`)
 })
