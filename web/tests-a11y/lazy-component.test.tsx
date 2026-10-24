@@ -59,3 +59,30 @@ test('without a condition the component is loaded at its first render', async ()
   assert.equal(calls, 1)
   assert.ok(r.getByText('Legend'))
 })
+
+test('a chunk that does not load: the dialog is asked to close, and the next opening loads again (#613)', async () => {
+  let calls = 0
+  const Lazy = lazyComponent<{ open: boolean; onClose: () => void }>(async () => {
+    calls++
+    if (calls === 1) throw new Error('chunk 404')
+    return ({ open }) => (open ? <p>Loaded</p> : null)
+  }, { when: p => p.open, onLoadError: p => p.onClose() })
+  const errors: unknown[][] = []
+  const original = console.error
+  console.error = (...a: unknown[]) => { errors.push(a) }
+  try {
+    let closed = 0
+    const onClose = () => { closed++ }
+    const r = render(<Lazy open onClose={onClose} />)
+    await act(async () => { await new Promise(res => setTimeout(res, 0)) })
+    assert.equal(closed, 1, 'the failure closes the dialog instead of leaving it open on nothing')
+    assert.equal(errors.length, 1)
+    r.rerender(<Lazy open={false} onClose={onClose} />)
+    r.rerender(<Lazy open onClose={onClose} />)
+    await act(async () => { await new Promise(res => setTimeout(res, 0)) })
+    assert.equal(calls, 2, 'a failed load is not remembered')
+    assert.ok(r.getByText('Loaded'))
+  } finally {
+    console.error = original
+  }
+})
