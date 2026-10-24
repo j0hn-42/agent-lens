@@ -41,7 +41,7 @@ describe('live transcript lines are parsed once (#655)', () => {
   let reopened: boolean[] = []
   const realParse = JSON.parse
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-single-parse-'))
     file = path.join(dir, `${SESSION}.jsonl`)
     fs.writeFileSync(file, '')
@@ -56,7 +56,8 @@ describe('live transcript lines are parsed once (#655)', () => {
     })
     const session = pipeline.newSession(SESSION, file)
     sessions.set(SESSION, session)
-    pipeline.attach(session)
+    // The attach runs over several ticks (#651): the live lines are read once it has ended
+    await pipeline.attach(session)
     const orig = pipeline.resetInactivityTimer.bind(pipeline)
     pipeline.resetInactivityTimer = (id, reopen) => { reopened.push(reopen ?? true); orig(id, reopen) }
   })
