@@ -2,7 +2,7 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, act } from '@testing-library/react'
-import { applyLocaleChoice, getLocale, getLocaleChoice, setLocaleChoice, subscribeLocale, useLocale } from '@/lib/locale'
+import { getLocale, getLocaleChoice, setLocaleChoice, subscribeLocale, useLocale } from '@/lib/locale'
 import { LOCALE_STORAGE_KEY } from '@/lib/messages'
 
 function browserLanguages(langs: string[] | null) {
@@ -94,7 +94,7 @@ test('a language whose table does not load: the choice goes back to the previous
   const seen: string[] = []
   const off = subscribeLocale(() => seen.push(getLocaleChoice()))
   const failing = (l: string) => (l === 'fr' ? Promise.reject(new Error('chunk 404')) : Promise.resolve())
-  applyLocaleChoice('fr', failing)
+  setLocaleChoice('fr', failing)
   assert.equal(getLocaleChoice(), 'fr', 'the choice shows at once while the table loads')
   await new Promise(res => setTimeout(res, 0))
   off()
@@ -107,12 +107,12 @@ test('a language that loads keeps the choice, and the failure of an older choice
   setLocaleChoice('en')
   let fail: (e: Error) => void = () => {}
   const slowFailing = (l: string) => (l === 'fr' ? new Promise<void>((_, rej) => { fail = rej }) : Promise.resolve())
-  applyLocaleChoice('fr', slowFailing)
-  applyLocaleChoice('auto', () => Promise.resolve())
+  setLocaleChoice('fr', slowFailing)
+  setLocaleChoice('auto', () => Promise.resolve())
   fail(new Error('late 404'))
   await new Promise(res => setTimeout(res, 0))
   assert.equal(getLocaleChoice(), 'auto')
-  applyLocaleChoice('fr', () => Promise.resolve())
+  setLocaleChoice('fr', () => Promise.resolve())
   await new Promise(res => setTimeout(res, 0))
   assert.equal(getLocaleChoice(), 'fr')
 })

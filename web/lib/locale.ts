@@ -64,11 +64,11 @@ function storeChoice(choice: LocaleChoice): void {
 }
 
 /**
- * The choice with the loader of the tables as a parameter (a test passes a failing one). When the table of the chosen
- * language does not load, the choice goes back to the previous one, unless another choice was made meanwhile: the
- * select never names a language the interface is not in (#613).
+ * Unknown values are refused. `auto` forgets the stored choice. `load` is the loader of the tables (a test passes a
+ * failing one). When the table of the chosen language does not load, the choice goes back to the previous one, unless
+ * another choice was made meanwhile: the select never names a language the interface is not in (#613).
  */
-export function applyLocaleChoice(choice: LocaleChoice, load: (locale: Locale) => Promise<void> = loadLocale): void {
+export function setLocaleChoice(choice: LocaleChoice, load: (locale: Locale) => Promise<void> = loadLocale): void {
   if (!isChoice(choice)) return
   const previous = getLocaleChoice()
   storeChoice(choice)
@@ -79,11 +79,6 @@ export function applyLocaleChoice(choice: LocaleChoice, load: (locale: Locale) =
       return loadLocaleOrDefault(wantedLocale(), load)
     }
   }).catch(() => { /* not even the default table: nothing more to do, the interface stays as it is */ })
-}
-
-/** Unknown values are refused. `auto` forgets the stored choice. */
-export function setLocaleChoice(choice: LocaleChoice): void {
-  applyLocaleChoice(choice)
 }
 
 export function subscribeLocale(cb: () => void): () => void {
