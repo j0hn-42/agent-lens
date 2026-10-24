@@ -2,6 +2,7 @@
  * Scope selector, pure part (#291): what the relay says it scans (GET /status), the choices offered, the text
  * that states the scope, and the POST /scope client. No React here.
  */
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { SessionInfo } from '../web/lib/bridge-types'

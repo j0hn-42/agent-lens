@@ -7,7 +7,7 @@ import {
   SimulationEvent,
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
-import { MOCK_SCENARIO } from '@/lib/mock-scenario'
+import { getMockScenario } from '@/lib/demo-scenario'
 import { contextWindowSize, contextWindowAssumed } from '@/lib/context-window'
 import { ANIM_SPEED, toolExpiryConfig, setToolExpiryS } from '@/lib/canvas-constants'
 import { readUiPrefs } from '@/hooks/use-ui-preferences'
@@ -33,7 +33,7 @@ import { observedSessions } from '@/lib/session-model'
 import { trackForeignAttention, type ForeignAttention } from '@/lib/attention'
 import { sameSessionProjects } from '@/lib/chrome-utils'
 
-const mockEndTime = (): number => MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0
+const mockEndTime = (scenario: readonly SimulationEvent[]): number => scenario.length > 0 ? scenario[scenario.length - 1].time : 0
 
 const EMPTY_PROJECTS: ReadonlyMap<string, { projectId: string; projectName: string }> = new Map()
 
@@ -210,11 +210,13 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Idle gate (#660): nothing queued, due, moving, fading or expiring, layout at rest: the frame only advances the
     // clock (no event batch, no computeNextFrame, no layout step). Anything received or due makes the frame run.
     const layout = layoutRef.current
+    // Empty until the demo chunk is loaded (#662): the entries and the bridge load it before the demo runs
+    const scenario = getMockScenario()
     if (isSimulationIdle(prev, newTime, {
       queued: !!capturedEvents || catchUpProgress(catchUpRef.current) !== null,
       layoutSettled: !layout || layout.isSettled(prev),
       toolExpiryS: toolExpiryConfig.seconds,
-      mock: useMockData ? { length: MOCK_SCENARIO.length, endTime: mockEndTime(), nextTime: MOCK_SCENARIO[prev.eventIndex]?.time } : undefined,
+      mock: useMockData ? { length: scenario.length, endTime: mockEndTime(scenario), nextTime: scenario[prev.eventIndex]?.time } : undefined,
     })) {
       // The accessibility mirror records what the last computed frame produced (computeNextFrame records its input)
       if (recordedRef.current !== prev.toolCalls) { recordFrame(a11yRecorder, prev); recordedRef.current = prev.toolCalls }
@@ -233,9 +235,9 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
     const ctx = makeContext()
     if (useMockData) {
-      while (newEventIndex < MOCK_SCENARIO.length && MOCK_SCENARIO[newEventIndex].time <= newTime) {
-        observedSessions.mark(MOCK_SCENARIO[newEventIndex].sessionId)
-        newEvents.push(MOCK_SCENARIO[newEventIndex])
+      while (newEventIndex < scenario.length && scenario[newEventIndex].time <= newTime) {
+        observedSessions.mark(scenario[newEventIndex].sessionId)
+        newEvents.push(scenario[newEventIndex])
         newEventIndex++
       }
       currentState = processEventBatch(newEvents, currentState, ctx).state
@@ -288,7 +290,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
         newLog = newLog.slice(dropped)
         currentState = { ...currentState, droppedEvents: currentState.droppedEvents + dropped }
       }
-      // In mock mode, eventIndex tracks position in MOCK_SCENARIO (not the log).
+      // In mock mode, eventIndex tracks position in the mock scenario (not the log).
       // In live mode, eventIndex tracks position in the event log.
       if (!useMockData) {
         newEventIndex = newLog.length
@@ -300,8 +302,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
     const result = computeNextFrame(prev, deltaTime, newTime, maxT, currentState, {
       useMockData,
-      mockScenarioLength: MOCK_SCENARIO.length,
-      mockScenarioEndTime: mockEndTime(),
+      mockScenarioLength: scenario.length,
+      mockScenarioEndTime: mockEndTime(scenario),
       speed,
       toolExpiryS: toolExpiryConfig.seconds,
     })
@@ -410,7 +412,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   /** Seek to a specific time — replays events from scratch up to targetTime */
   const seekToTime = useCallback((targetTime: number) => {
     const prev = frameRef.current
-    const events = useMockData ? MOCK_SCENARIO : prev.eventLog
+    const events = useMockData ? getMockScenario() : prev.eventLog
 
     let replayState = createEmptyState({
       speed: prev.speed,

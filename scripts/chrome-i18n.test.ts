@@ -1,5 +1,6 @@
 // #587, #588 (suite de #373): the playback bar and the shortcuts dialog speak the
 // interface language. Pure logic, node:test. The English text is unchanged: the rest of the suite pins it.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { formatEventCount, formatSpeed, formatTruncatedHistory, liveBadge, scrubberValueText } from '../web/lib/chrome-utils'

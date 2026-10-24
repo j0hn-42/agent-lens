@@ -1,4 +1,5 @@
 // Honesty and integration fixes of the "timing" batch (#108, #109): never show what cannot be proven.
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'

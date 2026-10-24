@@ -1,4 +1,5 @@
 // #367: with the relay offline, a session is never shown as "active" and its duration stops growing.
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import type { SessionInfo } from '../web/lib/bridge-types'

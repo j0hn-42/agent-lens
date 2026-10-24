@@ -16,7 +16,7 @@ import type { AnnounceLevel } from "@/lib/ui-preferences"
 import { Z } from "@/lib/agent-types"
 import { COLORS, SCENE } from "@/lib/colors"
 
-import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
+import { IS_GUIDED_DEMO, mockDuration } from "@/lib/demo-scenario"
 import { useChromeModes } from "@/hooks/use-chrome-modes"
 import { useAttentionSummary } from "@/hooks/use-attention-summary"
 import { useInspector } from "@/hooks/use-inspector"
@@ -40,10 +40,9 @@ import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
 import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
 import { useReviewControls } from "@/hooks/use-review-controls"
-import { GuidedTourCard } from "./guided-tour-card"
+import { GuidedTourCard, TourHighlight } from "./lazy-panels"
 import { TourOffer } from "./tour-offer"
 import { useTourOffer } from "@/hooks/use-tour-offer"
-import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
@@ -464,7 +463,7 @@ export function AgentVisualizer() {
       <ControlBar
         isPlaying={isPlaying} speed={speed} currentTime={currentTime}
         totalDuration={bridge.useMockData
-          ? (isReviewing ? Math.max(maxTimeReached, currentTime) : MOCK_DURATION)
+          ? (isReviewing ? Math.max(maxTimeReached, currentTime) : mockDuration())
           : Math.max(maxTimeReached, currentTime)
         }
         onPlayPause={handlePlayPause} onRestart={handleClearHistory} onSpeedChange={setSpeedInReview}

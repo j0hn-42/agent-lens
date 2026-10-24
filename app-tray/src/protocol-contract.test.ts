@@ -3,6 +3,7 @@
 // here is a line the Go binary parses there, and a line the Go binary writes there is one the driver accepts here.
 // The refused lines (driverToBinaryRefused) are checked on the Go side only: the driver has no parser for the lines
 // it writes, so this side only checks that the section is there (#613).
+import '../../scripts/all-locales' // #662: both languages are loaded before the tests
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'

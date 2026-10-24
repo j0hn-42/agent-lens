@@ -1,5 +1,6 @@
 // #502: the words of the agent card and the Sessions panel in French and English. The English output is the one of
 // the helpers the card used before (nothing about a figure changes), the French one keeps every number and qualifier.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import * as T from '../web/lib/card-text'
