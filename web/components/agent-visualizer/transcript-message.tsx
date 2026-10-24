@@ -74,7 +74,7 @@ function TruncatedText({ text, limit, query, color, ansi, locale }: { text: stri
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(v => !v)}
-          className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING_INSET}`}
+          className={`block mt-0.5 min-h-6 px-1 rounded text-2xs font-mono underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? tr(locale, 'conv.showLess') : tr(locale, 'conv.showAll', { n: t.hidden })}
@@ -104,9 +104,9 @@ export function TranscriptMessage({ message, searchQuery }: {
           }}
         >
           <div className="flex items-center gap-1.5 mb-1">
-            <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.userLabel }}><GearIcon size={11} /></span>
+            <span aria-hidden="true" className="text-2xs" style={{ color: COLORS.userLabel }}><GearIcon size={11} /></span>
             <span className="sr-only">{tr(locale, 'conv.tool.callSr')}</span>
-            <span {...DATA_EN} className="text-[11px] font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
+            <span {...DATA_EN} className="text-2xs font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
               <HighlightText text={message.toolName || tr(locale, 'conv.tool.fallbackName')} query={searchQuery} />
             </span>
           </div>
@@ -141,10 +141,10 @@ export function TranscriptMessage({ message, searchQuery }: {
           }}
         >
           <div className="flex items-center gap-1.5 mb-0.5">
-            <span aria-hidden="true" className="text-[11px]">{isBash ? '$' : <CheckIcon size={11} />}</span>
+            <span aria-hidden="true" className="text-2xs">{isBash ? '$' : <CheckIcon size={11} />}</span>
             <span className="sr-only">{tr(locale, 'conv.tool.resultSr')}</span>
             {message.toolName && (
-              <span {...DATA_EN} className="text-[11px]">{message.toolName}</span>
+              <span {...DATA_EN} className="text-2xs">{message.toolName}</span>
             )}
           </div>
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>

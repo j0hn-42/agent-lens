@@ -48,14 +48,14 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
   return (
     <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose} titleId={titleId} sensitive>
       <PanelHeader onClose={onClose} titleId={titleId}>
-        <span className="text-[11px]" style={{ color: stateColor }} aria-hidden="true">
+        <span className="text-2xs" style={{ color: stateColor }} aria-hidden="true">
           {stateIcon}
         </span>
         <span className="text-xs font-mono font-semibold" style={{ color: parseMcpTool(tool.toolName) ? COLORS.mcp : COLORS.tool_calling }}>
           {parseMcpTool(tool.toolName) && <span className="mr-1 uppercase tracking-wide opacity-80">MCP</span>}
           {formatToolName(tool.toolName)}
         </span>
-        <span className="text-[11px] font-mono" style={{ color: stateColor }}>
+        <span className="text-2xs font-mono" style={{ color: stateColor }}>
           {stateLabel}
         </span>
       </PanelHeader>
@@ -77,7 +77,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
 
       {/* The outcome rests on an end nobody saw: say so before anything else */}
       {warning && (
-        <div role="note" className="mt-2 rounded px-2 py-1 text-[11px] font-mono" style={{ color: COLORS.tool_calling, border: `1px solid ${COLORS.tool_calling}` }}>
+        <div role="note" className="mt-2 rounded px-2 py-1 text-2xs font-mono" style={{ color: COLORS.tool_calling, border: `1px solid ${COLORS.tool_calling}` }}>
           {warning}
         </div>
       )}
@@ -107,7 +107,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
 
       {/* Token cost */}
       {tool.state !== 'running' && (
-        <div className="mt-1.5 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+        <div className="mt-1.5 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
           {tool.tokenCost == null
             ? `tokens ${USAGE_LABELS.unavailable}`
             : `${tool.tokenCost} tokens${tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''}`}

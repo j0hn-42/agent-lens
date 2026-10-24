@@ -45,14 +45,14 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0, defaul
       <h3 id={headingId} className="sr-only">{t('waste.heading')}</h3>
       <details open={open} onToggle={e => setOpen(e.currentTarget.open)}>
         <summary
-          className={`cursor-pointer min-h-6 rounded text-[11px] font-mono hover:brightness-125 ${FOCUS_RING_INSET}`}
+          className={`cursor-pointer min-h-6 rounded text-2xs font-mono hover:brightness-125 ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textPrimary }}
         >
           {wasteDisclosureText(locale, repeatsDisclosure(summary, replayLost))}
         </summary>
         <div className="mt-1">
           {items.length === 0 ? (
-            <p className="m-0 text-[11px] font-mono" style={note}>{replayLost > 0 ? t('waste.noneIncomplete') : t('waste.none')}</p>
+            <p className="m-0 text-2xs font-mono" style={note}>{replayLost > 0 ? t('waste.noneIncomplete') : t('waste.none')}</p>
           ) : (
             <ul className="space-y-1 list-none p-0 m-0">
               {shown.map((item) => {
@@ -60,7 +60,7 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0, defaul
                 const agentName = agents?.get(item.agentId)?.displayName ?? item.agentId
                 const target = item.kind === 'reread' ? truncatePath(item.target) : item.target
                 const label = (
-                  <span {...DATA_EN} className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: COLORS.tool }}>
+                  <span {...DATA_EN} className="text-2xs font-mono truncate min-w-0 flex-1 text-left" style={{ color: COLORS.tool }}>
                     {item.toolName} {target}
                   </span>
                 )
@@ -83,26 +83,26 @@ export function WasteSection({ waste, agents, onOpenFile, replayLost = 0, defaul
                     ) : (
                       <div className="flex items-center gap-2 min-h-6" title={item.target}>{label}</div>
                     )}
-                    <div className="mt-1 text-[11px] font-mono" style={note}>
+                    <div className="mt-1 text-2xs font-mono" style={note}>
                       <span>{t('waste.itemLine', { agent: agentName, text: wasteDescribeText(locale, item, replayLost) })}</span>
                     </div>
-                    <div className="text-[11px] font-mono" style={note}>{wasteTokensText(locale, item)}</div>
+                    <div className="text-2xs font-mono" style={note}>{wasteTokensText(locale, item)}</div>
                   </li>
                 )
               })}
             </ul>
           )}
-          {hidden > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{pluralText(locale, 'waste.more', hidden)}</p>}
+          {hidden > 0 && <p className="m-0 mt-1 text-2xs font-mono" style={note}>{pluralText(locale, 'waste.more', hidden)}</p>}
           {uncompared > 0 && (
-            <p className="m-0 mt-1 text-[11px] font-mono" style={note}>
+            <p className="m-0 mt-1 text-2xs font-mono" style={note}>
               {pluralText(locale, 'waste.uncompared', uncompared)}
             </p>
           )}
           {limitReached && (
-            <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{t('waste.limit')}</p>
+            <p className="m-0 mt-1 text-2xs font-mono" style={note}>{t('waste.limit')}</p>
           )}
-          {replayLost > 0 && <p className="m-0 mt-1 text-[11px] font-mono" style={note}>{lostSentence(locale, replayLost)}</p>}
-          <p className="m-0 mt-1 text-[11px] font-mono" style={note}>
+          {replayLost > 0 && <p className="m-0 mt-1 text-2xs font-mono" style={note}>{lostSentence(locale, replayLost)}</p>}
+          <p className="m-0 mt-1 text-2xs font-mono" style={note}>
             {t('waste.bash')}
           </p>
         </div>

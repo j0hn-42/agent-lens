@@ -17,13 +17,13 @@ export type ButtonVariant = 'control' | 'tour' | 'bar' | 'decision'
 
 const BASE_CLASS: Record<ButtonVariant, string> = {
   control:
-    'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
+    'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-2xs font-mono '
     + `${TOUCH_TARGET} ${FOCUS_RING} disabled:opacity-60`,
   tour:
     'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono aria-disabled:opacity-50 '
     + FOCUS_RING,
-  bar: `min-h-6 min-w-6 ${TOUCH_TARGET} rounded font-mono text-[11px] ${FOCUS_RING}`,
-  decision: `text-[11px] font-mono px-2 min-h-6 min-w-6 ${TOUCH_TARGET} rounded motion-safe:transition-colors ${FOCUS_RING}`,
+  bar: `min-h-6 min-w-6 ${TOUCH_TARGET} rounded font-mono text-2xs ${FOCUS_RING}`,
+  decision: `text-2xs font-mono px-2 min-h-6 min-w-6 ${TOUCH_TARGET} rounded motion-safe:transition-colors ${FOCUS_RING}`,
 }
 
 /** Built when used: COLORS follows the theme, so a table made at module load would keep the default theme's colours. */

@@ -27,7 +27,7 @@ function Text({ label, children }: { label: string; children: string }) {
 }
 
 function Note({ children }: { children: string }) {
-  return <p className="mt-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{children}</p>
+  return <p className="mt-1 text-2xs font-mono" style={{ color: COLORS.textMuted }}>{children}</p>
 }
 
 function Reasoning({ result, label, noneLabel }: { result: ReasoningResult; label: string; noneLabel: string }) {
@@ -84,7 +84,7 @@ function ChainItem({ step, nameOf }: { step: ChainStep; nameOf: (id: string) => 
 
 export function ToolWhySection({ why }: { why: ToolWhy }) {
   return (
-    <div className="mt-2 text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>
+    <div className="mt-2 text-2xs font-mono" style={{ color: COLORS.textPrimary }}>
       <details>
         <summary className="cursor-pointer" style={{ color: COLORS.textMuted }}>{WHY_LABELS.title}</summary>
         <Reasoning result={why.reasoning} label={WHY_LABELS.reasoning} noneLabel={WHY_LABELS.reasoningNone} />

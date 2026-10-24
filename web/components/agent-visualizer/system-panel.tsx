@@ -328,7 +328,7 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
                 </dd>
               </dl>
               {last.platformNote && (
-                <p data-testid="platform-note" className="text-[11px] font-mono pt-2 m-0" style={{ color: COLORS.textMuted }}>{last.platformNote}</p>
+                <p data-testid="platform-note" className="text-2xs font-mono pt-2 m-0" style={{ color: COLORS.textMuted }}>{last.platformNote}</p>
               )}
             </>
           )}
