@@ -251,6 +251,16 @@ test('announcement of review mode names the button with the catalog text of the 
   assert.equal(buildAnnouncement({ ...base, isReviewing: false, locale: 'fr' }), 'Connexion : en direct. Mode direct')
 })
 
+test('the session name of the announcement is data: its own piece declares lang="en", the sentence around it stays in the locale (#613)', () => {
+  const base = { connection: connectionDisplay('watching', false), sessionLabel: 'refactor-auth', isReviewing: false, isEmpty: false }
+  const fr = buildAnnouncementParts({ ...base, locale: 'fr' }).find(p => p.segments)!
+  assert.equal(fr.text, 'Session : refactor-auth', 'the text is the same sentence')
+  assert.deepEqual(fr.segments, [{ text: 'Session : ', lang: 'fr' }, { text: 'refactor-auth', lang: 'en' }])
+  const en = buildAnnouncementParts({ ...base, locale: 'en' }).find(p => p.segments)!
+  assert.deepEqual(en.segments, [{ text: 'Session: ', lang: 'en' }, { text: 'refactor-auth', lang: 'en' }])
+  assert.equal(buildAnnouncementParts({ ...base, sessionLabel: null, locale: 'fr' }).some(p => p.segments), false)
+})
+
 test('the whole announcement follows the locale: connection, session, live mode, empty, unobserved, full screen, presentation (#613)', () => {
   const all = (locale: 'en' | 'fr', fullscreen: 'on' | 'off', presentation: 'on' | 'off', status: Parameters<typeof connectionDisplay>[0] = 'watching') => buildAnnouncement({
     connection: connectionDisplay(status, false), sessionLabel: 'main', isReviewing: false, isEmpty: true, unobservedSessions: 2,

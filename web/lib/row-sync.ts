@@ -10,10 +10,10 @@ import { translate, type Locale } from './messages'
 import * as C from './card-text'
 import { drawnStatusText, teammateActivity } from '../components/agent-visualizer/canvas/team-style'
 
-/** Test seam: called with the agent id each time an agent row really renders (never set in production). */
 /** Test hook (#658): the top-level memoized components report each render, to prove they skip when their props did not change */
 export const chromeRenderProbe: { onRender: ((name: 'TopBar' | 'ConversationPanel' | 'PanelDock') => void) | null } = { onRender: null }
 
+/** Test seam: called with the agent id each time an agent row really renders (never set in production). */
 export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = { onRender: null }
 
 export interface AgentRowView {

@@ -294,10 +294,15 @@ export function teamSummaryText(locale: Locale, teamName: string, members: numbe
 /** The attention count of a session ("2 agents waiting / 1 agent in error", the words of the top bar); null when nothing is waiting and nothing failed. */
 export function sessionAttentionLabel(locale: Locale, a: SessionAttention | undefined): string | null {
   if (!a) return null
-  return attentionText(locale, a.waiting, a.errors) || null
+  return attentionCounterText(locale, a.waiting, a.errors) || null
 }
 
-function attentionText(locale: Locale, waiting: number, errors: number): string {
+/**
+ * What the attention counter of the top bar draws: "2 agents waiting / 1 agent in error". Spelled out (never "2 waiting"):
+ * the number alone does not say what is counted. Zero parts are left out; empty when nothing is blocked. The one
+ * composition of this text: the top bar re-exports it (top-bar-text.ts), the Sessions panel uses it per session.
+ */
+export function attentionCounterText(locale: Locale, waiting: number, errors: number): string {
   const parts: string[] = []
   if (waiting > 0) parts.push(pluralKey(locale, 'topbar.attention.waiting', waiting))
   if (errors > 0) parts.push(pluralKey(locale, 'topbar.attention.error', errors))
