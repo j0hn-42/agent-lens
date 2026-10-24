@@ -140,8 +140,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Chromium build, keyed on the lockfile (it pins the Playwright version). The system packages still come
-      # from --with-deps on every run. Only shard 1 saves, so the shards never race for one key.
+      # Chromium build, keyed on the lockfile (it pins the Playwright version). The system packages come
+      # from the install step below, only when needed. Only shard 1 saves, so the shards never race for one key.
       - name: Restore Playwright browser
         id: playwright-cache
         uses: actions/cache/restore@v4
@@ -149,9 +149,54 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+      # The apt packages are NOT downloaded on every run any more (#440): `--with-deps` fetched ~25 MB each time,
+      # even on a cache hit, and a slow mirror (24-64 kB/s on 2026-10-23) ate the 15 min of the job. The browser
+      # alone is installed (a no-op on a cache hit), then ldd on its binaries decides whether a system library is
+      # really missing; only then `install-deps` runs. The step has its own budget and exactly one new attempt,
+      # and it logs what it did, so a slow mirror reads as an install failure, not as cancelled tests.
       - name: Install Chromium for Playwright
         id: playwright-install
-        run: pnpm --dir web exec playwright install --with-deps chromium
+        timeout-minutes: 4
+        run: |
+          set -uo pipefail
+          SECONDS=0
+          echo "cache-hit=${{ steps.playwright-cache.outputs.cache-hit }}"
+          installed=false
+          for attempt in 1 2; do
+            echo "attempt $attempt/2: playwright install chromium (limit 100 s, t=${SECONDS}s)"
+            if timeout 100 pnpm --dir web exec playwright install chromium; then
+              installed=true
+              break
+            fi
+            echo "::warning::attempt $attempt/2 of 'playwright install chromium' failed or timed out after ${SECONDS}s"
+          done
+          if [ "$installed" != true ]; then
+            echo "::error::Chromium install failed after 2 attempts (${SECONDS}s): download problem, no test was run"
+            exit 1
+          fi
+          missing=0
+          checked=0
+          while IFS= read -r bin; do
+            checked=$((checked + 1))
+            if out=$(ldd "$bin" 2>&1 | grep 'not found'); then
+              echo "missing libraries for $bin:"
+              echo "$out"
+              missing=1
+            else
+              echo "no missing library for $bin"
+            fi
+          done < <(find ~/.cache/ms-playwright -type f \( -name chrome-headless-shell -o -name headless_shell -o -name chrome \))
+          if [ "$checked" = 0 ]; then
+            echo "::error::no Chromium binary found under ~/.cache/ms-playwright after the install"
+            exit 1
+          fi
+          if [ "$missing" = 1 ]; then
+            echo "decision: missing libraries, running 'playwright install-deps chromium' (apt)"
+            timeout 120 pnpm --dir web exec playwright install-deps chromium || { echo "::error::install-deps failed or timed out after ${SECONDS}s"; exit 1; }
+          else
+            echo "decision: no missing library, apt skipped"
+          fi
+          echo "Install step duration: ${SECONDS}s"
 
       - name: Save Playwright browser
         if: ${{ matrix.shard == 1 && steps.playwright-install.outcome == 'success' && steps.playwright-cache.outputs.cache-hit != 'true' }}
@@ -166,6 +211,9 @@ jobs:
       # Each test file starts the demo app itself on a free port and stops it at the end. The runner prints the
       # files of the shard first, and its totals (tests, pass, fail...) at the end and in the job summary.
       - name: Browser accessibility tests (Playwright + axe-core)
+        # Own budget (#440): install (4) + tests (10) stay under the 15 min of the job, with room for the setup.
+        # The slowest shard took about 8 min of tests on 2026-10-23.
+        timeout-minutes: 10
         env:
           E2E_SHARD: ${{ matrix.shard }}/4
         run: pnpm --dir web run test:e2e:shard
