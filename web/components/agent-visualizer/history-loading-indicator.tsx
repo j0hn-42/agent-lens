@@ -32,7 +32,7 @@ export function HistoryLoadingIndicator({ progress }: { progress: HistoryProgres
       {progress && (
         <div
           className="glass-card absolute left-1/2 -translate-x-1/2 flex items-center gap-3 px-3 py-1.5 text-xs font-mono pointer-events-none max-w-[calc(100vw-24px)]"
-          style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', zIndex: Z.controlBar + 5, color: COLORS.textPrimary }}
+          style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', zIndex: Z.toast, color: COLORS.textPrimary }}
         >
           <span data-testid="history-loading">{historyLoadingText(progress)}</span>
           <div

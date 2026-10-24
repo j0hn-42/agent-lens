@@ -349,6 +349,35 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     layoutRef.current?.pin(agentId, x, y)
   }, [])
 
+  // ─── Workspaces moved with the mouse ─────────────────────────────────────
+  // Paused, the animation loop does not step the layout: a loop of its own lets it settle after a move
+  const settleFrameRef = useRef(0)
+  const settleLayout = useCallback(() => {
+    if (frameRef.current.isPlaying || settleFrameRef.current) return
+    const step = () => {
+      settleFrameRef.current = 0
+      const layout = layoutRef.current
+      if (!layout || frameRef.current.isPlaying) return
+      frameRef.current = layout.stepState(frameRef.current)
+      if (layout.active) settleFrameRef.current = requestAnimationFrame(step)
+    }
+    settleFrameRef.current = requestAnimationFrame(step)
+  }, [])
+  useEffect(() => () => { if (settleFrameRef.current) cancelAnimationFrame(settleFrameRef.current) }, [])
+
+  /** Put the zone of a workspace with its centre at (x, y): its agents follow, the other workspaces step aside */
+  const moveWorkspace = useCallback((projectId: string, x: number, y: number) => {
+    layoutRef.current?.moveWorkspace(projectId, x, y)
+    settleLayout()
+  }, [settleLayout])
+  const workspaceCentre = useCallback((projectId: string) => layoutRef.current?.workspaceCentre(projectId), [])
+  /** Every workspace moved by hand goes back to its automatic place */
+  const resetWorkspaces = useCallback(() => {
+    layoutRef.current?.resetWorkspaces()
+    settleLayout()
+  }, [settleLayout])
+  const hasMovedWorkspaces = useCallback(() => (layoutRef.current?.placements.size ?? 0) > 0, [])
+
   /** Seek to a specific time — replays events from scratch up to targetTime */
   const seekToTime = useCallback((targetTime: number) => {
     const prev = frameRef.current
@@ -426,6 +455,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     catchUp,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
+    moveWorkspace, workspaceCentre, resetWorkspaces, hasMovedWorkspaces,
     setLayoutKeepIds,
     saveSnapshot, restoreSnapshot,
   }

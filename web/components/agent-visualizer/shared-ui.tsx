@@ -14,6 +14,7 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { DRAWER_COMPANIONS, DRAWER_FOCUSABLE, PERMISSION_HEIGHT_VAR, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
 import { useMobileView } from '@/hooks/use-mobile-view'
 import { GlassCard } from './glass-card'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
 // Prevents canvas drag/click events from firing when interacting with panels
@@ -327,7 +328,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
   const step = dockResizerStep(min, max)
 
   return (
-    <div data-dock-resizer className={`absolute inset-y-0 z-10 w-0 ${onRight ? 'right-0' : 'left-0'}`}>
+    <div data-dock-resizer className={`absolute inset-y-0 z-(--z-info) w-0 ${onRight ? 'right-0' : 'left-0'}`}>
       <input
         type="range"
         aria-label={label}
@@ -563,7 +564,7 @@ export function ProgressBar({ percent, color, trackColor = COLORS.holoBg10, labe
         style={{
           width: `${clamped}%`,
           background: color,
-          boxShadow: `0 0 6px ${color}40`,
+          boxShadow: `0 0 6px ${withHexAlpha(color, '40')}`,
         }}
       />
     </div>

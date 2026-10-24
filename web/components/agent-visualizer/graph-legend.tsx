@@ -69,7 +69,7 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
           onClick={toggle}
           aria-expanded={shown}
           aria-controls={shown ? "graph-legend-panel" : undefined}
-          className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center gap-1 rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
+          className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center gap-1 rounded-md px-2 py-1 text-2xs ${FOCUS_RING}`}
           style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
         >
           <span aria-hidden="true">{shown ? '▾' : '▸'}</span>
@@ -81,7 +81,7 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
             lang={locale}
             type="button"
             onClick={startTour}
-            className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
+            className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center rounded-md px-2 py-1 text-2xs ${FOCUS_RING}`}
             style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
             {startTourLabel ?? t('tour.button.demo')}

@@ -18,7 +18,7 @@ export function PresentationSubtitle({ text }: { text: string | null }) {
       aria-label="Presentation subtitle"
       data-testid="presentation-subtitle"
       className="pointer-events-none fixed left-1/2 max-w-[min(90vw,48rem)] -translate-x-1/2 rounded-md px-4 py-2 text-center font-mono text-base font-semibold"
-      style={{ bottom: 96, zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
+      style={{ bottom: 96, zIndex: Z.notice, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
     >
       {text}
     </div>
@@ -38,7 +38,7 @@ export function PresentationBadge({ onStop }: { onStop: () => void }) {
       lang={locale}
       title={t('presentation.badge.title')}
       className={`fixed left-1/2 -translate-x-1/2 rounded-md px-3 py-1 font-mono text-xs ${FOCUS_RING}`}
-      style={{ top: 'calc(var(--topbar-h, 48px) + 8px)', zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
+      style={{ top: 'calc(var(--topbar-h, 48px) + 8px)', zIndex: Z.notice, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
     >
       {t('presentation.badge')}
     </button>

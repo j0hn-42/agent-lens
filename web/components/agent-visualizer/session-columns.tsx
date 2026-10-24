@@ -31,7 +31,7 @@ export const ROW_GRID =
 const WHEN_COST = 'hidden @min-[520px]:block'
 const WHEN_BRANCH = 'hidden @min-[640px]:block'
 const NAME_CELL = '@max-[440px]:basis-full'
-const SECOND_LINE = 'col-span-full flex flex-wrap items-center gap-x-2 text-[11px]'
+const SECOND_LINE = 'col-span-full flex flex-wrap items-center gap-x-2 text-2xs'
 
 type ColumnKey = 'model' | 'runtime' | 'branch' | 'tokens' | 'cost' | 'time' | 'activity'
 
@@ -147,7 +147,7 @@ export function ColumnHeader() {
     <div
       aria-hidden="true"
       data-testid="session-columns-header"
-      className={`sticky top-0 z-10 pl-11 pr-8 pb-0.5 text-[11px] tracking-wider uppercase @max-[440px]:hidden ${ROW_GRID}`}
+      className={`sticky top-0 z-(--z-info) pl-11 pr-8 pb-0.5 text-2xs tracking-wider uppercase @max-[440px]:hidden ${ROW_GRID}`}
       style={{ background: COLORS.void, color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.controlBorder}` }}
     >
       <span>{L('name')}</span>

@@ -7,6 +7,7 @@ import { getGlowSprite } from './render-cache'
 import { pointInView, PARTICLE_CULL_EXTENT } from './view-cull'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 /** Pre-build edge lookup map. Call once per frame, pass to drawParticles. */
 export function buildEdgeMap(edges: Edge[]): Map<string, Edge> {
@@ -94,7 +95,7 @@ export function drawParticles(
     ctx.arc(px, py, particle.size * (dotted ? MCP_DRAW.particleScale : 1), 0, Math.PI * 2)
     ctx.fill()
     ctx.beginPath()
-    ctx.fillStyle = SCENE.holoHot + '80'
+    ctx.fillStyle = withHexAlpha(SCENE.holoHot, '80')
     ctx.arc(px, py, particle.size * PARTICLE_DRAW.coreHighlightScale, 0, Math.PI * 2)
     ctx.fill()
 
@@ -102,7 +103,7 @@ export function drawParticles(
     // Messages are now shown as bubbles anchored on the edge (draw-links.ts); the particle label is
     // only kept for particles of edges that carry no link (no bubble would show the text).
     if (showLabels && !opts.edgeBubbles && particle.label && t > PARTICLE_DRAW.labelMinT && t < PARTICLE_DRAW.labelMaxT) {
-      ctx.fillStyle = particle.color + 'aa'
+      ctx.fillStyle = withHexAlpha(particle.color, 'aa')
       ctx.font = `${labelPx}px monospace`
       ctx.textAlign = 'center'
       ctx.fillText(opts.maskText ? maskText(particle.label) : particle.label, px, py + PARTICLE_DRAW.labelYOffset)

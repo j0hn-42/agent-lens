@@ -1,38 +1,18 @@
 'use client'
 
 import { useMemo, useRef } from 'react'
-import type { TimelineEvent } from '@/lib/agent-types'
 import type { useAgentSimulation } from '@/hooks/use-agent-simulation'
+import { createMarkerTracker, type MarkerResult } from '@/lib/timeline-markers'
 
-/** Timeline events: incremental, only the new conversation messages are processed */
-export function useTimelineEvents(conversations: ReturnType<typeof useAgentSimulation>['conversations']): TimelineEvent[] {
-  const cacheRef = useRef<{
-    counts: Map<string, number>
-    events: TimelineEvent[]
-    idCounter: number
-  }>({ counts: new Map(), events: [], idCounter: 0 })
+type Sim = ReturnType<typeof useAgentSimulation>
 
-  return useMemo((): TimelineEvent[] => {
-    const cache = cacheRef.current
-    let appended = false
-    for (const [agentId, msgs] of conversations) {
-      const prevLen = cache.counts.get(agentId) ?? 0
-      if (msgs.length > prevLen) {
-        for (let i = prevLen; i < msgs.length; i++) {
-          const msg = msgs[i]
-          cache.events.push({
-            id: `event-${cache.idCounter++}`,
-            type: msg.type === 'tool_call' ? 'tool_call' : msg.type === 'tool_result' ? 'tool_result' : 'message',
-            label: msg.content.slice(0, 20),
-            timestamp: msg.timestamp,
-            nodeId: agentId,
-          })
-        }
-        cache.counts.set(agentId, msgs.length)
-        appended = true
-      }
-    }
-    if (appended) cache.events.sort((a, b) => a.timestamp - b.timestamp)
-    return cache.events
-  }, [conversations])
+/** Scrubber markers: incremental, followed by message id (not by length) so they survive the per-agent
+ *  conversation cap, and reset when a conversation is cleared or replaced. `lost` counts the markers that
+ *  could not be made or kept, so the bar can say so (#648). */
+export function useTimelineEvents(conversations: Sim['conversations'], droppedMessages?: Sim['droppedMessages']): MarkerResult {
+  const trackerRef = useRef<ReturnType<typeof createMarkerTracker>>(null)
+  return useMemo(() => {
+    trackerRef.current ??= createMarkerTracker()
+    return trackerRef.current.update(conversations, droppedMessages)
+  }, [conversations, droppedMessages])
 }

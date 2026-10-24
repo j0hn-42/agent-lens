@@ -27,11 +27,11 @@ const CHECKS_COLOR: Record<ChecksState, () => string> = {
 }
 
 function Note({ children, role, testId }: { children: React.ReactNode; role?: 'status'; testId?: string }) {
-  return <p role={role} data-testid={testId} className="text-[11px] font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{children}</p>
+  return <p role={role} data-testid={testId} className="text-2xs font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{children}</p>
 }
 
 const Heading = ({ children }: { children: React.ReactNode }) => (
-  <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{children}</h3>
+  <h3 className="m-0 text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{children}</h3>
 )
 
 const ANCHOR_CLASS = `underline break-words rounded ${FOCUS_RING_INSET}`
@@ -57,7 +57,7 @@ export function SessionWorkSection({ relayOrigin, sessionId, sessionBranch, acti
           <Note>{work.prsTruncated ? t('sw.prs.noneShown') : t('sw.prs.none')}</Note>
         ) : (
           <>
-            <table aria-label={t('sw.prs.table')} className="w-full text-[11px] font-mono border-collapse" style={{ color: COLORS.assistantText }}>
+            <table aria-label={t('sw.prs.table')} className="w-full text-2xs font-mono border-collapse" style={{ color: COLORS.assistantText }}>
               <thead>
                 <tr style={{ color: COLORS.textMuted }}>
                   <th scope="col" className="text-left font-normal py-1 pr-2">{t('sw.col.branch')}</th>
@@ -94,7 +94,7 @@ export function SessionWorkSection({ relayOrigin, sessionId, sessionBranch, acti
           <Note>{work.issuesTruncated ? t('sw.issues.noneShown') : t('sw.issues.none')}</Note>
         ) : (
           <>
-            <ul aria-label={t('sw.issues.list')} className="flex flex-col gap-0.5 list-none p-0 m-0 text-[11px] font-mono">
+            <ul aria-label={t('sw.issues.list')} className="flex flex-col gap-0.5 list-none p-0 m-0 text-2xs font-mono">
               {work.issues.map(issue => (
                 <li key={issue.number}>
                   <a href={issue.url} target="_blank" rel="noopener noreferrer" className={ANCHOR_CLASS} style={{ color: COLORS.textPrimary }}>

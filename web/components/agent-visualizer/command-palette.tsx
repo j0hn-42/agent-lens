@@ -105,7 +105,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
       role="presentation"
       lang={locale}
       className="fixed inset-0 flex items-start justify-center p-3 pt-[12vh]"
-      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
       onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
       onKeyDown={onKeyDown}
     >
@@ -140,7 +140,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
           <div id={listId} role="listbox" aria-label={t('palette.results')} className="max-h-[50vh] overflow-y-auto">
             {sections.map(section => (
               <div key={section.group} role="group" aria-label={paletteGroupName(section.group, locale)} className="mb-1">
-                <div aria-hidden="true" className="px-2 pt-1 pb-0.5 text-[11px] font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
+                <div aria-hidden="true" className="px-2 pt-1 pb-0.5 text-2xs font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
                   {paletteGroupName(section.group, locale)}
                 </div>
                 {section.items.map(item => {
@@ -171,7 +171,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                       {item.shortcut && (
                         <kbd
                           aria-hidden="true"
-                          className="shrink-0 min-w-6 rounded px-1.5 py-0.5 text-center text-[11px]"
+                          className="shrink-0 min-w-6 rounded px-1.5 py-0.5 text-center text-2xs"
                           style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
                         >
                           {item.shortcut === 'Space' ? t('palette.key.space') : item.shortcut === 'Shift+F' ? t('palette.key.shiftF') : item.shortcut}
@@ -184,10 +184,10 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
             ))}
           </div>
 
-          <div role="status" className="mt-2 border-t pt-2 text-[11px] font-mono" style={{ borderColor: COLORS.glassBorder, color: COLORS.textMuted }}>
+          <div role="status" className="mt-2 border-t pt-2 text-2xs font-mono" style={{ borderColor: COLORS.glassBorder, color: COLORS.textMuted }}>
             {paletteStatus(sections, locale)}
           </div>
-          <div aria-hidden="true" className="mt-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+          <div aria-hidden="true" className="mt-1 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
             {t('palette.hint')}
           </div>
         </GlassCard>

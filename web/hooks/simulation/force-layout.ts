@@ -8,7 +8,7 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, type Simulatio
 import type { Agent, Edge } from '../../lib/agent-types'
 import { FORCE } from '../../lib/canvas-constants'
 import type { ForceNode, ForceLink, SimulationState } from './types'
-import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, spawnPosition, clusterRadius, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
+import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, spawnPosition, clusterRadius, type ClusterNodeInfo, type SessionProjects, type WorkspacePlacements } from './fleet-layout'
 import { visibleAgents } from '../../lib/inactive-agents'
 
 /** Ticks run synchronously when the node set changes, so a new cluster shows up near its place at once. */
@@ -53,6 +53,17 @@ export interface ForceLayout {
    * next to its parent rather than at its last position. Taken into account on the next step.
    */
   setKeepIds(ids: ReadonlyArray<string | null | undefined>): void
+  /**
+   * Put a workspace zone with its centre at (x, y) (user drag): its agents are carried along at once, pinned ones
+   * included, and the other workspaces keep their place or step aside to the nearest free one. Kept until reset.
+   */
+  moveWorkspace(projectId: string, x: number, y: number): void
+  /** Centre of a workspace zone as laid out now; undefined when the project has no zone */
+  workspaceCentre(projectId: string): { x: number; y: number } | undefined
+  /** Every workspace moved by hand goes back to its automatic place */
+  resetWorkspaces(): void
+  /** Workspaces moved by hand (projectId -> centre), the last one moved last */
+  readonly placements: WorkspacePlacements
   /** True while the layout still moves */
   readonly active: boolean
   destroy(): void
@@ -78,6 +89,16 @@ export function createForceLayout(): ForceLayout {
   let keepIds: ReadonlyArray<string | null | undefined> = []
   /** The filter was toggled since the last step: the agents no longer drawn leave at once */
   let filterChanged = false
+  /** Workspaces moved by hand, the agents the anchors were last computed from, and the centre of every zone */
+  const placements = new Map<string, { x: number; y: number }>()
+  let laidOut = new Map<string, Agent>()
+  let centres = new Map<string, { x: number; y: number }>()
+  const relayout = (agents: Map<string, Agent>): void => {
+    laidOut = agents
+    const r = layoutInfo(agents, lastTeams, lastProjects, false, placements)
+    info = r.info
+    centres = r.centres
+  }
   const centring = createCentringForce(() => children, () => family, id => info.get(id))
   const sim: Simulation<ForceNode, ForceLink> = forceSimulation<ForceNode, ForceLink>([])
     .force('charge', forceManyBody().strength(FORCE.chargeStrength))
@@ -104,11 +125,14 @@ export function createForceLayout(): ForceLayout {
     let out = agents
     for (const node of sim.nodes()) {
       const agent = agents.get(node.id)
-      if (!agent || agent.pinned || node.x === undefined || node.y === undefined) continue
-      if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue
-      if (Math.abs(agent.x - node.x) <= POSITION_EPSILON && Math.abs(agent.y - node.y) <= POSITION_EPSILON) continue
+      if (!agent) continue
+      // A pinned agent is where it is held (it moves only with its workspace, see moveWorkspace)
+      const x = agent.pinned ? node.fx : node.x
+      const y = agent.pinned ? node.fy : node.y
+      if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) continue
+      if (Math.abs(agent.x - x) <= POSITION_EPSILON && Math.abs(agent.y - y) <= POSITION_EPSILON) continue
       if (out === agents) out = new Map(agents)
-      out.set(node.id, { ...agent, x: node.x, y: node.y })
+      out.set(node.id, { ...agent, x, y })
     }
     return out
   }
@@ -200,7 +224,7 @@ export function createForceLayout(): ForceLayout {
     leftOut = new Set()
     for (const id of agents.keys()) if (!simIds.has(id)) leftOut.add(id)
     countedIds = new Set(counted)
-    info = layoutInfo(subset(agents, countedIds), lastTeams, lastProjects).info
+    relayout(subset(agents, countedIds))
     phasesKey = phaseSignature(agents, false, lastTeams, countedIds)
     refreshChildren(agents)
     sim.nodes(nodes)
@@ -264,7 +288,7 @@ export function createForceLayout(): ForceLayout {
       const phases = phaseSignature(state.agents, false, lastTeams, countedIds)
       if (phases !== phasesKey) {
         phasesKey = phases
-        info = layoutInfo(subset(state.agents, countedIds), lastTeams, lastProjects).info
+        relayout(subset(state.agents, countedIds))
         centringBudget = CENTRING_TICKS
         active = true
       }
@@ -287,8 +311,45 @@ export function createForceLayout(): ForceLayout {
       node.y = y
       active = true
     },
+    moveWorkspace(projectId, x, y) {
+      if (!centres.has(projectId) || !Number.isFinite(x) || !Number.isFinite(y)) return
+      const before = info
+      // Moved last: it keeps its place over the others
+      placements.delete(projectId)
+      placements.set(projectId, { x, y })
+      relayout(laidOut)
+      // The dragged workspace follows the pointer: each of its agents is carried by the shift of its cluster anchor
+      for (const node of sim.nodes()) {
+        const was = before.get(node.id)
+        const now = info.get(node.id)
+        if (!was || !now || now.projectId !== projectId || node.x === undefined || node.y === undefined) continue
+        const dx = now.anchor.x - was.anchor.x
+        const dy = now.anchor.y - was.anchor.y
+        node.x += dx
+        node.y += dy
+        if (node.fx != null) node.fx += dx
+        if (node.fy != null) node.fy += dy
+      }
+      // The workspaces that step aside are eased to their new place
+      sim.alpha(Math.max(sim.alpha(), SYNC_ALPHA))
+      centringBudget = CENTRING_TICKS
+      active = true
+    },
+    workspaceCentre(projectId) {
+      const c = centres.get(projectId)
+      return c ? { x: c.x, y: c.y } : undefined
+    },
+    resetWorkspaces() {
+      if (placements.size === 0) return
+      placements.clear()
+      relayout(laidOut)
+      sim.alpha(Math.max(sim.alpha(), SYNC_ALPHA))
+      centringBudget = CENTRING_TICKS
+      active = true
+    },
+    get placements() { return placements },
     get active() { return active },
-    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set(); countedIds = new Set(); keepIds = []; filterChanged = false },
+    destroy() { sim.stop(); sim.nodes([]); info = new Map(); placements.clear(); laidOut = new Map(); centres = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set(); countedIds = new Set(); keepIds = []; filterChanged = false },
   }
   return layout
 }

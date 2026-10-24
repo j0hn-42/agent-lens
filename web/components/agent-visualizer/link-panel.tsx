@@ -98,7 +98,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   }
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(collapsible.map(e => e.id)))
 
-  const buttonClass = `inline-flex min-h-6 min-w-6 items-center justify-center rounded px-2 text-[11px] font-mono hover:bg-[var(--lens-hover-10)] ${FOCUS_RING}`
+  const buttonClass = `inline-flex min-h-6 min-w-6 items-center justify-center rounded px-2 text-2xs font-mono hover:bg-[var(--lens-hover-10)] ${FOCUS_RING}`
 
   return (
     <div
@@ -155,16 +155,16 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
             <span className="break-words text-xs font-mono" style={{ color: COLORS.textPrimary }}>
               {model.fromName} <span aria-hidden="true">{'↔'}</span><span className="sr-only">and</span> {model.toName}
             </span>
-            <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{model.kindLabel}</span>
+            <span className="text-2xs font-mono" style={{ color: COLORS.textMuted }}>{model.kindLabel}</span>
           </span>
         </PanelHeader>
 
-        <p id={descId} className="mb-2 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+        <p id={descId} className="mb-2 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
           {model.summary}
           {model.droppedText ? `. ${model.droppedText}.` : ''}
         </p>
 
-        <p role="status" className="m-0 min-h-0 text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>{feedback}</p>
+        <p role="status" className="m-0 min-h-0 text-2xs font-mono" style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {model.entries.length === 0 ? (
           <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>{emptyState('messages on this link')}</p>
@@ -184,7 +184,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
                   className="rounded-md p-2"
                   style={{ background: COLORS.holoBg05, borderLeft: `3px solid ${color}` }}
                 >
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-mono">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs font-mono">
                     <span aria-hidden="true" style={{ color }}>{entry.arrow}</span>
                     <span className="font-semibold" style={{ color }}>
                       {entry.typeLabel}{entry.isError ? ' (error)' : ''}

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { AUTO_SCROLL_THRESHOLD } from '@/lib/canvas-constants'
-import { resolveRenderWindow } from '@/lib/feed-utils'
+import { resolveRenderWindow, pruneMeasuredHeights } from '@/lib/feed-utils'
 
 const OVERSCAN = 10
 
@@ -8,6 +8,8 @@ interface UseVirtualListOptions {
   gap: number
   initialViewportHeight?: number
   autoScroll?: boolean
+  /** Full history the list is a view of (tab, pair, search): heights are dropped only for ids that left it. Defaults to `items`. */
+  pruneAgainst?: readonly { id: string }[]
 }
 
 /**
@@ -22,13 +24,14 @@ export function useVirtualList<T extends { id: string }>(
   containerRef: React.RefObject<HTMLDivElement | null>,
   options: UseVirtualListOptions,
 ) {
-  const { gap, initialViewportHeight = 300, autoScroll = false } = options
+  const { gap, initialViewportHeight = 300, autoScroll = false, pruneAgainst } = options
   const [scrollTop, setScrollTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(initialViewportHeight)
   const [measureTick, setMeasureTick] = useState(0)
   const heightsRef = useRef<Map<string, number>>(new Map())
   const elementsRef = useRef<Map<string, HTMLElement>>(new Map())
   const seenCountRef = useRef(0)
+  const scrollFrameRef = useRef<number | null>(null)
   const autoScrollRef = useRef(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
 
@@ -53,8 +56,23 @@ export function useVirtualList<T extends { id: string }>(
       setIsAtBottom(atBottom)
       if (atBottom) return
     }
-    setScrollTop(el.scrollTop)
+    // One state update per frame: a scroll burst re-renders the panel once, not once per event
+    if (scrollFrameRef.current != null) return
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      const live = containerRef.current
+      if (live) setScrollTop(live.scrollTop)
+    })
   }, [containerRef, autoScroll])
+
+  useEffect(() => () => {
+    if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = null
+  }, [])
+
+  // Measured heights of messages that left the history (trimmed) are dropped; a filtered-out message keeps its height
+  const pruneSource = pruneAgainst ?? items
+  useEffect(() => { pruneMeasuredHeights(heightsRef.current, pruneSource) }, [pruneSource])
 
   useEffect(() => {
     const el = containerRef.current

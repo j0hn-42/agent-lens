@@ -400,8 +400,18 @@ export const Z = {
   sidePanel: 40,
   controlBar: 50,
   chatPanel: 50,
+  /** Just under the detail card: the guided tour's spotlight (#509) */
+  tourHighlight: 99,
   detailCard: 100,
   contextMenu: 200,
+  /** Modal dialogs and their scrim: one above the context menu */
+  dialog: 201,
+  /** Notes and subtitles drawn one level above the control bar */
+  notice: 51,
+  /** Toasts and loading indicators over the control bar */
+  toast: 55,
+  /** Permission requests banner, over the toasts */
+  permissionBanner: 56,
 } as const
 
 // ─── Animation Constants ─────────────────────────────────────────────────────

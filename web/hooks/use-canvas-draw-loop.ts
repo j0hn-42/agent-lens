@@ -16,7 +16,7 @@ import {
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom, discoveryCardScale, frameLevel,
-  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
+  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, workspaceHeaderRect, workspaceHeaderHits, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
@@ -324,6 +324,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       haloEaserRef.current.apply(clusters, deltaTime, reducedMotion)
       deps.clustersRef.current = clusters
       const workspaceZones = computeWorkspaceZones(clusters)
+      // The header chips are the grip of the zones: hit-tested as drawn (same rect as drawWorkspaceZones)
+      workspaceHeaderHits.rects = new Map(workspaceZones.map(z => [z.projectId, workspaceHeaderRect(z, transform.scale)]))
       const hoverTarget = deps.hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
       const edgeBubbles: KeyedEdgeBubble[] = []

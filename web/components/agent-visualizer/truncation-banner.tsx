@@ -198,7 +198,7 @@ export function TruncationIndicator({ stats, replayLost = 0, onShow }: { stats: 
     <p
       data-testid="truncation-indicator"
       lang={locale}
-      className="m-0 px-2 pb-1.5 flex flex-wrap items-center gap-x-2 text-[11px]"
+      className="m-0 px-2 pb-1.5 flex flex-wrap items-center gap-x-2 text-2xs"
       style={{ color: COLORS.textPrimary }}
     >
       <span className="min-w-0 break-words">

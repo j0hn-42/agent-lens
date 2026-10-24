@@ -52,6 +52,8 @@ export interface TeamConfig {
 
 function cleanCwd(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0 || value.length > 1024) return undefined
+  // A relative path would resolve against the reader's own directory: a project that cannot be proven
+  if (!path.isAbsolute(value) && !path.win32.isAbsolute(value)) return undefined
   return hasControlChars(value) ? undefined : value
 }
 
@@ -228,29 +230,51 @@ export function readSessionHeader(filePath: string): SessionHeader {
     } finally {
       fs.closeSync(fd)
     }
-    const header: SessionHeader = {}
-    let branchSeen = false // the first entry that records a branch decides, even a detached HEAD
-    for (const line of text.split('\n')) {
-      if (header.cwd !== undefined && header.startMs !== undefined && branchSeen) break
-      if (!line.startsWith('{')) continue
-      try {
-        const e = JSON.parse(line) as { cwd?: unknown; timestamp?: unknown; gitBranch?: unknown }
-        if (header.cwd === undefined) header.cwd = cleanCwd(e.cwd)
-        if (!branchSeen && typeof e.gitBranch === 'string') {
-          branchSeen = true
-          const branch = cleanBranch(e.gitBranch)
-          if (branch) header.branch = branch
-        }
-        if (header.startMs === undefined && typeof e.timestamp === 'string') {
-          const t = Date.parse(e.timestamp)
-          if (Number.isFinite(t)) header.startMs = t
-        }
-      } catch { /* partial last line or garbage */ }
-    }
-    return header
+    return headerOfLines(text.split('\n'))
   } catch {
     return {}
   }
+}
+
+/** cwd, branch and first timestamp of transcript lines: the first entry giving each one decides. */
+function headerOfLines(lines: Iterable<string>): SessionHeader {
+  const header: SessionHeader = {}
+  let branchSeen = false // the first entry that records a branch decides, even a detached HEAD
+  for (const line of lines) {
+    if (header.cwd !== undefined && header.startMs !== undefined && branchSeen) break
+    if (!line.startsWith('{')) continue
+    try {
+      const e = JSON.parse(line) as { cwd?: unknown; timestamp?: unknown; gitBranch?: unknown }
+      if (header.cwd === undefined) header.cwd = cleanCwd(e.cwd)
+      if (!branchSeen && typeof e.gitBranch === 'string') {
+        branchSeen = true
+        const branch = cleanBranch(e.gitBranch)
+        if (branch) header.branch = branch
+      }
+      if (header.startMs === undefined && typeof e.timestamp === 'string') {
+        const t = Date.parse(e.timestamp)
+        if (Number.isFinite(t)) header.startMs = t
+      }
+    } catch { /* partial last line or garbage */ }
+  }
+  return header
+}
+
+/**
+ * A session found while Claude Code was starting it: the head of its transcript held only metadata, no cwd. The
+ * cwd (and the branch recorded with it) is taken from `lines`, the lines read live, once. True when it was learnt
+ * now: the caller tells the clients, so the session joins its project.
+ */
+export function completeSessionHeader(
+  sessionId: string, lines: Iterable<string>, cwd: Map<string, string>, branch: Map<string, string>,
+): boolean {
+  if (cwd.has(sessionId)) return false
+  // Only an entry naming a cwd can give it: the others (tool results of any size) are not parsed a second time
+  const header = headerOfLines(Array.from(lines).filter(l => l.includes('"cwd"')))
+  if (!header.cwd) return false
+  cwd.set(sessionId, header.cwd)
+  if (header.branch && !branch.has(sessionId)) branch.set(sessionId, header.branch)
+  return true
 }
 
 function sameDir(a: string, b: string): boolean {

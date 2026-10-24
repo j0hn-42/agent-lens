@@ -288,6 +288,13 @@ export function formatTruncatedHistory(droppedEvents: number, locale: Locale = '
   return translate(locale, `bar.truncated.${rule}` as MessageKey, { n: droppedEvents })
 }
 
+/** Sentence for the scrubber markers that are not drawn (cut before they were seen, or over the marker cap), or null. */
+export function formatMarkersLost(lost: number, locale: Locale = 'en'): string | null {
+  if (!(lost > 0)) return null
+  const rule = new Intl.PluralRules(locale).select(lost) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.markersLost.${rule}` as MessageKey, { n: lost })
+}
+
 /** "... 12 older messages dropped" line at the top of a conversation, or null when nothing was dropped. */
 export function formatDroppedMessages(dropped: number): string | null {
   return dropped > 0 ? `... ${pluralize(dropped, 'older message')} dropped` : null
