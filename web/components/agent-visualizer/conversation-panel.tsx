@@ -144,6 +144,17 @@ export const ConversationPanel = memo(function ConversationPanel({
     : activeTab === 'all' ? [...(droppedMessages?.values() ?? [])].reduce((a, b) => a + b, 0) : (droppedMessages?.get(activeTab) ?? 0)
   const multiSession = hasMultipleSessions(agents)
 
+  // Results shown in full ("Show all"), by message id: the windowing unmounts a row that scrolls out of view, and the
+  // state of the row would go with it (#613)
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpandedRow = useCallback((id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
+
   // Virtual list with auto-scroll
   const {
     visibleItems, handleScroll, measureRef,
@@ -383,7 +394,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 style={{ marginBottom: MESSAGE_GAP }}
               >
                 {TOOL_MESSAGE_TYPES.has(msg.type) ? (
-                  <TranscriptMessage message={msg} searchQuery={searchQuery} />
+                  <TranscriptMessage message={msg} searchQuery={searchQuery} expanded={expandedRows.has(msg.id)} onToggleExpanded={toggleExpandedRow} />
                 ) : (
                   <MessageRow
                     message={msg}
