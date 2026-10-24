@@ -33,7 +33,10 @@ export function ChromeAnnouncer({ connection, sessionLabel, isReviewing, isEmpty
   return (
     <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" lang={locale}>
       {parts.map((p, i) => (
-        <span key={i} lang={p.lang}>{i > 0 ? '. ' : ''}{p.text}</span>
+        <span key={i} lang={p.lang}>
+          {i > 0 ? '. ' : ''}
+          {p.segments ? p.segments.map((s, j) => <span key={j} lang={s.lang}>{s.text}</span>) : p.text}
+        </span>
       ))}
     </div>
   )

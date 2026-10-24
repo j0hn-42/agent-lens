@@ -443,13 +443,28 @@ const CONNECTION_STATE_KEY: Readonly<Record<string, MessageKey>> = {
  * uses the words of the top bar, the review instruction names the button with the catalog text the bar shows (WCAG
  * 3.3.2). The session name is data and is said as it is.
  */
-export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): { text: string; lang: Locale }[] {
+export interface AnnouncementPart {
+  text: string
+  lang: Locale
+  /** The same text cut where a piece of data sits in another language (a session name declares lang="en", #613) */
+  segments?: { text: string; lang: string }[]
+}
+
+export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): AnnouncementPart[] {
   const locale = opts.locale ?? 'en'
-  const t = (key: MessageKey, params?: Record<string, string | number>) => ({ text: translate(locale, key, params), lang: locale })
+  const t = (key: MessageKey, params?: Record<string, string | number>): AnnouncementPart => ({ text: translate(locale, key, params), lang: locale })
   const stateKey = CONNECTION_STATE_KEY[opts.connection.label]
   const state = (stateKey ? translate(locale, stateKey) : opts.connection.label).toLocaleLowerCase(locale)
-  const parts: { text: string; lang: Locale }[] = [t('announce.connection', { state })]
-  if (opts.sessionLabel) parts.push(t('announce.session', { name: opts.sessionLabel }))
+  const parts: AnnouncementPart[] = [t('announce.connection', { state })]
+  if (opts.sessionLabel) {
+    // A session name is data: the convention is lang="en" for data, so the French voice does not read it
+    const MARK = '\u0000'
+    const [before, after = ''] = translate(locale, 'announce.session', { name: MARK }).split(MARK)
+    parts.push({
+      ...t('announce.session', { name: opts.sessionLabel }),
+      segments: [{ text: before, lang: locale }, { text: opts.sessionLabel, lang: 'en' }, ...(after ? [{ text: after, lang: locale }] : [])],
+    })
+  }
   parts.push(opts.isReviewing ? t('announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }) : t('announce.liveMode'))
   if (opts.isEmpty) parts.push(t('announce.waiting'))
   const unobserved = opts.unobservedSessions
