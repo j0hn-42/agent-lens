@@ -265,6 +265,20 @@ export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
   }
 }
 
+/** A session-updated message: the label, and the place (cwd, project, branch) the transcript gave after the start. */
+export type SessionUpdate = { sessionId: string; label: string } & Partial<Pick<SessionInfo, 'cwd' | 'projectId' | 'projectName' | 'branch'>>
+
+/** The session-updated message, or null when malformed; a place field that is not a string is left out. */
+export function parseSessionUpdate(data: Record<string, unknown>): SessionUpdate | null {
+  if (typeof data.sessionId !== 'string' || typeof data.label !== 'string') return null
+  const out: SessionUpdate = { sessionId: data.sessionId, label: data.label }
+  for (const key of ['cwd', 'projectId', 'projectName', 'branch'] as const) {
+    const v = data[key]
+    if (typeof v === 'string') out[key] = v
+  }
+  return out
+}
+
 /**
  * Session to select when none is: active sessions first, then the most recently active. Sessions listed
  * only from the session index are never picked (no events to show, an empty canvas on a finished session).

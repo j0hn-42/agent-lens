@@ -14,7 +14,7 @@ import { ClaudeSessionPipeline, listedStartTimes } from '../extension/src/claude
 import { safeWatch, readLinesChunked, runGuarded, newestSessionMtime } from '../extension/src/fs-utils'
 import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { filterOrchestratorCompletion } from '../extension/src/orchestrator-completion'
-import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
+import { TeamWatcher, completeSessionHeader, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
@@ -374,9 +374,12 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
   } else if (type === 'updated') {
     const tags = teamWatcher?.getSessionTags(sessionId)
+    // The place of a watched session (an imported one is never matched to a local project, see toSessionInfo)
+    const cwd = importedSessions.has(sessionId) ? '' : tagText(sessionCwd.get(sessionId))
     broadcast(JSON.stringify({
       type: 'session-updated', sessionId, label,
       ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+      ...(cwd ? { cwd, ...projectTags(sessionCwd.get(sessionId)), ...branchTag(sessionBranch.get(sessionId)) } : {}),
     }), sessionId)
   }
 }
@@ -405,6 +408,11 @@ const pipeline = new ClaudeSessionPipeline({
   // An exception here would reach uncaughtException and stop the relay for every client (#206)
   guard: (fn, sessionId) => runGuarded(fn, (err) => detachSessionOnError(sessionId, err)),
   maxFileBytes: () => maxSessionFileBytes,
+  // A session found before its first entry with a cwd: its project is learnt now and the clients told
+  onTranscriptLines: (sessionId, lines) => {
+    const session = sessions.get(sessionId)
+    if (session && completeSessionHeader(sessionId, lines, sessionCwd, sessionBranch)) broadcastSessionLifecycle('updated', sessionId, session.label)
+  },
   // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
   // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
   onOversize: (sessionId) => {

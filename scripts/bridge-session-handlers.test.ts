@@ -90,6 +90,25 @@ test('updated and ended change only the named session', () => {
   assert.equal(ctx.sessions[1].status, 'completed')
 })
 
+test('updated: a project learnt after the start is merged, so the session joins its workspace', () => {
+  const { ctx } = makeCtx([session('a'), session('b', { projectId: 'p0', projectName: 'old' })])
+  SESSION_HANDLERS.updated(ctx, { sessionId: 'a', label: 'a', cwd: '/w/repo', projectId: 'p1', projectName: 'repo', branch: 'feat/x' })
+  const a = ctx.sessions[0]
+  assert.equal(a.projectId, 'p1')
+  assert.equal(a.projectName, 'repo')
+  assert.equal(a.cwd, '/w/repo')
+  assert.equal(a.branch, 'feat/x')
+  // A label-only update keeps the place already known
+  SESSION_HANDLERS.updated(ctx, { sessionId: 'b', label: 'renamed' })
+  assert.equal(ctx.sessions[1].projectId, 'p0')
+  // Half a project is dropped, and an imported session keeps its own group
+  SESSION_HANDLERS.updated(ctx, { sessionId: 'b', label: 'b', projectId: 'p9' })
+  assert.equal(ctx.sessions[1].projectId, 'p0')
+  const imported = makeCtx([session('i', { imported: true, projectId: 'imported', projectName: 'Imported' })]).ctx
+  SESSION_HANDLERS.updated(imported, { sessionId: 'i', label: 'i', projectId: 'p1', projectName: 'repo' })
+  assert.notEqual(imported.sessions[0].projectId, 'p1')
+})
+
 test('reset: clears every buffer and selection, and says so unless it is a plain panel reopen', () => {
   const { ctx, calls } = makeCtx([session('a')], 'a')
   appendSessionEvent(ctx.sessionBuffersRef.current, 'a', { time: 1, type: 'x', payload: {}, sessionId: 'a' } as unknown as SimulationEvent, 'a')

@@ -12,7 +12,7 @@ import { ClaudeSessionPipeline, listedStartTimes } from './claude-session-pipeli
 import { safeWatch, foldPathCase, listSubagentTranscripts, newestSessionMtime } from './fs-utils'
 import { encodeProjectDirName, PROJECT_DIR_NAME_MAX } from './project-dir'
 import { scanSubagentsDir, markTeammatesDone, replayTeammates } from './subagent-watcher'
-import { TeamWatcher, readSessionHeader } from './team-watcher'
+import { TeamWatcher, completeSessionHeader, readSessionHeader } from './team-watcher'
 import { createLogger } from './logger'
 import { EventReconciler } from './event-source-priority'
 
@@ -75,6 +75,11 @@ export class SessionWatcher implements AgentSessionWatcher {
     fireLifecycle: (type, sessionId, label) => this.fireLifecycle(type, sessionId, label),
     withHistory: (load) => this.reconciler.withHistory(load),
     onDetected: (sessionId) => this._onSessionDetected.fire(sessionId),
+    // A session found before its first entry with a cwd: its project is learnt now and the panel told
+    onTranscriptLines: (sessionId, lines) => {
+      const session = this.sessions.get(sessionId)
+      if (session && completeSessionHeader(sessionId, lines, this.sessionCwd, this.sessionBranch)) this.fireLifecycle('updated', sessionId, session.label)
+    },
     log: (message) => log.info(message),
   })
   private readonly parser = this.pipeline.parser
