@@ -80,8 +80,8 @@ export interface GitCall {
   time: number
 }
 
-export const GIT_STRIP_MAX_COMMITS = 20
-export const GIT_STRIP_MAX_PRS = 5
+import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './list-limits'
+export { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS }
 const SEEN_MAX = 500
 
 const FAILED_PREFIX = '[FAILED]'

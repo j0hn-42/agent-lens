@@ -9,11 +9,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { chromium, type Browser } from 'playwright'
 import { ConversationPanel } from '../../components/agent-visualizer/conversation-panel'
 import { topbarOffsetPx } from '../../lib/chrome-utils'
+import { loadLocale } from '../../lib/messages'
 import type { Agent } from '../../lib/agent-types'
 import type { ConversationMessage } from '../../hooks/simulation/types'
 
 let browser: Browser | null = null
 before(async () => {
+  // #662: no table is loaded at import; the panel is rendered in English once its table is there
+  await loadLocale('en')
+  feedHtml = renderFeed()
   try { browser = await chromium.launch() } catch (err) {
     if (process.env.CI) throw err
     console.warn(`feed-position e2e skipped: chromium not available (${(err as Error).message.split('\n')[0]})`)
@@ -23,7 +27,8 @@ after(async () => { await browser?.close() })
 
 const agent = { id: 'o', agentKey: 'o', sessionId: 's', localId: 'o', displayName: 'orchestrator', name: 'orchestrator', parentKey: null, state: 'idle', isMain: true } as unknown as Agent
 const message = { id: 'a1', type: 'assistant', timestamp: 1, content: 'plan the work' } as ConversationMessage
-const feedHtml = renderToStaticMarkup(
+let feedHtml = ''
+const renderFeed = () => renderToStaticMarkup(
   React.createElement(ConversationPanel, {
     open: false, onOpen: () => {}, onClose: () => {},
     conversations: new Map([['o', [message]]]), agents: new Map([['o', agent]]), links: new Map(),

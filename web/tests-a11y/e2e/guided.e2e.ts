@@ -5,10 +5,13 @@ import { chromium, type Browser, type Locator, type Page } from 'playwright'
 import { AxeBuilder } from '@axe-core/playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
 import { closeMore, topbarButton } from './topbar-fold'
-import { GUIDED_STEPS } from '../../lib/guided-steps'
+import { guidedSteps, type GuidedStep } from '../../lib/guided-steps'
+import { loadLocale } from '../../lib/messages'
 
 let browser: Browser
 let server: DemoServer
+/** The demo tour in English, written once its table is loaded (#662: no table is loaded at import) */
+let GUIDED_STEPS: readonly GuidedStep[] = []
 
 /** Names of the agents listed in the accessible graph outline (the agents the canvas draws) */
 const outlineAgentNames = (page: Page) => page.locator('section[aria-label="Agent graph outline"] button[data-graph-node]')
@@ -37,7 +40,11 @@ async function playbackSeconds(page: Page) {
 
 const activeId = (page: Page) => page.evaluate(() => document.activeElement?.id ?? '')
 
-before(async () => { server = await startDemoServer(); browser = await chromium.launch() }, { timeout: 240_000 })
+before(async () => {
+  await loadLocale('en')
+  GUIDED_STEPS = guidedSteps('en')
+  server = await startDemoServer(); browser = await chromium.launch()
+}, { timeout: 240_000 })
 after(async () => { await browser?.close(); await server?.stop() })
 
 test('the guided tour walks every step with Next and shows the card each time', async () => {
