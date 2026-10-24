@@ -22,7 +22,7 @@ export function ThemeSelect({ id }: { id?: string } = {}) {
       title={t('settings.theme.title')}
       value={theme}
       onChange={e => { if (isThemeId(e.target.value)) setTheme(e.target.value) }}
-      className={`min-h-6 px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer ${FOCUS_RING}`}
+      className={`min-h-6 px-1.5 py-0.5 rounded text-2xs font-mono cursor-pointer ${FOCUS_RING}`}
       style={{
         background: COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,

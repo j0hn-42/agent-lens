@@ -25,3 +25,15 @@ test('agent menu: Toggle stats exposes the current state', () => {
   assert.equal(find(contextMenuItems(true, actions(true, false)), 'Toggle stats')?.checked, true)
   assert.equal(find(contextMenuItems(true, actions(false, false)), 'Toggle stats')?.checked, false)
 })
+
+test('canvas menu: "Arrange workspaces automatically" only once a workspace was moved, in both languages', () => {
+  let reset = 0
+  const moved = { ...actions(false, false), arrangeWorkspaces: () => { reset++ } }
+  assert.equal(find(contextMenuItems(false, actions(false, false)), 'Arrange workspaces automatically'), undefined)
+  const item = find(contextMenuItems(false, moved), 'Arrange workspaces automatically')
+  assert.ok(item, 'offered once a workspace was moved')
+  item.onClick()
+  assert.equal(reset, 1)
+  assert.ok(find(contextMenuItems(false, moved, 'fr'), 'Replacer les workspaces automatiquement'))
+  assert.equal(find(contextMenuItems(true, moved), 'Arrange workspaces automatically'), undefined, 'not in the agent menu')
+})

@@ -332,7 +332,7 @@ export function CanvasControls({
           <PanelToggle pressed={neverHide} onClick={onToggleNeverHide}>{t('controls.keepCards')}</PanelToggle>
           <label className={`${CONTROL_BUTTON_CLASS} flex-wrap justify-between gap-1`} style={controlBox()}>
             {t('controls.expireAfter')}
-            <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
+            <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-2xs" style={{ color: COLORS.textPrimary }}>
               {TOOL_EXPIRY_CHOICES_S.map(n => (
                 <option key={n} value={n} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{n >= 60 ? t('controls.minutes', { n: n / 60 }) : t('controls.seconds', { n })}</option>
               ))}
@@ -383,7 +383,7 @@ export function CanvasControls({
     <div
       ref={rootRef}
       lang={locale}
-      className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
+      className="pointer-events-none absolute inset-x-3 z-(--z-info) flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
       style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
     >
       {legend}

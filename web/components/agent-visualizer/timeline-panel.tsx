@@ -32,6 +32,7 @@ import { PairFilterChip } from './pair-filter-chip'
 import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete } from '@/lib/pair-filter'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -92,7 +93,7 @@ function legendSwatchBackground(state: TimelineStateKey, color: string): string 
     case 'horizontal': return `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 3px)`
     case 'cross': return `repeating-linear-gradient(45deg, ${line} 0 1px, transparent 1px 3px), repeating-linear-gradient(-45deg, ${line} 0 1px, transparent 1px 3px)`
     case 'dots': return `radial-gradient(${line} 1px, transparent 1.2px) 0 0 / 4px 4px`
-    default: return `${line}66`
+    default: return `${withHexAlpha(line, '66')}`
   }
 }
 
@@ -394,7 +395,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 onClick={() => setSequence(v => !v)}
                 aria-pressed={sequence}
                 title={translate(locale, 'tl.sequence.title')}
-                className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+                className={`min-h-6 min-w-6 px-2 rounded-sm text-2xs font-mono ${FOCUS_RING}`}
                 style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
               >
                 {translate(locale, 'tl.sequence')}
@@ -405,7 +406,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               onClick={() => setTableView(v => !v)}
               aria-pressed={tableView}
               aria-controls={tableId}
-              className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+              className={`min-h-6 min-w-6 px-2 rounded-sm text-2xs font-mono ${FOCUS_RING}`}
               style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
             >
               {translate(locale, 'tl.table')}
@@ -413,7 +414,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </div>
           }
         >
-          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
+          <span lang={locale} className="text-2xs font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
             {translate(locale, 'panel.heading.timeline')}
           </span>
         </PanelHeader>
@@ -523,19 +524,19 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                   onMouseLeave={() => setActiveArrowId(undefined)}
                   onFocus={() => setActiveArrowId(r.id)}
                   onBlur={() => setActiveArrowId(undefined)}
-                  className={`min-h-6 px-1.5 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+                  className={`min-h-6 px-1.5 rounded-sm text-2xs font-mono ${FOCUS_RING}`}
                   style={{ color: COLORS.textMutedOpaque, border: `1px solid ${COLORS.holoBorder06}` }}
                 >
                   {r.start} {r.label}
                 </button>
               ))}
               {cappedButtons.hidden > 0 && (
-                <span className="text-[11px] font-mono self-center" style={{ color: COLORS.textMutedOpaque }}>
+                <span className="text-2xs font-mono self-center" style={{ color: COLORS.textMutedOpaque }}>
                   {earlierMessagesText(locale, cappedButtons.hidden)}
                 </span>
               )}
             </div>
-            <div role="status" className="text-[11px] font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
+            <div role="status" className="text-2xs font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
               {activeArrow && (
                 <>
                   {arrowText(activeArrow)}{': '}
@@ -555,7 +556,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 aria-hidden="true"
                 style={{ background: legendSwatchBackground(item.state, item.color), border: `1px solid ${item.color}` }}
               />
-              <span className="text-[11px] font-mono" style={{ color: COLORS.textMutedOpaque }}>
+              <span className="text-2xs font-mono" style={{ color: COLORS.textMutedOpaque }}>
                 {stateLabelText(locale, item.state)}
               </span>
             </div>

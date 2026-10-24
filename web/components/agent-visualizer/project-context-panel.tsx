@@ -42,7 +42,7 @@ const UNREADABLE_REASON = { symlink: 'ctx.reason.symlink', 'not-a-file': 'ctx.re
 const kb = (bytes: number) => Math.max(1, Math.round(bytes / 1024))
 
 function Note({ children, role }: { children: React.ReactNode; role?: 'alert' | 'status' }) {
-  return <p role={role} className="text-[11px] font-mono py-2 m-0" style={{ color: COLORS.textMuted }}>{children}</p>
+  return <p role={role} className="text-2xs font-mono py-2 m-0" style={{ color: COLORS.textMuted }}>{children}</p>
 }
 
 function FileBlock({ file, locale }: { file: ProjectContextFile; locale: Locale }) {
@@ -59,13 +59,13 @@ function FileBlock({ file, locale }: { file: ProjectContextFile; locale: Locale 
   }, [file.text, file.found])
   return (
     <section aria-label={file.name} className="mb-2">
-      <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{file.name}</h3>
+      <h3 className="m-0 text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{file.name}</h3>
       {!file.found ? (
         <Note>{file.unreadable ? t('ctx.unreadable', { name: file.name, reason: t(UNREADABLE_REASON[file.unreadable]) }) : t('ctx.notFound', { name: file.name })}</Note>
       ) : (
         <>
           {file.truncated && (
-            <p className="text-[11px] font-mono m-0 py-1" style={{ color: COLORS.tool }}>
+            <p className="text-2xs font-mono m-0 py-1" style={{ color: COLORS.tool }}>
               {t('ctx.truncated', { limit: LIMIT_KB, kb: kb(file.bytes) })}
             </p>
           )}
@@ -73,7 +73,7 @@ function FileBlock({ file, locale }: { file: ProjectContextFile; locale: Locale 
             ref={preRef}
             {...DATA_EN}
             aria-label={t('ctx.fileContent', { name: file.name })}
-            className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING_INSET}`}
+            className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-2xs font-mono rounded p-2 ${FOCUS_RING_INSET}`}
             style={{ background: COLORS.holoBg05, color: COLORS.assistantText, scrollbarWidth: 'thin' }}
           >{file.text}</pre>
         </>
@@ -133,14 +133,14 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
               onClick={refresh}
               aria-label={t('ctx.refresh.aria')}
               title={t('ctx.refresh')}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted }}
             >
               {t('ctx.refresh')}
             </button>
           )}
         >
-          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>{translate(locale, 'panel.heading.context')}</span>
+          <span lang={locale} className="text-2xs font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>{translate(locale, 'panel.heading.context')}</span>
         </PanelHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
@@ -154,7 +154,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
 
           {current?.status === 'loading' && <Note role="status">{t('ctx.loading')}</Note>}
           {current?.status === 'error' && (
-            <p role="alert" className="text-[11px] font-mono py-2 m-0" style={{ color: COLORS.error }}>
+            <p role="alert" className="text-2xs font-mono py-2 m-0" style={{ color: COLORS.error }}>
               {t('ctx.error', { message: current.message })}{data ? t('ctx.error.stale') : ''}
             </p>
           )}
@@ -164,11 +164,11 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
               {data.files.map(f => <FileBlock key={f.kind} file={f} locale={locale} />)}
               {data.issues.length > 0 && (
                 <section aria-label={t('ctx.issues.region')} className="mb-1">
-                  <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}><span {...DATA_EN}>{t('ctx.issues.heading')}</span></h3>
+                  <h3 className="m-0 text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}><span {...DATA_EN}>{t('ctx.issues.heading')}</span></h3>
                   <Note>{t('ctx.issues.note')}</Note>
                   <ul className="flex flex-wrap gap-1 list-none p-0 m-0">
                     {data.issues.map(n => (
-                      <li key={n} className="text-[11px] font-mono px-1.5 rounded" style={{ background: COLORS.holoBg05, color: COLORS.assistantText }}>#{n}</li>
+                      <li key={n} className="text-2xs font-mono px-1.5 rounded" style={{ background: COLORS.holoBg05, color: COLORS.assistantText }}>#{n}</li>
                     ))}
                   </ul>
                 </section>

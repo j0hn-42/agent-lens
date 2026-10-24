@@ -61,7 +61,7 @@ export function ToastRegion({ toasts, onAction, onDismiss, onPause, undoKey = nu
       role="status"
       aria-live="polite"
       className="absolute left-3 right-3 bottom-24 flex flex-col items-center pointer-events-none"
-      style={{ zIndex: Z.controlBar + 5 }}
+      style={{ zIndex: Z.toast }}
     >
       {toasts.length > 0 && (
         // Pause boundary (hover and focus within the region): a box-less presentational wrapper, so

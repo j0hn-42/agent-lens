@@ -31,6 +31,8 @@ export interface ClaudeSessionHost {
   /** Size cap of a transcript, checked after each read; over it, `onOversize` runs instead of parsing (relay) */
   maxFileBytes?(): number
   onOversize?(sessionId: string): void
+  /** Lines just read from the transcript, after they were parsed (the hosts learn a cwd written late from them) */
+  onTranscriptLines?(sessionId: string, lines: readonly string[]): void
   log?(message: string): void
 }
 
@@ -197,6 +199,7 @@ export class ClaudeSessionPipeline {
     for (const line of lines) {
       this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
     }
+    this.host.onTranscriptLines?.(sessionId, lines)
     // Permission-gated tool calls (Agent/Task are skipped: subagents are inherently slow)
     handlePermissionDetection(this.delegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
     scanSubagentsDir(this.delegate, this.parser, sessionId)

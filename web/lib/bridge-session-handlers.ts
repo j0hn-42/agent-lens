@@ -6,7 +6,7 @@
  * Everything they touch comes through `SessionHandlerCtx`, so they run without React.
  */
 import type { MutableRefObject } from 'react'
-import { ALL_SESSIONS_ID, pickAutoSelectSession, resumeSession } from './bridge-types'
+import { ALL_SESSIONS_ID, pickAutoSelectSession, resumeSession, sanitizeSessionInfo, type SessionUpdate } from './bridge-types'
 import { pruneReplayStamps } from '../hooks/simulation/session-visibility'
 import type { createTeamTracker } from '../hooks/simulation/team-info'
 import type { SessionModelTracker } from './session-model'
@@ -41,7 +41,7 @@ export interface SessionHandlerCtx {
 type Handlers = {
   list: (ctx: SessionHandlerCtx, data: SessionInfo[]) => void
   started: (ctx: SessionHandlerCtx, data: SessionInfo) => void
-  updated: (ctx: SessionHandlerCtx, data: { sessionId: string; label: string }) => void
+  updated: (ctx: SessionHandlerCtx, data: SessionUpdate) => void
   ended: (ctx: SessionHandlerCtx, data: string) => void
   reset: (ctx: SessionHandlerCtx, data: string) => void
 }
@@ -89,8 +89,11 @@ export const SESSION_HANDLERS: Handlers = {
     }
   },
 
-  updated(ctx, { sessionId, label }) {
-    ctx.updateSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, label } : s)))
+  updated(ctx, { sessionId, label, projectId, projectName, ...place }) {
+    // A place learnt late (the transcript head had no cwd) completes the session; sanitized as on a start. A project
+    // comes whole: half of one never mixes with the project already known
+    const project = projectId && projectName ? { projectId, projectName } : {}
+    ctx.updateSessions(prev => prev.map(s => (s.id === sessionId ? sanitizeSessionInfo({ ...s, ...place, ...project, label }) : s)))
   },
 
   ended(ctx, sessionId) {

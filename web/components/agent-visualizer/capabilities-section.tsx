@@ -16,19 +16,19 @@ const SKILLS_OPEN_MAX = 12
 
 
 function Note({ children, color }: { children: ReactNode; color?: string }) {
-  return <p className="text-[11px] font-mono py-1 m-0" style={{ color: color ?? COLORS.textMuted }}>{children}</p>
+  return <p className="text-2xs font-mono py-1 m-0" style={{ color: color ?? COLORS.textMuted }}>{children}</p>
 }
 
 function Group({ title, open, children }: { title: string; open: boolean; children: ReactNode }) {
   return (
     <details open={open} className="mt-1">
-      <summary className={`cursor-pointer text-[11px] font-mono rounded py-0.5 ${FOCUS_RING_INSET}`} style={{ color: COLORS.panelLabel }}>{title}</summary>
+      <summary className={`cursor-pointer text-2xs font-mono rounded py-0.5 ${FOCUS_RING_INSET}`} style={{ color: COLORS.panelLabel }}>{title}</summary>
       <div className="pl-3">{children}</div>
     </details>
   )
 }
 
-const itemClass = 'text-[11px] font-mono'
+const itemClass = 'text-2xs font-mono'
 const Name = ({ children }: { children: ReactNode }) => <span {...DATA_EN} style={{ color: COLORS.assistantText }}>{children}</span>
 const Detail = ({ children }: { children: ReactNode }) => <span style={{ color: COLORS.textMuted }}> — {children}</span>
 
@@ -114,7 +114,7 @@ export function CapabilitiesSection({ capabilities }: { capabilities: SessionCap
   const t = (key: Parameters<typeof tr>[1], params?: Parameters<typeof tr>[2]) => tr(locale, key, params)
   return (
     <section aria-labelledby={TITLE_ID} className="mb-2">
-      <h3 id={TITLE_ID} className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{t('cap.heading')}</h3>
+      <h3 id={TITLE_ID} className="m-0 text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{t('cap.heading')}</h3>
       <Note>{t('cap.intro')}</Note>
       {capabilities === undefined ? <Note>{t('cap.notProvided')}</Note>
         : capabilities === 'invalid' ? <Note color={COLORS.error}>{t('cap.invalid')}</Note>

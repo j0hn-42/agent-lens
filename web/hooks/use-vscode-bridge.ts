@@ -196,7 +196,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // The consumed cursor of the session being left, taken when the selection changes and kept until the state
   // swap is done: events received in between sit in the buffer but reach no queue
   const outgoingCursorRef = useRef<{ id: string; cursor: number } | null>(null)
-  const [, setEventVersion] = useState(0) // trigger re-render on new events
+  const [, setEventVersion] = useState(0) // re-render after a reset or a flush, never per live event (#645)
 
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -618,8 +618,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         if (pendingEventsRef.current.length === 0) {
           pendingCursorRef.current = selected === ALL_SESSIONS_ID || parseTeamSelection(selected) !== null ? allPosition : sessionPosition
         }
+        // By reference: the rAF loop reads the queue and commits to React at its own 250 ms throttle (#645)
         pendingEventsRef.current.push(simEvent)
-        setEventVersion(v => v + 1)
       } else if (event.sessionId && !matches) {
         // Track background activity for unselected sessions
         setSessionsWithActivity(prev => {

@@ -113,6 +113,7 @@ export function AgentVisualizer() {
     frameRef, agents, toolCalls, edges, discoveries, fileAttention, waste, timelineEntries, currentTime, isPlaying, speed, maxTimeReached,
     conversations, droppedEvents, droppedMessages, normalizationStats, unattributed, foreignAttention, catchUp, links, teams,
     play, pause, restart, setSpeed, seekToTime, updateAgentPosition, setLayoutKeepIds, saveSnapshot, restoreSnapshot,
+    moveWorkspace, workspaceCentre, resetWorkspaces, hasMovedWorkspaces,
   } = useVisualizerSimulation(bridge, isReviewing, hideInactiveShown)
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -162,7 +163,7 @@ export function AgentVisualizer() {
   }, [pushToast])
   const sessionCacheRef = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
 
-  const timelineEvents = useTimelineEvents(conversations)
+  const { events: timelineEvents, lost: lostMarkers } = useTimelineEvents(conversations, droppedMessages)
 
   const zoomToFit = useCallback(() => setZoomToFitTrigger(n => n + 1), [])
   const {
@@ -220,6 +221,8 @@ export function AgentVisualizer() {
     toggleGrid: () => setShowHexGrid(prev => !prev),
     clearHistory: handleClearHistory,
     reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? handleReloadSessionEvents : null,
+    // Read when the menu opens (the open menu re-renders): a workspace moved by hand can be put back
+    arrangeWorkspaces: hasMovedWorkspaces() ? resetWorkspaces : null,
   }
 
   const sessionActions = useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef })
@@ -387,7 +390,7 @@ export function AgentVisualizer() {
           title="Exit full screen (Z)"
           className={`fixed top-2 right-2 rounded-md p-2 ${FOCUS_RING}`}
           // Drawn on the scene ground, so scene colours (>= 3:1 for the icon and the outline) whatever the theme
-          style={{ zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
+          style={{ zIndex: Z.notice, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
         >
           <FullscreenIcon exit />
         </button>
@@ -418,6 +421,8 @@ export function AgentVisualizer() {
         onAgentClick={handleCanvasAgentClick}
         onAgentHover={selection.setHoveredAgentId}
         onAgentDrag={updateAgentPosition}
+        onWorkspaceDrag={moveWorkspace}
+        getWorkspaceCentre={workspaceCentre}
         onContextMenu={selection.handleContextMenu}
         onToolCallClick={selection.handleToolCallClick}
         selectedToolCallId={selection.selectedToolCallId}
@@ -464,7 +469,7 @@ export function AgentVisualizer() {
         onPlayPause={handlePlayPause} onRestart={handleClearHistory} onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData} connectionStatus={bridge.connectionStatus} onSeek={handleSeek}
         timelineEvents={timelineEvents} eventCount={timelineEvents.length} isReviewing={isReviewing}
-        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents}
+        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents} lostMarkers={lostMarkers}
       />
       </div>
 

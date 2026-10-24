@@ -145,7 +145,7 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Bold + the 2 px bar under the button (boxShadow below) are the non-colour cues of the active state (WCAG 1.4.1).
       // Never also a text underline: it drew a second stroke next to the bar, and one per wrapped line on Sessions
-      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold' : ''} ${FOCUS_RING} ${className}`}
+      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-2xs ${active ? 'font-bold' : ''} ${FOCUS_RING} ${className}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -598,7 +598,7 @@ export const TopBar = memo(function TopBar({
     <header
       ref={rootRef}
       lang={locale}
-      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-0.5 rounded-md font-mono text-[11px]"
+      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-0.5 rounded-md font-mono text-2xs"
       style={{ zIndex: openTooltips > 0 || moreOpen ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', color: COLORS.textMuted }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session). Capped at 320 px, it

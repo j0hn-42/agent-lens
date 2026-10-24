@@ -113,6 +113,7 @@ export const fr = {
   'menu.clear': 'Effacer l’historique',
   'menu.clear.confirm': 'Confirmer l’effacement de l’historique',
   'menu.reload': 'Recharger les événements de la session',
+  'menu.arrangeWorkspaces': 'Replacer les workspaces automatiquement',
   // #594: names hidden by the label placement, button of the canvas controls
   'controls.hiddenNames.one': '{n} nom masqué',
   'controls.hiddenNames.other': '{n} noms masqués',
@@ -230,6 +231,7 @@ export const en: Record<keyof typeof fr, string> = {
   'menu.clear': 'Clear history',
   'menu.clear.confirm': 'Confirm clear history',
   'menu.reload': 'Reload session events',
+  'menu.arrangeWorkspaces': 'Arrange workspaces automatically',
   // #594: names hidden by the label placement, button of the canvas controls
   'controls.hiddenNames.one': '{n} name hidden',
   'controls.hiddenNames.other': '{n} names hidden',

@@ -153,7 +153,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                   item.onClick()
                   onClose()
                 }}
-                className={`min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-[color:var(--lens-hover-subtle)] focus-visible:bg-[color:var(--lens-hover)] ${FOCUS_RING_INSET}`}
+                className={`min-h-6 w-full px-3 py-1.5 text-left text-2xs font-mono transition-colors hover:bg-[color:var(--lens-hover-subtle)] focus-visible:bg-[color:var(--lens-hover)] ${FOCUS_RING_INSET}`}
                 style={{ color: item.danger || armed === i ? COLORS.error : COLORS.textPrimary }}
               >
                 {item.icon && <span aria-hidden="true" className="mr-2 inline-block w-4 text-center">{item.icon}</span>}

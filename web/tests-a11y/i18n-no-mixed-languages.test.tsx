@@ -1005,7 +1005,7 @@ for (const locale of LOCALES) {
   test(`the playback bar (live, offline, demo, review, confirmation, truncated history) speaks only ${locale}`, () => {
     setLocaleChoice(locale)
     const strings: string[] = []
-    const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, onResumeLive: noop, onEnterReview: noop }
+    const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, lostMarkers: 7, onResumeLive: noop, onEnterReview: noop }
     const toolbarLang = (view: ReturnType<typeof render>) => assert.equal(langOf(view.getByRole('toolbar')), locale, `the bar declares lang=${locale}`)
     for (const live of [{ connectionStatus: 'watching' }, { connectionStatus: 'connected' }, { connectionStatus: 'disconnected' }, { connectionStatus: 'connecting' }, { isDemo: true }] as const) {
       const view = render(<ControlBar {...common} {...live} />)

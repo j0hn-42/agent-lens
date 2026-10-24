@@ -14,7 +14,7 @@ import { ClaudeSessionPipeline, listedStartTimes } from '../extension/src/claude
 import { safeWatch, readLinesChunked, runGuarded, newestSessionMtime } from '../extension/src/fs-utils'
 import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { filterOrchestratorCompletion } from '../extension/src/orchestrator-completion'
-import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
+import { TeamWatcher, completeSessionHeader, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
@@ -55,6 +55,7 @@ import type { LaunchView } from '../extension/src/protocol'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
+import { createProjectWatchScan } from './project-watch-scan'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import { nodeIo, sampleSystem, type CpuCounters } from './system-stats'
 import type { TelemetryClient } from './telemetry'
@@ -374,9 +375,12 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
   } else if (type === 'updated') {
     const tags = teamWatcher?.getSessionTags(sessionId)
+    // The place of a watched session (an imported one is never matched to a local project, see toSessionInfo)
+    const cwd = importedSessions.has(sessionId) ? '' : tagText(sessionCwd.get(sessionId))
     broadcast(JSON.stringify({
       type: 'session-updated', sessionId, label,
       ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+      ...(cwd ? { cwd, ...projectTags(sessionCwd.get(sessionId)), ...branchTag(sessionBranch.get(sessionId)) } : {}),
     }), sessionId)
   }
 }
@@ -405,6 +409,11 @@ const pipeline = new ClaudeSessionPipeline({
   // An exception here would reach uncaughtException and stop the relay for every client (#206)
   guard: (fn, sessionId) => runGuarded(fn, (err) => detachSessionOnError(sessionId, err)),
   maxFileBytes: () => maxSessionFileBytes,
+  // A session found before its first entry with a cwd: its project is learnt now and the clients told
+  onTranscriptLines: (sessionId, lines) => {
+    const session = sessions.get(sessionId)
+    if (session && completeSessionHeader(sessionId, lines, sessionCwd, sessionBranch)) broadcastSessionLifecycle('updated', sessionId, session.label)
+  },
   // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
   // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
   onOversize: (sessionId) => {
@@ -961,6 +970,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const statusCoalescer = new KeyedCoalescer<StatusSnapshot>()
   let statusComputations = 0
   let projectDirWatcher: fs.FSWatcher | null = null
+  let projectWatchScan: ReturnType<typeof createProjectWatchScan> | null = null
 
   if (wantClaude) {
     hookServer = new HookServer()
@@ -1032,9 +1042,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       : path.join(CLAUDE_DIR, encodeProjectDirName(resolved))
     if (projectDir && fs.existsSync(projectDir)) {
       try {
-        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => {
-          if (filename?.endsWith('.jsonl')) scanNow?.()
-        })
+        // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650)
+        projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
+        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => projectWatchScan?.onEvent(filename))
       } catch {}
     }
   }
@@ -1539,6 +1549,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
+        projectWatchScan?.dispose()
         for (const w of [...projectDirWakeWatchers.values(), ...[...subagentWakeWatchers.values()].map(s => s.w)]) { try { w.close() } catch {} }
         projectDirWakeWatchers.clear(); subagentWakeWatchers.clear(); wakeScan = null
         for (const session of sessions.values()) {

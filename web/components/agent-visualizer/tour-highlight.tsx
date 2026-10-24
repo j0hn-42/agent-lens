@@ -75,7 +75,7 @@ export function TourHighlight({ target, getAgents }: { target: TourTarget; getAg
       className="pointer-events-none fixed rounded-lg"
       style={{
         left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8,
-        zIndex: Z.detailCard - 1,
+        zIndex: Z.tourHighlight,
         border: `2px solid ${COLORS.textPrimary}`,
         boxShadow: `0 0 0 3px ${COLORS.panelBg}`,
       }}

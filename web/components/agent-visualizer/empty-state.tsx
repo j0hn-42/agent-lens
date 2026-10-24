@@ -25,7 +25,7 @@ export function EmptyState({ bridge }: {
     scope: bridge.relayScope?.scope,
   })
   return (
-    <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none">
+    <div className="absolute inset-0 flex items-center justify-center z-(--z-info) p-3 pointer-events-none">
       <div
         className="text-center max-w-[calc(100vw-24px)] pointer-events-auto"
         style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}

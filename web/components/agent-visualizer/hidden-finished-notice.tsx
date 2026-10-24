@@ -16,7 +16,7 @@ interface HiddenFinishedNoticeProps {
 /** Canvas notice when every agent is finished and hidden (#369). */
 export function HiddenFinishedNotice({ count, onShow, focusTargetId }: HiddenFinishedNoticeProps) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none" data-testid="hidden-finished-notice">
+    <div className="absolute inset-0 flex items-center justify-center z-(--z-info) p-3 pointer-events-none" data-testid="hidden-finished-notice">
       <div className="text-center text-xs pointer-events-auto" style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", color: SCENE.textMuted }}>
         <span>{hiddenDoneText(count)}</span>
         <span aria-hidden="true"> · </span>

@@ -15,7 +15,7 @@ import { bubbleAlpha } from './bubble-utils'
 import { getToolCardSize } from './render-cache'
 import type { FocusShape } from './draw-misc'
 import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
-import { overlayHits } from './overlay-state'
+import { overlayHits, workspaceHeaderHits } from './overlay-state'
 import { lodForZoom, discoveryCardScale, type LevelOfDetail } from './draw-options'
 import { findLinkAt, type ResolvedLink } from './link-geometry'
 import type { NavNode } from './keyboard-nav'
@@ -207,6 +207,15 @@ export function findClusterLabelAt(x: number, y: number, scale = 1): string | nu
   return found
 }
 
+/** Workspace whose zone header chip is under the point: its project id, or null. */
+function findWorkspaceHeaderAt(x: number, y: number, scale = 1): string | null {
+  let found: string | null = null
+  for (const [projectId, r] of workspaceHeaderHits.rects) {
+    if (pointInMinRect(x, y, r.x, r.y, r.w, r.h, scale, HIT_DETECTION.minTargetPx)) found = projectId
+  }
+  return found
+}
+
 /** Collapsed branch whose badge is at (x, y), or null. The badge text sets its size, like when drawn. */
 export function findBranchBadgeAt(
   x: number, y: number, agents: Map<string, Agent>, view: CollapseView, scale = 1,
@@ -224,6 +233,8 @@ export function findBranchBadgeAt(
 export type HitTarget =
   | { type: 'branch'; id: string }
   | { type: 'cluster'; id: string }
+  /** The header of a workspace zone (id = project id): dragging it moves the workspace */
+  | { type: 'workspace'; id: string }
   | { type: 'agent'; id: string }
   | { type: 'tool'; id: string }
   | { type: 'discovery'; id: string }
@@ -232,7 +243,7 @@ export type HitTarget =
 
 /**
  * Single hit test with the same priority as the draw order (top first):
- * agent, tool card, discovery card, agent bubble, edge bubble, cluster label, then communication links
+ * agent, tool card, discovery card, agent bubble, edge bubble, cluster label, workspace header, then communication links
  * (drawn under the nodes). An edge bubble reports its link.
  */
 export function hitTestAt(
@@ -256,8 +267,11 @@ export function hitTestAt(
   if (bubbleId) return { type: 'bubble', id: bubbleId }
   const edgeBubbleId = findEdgeBubbleAt(x, y, scale)
   if (edgeBubbleId) return { type: 'link', id: edgeBubbleId }
+  // A cluster label first: the plan keeps it off the headers, so they only meet through the enlarged targets
   const clusterId = findClusterLabelAt(x, y, scale)
   if (clusterId) return { type: 'cluster', id: clusterId }
+  const workspaceId = findWorkspaceHeaderAt(x, y, scale)
+  if (workspaceId) return { type: 'workspace', id: workspaceId }
   if (scene.links && scene.links.length > 0) {
     const linkId = findLinkAt(x, y, scene.links, scene.agents, scale, undefined, lodForZoom(scale).labels)
     if (linkId) return { type: 'link', id: linkId }

@@ -234,7 +234,9 @@ export type ExtensionToWebviewMessage =
   | { type: 'session-list'; sessions: SessionInfo[] }
   | { type: 'session-started'; session: SessionInfo }
   | { type: 'session-ended'; sessionId: string }
-  | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string }
+  /** A label, team or place learnt after the start; `cwd`, `projectId`/`projectName` (both or none) and `branch` when the
+   *  transcript gave them late (its head held no cwd when the session was found) */
+  | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string; cwd?: string; projectId?: string; projectName?: string; branch?: string }
   /** Operator control (#240), sent only to a panel that sent `permission-surface` ready: a PermissionRequest waits for a decision */
   | { type: 'permission-request'; request: PermissionRequestMessage }
   /** The request ended: `sent` = the decision was handed to Claude Code (not proof it was applied); the others had no decision */
