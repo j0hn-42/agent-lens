@@ -92,18 +92,6 @@ function withHistory<T>(load: () => T): T {
   historyDepth++
   try { return reconciler.withHistory(load) } finally { historyDepth-- }
 }
-/** Sessions whose history is read over several ticks (a Claude attach, #651): their delivered events are history */
-const historySessions = new Map<string, number>()
-async function withSessionHistory<T>(sessionId: string, load: () => Promise<T>): Promise<T> {
-  historySessions.set(sessionId, (historySessions.get(sessionId) ?? 0) + 1)
-  try {
-    return await reconciler.withSessionHistory(sessionId, load)
-  } finally {
-    const depth = (historySessions.get(sessionId) ?? 1) - 1
-    if (depth > 0) historySessions.set(sessionId, depth)
-    else historySessions.delete(sessionId)
-  }
-}
 /** Distinct model IDs seen across all watched sessions during this relay session.
  *  Populated from `model_detected` events (emitted by both the Claude transcript
  *  parser and the Codex rollout parser). Read at session_end for telemetry. */
@@ -291,8 +279,9 @@ function deliverEvent(delivered: AgentEvent) {
 
   broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
 
-  // Webhooks: a replayed history or an imported session is not something that just happened
-  if (webhooks && historyDepth === 0 && !event.imported && event.sessionId && !historySessions.has(event.sessionId) && sessions.has(event.sessionId)) webhooks.notify(event)
+  // Webhooks: a replayed history or an imported session is not something that just happened. During a Claude attach
+  // (#651) only the history copies are `replayed`: a hook pushed meanwhile for that session is live and notified
+  if (webhooks && historyDepth === 0 && !event.imported && !event.replayed && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
 }
 
 /** Untrusted text shown as a session tag: single line, no controls, capped. */
@@ -418,7 +407,9 @@ const pipeline = new ClaudeSessionPipeline({
   submit: (event) => broadcastEvent(event),
   fireLifecycle: broadcastSessionLifecycle,
   withHistory,
-  withSessionHistory,
+  // A history read over several ticks (a Claude attach, #651) holds only its session's events; its transcript
+  // copies come out marked `replayed`, which keeps them away from the webhooks (deliverEvent)
+  withSessionHistory: (sessionId, load) => reconciler.withSessionHistory(sessionId, load),
   // An imported transcript is not live: no activity is inferred from reading it, and no end either
   isLive: (sessionId) => !importedSessions.has(sessionId),
   // An exception here would reach uncaughtException and stop the relay for every client (#206)
