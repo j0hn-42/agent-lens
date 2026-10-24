@@ -118,7 +118,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
 
   if (!mounted) return null
 
-  const button = `text-[11px] font-mono px-2 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`
+  const button = `text-2xs font-mono px-2 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`
   const content = (
     <div
       ref={backdropRef}
@@ -138,7 +138,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
         className="max-h-[calc(100vh-24px)] w-[480px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
       >
         <GlassCard visible={true}>
-          <div className="flex flex-col gap-2 text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>
+          <div className="flex flex-col gap-2 text-2xs font-mono" style={{ color: COLORS.textPrimary }}>
             <h2 id={titleId} className="m-0 text-xs font-semibold break-all">
               {t('permission.redirect.title', { tool: r.toolName, session })}
             </h2>

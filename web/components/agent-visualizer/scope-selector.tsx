@@ -56,7 +56,7 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
         title={translate(locale, 'scope.title')}
         value={value}
         onChange={e => { const choice = parseScopeValue(e.target.value); if (choice) onChoose(choice) }}
-        className={`min-h-6 ${TOUCH_TARGET} px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer max-w-[14rem] ${FOCUS_RING}`}
+        className={`min-h-6 ${TOUCH_TARGET} px-1.5 py-0.5 rounded text-2xs font-mono cursor-pointer max-w-[14rem] ${FOCUS_RING}`}
         style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: "inherit" }}
       >
         {options.map(o => (

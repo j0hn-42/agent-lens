@@ -69,7 +69,7 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
 
           {SHORTCUT_GROUPS.map(group => (
             <section key={group} aria-label={shortcutGroupName(group, locale)} className="mb-3">
-              <h3 className="m-0 mb-1 text-[11px] font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
+              <h3 className="m-0 mb-1 text-2xs font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
                 {shortcutGroupName(group, locale)}
               </h3>
               <ul className="m-0 list-none p-0">
@@ -77,7 +77,7 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
                   <li key={s.key} className="flex items-center justify-between gap-3 py-0.5 text-xs font-mono">
                     <span className="min-w-0" style={{ color: COLORS.textPrimary }}>{shortcutDescription(s, locale)}</span>
                     <kbd
-                      className="min-w-6 shrink-0 rounded px-1.5 py-0.5 text-center text-[11px]"
+                      className="min-w-6 shrink-0 rounded px-1.5 py-0.5 text-center text-2xs"
                       style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
                     >
                       {shortcutKeyCap(s, locale)}
@@ -99,7 +99,7 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
             />
             <label htmlFor={switchId} className="cursor-pointer text-xs font-mono" style={{ color: COLORS.textPrimary }}>
               {t('settings.singleKey')}
-              <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>
+              <span className="block text-2xs" style={{ color: COLORS.textMuted }}>
                 {t('settings.singleKey.help')}
               </span>
             </label>
