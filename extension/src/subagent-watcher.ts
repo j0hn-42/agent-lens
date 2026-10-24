@@ -20,7 +20,7 @@ import {
 import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
-  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S,
+  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S, SUBAGENT_WATCH_IDLE_MS,
 } from './constants'
 import { safeWatch, readTrackedLines, readLinesChunked, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
@@ -174,6 +174,7 @@ export function scanSubagentsDir(
     for (const { filePath } of ordered.filter(o => o.rank === 1)) startWatchingSubagentFile(delegate, parser, filePath, sessionId)
     emitCatchUpSpawns(delegate, parser, session, sessionId)
     tickWorkflowGroups(delegate, session, sessionId, selection.workflows)
+    releaseIdleSubagentWatchers(parser, session, sessionId)
   } catch (err) { log.debug('Subagent dir scan failed:', err) }
 }
 
@@ -334,11 +335,40 @@ function startWatchingSubagentFile(
   }
 
   // Watch for new content
+  state.lastWriteMs = mtimeMs ?? Date.now()
+  armSubagentWatcher(delegate, parser, state, filePath, sessionId)
+}
+
+function armSubagentWatcher(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  state: SubagentState,
+  filePath: string,
+  sessionId: string,
+): void {
   try {
     state.watcher = safeWatch(filePath, () => {
       readSubagentNewLines(delegate, parser, filePath, sessionId)
     })
   } catch (err) { log.debug('Subagent file watch failed:', err) }
+}
+
+/**
+ * Close the fs.watch of the subagents that are no longer active (#654): nothing written for
+ * SUBAGENT_WATCH_IDLE_MS and no open dispatch. The state stays (offset, dedup ids); the poll keeps reading
+ * the file, so a subagent resumed later is still seen, and its first new line re-arms the watcher.
+ * Teammates and workflow agents keep theirs (their activity is judged by their tracker).
+ */
+function releaseIdleSubagentWatchers(parser: TranscriptParser, session: WatchedSession, sessionId: string, now = Date.now()): void {
+  const registry = parser.getSubagentRegistry(sessionId)
+  for (const state of session.subagentWatchers.values()) {
+    if (!state.watcher || state.teammate || state.lastWriteMs === undefined) continue
+    if (now - state.lastWriteMs < SUBAGENT_WATCH_IDLE_MS) continue
+    const record = state.agentId ? registry.getByFileKey(state.agentId) : undefined
+    if (record?.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) continue
+    try { state.watcher.close() } catch { /* already closed */ }
+    state.watcher = null
+  }
 }
 
 function countTeammates(session: WatchedSession): number {
@@ -517,6 +547,9 @@ export function readSubagentNewLines(
     emitTeammateActivity(delegate, state, sessionId)
     return
   }
+  // New bytes: the subagent is active, a watcher closed while it was idle is armed again
+  state.lastWriteMs = Date.now()
+  if (!state.watcher && !state.teammate) armSubagentWatcher(delegate, parser, state, filePath, sessionId)
   if (state.teammate) {
     let mtime = Date.now()
     try { mtime = fs.statSync(filePath).mtimeMs } catch { /* vanished */ }
