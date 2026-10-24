@@ -55,6 +55,7 @@ import type { LaunchView } from '../extension/src/protocol'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
+import { createProjectWatchScan } from './project-watch-scan'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import { nodeIo, sampleSystem, type CpuCounters } from './system-stats'
 import type { TelemetryClient } from './telemetry'
@@ -969,6 +970,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const statusCoalescer = new KeyedCoalescer<StatusSnapshot>()
   let statusComputations = 0
   let projectDirWatcher: fs.FSWatcher | null = null
+  let projectWatchScan: ReturnType<typeof createProjectWatchScan> | null = null
 
   if (wantClaude) {
     hookServer = new HookServer()
@@ -1040,9 +1042,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       : path.join(CLAUDE_DIR, encodeProjectDirName(resolved))
     if (projectDir && fs.existsSync(projectDir)) {
       try {
-        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => {
-          if (filename?.endsWith('.jsonl')) scanNow?.()
-        })
+        // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650)
+        projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
+        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => projectWatchScan?.onEvent(filename))
       } catch {}
     }
   }
@@ -1547,6 +1549,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
+        projectWatchScan?.dispose()
         for (const w of [...projectDirWakeWatchers.values(), ...[...subagentWakeWatchers.values()].map(s => s.w)]) { try { w.close() } catch {} }
         projectDirWakeWatchers.clear(); subagentWakeWatchers.clear(); wakeScan = null
         for (const session of sessions.values()) {
