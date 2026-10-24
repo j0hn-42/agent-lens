@@ -228,7 +228,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     }
   }
 
-  start(): void {
+  start(options: { ownTimer?: boolean } = {}): void {
     this.started = true
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
@@ -236,7 +236,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     }
     this.resetCursors()
     this.scanNow()
-    this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
+    // The relay drives the scans itself, through its shared ticker, and only while a client is connected (#654)
+    if (options.ownTimer !== false) this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
   }
 
   /**

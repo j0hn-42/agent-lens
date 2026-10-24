@@ -731,7 +731,7 @@ export interface Relay {
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; runtimeScanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
@@ -1062,7 +1062,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     codexWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    codexWatcher.start()
+    codexWatcher.start({ ownTimer: false })
   }
 
   // ─── Copilot runtime ──────────────────────────────────────────────────────
@@ -1076,7 +1076,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     copilotWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    copilotWatcher.start()
+    copilotWatcher.start({ ownTimer: false })
   }
 
   // ─── Pi runtime ───────────────────────────────────────────────────────────
@@ -1090,7 +1090,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     piWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    piWatcher.start()
+    piWatcher.start({ ownTimer: false })
   }
 
   // ─── Gemini CLI runtime ───────────────────────────────────────────────────
@@ -1103,7 +1103,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     geminiWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    geminiWatcher.start()
+    geminiWatcher.start({ ownTimer: false })
   }
 
   // ─── OpenCode runtime ─────────────────────────────────────────────────────
@@ -1117,8 +1117,21 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Runtime and cwd ride on session-started: a session started while the page is open gets its badge (#420)
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    openCodeWatcher.start()
+    openCodeWatcher.start({ ownTimer: false })
   }
+
+  // The discovery scans of the other runtimes run on one shared interval, like the Claude scan: started by the
+  // first SSE client, stopped by the last (#654). Without a client their own watchers (fs.watch) still react.
+  const scanOtherRuntimes = () => {
+    for (const scan of [
+      () => codexWatcher?.scan(), () => copilotWatcher?.scan(), () => piWatcher?.scan(),
+      () => geminiWatcher?.scan(), () => openCodeWatcher?.scanNow(),
+    ]) {
+      try { scan() } catch (e) { log('[scan] Runtime scan failed:', e) }
+    }
+  }
+  const runtimeScanTicker = new SharedTicker(scanOtherRuntimes, SCAN_INTERVAL_MS)
+  const hasOtherRuntimes = !!(codexWatcher || copilotWatcher || piWatcher || geminiWatcher || openCodeWatcher)
 
   const telemetry = options.telemetry
   const sessionStart = Date.now()
@@ -1377,10 +1390,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
       // session list and the replay below, and not a second time as a live broadcast (issue #53).
       scanNow?.()
+      if (hasOtherRuntimes) scanOtherRuntimes()
       sseClients.add(res)
       log(`[sse] Client connected (${sseClients.size} total)`)
       // First client starts the shared scan timer; the last one leaving stops it
       const releaseTicker = scanTicker?.acquire()
+      const releaseRuntimeScans = hasOtherRuntimes ? runtimeScanTicker.acquire() : undefined
       const releaseSystem = hostClass !== 'allowed' ? systemTicker.acquire() : undefined
       const releaseHeartbeat = heartbeatTicker.acquire()
 
@@ -1390,6 +1405,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         if (closed) return
         closed = true
         releaseTicker?.()
+        releaseRuntimeScans?.()
         if (releaseSystem) {
           releaseSystem()
           // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
@@ -1504,6 +1520,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       sseClients: sseClients.size,
       remoteSseClients: remoteSseCount(),
       scanTimerActive: scanTicker?.active ?? false,
+      runtimeScanTimerActive: runtimeScanTicker.active,
       systemTimerActive: systemTicker.active,
       heartbeatTimerActive: heartbeatTicker.active,
       scanRuns: scanCoalescer.runs,
@@ -1557,6 +1574,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
           if (session.pollTimer) clearInterval(session.pollTimer)
         }
       }
+      runtimeScanTicker.stop()
       codexWatcher?.dispose()
       copilotWatcher?.dispose()
       piWatcher?.dispose()

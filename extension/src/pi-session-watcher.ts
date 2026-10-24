@@ -215,14 +215,15 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     }
   }
 
-  start(): void {
+  start(options: { ownTimer?: boolean } = {}): void {
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
       catch { this.workspacePath = this.workspace }
     }
 
     this.guardedScan()
-    this.scanInterval = setInterval(() => this.guardedScan(), SCAN_INTERVAL_MS)
+    // The relay drives the scans itself, through its shared ticker, and only while a client is connected (#654)
+    if (options.ownTimer !== false) this.scanInterval = setInterval(() => this.guardedScan(), SCAN_INTERVAL_MS)
 
     // A new project is a new directory under the root (a new file, with PI_CODING_AGENT_SESSION_DIR);
     // every line written there fires too, hence the debounce.
@@ -525,6 +526,9 @@ export class PiSessionWatcher implements AgentSessionWatcher {
       catch (err) { log.debug('Parser threw on line:', err) }
     }
   }
+
+  /** One discovery pass, for a caller that owns the timer (start with ownTimer: false, #654). */
+  scan(): void { this.guardedScan() }
 
   dispose(): void {
     if (this.scanInterval) { clearInterval(this.scanInterval) }

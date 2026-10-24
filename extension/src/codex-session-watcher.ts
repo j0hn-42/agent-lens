@@ -212,14 +212,15 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     return { type: 'started', sessionId: s.sessionId, label: s.label, runtime: 'codex', ...(s.cwd ? { cwd: s.cwd } : {}) }
   }
 
-  start(): void {
+  start(options: { ownTimer?: boolean } = {}): void {
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
       catch { this.workspacePath = this.workspace }
     }
 
     this.scanForSessions()
-    this.scanInterval = setInterval(() => this.scanForSessions(), SCAN_INTERVAL_MS)
+    // The relay drives the scans itself, through its shared ticker, and only while a client is connected (#654)
+    if (options.ownTimer !== false) this.scanInterval = setInterval(() => this.scanForSessions(), SCAN_INTERVAL_MS)
 
     // Watch the sessions root for new day directories appearing.
     const root = sessionsRoot()
@@ -495,6 +496,9 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       catch (err) { log.debug('Parser threw on line:', err) }
     }
   }
+
+  /** One discovery pass, for a caller that owns the timer (start with ownTimer: false, #654). */
+  scan(): void { this.scanForSessions() }
 
   dispose(): void {
     if (this.scanInterval) { clearInterval(this.scanInterval) }
