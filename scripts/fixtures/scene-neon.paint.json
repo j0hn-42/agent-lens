@@ -1,7 +1,6 @@
 {
  "neon": {
   "labels": [
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #b79cff25",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #b79cff",
@@ -37,7 +36,6 @@
    "fill rgba(5, 5, 16, 0.8)",
    "stroke rgba(102, 204, 255, 0.22)",
    "fillText #66ccffb0",
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #ffbb4425",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #ffbb44",
@@ -59,7 +57,6 @@
    "fill rgba(5, 5, 16, 0.8)",
    "stroke rgba(102, 204, 255, 0.22)",
    "fillText #66ccffb0",
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #66ccff25",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #66ccff",
@@ -84,7 +81,6 @@
    "fill rgba(5, 5, 16, 0.8)",
    "stroke rgba(102, 204, 255, 0.22)",
    "fillText #66ccffb0",
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #66ffaa25",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #66ffaa60",
@@ -234,7 +230,6 @@
  },
  "no theme": {
   "labels": [
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #7dc4e425",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #7dc4e4",
@@ -270,7 +265,6 @@
    "fill rgba(5, 5, 16, 0.8)",
    "stroke rgba(102, 204, 255, 0.22)",
    "fillText #66ccffb0",
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #eed49f25",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #eed49f",
@@ -292,7 +286,6 @@
    "fill rgba(5, 5, 16, 0.8)",
    "stroke rgba(102, 204, 255, 0.22)",
    "fillText #66ccffb0",
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #c6a0f625",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #c6a0f6",
@@ -317,7 +310,6 @@
    "fill rgba(5, 5, 16, 0.8)",
    "stroke rgba(102, 204, 255, 0.22)",
    "fillText #66ccffb0",
-   "fill rgba(0, 0, 0, 0.01)",
    "stroke #a6da9525",
    "fill rgba(10, 15, 40, 0.5)",
    "stroke #a6da9560",
