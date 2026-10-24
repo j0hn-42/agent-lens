@@ -396,7 +396,12 @@ export interface DiscoveryOptions {
 }
 
 /** État de scan froid du relais : `cycle` est incrémenté par l'appelant à chaque scan. */
-export interface ColdScan { cycle: number; until: Map<string, number> }
+export interface ColdScan {
+  cycle: number
+  until: Map<string, number>
+  /** Classement des dossiers par transcript le plus récent (#654) : recalculé tous les COLD_RESCAN_CYCLES cycles */
+  ranking?: { cycle: number; newest: Map<string, number> }
+}
 export function createColdScan(): ColdScan { return { cycle: 0, until: new Map() } }
 
 /** mtime of the most recent `.jsonl` directly in `dir` (0 when none or unreadable). Regular files only. */
@@ -427,6 +432,7 @@ export function listProjectDirs(
   match: ((name: string) => boolean) | null,
   maxDirs = RELAY_MAX_PROJECT_DIRS,
   report?: { truncated: boolean },
+  cold?: ColdScan,
 ): string[] {
   const out: string[] = []
   if (report) { report.truncated = false }
@@ -437,7 +443,19 @@ export function listProjectDirs(
     .map(e => e.name)
     .sort()
   if (names.length > maxDirs) {
-    const newest = new Map(names.map(n => [n, newestTranscriptMs(path.join(root, n))]))
+    // readdir + lstat of every transcript of every folder: redone only every COLD_RESCAN_CYCLES scans when the
+    // caller passes its ColdScan (a folder unknown to the last ranking is measured at once)
+    let ranking = cold?.ranking
+    if (!ranking || !cold || cold.cycle - ranking.cycle >= COLD_RESCAN_CYCLES || cold.cycle < ranking.cycle) {
+      ranking = { cycle: cold?.cycle ?? 0, newest: new Map() }
+      if (cold) cold.ranking = ranking
+    }
+    const known = ranking.newest
+    const newest = new Map(names.map(n => {
+      let ms = known.get(n)
+      if (ms === undefined) { ms = newestTranscriptMs(path.join(root, n)); known.set(n, ms) }
+      return [n, ms] as const
+    }))
     // Stable sort: equal activity keeps the by-name order
     names.sort((a, b) => (newest.get(b) ?? 0) - (newest.get(a) ?? 0))
   }

@@ -635,7 +635,7 @@ function scanTranscripts(workspace: string, allWorkspaces = false) {
   }
   // All workspaces: every real (non-symlink) project dir directly under ~/.claude/projects, the first RELAY_MAX_PROJECT_DIRS by name
   const dirReport = { truncated: false }
-  const dirsToScan = listProjectDirs(CLAUDE_DIR, match, RELAY_MAX_PROJECT_DIRS, dirReport)
+  const dirsToScan = listProjectDirs(CLAUDE_DIR, match, RELAY_MAX_PROJECT_DIRS, dirReport, coldScan)
   projectDirsCapped = dirReport.truncated
 
   coldScan.cycle++
