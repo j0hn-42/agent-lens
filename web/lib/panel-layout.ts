@@ -37,6 +37,8 @@ export const CONTROL_BAR_MAX_WIDTH = 680
 export const CONTROL_BAR_FALLBACK_H = 56
 export const TOPBAR_FALLBACK_H = 60
 
+const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
+
 export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720, step: 16, bigStep: 64 } as const
 /**
  * The cards of the left dock: the size they ask for (`w` x `h`), and the narrowest and shortest they accept.
@@ -45,6 +47,10 @@ export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720
  * instead of dropping the whole layout to a sheet.
  */
 export const DETAIL_SIZE = { w: 320, h: 420, minW: 240, minH: 120 } as const
+/** Width the System panel asks for until the user resizes it (wider than the agent card: metric rows and per-core bars). */
+export const SYSTEM_DEFAULT_W = 400
+/** Widest the System panel can be made. */
+const SYSTEM_MAX_W = 720
 /** Height the System panel asks for: its metric rows, its per-core detail and its load / uptime list. */
 const SYSTEM_H = 420
 /** Heights a left card falls back to, tallest first, once the one it asked for does not fit. */
@@ -100,9 +106,15 @@ export function dockWidthForDrag(startWidth: number, startX: number, x: number, 
   return clampDockWidth(startWidth + (startX - x), viewportW)
 }
 
-// ─── Left panel (Sessions) width ────────────────────────────────────────────
+/** Range of the System panel's width: from the card minimum to the room left of the right dock when one is open. */
+export function systemWidthBounds(viewportW: number, open: readonly PanelId[], rightWidth: number): { min: number; max: number } {
+  const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
+  const room = Math.floor(viewportW - 2 * DOCK_EDGE - (rightOpen ? rightWidth + DOCK_GAP : 0))
+  const max = Math.max(0, Math.min(SYSTEM_MAX_W, room))
+  return { min: Math.min(DETAIL_SIZE.minW, max), max }
+}
 
-const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
+// ─── Left panel (Sessions) width ────────────────────────────────────────────
 
 /**
  * Bounds of a panel anchored on the left edge (the Sessions list) that must not run into its
@@ -179,6 +191,8 @@ export interface DockInput {
   /** Open docked panels, oldest first (the newest wins when the layout falls back to a sheet). */
   open: readonly PanelId[]
   rightWidth?: number
+  /** Width the user gave the System panel; absent = the width of the card column. Falls back to it when it does not fit. */
+  systemWidth?: number
   /** Rectangles of panels owned elsewhere (message feed, per-agent chat, ...): never covered. */
   obstacles?: readonly Rect[]
   /** Measured height of the "N panels hidden" notice (0 / unknown until it is drawn). */
@@ -310,7 +324,7 @@ function placeCard(maxH: number, w: number, leftArea: Rect, blockers: readonly R
   return null
 }
 
-function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, card: { w: number; h: number }): Partial<Record<PanelId, Rect>> | null {
+function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, card: { w: number; h: number }, wideSystem: boolean): Partial<Record<PanelId, Rect>> | null {
   const { viewport: vp, open } = input
   const { area, rightWidth: rw } = base
   const rects: Partial<Record<PanelId, Rect>> = {}
@@ -358,7 +372,9 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     const leftArea: Rect = above
       ? { x: above.x, y: area.y, w: above.w, h: area.h }
       : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
-    const placed = placeCard(Math.min(SYSTEM_H, card.h, share), above ? above.w : card.w, leftArea, blockers)
+    // Wider than the column when asked to and when it finds room (`wideSystem`); the caller retries on the column's width
+    const w = wideSystem ? Math.round(clamp(input.systemWidth ?? SYSTEM_DEFAULT_W, DETAIL_SIZE.minW, SYSTEM_MAX_W)) : above ? above.w : card.w
+    const placed = placeCard(Math.min(SYSTEM_H, card.h, share), w, { ...leftArea, w: Math.max(leftArea.w, w) }, blockers)
     if (!placed) return null
     rects.system = placed
     blockers.push(placed)
@@ -411,7 +427,8 @@ export function computeDockLayout(input: DockInput): DockLayout {
   // is open, since nothing else reads the cap.
   const sizes = open.includes('detail') || open.includes('system') ? cardSizes(vp.w) : [{ w: 0, h: 0 }]
   for (const size of sizes) {
-    const rects = tryDock({ ...input, viewport: vp, open }, base, size)
+    // Width first: a wide System that leaves another panel no room gives way to the column's width before the card shrinks
+    const rects = (open.includes('system') ? tryDock({ ...input, viewport: vp, open }, base, size, true) : null) ?? tryDock({ ...input, viewport: vp, open }, base, size, false)
     if (rects) return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
   }
   return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
@@ -595,6 +612,8 @@ export interface DockStore {
   setOpen(id: PanelId, open: boolean): void
   getRightWidth(): number
   setRightWidth(w: number): void
+  /** Width the user gave the System panel (undefined = the card column's width). */
+  setSystemWidth(w: number | undefined): void
   /** Re-read the DOM now (tests / after layout changes). */
   measure(): void
   /** Replace the environment (tests). */
@@ -607,15 +626,16 @@ export function createDockStore(measure: () => DockEnv = measureDockEnv): DockSt
   let env = measure()
   let open: PanelId[] = []
   let rightWidth: number = RIGHT_DOCK.default
+  let systemWidth: number | undefined
   let snapshot: DockSnapshot
   let stop: (() => void) | null = null
   let key = ''
 
   const compute = () => {
-    const k = JSON.stringify([env, open, rightWidth])
+    const k = JSON.stringify([env, open, rightWidth, systemWidth])
     if (k === key && snapshot) return false
     key = k
-    snapshot = { layout: computeDockLayout({ ...env, open, rightWidth }), env, open: [...open] }
+    snapshot = { layout: computeDockLayout({ ...env, open, rightWidth, systemWidth }), env, open: [...open] }
     return true
   }
   compute()
@@ -669,6 +689,11 @@ export function createDockStore(measure: () => DockEnv = measureDockEnv): DockSt
       const next = clampDockWidth(w, env.viewport.w)
       if (next === rightWidth) return
       rightWidth = next
+      emit()
+    },
+    setSystemWidth(w) {
+      if (w === systemWidth) return
+      systemWidth = w
       emit()
     },
     measure() { env = measure(); emit() },

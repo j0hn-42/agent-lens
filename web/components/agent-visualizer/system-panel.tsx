@@ -4,14 +4,24 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
-import { useLocale } from '@/lib/locale'
+import { useLocale, useT } from '@/lib/locale'
 import { translate } from '@/lib/messages'
 import { panelName } from '@/lib/command-palette'
 import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
 import { CollapsibleSection } from './collapsible-section'
-import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
-import { DETAIL_SIZE } from '@/lib/panel-layout'
+import { DockResizer, PanelHeader, SlidingPanel, useDockPanel, useDockSnapshot, dockAttrs, dockPanelDomId } from './shared-ui'
+import { dockStore, systemWidthBounds, DETAIL_SIZE } from '@/lib/panel-layout'
+
+/** Width the user gave the panel, kept in this browser */
+const SYSTEM_WIDTH_KEY = 'agent-lens.systemPanelWidth'
+
+function readStoredWidth(): number | undefined {
+  try {
+    const n = Number(window.localStorage.getItem(SYSTEM_WIDTH_KEY))
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  } catch { return undefined }
+}
 
 interface SystemPanelProps {
   visible: boolean
@@ -270,6 +280,17 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
   const { rect } = dock
   const titleId = useId()
   const { locale } = useLocale()
+  const t = useT()
+  // User-resizable width (persisted): the layout places the panel at that width when there is room for it
+  const [wantedWidth, setWantedWidth] = useState<number | undefined>(undefined)
+  useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
+  useEffect(() => { dockStore.setSystemWidth(wantedWidth) }, [wantedWidth])
+  const { env, open: openPanels, layout } = useDockSnapshot()
+  const bounds = systemWidthBounds(env.viewport.w, openPanels, layout.rightWidth)
+  const resizePanel = (w: number) => {
+    setWantedWidth(w)
+    try { window.localStorage.setItem(SYSTEM_WIDTH_KEY, String(w)) } catch { /* not persisted */ }
+  }
   const announcement = useSeverityAnnouncement(samples, visible)
   // The body is a scroll container: a tab stop only while it actually scrolls (WCAG 2.1.1), as in the Context panel
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -297,6 +318,7 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h, background: COLORS.void }}>
+        <DockResizer edge="right" bounds={bounds} width={rect?.w ?? DETAIL_SIZE.w} onWidthChange={resizePanel} label={t('sessions.resize', { name: panelName(locale, 'system') })} valueText={px => t('sessions.resize.value', { px })} controls={dockPanelDomId('system')} />
         <PanelHeader onClose={onClose} titleId={titleId}>
           <span lang={locale} className="text-xs font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{panelName(locale, 'system')}</span>
         </PanelHeader>

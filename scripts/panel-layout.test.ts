@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE, SYSTEM_DEFAULT_W, systemWidthBounds, DOCK_EDGE, DOCK_GAP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -139,7 +139,7 @@ test('both cards open: they share the column evenly, neither squeezes the other 
     assert.equal(l.mode, 'dock', `${w}x${h}: both cards stay docked`)
     const { detail, system } = l.rects as Record<string, Rect>
     assert.equal(detail.w, DETAIL_SIZE.w, `${w}x${h}: the card keeps the full width`)
-    assert.equal(system.w, detail.w, `${w}x${h}: System is as wide as the card above it`)
+    assert.ok(system.w >= detail.w, `${w}x${h}: System is at least as wide as the card above it`)
     assert.ok(Math.abs(detail.h - system.h) <= 1, `${w}x${h}: ${detail.h} vs ${system.h} is not an even share`)
     assert.ok(system.h >= 240, `${w}x${h}: System keeps at least the 240 px it had (got ${system.h})`)
     assert.ok(!intersects(detail, system))
@@ -157,10 +157,34 @@ test('a column too tight for the full card narrows it instead of dropping to a s
   assert.ok(!intersects(detail, feed) && !intersects(detail, l.rects.files!))
 })
 
-test('System alone asks for 420 px of its own, on the full card width', () => {
+test('System alone asks for a width of its own, wider than the cards', () => {
   const l = layoutFor(1600, 900, ['system'], [])
-  assert.equal(l.rects.system!.w, DETAIL_SIZE.w)
+  assert.equal(l.rects.system!.w, SYSTEM_DEFAULT_W)
+  assert.ok(SYSTEM_DEFAULT_W > DETAIL_SIZE.w)
   assert.equal(l.rects.system!.h, 420, 'its metric rows, per-core detail and load / uptime list fit without a scroll')
+})
+
+test('System takes the width the user gave it, within its bounds', () => {
+  const at = (systemWidth: number) => computeDockLayout({ viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['system'], systemWidth }).rects.system!.w
+  assert.equal(at(560), 560)
+  assert.equal(at(100), DETAIL_SIZE.minW, 'never narrower than a card')
+  assert.equal(at(5000), systemWidthBounds(1600, ['system'], 380).max, 'never wider than its maximum')
+})
+
+test('a wide System gives way to the column width rather than hiding another panel', () => {
+  const open: PanelId[] = ['detail', 'system', 'files', 'timeline']
+  for (const [w, h] of [[1024, 640], [960, 540], [900, 640]] as Array<[number, number]>) {
+    const l = computeDockLayout({ viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, systemWidth: 720 })
+    assert.equal(l.mode, layoutFor(w, h, open, []).mode, `${w}x${h}: the width asked for does not decide dock or sheet`)
+  }
+})
+
+test('the System resize range stops at the free room beside the right dock', () => {
+  const free = systemWidthBounds(1000, ['system'], 380)
+  const beside = systemWidthBounds(1000, ['system', 'files'], 380)
+  assert.equal(free.min, DETAIL_SIZE.minW)
+  assert.ok(beside.max < free.max)
+  assert.equal(beside.max, 1000 - 2 * DOCK_EDGE - 380 - DOCK_GAP)
 })
 
 test('a card gives room back rather than pushing another panel out (a11y review of the bigger cards)', () => {
