@@ -117,6 +117,24 @@ Four rules, enforced by `scripts/design-tokens.test.ts` (#509):
 - **Stacking**: a named level of `Z` in `web/lib/agent-types.ts`, never a number, a `Z.x + 1` or a `z-10` class (`z-(--z-info)` for the info level).
 - **Scrim**: `var(--lens-scrim)`, a theme token (`web/lib/theme-tokens.json`), never a black `rgba()` literal.
 
+## Shared Button in the web UI
+
+The buttons of the canvas chrome (canvas controls, motion-layer toggles, guided tour card, control bar, permission requests) all use `Button` from `web/components/ui/button.tsx` (#508). A new button of the same kind uses it too, instead of spelling its classes by hand. `Button` takes a required `variant`, renders `type="button"`, and gives every variant the same guarantees: a 24 px minimum target, the theme focus ring (`FOCUS_RING`) and colours from `COLORS` (theme tokens, read when the button renders so a theme change applies). The 44 px target below 768 px (`TOUCH_TARGET`) is not shared by all four variants.
+
+- **Mobile target**: `control`, `bar` and `decision` grow to 44 px below 768 px; `tour` stays at 24 px (its class has no `TOUCH_TARGET`). Giving `tour` the 44 px target changes how the tour card renders, so it is a separate issue.
+
+| Variant | Used for |
+| --- | --- |
+| `control` | Canvas controls and motion-layer toggles. `active` fills it with the toggle colour; the pressed or open state itself stays on `aria-pressed` / `aria-expanded`. |
+| `tour` | The guided tour card. A disabled step is `aria-disabled`, not `disabled`, so focus does not drop to `<body>`. |
+| `bar` | The playback bar. Box only: each use draws its own fill, border and colour through `style`. |
+| `decision` | Permission request actions. Transparent; a use adds its own border shape through `style`. |
+
+- **Accessible name**: pass `aria-label` or visible text, as for any `<button>`. `Button` does not add one and the refactor changed none.
+- **Not a button**: an element that must look like one without being one (a label) takes `buttonClass(variant)` and `buttonStyle(variant)`.
+- **A new look** is a new variant in `BASE_CLASS` and `ButtonVariant`, not a one-off class string at the call site.
+- **Tests**: `web/tests-a11y/button-pins.test.tsx` fingerprints every button of the five surfaces (names, roles, states, classes) against `web/tests-a11y/fixtures/button-pins.json`; regenerate that file only on purpose (`UPDATE_BUTTON_PINS=1`). `web/tests-a11y/button-theme.test.tsx` checks the colours follow the theme. `scripts/docs.test.ts` checks that this section lists every variant.
+
 ## Branch protection (owner)
 
 The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks `test` and `e2e-a11y`. Read the current protection first (`gh api repos/j0hn-42/agent-lens/branches/<branch>/protection`): a `PUT` on `/protection` replaces every setting, so it must repeat the existing ones.
