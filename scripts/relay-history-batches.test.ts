@@ -70,20 +70,31 @@ async function waitFor(cond: () => boolean, ms: number): Promise<boolean> {
   return cond()
 }
 
-/** A transcript whose current turn holds `n` assistant messages, put in place at once (never seen half written). */
-function writeTranscript(sessionId: string, n: number, body: (i: number) => string) {
+/**
+ * A session whose attach reads a large history: the lead transcript (its catch-up) and `teammates` teammate files
+ * already there, each replayed at attach (#361) with `lines` assistant lines of `blocks` text blocks. The teammate
+ * files are written first and the lead transcript is put in place at once, so the attach finds them all.
+ */
+function writeSession(sessionId: string, teammates: number, lines: number, blocks: number, text: (k: number, j: number, b: number) => string): number {
   const now = Date.now()
-  let text = line({ type: 'user', cwd: realWs, timestamp: new Date(now - 60_000).toISOString(), message: { role: 'user', content: `start ${sessionId}` } })
-  for (let i = 0; i < n; i++) {
-    text += line({
-      type: 'assistant', timestamp: new Date(now - 60_000 + i).toISOString(),
-      message: { role: 'assistant', id: `msg_${sessionId.slice(-4)}_${i}`, content: [{ type: 'text', text: body(i) }] },
-    })
+  const subDir = path.join(projectDir, sessionId, 'subagents')
+  fs.mkdirSync(subDir, { recursive: true })
+  let bytes = 0
+  for (let k = 0; k < teammates; k++) {
+    fs.writeFileSync(path.join(subDir, `agent-tm${k}.meta.json`), JSON.stringify({ taskKind: 'in_process_teammate', teamName: 'crew', name: `mate${k}` }))
+    let body = ''
+    for (let j = 0; j < lines; j++) {
+      const content = Array.from({ length: blocks }, (_, b) => ({ type: 'text', text: text(k, j, b) }))
+      for (const c of content) bytes += c.text.length
+      body += line({ type: 'assistant', timestamp: new Date(now - 60_000 + j).toISOString(), message: { role: 'assistant', id: `msg_${k}_${j}`, content } })
+    }
+    fs.writeFileSync(path.join(subDir, `agent-tm${k}.jsonl`), body)
   }
+  const lead = line({ type: 'user', cwd: realWs, timestamp: new Date(now - 60_000).toISOString(), message: { role: 'user', content: `start ${sessionId}` } })
   const tmp = path.join(fakeHome, `${sessionId}.tmp`)
-  fs.writeFileSync(tmp, text)
+  fs.writeFileSync(tmp, lead)
   fs.renameSync(tmp, path.join(projectDir, `${sessionId}.jsonl`))
-  return text.length
+  return bytes
 }
 
 const eventsOf = (msgs: Msg[], sid: string) => msgs.flatMap(m =>
@@ -122,27 +133,31 @@ describe('relay: the history read at attach goes out in batches, after the buffe
     // Stops reading at the socket level: the kernel buffers fill up and the relay's backlog grows
     c.res.pause()
     c.res.socket.pause()
-    const N = 4000
-    const bytes = writeTranscript(BIG, N, i => `big${i} ${'x'.repeat(1900)}`)
-    assert.ok(bytes > 4 * RELAY_MAX_CLIENT_BACKLOG_BYTES, 'precondition: the history is far above the slow-client limit')
+    const TEAMMATES = 64, LINES = 40
+    const bytes = writeSession(BIG, TEAMMATES, LINES, 1, (k, j) => `tm${k}-${j} ${'x'.repeat(1900)}`)
+    assert.ok(bytes > 4 * RELAY_MAX_CLIENT_BACKLOG_BYTES, `precondition: the history is far above the slow-client limit (${bytes} bytes)`)
     // Discovered, read and its sending started while the client does not read
     assert.ok(await waitFor(() => relay.debugState().watchedSessions >= 1, 15_000), 'precondition: the session is attached')
     await sleep(1500)
     assert.equal(relay.debugState().sseClients, 1, 'still connected while it does not read')
     c.res.socket.resume()
     c.res.resume()
-    const all = () => contentsOf(c.msgs, BIG).filter(s => s.startsWith('big')).length
-    assert.ok(await waitFor(() => all() >= N, 20_000), `the whole history arrives (${all()}/${N})`)
-    assert.equal(c.closed(), false, 'the client stays connected')
-    assert.equal(relay.debugState().sseClients, 1)
+    const N = TEAMMATES * LINES
+    const all = () => contentsOf(c.msgs, BIG).filter(s => s.startsWith('tm')).length
+    assert.ok(await waitFor(() => all() >= N || c.closed(), 20_000) && !c.closed(), `the whole history arrives (${all()}/${N}, dropped: ${c.closed()})`)
+    assert.equal(relay.debugState().sseClients, 1, 'the client stays connected')
 
     const mine = c.msgs.filter(m => eventsOf([m], BIG).length > 0)
     assert.equal(mine.filter(m => m.type === 'agent-event').length, 0, 'no event of the history goes out one by one')
     assert.ok(mine.every(m => m.type === 'agent-event-batch' && m.events!.length <= RELAY_REPLAY_BATCH_SIZE), 'batches of the replay size')
     assert.ok(mine.every(m => m.events!.every(e => e.sessionId === BIG)), 'one session per batch')
     assert.ok(eventsOf(c.msgs, BIG).every(e => e.replayed === true), 'history, not live')
-    const contents = contentsOf(c.msgs, BIG).filter(s => s.startsWith('big'))
-    assert.deepEqual(contents.map(s => Number(s.slice(3, s.indexOf(' ')))), Array.from({ length: N }, (_, i) => i), 'in order, once each')
+    const contents = contentsOf(c.msgs, BIG).filter(s => s.startsWith('tm')).map(s => s.slice(0, s.indexOf(' ')))
+    assert.equal(new Set(contents).size, N, 'once each')
+    for (let k = 0; k < TEAMMATES; k++) {
+      const own = contents.filter(s => s.startsWith(`tm${k}-`)).map(s => Number(s.slice(s.indexOf('-') + 1)))
+      assert.deepEqual(own, Array.from({ length: LINES }, (_, j) => j), `the lines of teammate ${k}, in order`)
+    }
     // The resume point follows the history it covers
     const lastBatch = c.msgs.lastIndexOf(mine.at(-1)!)
     assert.ok(c.msgs.slice(lastBatch + 1).some(m => m.type === 'relay-cursor'), 'a relay-cursor after the batches')
@@ -153,8 +168,10 @@ describe('relay: the history read at attach goes out in batches, after the buffe
   it('applies the buffer cap before sending, and counts what it let go of as lost (event-loss after the batches)', async () => {
     const c = await connectSSE()
     await sleep(200)
-    const N = RELAY_MAX_EVENTS_PER_SESSION + 1500
-    writeTranscript(LONG, N, i => `long${i}`)
+    // 64 teammates x 40 lines x 3 blocks: more messages than the per-session buffer holds
+    const TEAMMATES = 64, LINES = 40, BLOCKS = 3
+    assert.ok(TEAMMATES * LINES * BLOCKS > RELAY_MAX_EVENTS_PER_SESSION, 'precondition: the history exceeds the buffer cap')
+    writeSession(LONG, TEAMMATES, LINES, BLOCKS, (k, j, b) => `t${k}-${j}-${b}`)
     const loss = () => c.msgs.find(m => m.type === 'event-loss' && (m.evicted?.[LONG] ?? 0) > 0)
     assert.ok(await waitFor(() => loss() !== undefined, 20_000), 'the clients are told what the cap let go of')
     const sent = eventsOf(c.msgs, LONG)
@@ -163,7 +180,7 @@ describe('relay: the history read at attach goes out in batches, after the buffe
     assert.ok(sent.length <= RELAY_MAX_EVENTS_PER_SESSION, `at most the buffer cap is sent (${sent.length})`)
     assert.ok(eventsOf(c.msgs.slice(c.msgs.indexOf(loss()!)), LONG).length === 0, 'the loss comes after the batches')
     const contents = contentsOf(c.msgs, LONG)
-    assert.ok(contents.includes(`long${N - 1}`), 'the newest events are the ones kept')
+    assert.ok(contents.includes(`t${TEAMMATES - 1}-${LINES - 1}-${BLOCKS - 1}`), 'the newest events are the ones kept')
     assert.equal(new Set(contents).size, contents.length, 'each event once')
 
     // A client connecting now gets the buffer and the relay's tally: the same total, nothing hidden
