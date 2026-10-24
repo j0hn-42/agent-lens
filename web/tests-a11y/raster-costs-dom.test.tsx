@@ -72,9 +72,9 @@ test('positionTooltip: the size is read once, then kept by a ResizeObserver (#66
 test('positionTooltip: a new size from the ResizeObserver repositions the tooltip before the next frame (#613)', () => {
   const g = globalThis as unknown as { ResizeObserver?: unknown }
   const had = g.ResizeObserver
-  let deliver: ((entries: Array<{ target: Element }>) => void) | null = null
+  const holder: { deliver?: (entries: Array<{ target: Element }>) => void } = {}
   g.ResizeObserver = class {
-    constructor(cb: (entries: Array<{ target: Element }>) => void) { deliver = cb }
+    constructor(cb: (entries: Array<{ target: Element }>) => void) { holder.deliver = cb }
     observe() {} disconnect() {} unobserve() {}
   }
   try {
@@ -88,8 +88,8 @@ test('positionTooltip: a new size from the ResizeObserver repositions the toolti
     const before = el.style.transform
     // the content changed: the tooltip is wider, the observer delivers the new size after layout
     width = 300
-    assert.ok(deliver, 'a ResizeObserver was made')
-    deliver!([{ target: el }])
+    assert.ok(holder.deliver, 'a ResizeObserver was made')
+    holder.deliver!([{ target: el }])
     assert.notEqual(el.style.transform, before, 'repositioned by the observer callback, not one frame later')
     const x = Number(/translate\((-?\d+)px/.exec(el.style.transform)![1])
     assert.ok(Math.abs(x - 150) <= 1, `centered on the node with the new width (x=${x})`)
