@@ -86,17 +86,20 @@ class VSCodeBridge {
         }
         break
 
-      case 'agent-event-batch':
+      case 'agent-event-batch': {
+        // `live: true` (VS Code panel, #656): the events of one 16 ms window, each delivered as sent. Any other batch is
+        // history, never live traffic: the relay's replay on (re)connect, or a transcript history it read while the
+        // page was connected (#652)
+        const live = data.live === true
         for (const event of Array.isArray(data.events) ? data.events : []) {
           if (!isAgentEvent(event)) continue
-          // A batch is only ever history, never live traffic: the relay's replay on (re)connect, or a transcript
-          // history it read while the page was connected (#652)
-          const replayed = { ...event, replayed: true }
+          const delivered = live ? event : { ...event, replayed: true }
           for (const cb of this.eventListeners) {
-            cb(replayed)
+            cb(delivered)
           }
         }
         break
+      }
 
       case 'connection-status':
         if (!isConnectionStatus(data.status)) break

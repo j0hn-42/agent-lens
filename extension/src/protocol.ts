@@ -212,7 +212,9 @@ export type ExtensionToWebviewMessage =
   | { type: 'connection-status'; status: ConnectionStatus; source: string }
   /** `seq` (relay only, #366): the number of the event for this relay process, see `relay-cursor` */
   | { type: 'agent-event'; event: AgentEvent; seq?: number }
-  | { type: 'agent-event-batch'; events: AgentEvent[] }
+  /** `live` (VS Code panel only, #656): the events of one 16 ms window, sent together (event-coalescer.ts); each keeps
+   *  its own `replayed`. Without it a batch is history (relay replay): the page marks every event `replayed`. */
+  | { type: 'agent-event-batch'; events: AgentEvent[]; live?: true }
   | { type: 'reset'; reason: string }
   /** Sent by the relay once per /events connection, before the replay (#366). `evicted`: per session, events the
    *  relay can no longer replay (buffer or replay cap), totals since the relay started: REPLACE the previous value,
