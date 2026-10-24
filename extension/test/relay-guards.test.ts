@@ -292,4 +292,30 @@ describe('classement des dossiers de projet recalculé tous les COLD_RESCAN_CYCL
     cold.cycle = 2
     assert.equal(top(cold)[0], 'e')
   })
+
+  it('a new session file in a folder outside the top ranks it at once, without waiting for the recomputation (#613)', () => {
+    const cold = createColdScan()
+    cold.cycle = 1
+    fs.mkdirSync(path.join(root, 'y')); touch('y', -1000)
+    fs.utimesSync(path.join(root, 'y'), at(0), at(0))
+    assert.ok(!top(cold).includes('y'))
+    // A new transcript file (a new session) in the old folder: the folder mtime moves
+    const f = path.join(root, 'y', 'new.jsonl')
+    fs.writeFileSync(f, '{}\n')
+    fs.utimesSync(f, at(900), at(900))
+    cold.cycle = 2
+    assert.equal(top(cold)[0], 'y')
+  })
+
+  it('a folder deleted since the last ranking leaves the ranking (#613)', () => {
+    const cold = createColdScan()
+    cold.cycle = 1
+    fs.mkdirSync(path.join(root, 'z')); touch('z', 1)
+    top(cold)
+    assert.ok(cold.ranking!.newest.has('z'))
+    fs.rmSync(path.join(root, 'z'), { recursive: true })
+    cold.cycle = 2
+    top(cold)
+    assert.ok(!cold.ranking!.newest.has('z'))
+  })
 })

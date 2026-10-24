@@ -222,8 +222,11 @@ export class EventReconciler {
   }
 
   private flushSession(slot: { held: SourcedEvent[]; forgotten: boolean }): void {
-    const batch = slot.held
+    const held = slot.held
     slot.held = []
+    // The history (transcript events: agent_spawn, context_update, catch-up) comes before the live hook events held
+    // meanwhile, which were submitted first only because the hold starts at the queue (#613). Order is kept inside each.
+    const batch = [...held.filter(item => item.source === 'jsonl'), ...held.filter(item => item.source !== 'jsonl')]
     if (!slot.forgotten) this.process(batch, true)
   }
 

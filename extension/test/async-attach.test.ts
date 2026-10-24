@@ -6,7 +6,7 @@
  * events are held meanwhile; the other sessions keep flowing.
  */
 import './helpers/alias-vscode'
-import { describe, it, afterEach } from 'node:test'
+import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -197,6 +197,78 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     assert.deepEqual(r.delivered, [], 'nothing of a dropped session is delivered')
   })
 
+  it('a session still queued is held already: its hook event is not delivered before its history (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
+    r.transcript(S2, prompt('Second') + history(64 * 1024, 'b'))
+    const s1 = r.session(S1)
+    const s2 = r.session(S2)
+    const p1 = r.pipeline.attach(s1)
+    const p2 = r.pipeline.attach(s2)
+    await underway(s1)
+    assert.equal(s2.seenToolUseIds.size, 0, 'S2 waits in the queue')
+    r.reconciler.submit({ time: 1, type: 'agent_idle', payload: { name: 'orchestrator' }, sessionId: S2 }, { source: 'hook' })
+    assert.deepEqual(r.delivered.filter(e => e.sessionId === S2), [], 'held, not delivered ahead of its agent_spawn')
+    await Promise.all([p1, p2])
+    const ofS2 = r.delivered.filter(e => e.sessionId === S2).map(e => e.type)
+    assert.ok(ofS2.includes('agent_spawn') && ofS2.includes('agent_idle'), 'both come out once its history is loaded')
+    assert.ok(ofS2.indexOf('agent_spawn') < ofS2.indexOf('agent_idle'), `the history comes before the held hook: ${ofS2.join(', ')}`)
+  })
+
+  it('a release during the prescan of a multi-chunk transcript leaves no parser state behind (#613)', async () => {
+    r = rig()
+    // Agent calls: each one (re)creates the subagent registry of the session, also after release() (#613)
+    let agents = ''
+    for (let size = 0, i = 0; size < 3 * PRESCAN_CHUNK_BYTES; i++) { const c = call(`ag-${i}`, 'Agent') + result(`ag-${i}`); agents += c; size += c.length }
+    r.transcript(S1, prompt('Audit') + agents)
+    const session = r.session(S1)
+    // Released in the middle of a slice: the lines left in it still run and recreate the registry
+    const parserAny = r.pipeline.parser as unknown as { setSessionTitle: (...args: unknown[]) => unknown }
+    const realTitle = parserAny.setSessionTitle.bind(parserAny)
+    let lines = 0
+    const title = mock.method(parserAny, 'setSessionTitle', (...args: unknown[]) => {
+      if (++lines === 10) { r!.pipeline.release(session); r!.sessions.delete(S1) }
+      return realTitle(...args)
+    })
+    try { await r.pipeline.attach(session) } finally { title.mock.restore() }
+    const parser = r.pipeline.parser as unknown as { normalizers: Map<string, unknown>; registries: Map<string, unknown> }
+    assert.equal(parser.normalizers.has(S1), false, 'no normalizer')
+    assert.equal(parser.registries.has(S1), false, 'no subagent registry')
+    assert.deepEqual(r.lifecycle, [])
+  })
+
+  it('an empty transcript released during the stat is never announced (#613)', async () => {
+    r = rig()
+    r.transcript(S1, '')
+    const session = r.session(S1)
+    const realStat = fs.promises.stat.bind(fs.promises)
+    const stat = mock.method(fs.promises, 'stat', async (...args: Parameters<typeof fs.promises.stat>) => {
+      r!.pipeline.release(session)
+      r!.sessions.delete(S1)
+      return realStat(...args)
+    })
+    try { await r.pipeline.attach(session) } finally { stat.mock.restore() }
+    assert.deepEqual(r.lifecycle, [], 'no started without an ended')
+    assert.deepEqual(r.delivered, [])
+  })
+
+  it('a release during the stat of a non-empty transcript leaves no parser state behind (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(64 * 1024, 'm'))
+    const session = r.session(S1)
+    const realStat = fs.promises.stat.bind(fs.promises)
+    const stat = mock.method(fs.promises, 'stat', async (...args: Parameters<typeof fs.promises.stat>) => {
+      r!.pipeline.release(session)
+      r!.sessions.delete(S1)
+      return realStat(...args)
+    })
+    try { await r.pipeline.attach(session) } finally { stat.mock.restore() }
+    const parser = r.pipeline.parser as unknown as { normalizers: Map<string, unknown>; registries: Map<string, unknown> }
+    assert.equal(parser.normalizers.has(S1), false, 'no normalizer')
+    assert.equal(parser.registries.has(S1), false, 'no subagent registry')
+    assert.deepEqual(r.lifecycle, [])
+  })
+
   it('a SessionEnd observed while the history is read ends the session once the attach ended', async () => {
     r = rig()
     r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
@@ -265,6 +337,22 @@ describe('an idle subagent is read only by its end at attach (#651)', () => {
     assert.ok(ids.includes('late-0'), 'the line unfinished at attach is emitted once complete')
     assert.ok(ids.includes('next-0'), 'a later call is emitted')
     assert.ok(!ids.includes('head-0') && !ids.includes('tail-0'), 'the history is never re-emitted')
+  })
+
+  it('idle, last window without a line break: read in full, so the unfinished long line is emitted once complete (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit'))
+    const old = Date.now() - (ACTIVE_SESSION_AGE_S + 60) * 1000
+    const big = jl({ type: 'assistant', uuid: 'a-big', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'big-0', name: 'Bash', input: { command: 'x'.repeat(TEAMMATE_REPLAY_MAX_BYTES + 4096) } }] } })
+    const file = subagent(r.dir, 'a0000000000000003', call('head-0') + result('head-0') + big.slice(0, -10), old)
+    const session = r.session(S1)
+    await r.pipeline.attach(session)
+    const state = session.subagentWatchers.get(file)!
+    assert.ok(state.seenToolUseIds.has('head-0'), 'the file was read from its start')
+    fs.appendFileSync(file, big.slice(-10))
+    readSubagentNewLines(r.pipeline.delegate, r.pipeline.parser, file, S1)
+    const ids = r.delivered.filter(e => e.type === 'tool_call_start').map(e => e.payload.toolUseId)
+    assert.ok(ids.includes('big-0'), 'the call of the long line is not lost')
   })
 
   it('active (written within ACTIVE_SESSION_AGE_S): read in full, as before', async () => {

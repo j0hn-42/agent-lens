@@ -345,8 +345,11 @@ async function startWatchingSubagentFileAsync(
   try {
     const stat = await fs.promises.stat(filePath)
     mtimeMs = stat.mtimeMs
-    if (Date.now() - stat.mtimeMs > ACTIVE_SESSION_AGE_S * 1000) {
-      const tail = readTranscriptTail(filePath)
+    const idle = Date.now() - stat.mtimeMs > ACTIVE_SESSION_AGE_S * 1000
+    const tail = idle ? readTranscriptTail(filePath) : null
+    // No complete line in the last window (one unfinished line longer than it): starting at its end would cut that line
+    // in the middle and lose its tool_use, so the file is read in full instead
+    if (tail && !(tail.lines.length === 0 && tail.size > 0)) {
       start.state.fileSize = tail.size
       start.state.fileTail = ''
       for (const line of tail.lines) prescanSubagentLine(line, start.state, pendingToolUseIds)
@@ -471,10 +474,13 @@ function armSubagentWatcher(
   filePath: string,
   sessionId: string,
 ): void {
+  // A watch that failed (ENOSPC/EMFILE) is not tried again at every read: the poll keeps reading the file
+  if (state.watchFailed) return
   try {
     state.watcher = safeWatch(filePath, () => {
       readSubagentNewLines(delegate, parser, filePath, sessionId)
     })
+    if (!state.watcher) state.watchFailed = true
   } catch (err) { log.debug('Subagent file watch failed:', err) }
 }
 

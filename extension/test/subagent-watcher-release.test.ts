@@ -4,9 +4,10 @@
  * subagent that resumes after its end is still seen (by the poll, which also re-arms its watcher).
  */
 import './helpers/alias-vscode'
-import { describe, it, afterEach } from 'node:test'
+import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
+import fsModule from 'node:fs'
 import * as path from 'node:path'
 import { scanSubagentsDir, readSubagentNewLines } from '../src/subagent-watcher'
 import { SUBAGENT_WATCH_IDLE_MS } from '../src/constants'
@@ -68,6 +69,22 @@ describe('subagent file watchers are held by active subagents only (#654)', () =
       assert.equal(starts[0].payload.toolUseId, 'r1')
       assert.notEqual(state.watcher, null, 'its watcher is armed again')
     } finally { h.closeWatchers() }
+  })
+
+  it('a watch that fails (ENOSPC) is not tried again at every read with new bytes (#613)', () => {
+    const { session, h } = setup(1, 0)
+    scanSubagentsDir(h.delegate, h.parser, 's1')
+    const [file, state] = [...session.subagentWatchers.entries()][0]
+    assert.equal(state.watcher, null)
+    const watch = mock.method(fsModule, 'watch', () => { throw Object.assign(new Error('no space'), { code: 'ENOSPC' }) })
+    try {
+      for (let i = 0; i < 3; i++) {
+        fs.appendFileSync(file, jl(assistantToolUse(`f${i}`, 'Bash', { command: 'true' })))
+        readSubagentNewLines(h.delegate, h.parser, file, 's1')
+      }
+    } finally { watch.mock.restore(); h.closeWatchers() }
+    assert.equal(watch.mock.callCount(), 1, 'one attempt, then the failure is remembered')
+    assert.equal(state.watchFailed, true)
   })
 
   it('a subagent whose dispatch is still open keeps its watcher however old its file is', () => {
