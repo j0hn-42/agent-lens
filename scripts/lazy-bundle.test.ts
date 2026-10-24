@@ -122,6 +122,20 @@ test('no locale table is in the first load: each one is loaded when asked, Engli
   await loadLocale(other) // idempotent
 })
 
+test('a locale table reaches only the catalog and label leaves, no interface code (#662)', () => {
+  // The table chunk is loaded in parallel with the visualizer chunk: a code module both reach is shipped twice
+  // (measured: about 40 KB of cost, usage, git and timeline code in each table chunk). The tables keep to words.
+  const leaves = ['lib/ui-glossary.ts', 'lib/list-limits.ts', 'lib/cost-rollup-labels.ts', 'lib/timeline-state-labels.ts']
+  for (const l of LOCALES) {
+    const graph = eagerGraph(`lib/messages/locales/${l}.ts`)
+    const code = [...graph].filter(m => !m.startsWith('lib/messages/') && !leaves.includes(m))
+    assert.deepEqual(code, [], `locales/${l}.ts reaches interface code`)
+    for (const leaf of leaves.filter(f => graph.has(f))) {
+      assert.deepEqual(staticImports(path.join(WEB, leaf)).map(rel).filter(m => !leaves.includes(m)), [], `${leaf} is a leaf`)
+    }
+  }
+})
+
 test('a locale whose table does not load falls back to the default one (#662)', async () => {
   const { loadLocaleOrDefault } = await import('../web/lib/messages')
   const asked: Locale[] = []
