@@ -750,8 +750,8 @@ export interface Relay {
   readonly remotePairing: RemotePairing | null
   /** Clean up all resources */
   dispose: () => void
-  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
+  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers, an attach in progress */
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
@@ -1555,6 +1555,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       dedupSessions: reconciler.rememberedSessions,
       watchedSessions: sessions.size - importedSessions.size,
       wakeWatchers: projectDirWakeWatchers.size + subagentWakeWatchers.size,
+      // A Claude attach queued or running (#651)
+      attaching: pipeline.whenAttached() !== null,
     }),
 
     webhookStats: () => webhooks?.stats() ?? null,
