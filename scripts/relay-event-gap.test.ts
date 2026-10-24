@@ -187,4 +187,19 @@ describe('relay: events missed while the link was down (issue #366)', () => {
     assert.ok(gap > RELAY_MAX_EVENTS_PER_SESSION - RELAY_MAX_REPLAY_PER_SESSION, `the evicted events count (${gap})`)
     assert.ok(gap >= MORE - messages, `every message missed is accounted for (${gap}, ${messages} replayed of ${MORE} appended)`)
   })
+
+  it('a client back with a valid ?since= is replayed only the events numbered after it (#653)', async () => {
+    const now = cursorOf((await collect('', 10_000)).msgs)!
+    await waitFor(() => relay.debugState().sseClients === 0, 2_000)
+    const FEW = 5
+    const base = MESSAGES + MORE
+    await appendLines(transcript, base, base + FEW)
+    await sleep(1_500)
+    const full = await collect('', 10_000)
+    assert.ok(full.messages > 100, `precondition: a connection without since replays the buffer (${full.messages})`)
+    const resumed = await collect(`?since=${now.instance}.${now.seq}`, 10_000)
+    assert.ok(cursorOf(resumed.msgs), 'precondition: the replay was written in full')
+    assert.equal(resumed.messages, FEW, 'only the messages the client has not received are replayed')
+    assert.equal(resumed.msgs.find(m => m.type === 'event-loss')?.gap?.[SESSION], undefined, 'nothing was lost: no gap')
+  })
 })
