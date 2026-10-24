@@ -27,34 +27,51 @@ const PROFILE = (process.env.HEAP_PROFILE ?? 'real') as 'real' | 'worst'
 const SNAPSHOT_DIR = process.env.HEAP_SNAPSHOT
 const BATCH = 500
 
-const text = (n: number, seed: number) => {
-  // Distinct content per event (not one repeated literal): a cheap pseudo-random alphabet walk
-  let s = ''
-  let x = seed * 2654435761 >>> 0
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789 ._/-'
-  for (let i = 0; i < n; i++) { x = (x * 1103515245 + 12345) >>> 0; s += alphabet[x % alphabet.length] }
-  return s
-}
-
 const SIZES = PROFILE === 'worst'
   ? { args: 4096, result: 4096, message: 4096, edit: 4096 }
   : { args: 80, result: 200, message: 2000, edit: 500 }
 
-/** The events of one session: a main agent, then cycles of Edit start, Edit end, message. */
-function sessionEvents(sid: string, n: number): unknown[] {
-  const out: unknown[] = [{ time: 0, type: 'agent_spawn', payload: { name: 'main', isMain: true }, sessionId: sid }]
+// The generator runs in the parent page (plain JS in a string, so no transpiler helper is injected): the events
+// are built where they are posted, and only a few numbers cross the CDP connection.
+const GENERATOR = `
+window.__heapText = (n, seed) => {
+  // Distinct content per event (not one repeated literal): a cheap pseudo-random alphabet walk
+  let s = ''
+  let x = (seed * 2654435761) >>> 0
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789 ._/-'
+  for (let i = 0; i < n; i++) { x = (x * 1103515245 + 12345) >>> 0; s += alphabet[x % alphabet.length] }
+  return s
+}
+// The events of one session: a main agent, then cycles of Edit start, Edit end, message
+window.__heapEvents = (sid, n, sizes) => {
+  const text = window.__heapText
+  const out = [{ time: 0, type: 'agent_spawn', payload: { name: 'main', isMain: true }, sessionId: sid }]
   for (let i = 1; out.length < n; i++) {
     const seed = i * 7919 + sid.length
-    const id = `${sid}-t${i}`
+    const id = sid + '-t' + i
     out.push({ time: i, type: 'tool_call_start', sessionId: sid, payload: {
-      agent: 'main', tool: 'Edit', toolUseId: id, args: text(SIZES.args, seed),
-      inputData: { file_path: `src/file-${i % 97}.ts`, old_string: text(SIZES.edit, seed + 1), new_string: text(SIZES.edit, seed + 2) },
+      agent: 'main', tool: 'Edit', toolUseId: id, args: text(sizes.args, seed),
+      inputData: { file_path: 'src/file-' + (i % 97) + '.ts', old_string: text(sizes.edit, seed + 1), new_string: text(sizes.edit, seed + 2) },
     } })
-    if (out.length < n) out.push({ time: i + 0.3, type: 'tool_call_end', sessionId: sid, payload: { agent: 'main', tool: 'Edit', toolUseId: id, result: text(SIZES.result, seed + 3) } })
-    if (out.length < n) out.push({ time: i + 0.6, type: 'message', sessionId: sid, payload: { agent: 'main', role: 'assistant', content: text(SIZES.message, seed + 4) } })
+    if (out.length < n) out.push({ time: i + 0.3, type: 'tool_call_end', sessionId: sid, payload: { agent: 'main', tool: 'Edit', toolUseId: id, result: text(sizes.result, seed + 3) } })
+    if (out.length < n) out.push({ time: i + 0.6, type: 'message', sessionId: sid, payload: { agent: 'main', role: 'assistant', content: text(sizes.message, seed + 4) } })
   }
   return out
 }
+// Posts one session in batches, yielding between them so the app's handlers run as with a live stream
+window.__heapFeed = async (sid, n, sizes, batch) => {
+  const win = document.getElementById('app').contentWindow
+  const events = window.__heapEvents(sid, n, sizes)
+  for (let i = 0; i < events.length; i += batch) {
+    win.postMessage({ type: 'agent-event-batch', events: events.slice(i, i + batch) }, '*')
+    await new Promise(r => setTimeout(r, 0))
+  }
+}
+window.__heapAvgJson = (n, sizes) => {
+  const ev = window.__heapEvents('heap-s0', n, sizes)
+  return ev.reduce((a, e) => a + JSON.stringify(e).length, 0) / ev.length
+}
+`
 
 async function heapUsed(cdp: CDPSession): Promise<number> {
   for (let i = 0; i < 3; i++) await cdp.send('HeapProfiler.collectGarbage')
@@ -90,13 +107,9 @@ async function snapshot(cdp: CDPSession, name: string): Promise<number | null> {
   return total
 }
 
-/** Posts the batches from the parent, yielding between them so the app's handlers run as with a live stream. */
 async function feed(page: Page, sessionIds: string[]) {
   for (const sid of sessionIds) {
-    const events = sessionEvents(sid, EVENTS_PER_SESSION)
-    for (let i = 0; i < events.length; i += BATCH) {
-      await page.evaluate(`(() => { document.getElementById('app').contentWindow.postMessage(${JSON.stringify({ type: 'agent-event-batch', events: events.slice(i, i + BATCH) })}, '*') })()`)
-    }
+    await page.evaluate(`window.__heapFeed(${JSON.stringify(sid)}, ${EVENTS_PER_SESSION}, ${JSON.stringify(SIZES)}, ${BATCH})`)
   }
 }
 
@@ -116,6 +129,7 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
     await page.setContent(`<!doctype html><html lang="en"><head><title>frame</title></head><body style="margin:0">
       <iframe id="app" title="Agent Lens" src="${base}" style="border:0;width:100vw;height:100vh;display:block"></iframe></body></html>`)
+    await page.evaluate(GENERATOR)
     const frame = (await (await page.$('#app'))!.contentFrame())!
     await frame.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
     const now = Date.now()
@@ -128,8 +142,7 @@ async function main() {
 
     const before = await heapUsed(cdp)
     const snapBefore = await snapshot(cdp, 'before')
-    const sample = sessionEvents('heap-s0', 300)
-    const avgJson = sample.reduce<number>((a, e) => a + JSON.stringify(e).length, 0) / sample.length
+    const avgJson = await page.evaluate(`window.__heapAvgJson(300, ${JSON.stringify(SIZES)})`) as number
 
     const t0 = Date.now()
     await feed(page, sessionIds)
@@ -153,8 +166,6 @@ async function main() {
     console.log(`| buffers pleins | ${mb(filled)} | ${snapCell(snapFilled)} |`)
     console.log(`| après reset | ${mb(after)} | ${snapCell(snapAfter)} |`)
     console.log(`retenu par les buffers (pleins - reset) : ${mb(filled - after)} Mo ; croissance (pleins - avant) : ${mb(filled - before)} Mo`)
-    const kept = Math.min(total, SESSIONS * 5000)
-    console.log(`par event retenu (${kept} events au plus dans les buffers par session) : ${((filled - after) / kept).toFixed(0)} octets`)
   } finally {
     await browser.close()
     await server?.stop()
