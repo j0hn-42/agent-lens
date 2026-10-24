@@ -20,13 +20,12 @@ export interface AnimateOptions {
   toolExpiryS?: number
 }
 
-function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number, newTime: number): SimulationState['agents'] {
+function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number): SimulationState['agents'] {
   let newAgents = agents
   for (const [id, agent] of agents) {
     let updated = false
     let opacity = agent.opacity
     let scale = agent.scale
-    let timeAlive = agent.timeAlive
     let messageBubbles = agent.messageBubbles
 
     if (agent.state !== 'complete' && opacity < 1) { opacity = Math.min(1, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
@@ -38,9 +37,7 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
       else if (opacity < floor) { opacity = Math.min(floor, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
       if (scale > 0.8) { scale = Math.max(0.8, scale - deltaTime * ANIM_SPEED.agentScaleOut); updated = true }
     }
-    // Age on the simulation clock (same formula as a seek), not per frame; a complete agent keeps its lifetime
-    const aged = Math.max(0, (agent.state === 'complete' ? agent.completeTime ?? newTime : newTime) - agent.spawnTime)
-    if (aged !== timeAlive) { timeAlive = aged; updated = true }
+    // The age is not written here: it is read from the clock where it is shown (agentAge, #660), so an agent at rest is not copied
     // Prune expired message bubbles
     // (skipped while the agent is hovered/focused, playback is paused, or "never hide" is on)
     if (messageBubbles.length > 0 && !isExpiryHeld('agent', id)) {
@@ -49,7 +46,7 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
     }
     if (updated) {
       if (newAgents === agents) newAgents = new Map(agents)
-      newAgents.set(id, { ...agent, opacity, scale, timeAlive, messageBubbles })
+      newAgents.set(id, { ...agent, opacity, scale, messageBubbles })
     }
   }
   return newAgents
@@ -155,44 +152,58 @@ function cleanupFaded(
     filteredEdges = filteredEdges.filter(e => !(e.type === 'tool' && fadedSet.has(e.to)))
   }
 
-  // Remove orphaned edges whose endpoints no longer exist
-  const beforeLen = filteredEdges.length
-  filteredEdges = filteredEdges.filter(e => {
-    const fromExists = newAgents.has(e.from)
-    if (!fromExists) return false
-    const toExists = newAgents.has(e.to) || newToolCalls.has(e.to)
-    return toExists
-  })
+  // Remove orphaned edges whose endpoints no longer exist (the same array when none is: #660)
+  const exists = (e: SimulationState['edges'][number]) => newAgents.has(e.from) && (newAgents.has(e.to) || newToolCalls.has(e.to))
+  if (!filteredEdges.every(exists)) filteredEdges = filteredEdges.filter(exists)
   return { agents: newAgents, toolCalls: newToolCalls, edges: filteredEdges }
 }
 
+/** A discovery this close (world px) to its resting place is put on it: it then stops moving for good (#660) */
+const DISCOVERY_SNAP_PX = 0.01
+
+/** Same array when no discovery moves, fades or leaves (#660): an array at rest keeps the caches of the draw loop */
 function animateDiscoveries(discoveries: SimulationState['discoveries'], deltaTime: number, newTime: number): SimulationState['discoveries'] {
-  return discoveries
-    .map(d => {
-      const age = newTime - d.timestamp
-      const lerpT = Math.min(1, deltaTime * DISCOVERY_LERP_SPEED)
-      const x = d.x + (d.targetX - d.x) * lerpT
-      const y = d.y + (d.targetY - d.y) * lerpT
-      if (age < DISCOVERY_HOLD_S || isExpiryHeld('discovery', d.id)) {
-        return { ...d, x, y, opacity: Math.min(0.9, d.opacity + deltaTime * ANIM_SPEED.discoveryFadeIn) }
-      } else {
-        return { ...d, x, y, opacity: Math.max(0, d.opacity - deltaTime * ANIM_SPEED.discoveryFadeOut) }
-      }
-    })
-    .filter(d => d.opacity > 0)
+  if (discoveries.length === 0) return discoveries
+  let changed = false
+  const out: SimulationState['discoveries'] = []
+  for (const d of discoveries) {
+    const age = newTime - d.timestamp
+    const lerpT = Math.min(1, deltaTime * DISCOVERY_LERP_SPEED)
+    let x = d.x + (d.targetX - d.x) * lerpT
+    let y = d.y + (d.targetY - d.y) * lerpT
+    if (Math.abs(d.targetX - x) <= DISCOVERY_SNAP_PX) x = d.targetX
+    if (Math.abs(d.targetY - y) <= DISCOVERY_SNAP_PX) y = d.targetY
+    const opacity = age < DISCOVERY_HOLD_S || isExpiryHeld('discovery', d.id)
+      ? Math.min(0.9, d.opacity + deltaTime * ANIM_SPEED.discoveryFadeIn)
+      : Math.max(0, d.opacity - deltaTime * ANIM_SPEED.discoveryFadeOut)
+    if (opacity <= 0) { changed = true; continue }
+    if (x === d.x && y === d.y && opacity === d.opacity) { out.push(d); continue }
+    changed = true
+    out.push({ ...d, x, y, opacity })
+  }
+  return changed ? out : discoveries
 }
 
+function isReturn(p: SimulationState['particles'][number]): boolean {
+  return p.type === 'return' || p.type === 'tool_return'
+}
+
+/** Same array when there is no particle (they always travel otherwise); arrived particles leave (#660) */
 function animateParticles(particles: SimulationState['particles'], deltaTime: number, speed: number): SimulationState['particles'] {
+  if (particles.length === 0) return particles
   const particleSpeed = ANIM_SPEED.particleSpeed * speed
-  return particles.map(p => {
-    if (p.type === 'return' || p.type === 'tool_return')
-      return { ...p, progress: Math.max(0, p.progress - deltaTime * particleSpeed) }
-    return { ...p, progress: Math.min(1, p.progress + deltaTime * particleSpeed) }
-  }).filter(p => {
-    if ((p.type === 'return' || p.type === 'tool_return') && p.progress <= 0) return false
-    if ((p.type === 'dispatch' || p.type === 'tool_call' || p.type === 'message') && p.progress >= 1) return false
-    return true
-  })
+  let changed = false
+  const out: SimulationState['particles'] = []
+  for (const p of particles) {
+    const progress = isReturn(p)
+      ? Math.max(0, p.progress - deltaTime * particleSpeed)
+      : Math.min(1, p.progress + deltaTime * particleSpeed)
+    if (isReturn(p) ? progress <= 0 : progress >= 1) { changed = true; continue }
+    if (progress === p.progress) { out.push(p); continue }
+    changed = true
+    out.push({ ...p, progress })
+  }
+  return changed ? out : particles
 }
 
 export function computeNextFrame(prev: SimulationState, deltaTime: number, newTime: number, maxT: number, currentState: SimulationState, options: AnimateOptions): SimulationState {
@@ -200,7 +211,7 @@ export function computeNextFrame(prev: SimulationState, deltaTime: number, newTi
       recordFrame(a11yRecorder, { particles: currentState.particles, edges: currentState.edges, agents: currentState.agents, toolCalls: currentState.toolCalls })
       const newToolCallsRaw = animateToolCalls(currentState.toolCalls, currentState.agents, deltaTime, newTime, options.toolExpiryS ?? TOOL_EXPIRY_S)
       const timelineEntries = closeExpiredTimelineBlocks(currentState.timelineEntries, currentState.toolCalls, newToolCallsRaw)
-      const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime, newTime)
+      const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime)
       const newEdgesRaw = animateEdges(currentState.edges, deltaTime)
 
       const { agents: newAgents, toolCalls: newToolCalls, edges: filteredEdges } =

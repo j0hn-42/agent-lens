@@ -361,7 +361,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const top = a.y - r
       if (showStatsBox && layout.statsTop != null) {
         const k = textHoldScale(STATS_OVERLAY.fontSize, s)
-        const w = statsLabel(a, input.replayLost).width * k
+        const w = statsLabel(a, input.replayLost, input.simTime).width * k
         const h = STATS_OVERLAY.boxHeight * k
         requests.push({
           id: planKey.stats(id),
