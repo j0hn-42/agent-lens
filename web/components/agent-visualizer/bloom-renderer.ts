@@ -62,7 +62,10 @@ export class BloomRenderer {
     this.frame++
 
     // Composite bloom over the target with additive blending
+    // The caller leaves its dpr scale on the context, but the layer is sized in backing-store pixels:
+    // draw it at identity so it covers the canvas exactly and stays aligned with the nodes.
     targetCtx.save()
+    targetCtx.setTransform(1, 0, 0, 1, 0, 0)
     targetCtx.globalCompositeOperation = 'lighter'
     targetCtx.globalAlpha = this.intensity
     targetCtx.drawImage(this.bloomCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height)
