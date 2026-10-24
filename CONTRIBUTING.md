@@ -108,6 +108,15 @@ Two files act as guard rails. They record known violations; they are not a place
 - **The issue must be open.** An entry that cites a closed issue is a bug: a closed issue means the violation was declared fixed. `web/tests-a11y/open-baseline-issues.json` is the hand-maintained list of open issues the two baselines may cite (kept offline, so the tests need no network). Add the issue number there when you file the tracking issue, remove it when the issue is closed; `pnpm --dir web run test:a11y` and `lint:a11y` fail on any baseline entry whose issue is not listed. If the violation survives a closed issue, reopen it or file a new one.
 - A deliberate design choice is not a baseline entry. Scrollable regions that take `tabIndex={0}` (WCAG 2.1.1) are exempted by name in `web/eslint.config.mjs` (`region`, `group`, `log` roles and `<section>`); inline `eslint-disable` comments are disabled on purpose.
 
+## Design tokens in the web UI
+
+Four rules, enforced by `scripts/design-tokens.test.ts` (#509):
+
+- **Type size**: the 11 px step is the `text-2xs` utility (`--text-2xs` in `web/app/globals.css`), never `text-[11px]`. It stays in px, like the value it replaces.
+- **Alpha on a colour**: `withHexAlpha(color, '80')` from `web/lib/color-alpha.ts`, never `color + '80'`. (`withAlpha` in `web/lib/colors.ts` is the other helper: an `rgba(r, g, b,` prefix and a 0-1 number.)
+- **Stacking**: a named level of `Z` in `web/lib/agent-types.ts`, never a number, a `Z.x + 1` or a `z-10` class (`z-(--z-info)` for the info level).
+- **Scrim**: `var(--lens-scrim)`, a theme token (`web/lib/theme-tokens.json`), never a black `rgba()` literal.
+
 ## Branch protection (owner)
 
 The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks `test` and `e2e-a11y`. Read the current protection first (`gh api repos/j0hn-42/agent-lens/branches/<branch>/protection`): a `PUT` on `/protection` replaces every setting, so it must repeat the existing ones.
