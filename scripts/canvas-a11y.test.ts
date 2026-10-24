@@ -498,6 +498,14 @@ test('updateToolHistory: an entry is rebuilt when a field it reads changes (#649
     { state: 'error', errorMessage: 'bad' },
     { errorMessage: 'worse' },
     { state: 'expired', endObserved: false },
+    // the fields below each change alone (a field leaving sameSource would turn one of these red)
+    { endObserved: true },
+    { endObserved: false },
+    { agentId: 'other-agent' },
+    { toolName: 'OtherTool' },
+    { mcp: { server: 's1', tool: 't1' } },
+    { mcp: { server: 's2', tool: 't1' } },
+    { mcp: { server: 's2', tool: 't2' } },
   ]
   let cur = base
   for (const s of steps) {

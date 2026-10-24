@@ -48,3 +48,43 @@ test('hex grid: cost is bounded at every zoom (path operations at minimum zoom)'
   }
   assert.ok(hexes(0.04, true) <= bound)
 })
+
+/** Centres (first vertex of each hexagon, rounded) drawn at a scale, same pan. */
+function centres(scale: number): Set<string> {
+  const pts = new Set<string>()
+  const ctx: any = new Proxy({}, {
+    get(_t, k: string) {
+      if (k === 'moveTo') return (x: number, y: number) => { pts.add(`${Math.round(x * 100)},${Math.round(y * 100)}`) }
+      if (k === 'createRadialGradient') return () => ({ addColorStop: () => {} })
+      return () => {}
+    },
+    set() { return true },
+  })
+  drawBackground(ctx, 1920, 1080, [], { x: 960, y: 540, scale }, true, 3, undefined, true)
+  return pts
+}
+
+test('hex grid: the worst case just above the threshold stays bounded (#613)', () => {
+  // scale 1/6 is the threshold (pitch 15 px): 0.17 is the last unthinned zoom, 0.166 the first thinned one
+  for (const s of [0.17, 0.168, 0.1668, 0.166, 0.165]) {
+    const n = hexes(s)
+    assert.ok(n <= 10000, `scale ${s}: ${n} hexagons`)
+  }
+  let max = 0
+  for (let s = 0.04; s <= 1; s += 0.002) max = Math.max(max, hexes(s))
+  assert.ok(max <= 10000, `max over the sweep: ${max}`)
+})
+
+test('hex grid: crossing the threshold only removes hexagons, none moves (#613)', () => {
+  const before = centres(0.17) // stride 1
+  const after = centres(0.166) // stride 2
+  assert.ok(after.size > 0 && before.size > 0)
+  // a kept hexagon inside the area the finer grid covered must already have been drawn
+  const xs = [...before].map(p => Number(p.split(',')[0]))
+  const ys = [...before].map(p => Number(p.split(',')[1]))
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const inside = [...after].filter(p => { const [x, y] = p.split(',').map(Number); return x >= x0 && x <= x1 && y >= y0 && y <= y1 })
+  assert.ok(inside.length > 100)
+  const moved = inside.filter(p => !before.has(p))
+  assert.deepEqual(moved, [])
+})
