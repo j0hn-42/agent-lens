@@ -11,6 +11,11 @@ import { ConversationPanel } from '@/components/agent-visualizer/conversation-pa
 import { PanelDock } from '@/components/agent-visualizer/panel-dock'
 import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import { chromeRenderProbe } from '@/lib/row-sync'
+import { setTheme } from '@/lib/theme'
+import { COLORS, refreshColors } from '@/lib/colors'
+import { applyThemeToDocument } from '@/lib/theme-dom'
+import { DEFAULT_THEME } from '@/lib/theme-tokens'
+import { paletteFor } from '@/lib/theme-palette'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 
 // No demo: nothing ticks, so a render is caused by what the test does
@@ -67,4 +72,24 @@ test('opening and closing a dialog renders the visualizer but neither the top ba
   assert.ok(commits - commitsBefore >= 2, `the dialog commits (${commits - commitsBefore})`)
   assert.deepEqual(delta, { TopBar: 0, ConversationPanel: 0, PanelDock: 0 })
   view.unmount()
+})
+
+test('a theme switch at rest re-renders the memoized conversation panel and dock, with the new panel background', async () => {
+  const other = 'contrast' as const
+  assert.notEqual(paletteFor(other).panelBg, paletteFor(DEFAULT_THEME).panelBg, 'the test needs a theme with another panelBg')
+  const counts = { TopBar: 0, ConversationPanel: 0, PanelDock: 0 }
+  chromeRenderProbe.onRender = name => { counts[name]++ }
+  try {
+    const view = render(<AgentVisualizer />)
+    await act(async () => { await new Promise(r => setTimeout(r, 80)) })
+    const before = { ...counts }
+    act(() => { setTheme(other) })
+    assert.ok(counts.ConversationPanel > before.ConversationPanel, 'ConversationPanel re-rendered')
+    assert.ok(counts.PanelDock > before.PanelDock, 'PanelDock re-rendered')
+    assert.equal(COLORS.panelBg, paletteFor(other).panelBg)
+    view.unmount()
+  } finally {
+    act(() => { setTheme(DEFAULT_THEME) })
+    applyThemeToDocument(DEFAULT_THEME); refreshColors(DEFAULT_THEME)
+  }
 })

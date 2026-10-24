@@ -7,6 +7,7 @@
 // of this panel: selecting an agent opens it with that agent's tab selected.
 
 import { chromeRenderProbe } from '@/lib/row-sync'
+import { useThemeVersion } from '@/lib/theme'
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId, memo } from 'react'
 import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
@@ -78,6 +79,7 @@ export const ConversationPanel = memo(function ConversationPanel({
   conversations, agents, selectedAgentId, onAgentClick, links, droppedMessages, teams,
 }: ConversationPanelProps) {
   chromeRenderProbe.onRender?.('ConversationPanel')
+  useThemeVersion() // memoized: repaint the COLORS-based inline styles on a theme switch
   const [activeTab, setActiveTab] = useState<string>(() => tabForSelection(selectedAgentId))
   const [unread, setUnread] = useState<Set<string>>(new Set())
   const [showTools, setShowTools] = useState(true)

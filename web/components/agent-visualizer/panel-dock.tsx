@@ -2,6 +2,7 @@
 
 import { memo, type ReactNode } from "react"
 import { chromeRenderProbe } from "@/lib/row-sync"
+import { useThemeVersion } from "@/lib/theme"
 import type { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import type { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import type { useSelectionState } from "@/hooks/use-selection-state"
@@ -57,6 +58,7 @@ export const PanelDock = memo(function PanelDock({
   panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, replayLostBySession, listAgents, agentLabel, openFile, fetchContext, contextOrigin, tourShowsInactive = false,
 }: PanelDockProps) {
   chromeRenderProbe.onRender?.('PanelDock')
+  useThemeVersion() // memoized, and its unmemoized children paint with COLORS: re-render them on a theme switch
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
   return (
