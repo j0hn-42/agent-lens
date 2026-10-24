@@ -45,6 +45,35 @@ test('positionTooltip: the size is read once, then kept by a ResizeObserver (#66
   }
 })
 
+test('positionTooltip: a new size from the ResizeObserver repositions the tooltip before the next frame (#613)', () => {
+  const g = globalThis as unknown as { ResizeObserver?: unknown }
+  const had = g.ResizeObserver
+  let deliver: ((entries: Array<{ target: Element }>) => void) | null = null
+  g.ResizeObserver = class {
+    constructor(cb: (entries: Array<{ target: Element }>) => void) { deliver = cb }
+    observe() {} disconnect() {} unobserve() {}
+  }
+  try {
+    const el = document.createElement('div')
+    let width = 120
+    Object.defineProperty(el, 'offsetWidth', { get() { return width } })
+    Object.defineProperty(el, 'offsetHeight', { get() { return 50 } })
+    const agents = new Map([['a', { id: 'a', x: 300, y: 300, scale: 1 }]]) as never
+    const scene = { agents, toolCalls: new Map(), discoveries: [] } as never
+    positionTooltip(el, { x: 0, y: 0, scale: 1 }, 800, 600, scene, { type: 'agent', id: 'a' } as never)
+    const before = el.style.transform
+    // the content changed: the tooltip is wider, the observer delivers the new size after layout
+    width = 300
+    assert.ok(deliver, 'a ResizeObserver was made')
+    deliver!([{ target: el }])
+    assert.notEqual(el.style.transform, before, 'repositioned by the observer callback, not one frame later')
+    const x = Number(/translate\((-?\d+)px/.exec(el.style.transform)![1])
+    assert.ok(Math.abs(x - 150) <= 1, `centered on the node with the new width (x=${x})`)
+  } finally {
+    g.ResizeObserver = had
+  }
+})
+
 test('isMobileViewport: the MediaQueryList is made once, matches stays live (#661)', () => {
   const w = window as unknown as { matchMedia?: unknown }
   const had = w.matchMedia

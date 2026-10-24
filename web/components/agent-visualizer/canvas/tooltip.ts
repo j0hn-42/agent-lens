@@ -44,14 +44,22 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
  * offsetWidth in the middle of its writes. Without ResizeObserver every frame reads, as before.
  */
 const tooltipSizes = new WeakMap<HTMLElement, { w: number; h: number }>()
-let tooltipObserver: ResizeObserver | null | undefined
+/** What positions a tooltip again once its size is known (the last positionTooltip call for that element) */
+const tooltipPlacers = new WeakMap<HTMLElement, () => void>()
+let tooltipObserver: ResizeObserver | null = null
+let tooltipObserverCtor: unknown
 function tooltipSize(el: HTMLElement): { w: number; h: number } {
-  if (tooltipObserver === undefined) {
-    tooltipObserver = typeof ResizeObserver === 'function'
-      ? new ResizeObserver(entries => {
+  const Ctor = typeof ResizeObserver === 'function' ? ResizeObserver : null
+  if (Ctor !== tooltipObserverCtor) {
+    tooltipObserverCtor = Ctor
+    tooltipObserver = Ctor
+      ? new Ctor(entries => {
         for (const e of entries) {
           const t = e.target as HTMLElement
           tooltipSizes.set(t, { w: t.offsetWidth, h: t.offsetHeight })
+          // The observer is delivered after layout and before paint, but after this frame's draw: place the
+          // tooltip again now with the new size, or its content change shows one frame at the old size (#613).
+          tooltipPlacers.get(t)?.()
         }
       })
       : null
@@ -76,6 +84,7 @@ export function positionTooltip(
   target: NavNode | null,
 ) {
   if (!el) return
+  tooltipPlacers.set(el, () => positionTooltip(el, transform, canvasW, canvasH, scene, target))
   let wx: number | null = null
   let wy: number | null = null
   let radius = 0
