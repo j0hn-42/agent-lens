@@ -72,6 +72,20 @@ export interface ToolHistoryEntry {
   warning: string
 }
 
+/** The tool-call fields an entry is built from, kept beside it to skip rebuilding an unchanged entry. */
+interface ToolSource {
+  agentId: string; toolName: string; mcpServer?: string; mcpTool?: string; state: ToolCallNode['state']
+  args: string; result?: string; errorMessage?: string; tokenCost?: number | null; endObserved?: boolean
+}
+const sources = new WeakMap<ToolHistoryEntry, ToolSource>()
+
+function sameSource(s: ToolSource | undefined, tc: ToolCallNode): boolean {
+  return !!s && s.state === tc.state && s.args === tc.args && s.result === tc.result
+    && s.errorMessage === tc.errorMessage && s.tokenCost === tc.tokenCost && s.endObserved === tc.endObserved
+    && s.agentId === tc.agentId && s.toolName === tc.toolName
+    && s.mcpServer === tc.mcp?.server && s.mcpTool === tc.mcp?.tool
+}
+
 /**
  * Fold the current tool calls into a persistent history keyed by id.
  * Entries are never removed because their canvas card faded, only evicted
@@ -83,6 +97,9 @@ export function updateToolHistory(
   max = A11Y_HISTORY_MAX,
 ): Map<string, ToolHistoryEntry> {
   for (const [id, tc] of toolCalls) {
+    // The tc reference changes during fades; only the fields the entry reads decide whether it is rebuilt (#649).
+    const prev = history.get(id)
+    if (prev && sameSource(sources.get(prev), tc)) continue
     const entry: ToolHistoryEntry = {
       id,
       agentId: tc.agentId,
@@ -94,6 +111,10 @@ export function updateToolHistory(
       tokenCost: tc.tokenCost,
       warning: toolEndWarning(tc) ?? '',
     }
+    sources.set(entry, {
+      agentId: tc.agentId, toolName: tc.toolName, mcpServer: tc.mcp?.server, mcpTool: tc.mcp?.tool, state: tc.state,
+      args: tc.args, result: tc.result, errorMessage: tc.errorMessage, tokenCost: tc.tokenCost, endObserved: tc.endObserved,
+    })
     history.set(id, entry) // Map.set keeps the original insertion order for existing ids
   }
   while (history.size > max) {
