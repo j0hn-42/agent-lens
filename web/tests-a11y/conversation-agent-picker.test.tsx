@@ -309,3 +309,20 @@ test('the switch never takes focus from elsewhere: focus outside the agent row s
   act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
   assertFocused(outside, 'focus outside the agent row stays there')
 })
+
+test('live: when the agent of the active option finishes, its option moves to Finished and is brought into view again (#613)', () => {
+  const r = panel()
+  const input = openPicker(r)
+  fireEvent.click(r.getByRole('button', { name: /^Finished/ }))
+  for (let i = 0; i < 4; i++) fireEvent.keyDown(input, { key: 'ArrowDown' })
+  const before = activeOption(input)!
+  assert.match(before.textContent ?? '', /builder-03/, 'precondition: the active option is builder-03')
+  scrolled.length = 0
+  const finished = new Map(agents)
+  finished.set('b3', agent('b3', 'builder-03', { teamName: 'mega', teamKind: 'workflow', kind: 'teammate', activity: 'done' }))
+  act(() => { r.retree({ agents: finished }) })
+  const after = activeOption(input)!
+  assert.match(after.textContent ?? '', /builder-03/, 'the active option is still the same agent')
+  assert.match(after.textContent ?? '', /done/i)
+  assert.ok(scrolled.includes(after), 'the option, now in another group, is scrolled into view again')
+})

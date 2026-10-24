@@ -120,9 +120,13 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
   useEffect(() => { onOpenChangeRef.current?.(open) }, [open])
   useEffect(() => () => onOpenChangeRef.current?.(false), [])
   // The active option (on opening: the current choice, even one picked on the canvas) is brought into the list's view
+  // Also when its group changes with no change of option: live, the agent of the active option finishes and its option
+  // moves to the Finished group (#613). Not on every shift of the list (a new agent above it), which would pull the
+  // list back to the option while the reader looks elsewhere in it.
+  const activeGroup = shownGroups.find(g => active !== undefined && g.ids.includes(active))?.kind ?? ''
   useEffect(() => {
     if (open && activeDomId) document.getElementById(activeDomId)?.scrollIntoView?.({ block: 'nearest' })
-  }, [open, activeDomId])
+  }, [open, activeDomId, activeGroup])
   // A click outside closes the list (focus stays where the click put it)
   useEffect(() => {
     if (!open) return
