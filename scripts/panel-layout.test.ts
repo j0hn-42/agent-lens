@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE, SYSTEM_DEFAULT_W, systemWidthBounds, DOCK_EDGE, DOCK_GAP,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, DETAIL_SIZE, systemWidthBounds, DOCK_EDGE, DOCK_GAP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -159,8 +159,8 @@ test('a column too tight for the full card narrows it instead of dropping to a s
 
 test('System alone asks for a width of its own, wider than the cards', () => {
   const l = layoutFor(1600, 900, ['system'], [])
-  assert.equal(l.rects.system!.w, SYSTEM_DEFAULT_W)
-  assert.ok(SYSTEM_DEFAULT_W > DETAIL_SIZE.w)
+  assert.equal(l.rects.system!.w, 400)
+  assert.ok(l.rects.system!.w > DETAIL_SIZE.w)
   assert.equal(l.rects.system!.h, 420, 'its metric rows, per-core detail and load / uptime list fit without a scroll')
 })
 

@@ -48,7 +48,7 @@ export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720
  */
 export const DETAIL_SIZE = { w: 320, h: 420, minW: 240, minH: 120 } as const
 /** Width the System panel asks for until the user resizes it (wider than the agent card: metric rows and per-core bars). */
-export const SYSTEM_DEFAULT_W = 400
+const SYSTEM_DEFAULT_W = 400
 /** Widest the System panel can be made. */
 const SYSTEM_MAX_W = 720
 /** Height the System panel asks for: its metric rows, its per-core detail and its load / uptime list. */
