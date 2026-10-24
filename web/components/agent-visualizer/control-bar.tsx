@@ -51,7 +51,7 @@ function MarkersLostMarker({ lost, locale }: { lost: number; locale: Locale }) {
       style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
     >
       <span className="sr-only">{text}</span>
-      <span aria-hidden="true">{`${lost} ${translate(locale, 'bar.markersLost')}`}</span>
+      <span aria-hidden="true">{translate(locale, "bar.markersLost", { n: lost })}</span>
     </span>
   )
 }
