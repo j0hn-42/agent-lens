@@ -31,17 +31,17 @@ afterEach(() => {
 })
 
 function mount() {
-  let events: SimulationEvent[] = []
-  let consumed = false
-  const hook = renderHook((props: { events: SimulationEvent[] }) => useAgentSimulation({
+  // One queue, pushed in place like the bridge does (#645): the frame already requested sees what is pushed
+  const queue: SimulationEvent[] = []
+  const hook = renderHook(() => useAgentSimulation({
     useMockData: false,
-    externalEvents: props.events,
-    onExternalEventsConsumed: () => { consumed = true },
-  }), { initialProps: { events } })
+    externalEvents: queue,
+    onExternalEventsConsumed: () => { queue.length = 0 },
+  }))
   return {
     get frame(): SimulationState { return hook.result.current.frameRef.current },
     play: () => act(() => { hook.result.current.play() }),
-    push(evs: SimulationEvent[]) { events = evs; consumed = false; hook.rerender({ events }) },
+    push(evs: SimulationEvent[]) { queue.push(...evs) },
     frames(n: number) {
       for (let i = 0; i < n; i++) {
         const entry = pending.entries().next().value
@@ -49,7 +49,6 @@ function mount() {
         pending.delete(entry[0])
         clock += FRAME_MS
         act(() => { entry[1](clock) })
-        if (consumed) { consumed = false; events = []; hook.rerender({ events }) }
       }
     },
     flush: () => act(async () => { await new Promise<void>(r => setTimeout(r, 0)) }),
