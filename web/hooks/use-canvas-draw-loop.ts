@@ -297,7 +297,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
       opts.replayLost = deps.drawPropsRef.current.replayLost
-      opts.simTime = deps.drawPropsRef.current.simTime
+      opts.simTime = deps.simTimeRef.current
       opts.maskText = deps.presentationRef.current.mask
       // Loop / repeat badges (#377): re-derived only when the verdicts, the ledger or the drawn agents change
       {
