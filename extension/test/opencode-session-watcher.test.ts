@@ -53,6 +53,22 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(w.isSessionActive('ses_a'), true)
   })
 
+  it('dates a backlog delivered after a gap by its rows, not by the moment it is read (#654)', () => {
+    const { fx, w, clock } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    fx.message('msg_1', 'ses_a', T0 - 900, userMsg)
+    w.start()
+    assert.equal(w.isSessionActive('ses_a'), true)
+    // The session writes, then falls silent while nobody is connected (no scan runs)
+    fx.message('msg_2', 'ses_a', T0 + 1000, userMsg)
+    fx.part('prt_2', 'msg_2', 'ses_a', T0 + 1000, T0 + 1000, { type: 'text', text: 'late' })
+    clock.t = T0 + 3 * 3600 * 1000
+    // The first poll after the gap delivers the backlog: hours old, it must not read as activity now
+    w.scanNow()
+    assert.equal(w.isSessionActive('ses_a'), false)
+    assert.deepEqual(w.getActiveSessions(), [])
+  })
+
   it('ignores a session whose directory is outside the workspace', () => {
     const { fx, w, lifecycle } = setup('/w')
     fx.session('ses_x', { dir: '/other', created: T0 - 5000, updated: T0 - 1000 })
