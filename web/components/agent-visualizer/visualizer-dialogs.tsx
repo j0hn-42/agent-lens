@@ -1,9 +1,8 @@
 "use client"
 
 import type { ComponentProps } from "react"
-import { CommandPalette } from "./command-palette"
-import { SettingsDialog } from "./settings-dialog"
-import { ShortcutsDialog } from "./shortcuts-dialog"
+// Each dialog is a chunk loaded the first time it opens (#662)
+import { CommandPalette, SettingsDialog, ShortcutsDialog } from "./lazy-panels"
 
 interface VisualizerDialogsProps {
   settings: ComponentProps<typeof SettingsDialog>

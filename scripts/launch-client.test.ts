@@ -3,6 +3,7 @@
  * each refusal (French and English catalog), the reducer of the `launch` / `launch-list` SSE and the state words.
  * Tested through the exports the UI uses (postLaunch, postStop, reduceLaunches...). No React here.
  */
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LaunchView } from '../web/lib/bridge-types'

@@ -1,6 +1,6 @@
 // #467: the quota gauges of the top bar. Every figure is a recorded one (rounded for display only), never colour alone,
 // the reset time is reachable by keyboard, and a state with no proof shows no number.
-import { test, afterEach } from 'node:test'
+import { test, afterEach, before } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
@@ -8,7 +8,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import { QuotaGauges } from '@/components/agent-visualizer/quota-gauges'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { setLocaleChoice } from '@/lib/locale'
-import { MESSAGES } from '@/lib/messages'
+import { MESSAGES, loadLocale, type MessageTable } from '@/lib/messages'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import type { QuotaGaugeState, QuotaSnapshotView } from '@/lib/quota'
 import { openMore } from './topbar-more'
@@ -34,7 +34,9 @@ const claude = (over: Partial<Extract<QuotaGaugeState, { kind: 'claude' }>> = {}
   ageMinutes: null,
   ...over,
 })
-const T = MESSAGES.en
+/** The English table, read once it is loaded (#662: no table is loaded at import) */
+let T: MessageTable
+before(async () => { await loadLocale('en'); T = MESSAGES.en })
 
 /** The text a screen reader gets as the description of a focusable gauge */
 const descriptionOf = (el: Element) => {

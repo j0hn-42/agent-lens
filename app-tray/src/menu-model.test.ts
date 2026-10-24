@@ -1,4 +1,5 @@
 // #335, increment 1: pure menu logic of the tray icon. No GUI, no network.
+import '../../scripts/all-locales' // #662: both languages are loaded before the tests
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { LOCALES, translate } from '../../web/lib/messages'
@@ -11,38 +12,39 @@ const input = (probe: StatusProbe, over: Partial<MenuInput> = {}): MenuInput => 
   probe, now: NOW, port: 3001, ownsRelay: true, t: (k, p) => translate('fr', k, p), ...over,
 })
 const label = (m: ReturnType<typeof deriveMenu>, id: string) => m.items.find(i => i.id === id)?.label
-const unknown = translate('fr', 'tray.sessions.unknown')
+// Read in the tests, once the French table is loaded (all-locales, #662)
+const unknown = () => translate('fr', 'tray.sessions.unknown')
 
 describe('deriveMenu: state is proven or unknown (#335)', () => {
   it('says unknown, never a number, when the probe did not succeed', () => {
     for (const kind of ['unreachable', 'timeout', 'http-error', 'invalid-json', 'not-started'] as const) {
       const m = deriveMenu(input({ kind }))
-      assert.equal(label(m, 'state'), unknown, kind)
+      assert.equal(label(m, 'state'), unknown(), kind)
       assert.equal(m.items.some(i => i.id === 'skipped'), false, kind)
-      assert.ok(m.tooltip.includes(unknown), kind)
+      assert.ok(m.tooltip.includes(unknown()), kind)
     }
   })
   it('says unknown when sessionCount is not a non-negative integer', () => {
     for (const bad of [undefined, -1, 1.5, '2', NaN, null]) {
-      assert.equal(label(deriveMenu(input(ok({ relayVersion: '0.10.0', sessionCount: bad }))), 'state'), unknown, String(bad))
+      assert.equal(label(deriveMenu(input(ok({ relayVersion: '0.10.0', sessionCount: bad }))), 'state'), unknown(), String(bad))
     }
-    assert.equal(label(deriveMenu(input(ok(null))), 'state'), unknown)
+    assert.equal(label(deriveMenu(input(ok(null))), 'state'), unknown())
   })
   it('says unknown when relayVersion is missing or not a version (not Agent Lens)', () => {
     for (const v of [undefined, '', 'hello', 3, '1.2']) {
-      assert.equal(label(deriveMenu(input(ok({ relayVersion: v, sessionCount: 2 }))), 'state'), unknown, String(v))
+      assert.equal(label(deriveMenu(input(ok({ relayVersion: v, sessionCount: 2 }))), 'state'), unknown(), String(v))
     }
-    assert.notEqual(label(deriveMenu(input(ok({ relayVersion: '1.2.3-beta.1', sessionCount: 2 }))), 'state'), unknown)
+    assert.notEqual(label(deriveMenu(input(ok({ relayVersion: '1.2.3-beta.1', sessionCount: 2 }))), 'state'), unknown())
   })
   it('does not show a stale value as current', () => {
     const fresh = deriveMenu(input(valid(), { now: NOW + STALE_AFTER_MS }))
-    assert.notEqual(label(fresh, 'state'), unknown)
+    assert.notEqual(label(fresh, 'state'), unknown())
     const stale = deriveMenu(input(valid(), { now: NOW + STALE_AFTER_MS + 1 }))
-    assert.equal(label(stale, 'state'), unknown)
+    assert.equal(label(stale, 'state'), unknown())
     assert.equal(JSON.stringify(stale).includes('2 sessions'), false)
   })
   it('a receivedAt in the future is not proof either', () => {
-    assert.equal(label(deriveMenu(input(valid(), { now: NOW - 1 })), 'state'), unknown)
+    assert.equal(label(deriveMenu(input(valid(), { now: NOW - 1 })), 'state'), unknown())
   })
   it('shows the count with the right singular and plural', () => {
     assert.equal(label(deriveMenu(input(valid({ sessionCount: 0 }))), 'state'), '0 sessions suivies')

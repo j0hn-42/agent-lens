@@ -1,6 +1,7 @@
 // #502: the Sessions panel columns, agent rows and stop-reporting announcement in French. Only the language changes:
 // every figure and every qualifier ("at least", "estimated", "not reported", "incomplete") is kept, and the English
 // output (the default) is the wording the other tests and the docs rely on.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { activityCell, agentTimeCell, branchCell, columnLabel, costCell, modelCell, rollupTokensCell, runtimeCell, sessionTimeCell, tokensCell } from '../web/lib/session-columns'

@@ -47,7 +47,7 @@ function MarkersLostMarker({ lost, locale }: { lost: number; locale: Locale }) {
     <span
       data-markers-lost=""
       title={text}
-      className="shrink-0 text-[11px] font-mono rounded px-1"
+      className="shrink-0 text-2xs font-mono rounded px-1"
       style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
     >
       <span className="sr-only">{text}</span>

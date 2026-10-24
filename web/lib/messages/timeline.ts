@@ -2,7 +2,7 @@
 // Keys: tl.*. Add a key here with its two languages, fr and en; web/lib/messages.ts assembles the domains.
 
 import { EXPIRED_LABEL_SUFFIX } from '../ui-glossary'
-import { TIMELINE_STATE_LABELS } from '../timeline-rows'
+import { TIMELINE_STATE_LABELS } from '../timeline-state-labels'
 
 export const fr = {
   // #373: panneau Chronologie (timeline-text.ts). Les durées (1:05) sont des chiffres et restent telles que dessinées.
