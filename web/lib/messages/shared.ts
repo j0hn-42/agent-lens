@@ -1,6 +1,6 @@
 // Helpers shared by several domains of the message catalog (#612). Not a domain: no message here.
 
-import { ROLLUP_INCOMPLETE_TEXT } from '../cost-rollup'
+import { ROLLUP_INCOMPLETE_TEXT } from '../cost-rollup-labels'
 
 /** The word of the "(incomplete)" badge, as the totals spell it (cost-rollup), without its parentheses */
 export const INCOMPLETE = ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')

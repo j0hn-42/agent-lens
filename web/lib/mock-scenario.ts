@@ -1,21 +1,14 @@
 import type { SimulationEvent } from './agent-types'
 import type { SessionInfo } from './bridge-types'
-import { STRESS_SCENARIOS, type StressLevel } from './stress-test-scenario'
+import { STRESS_SCENARIOS } from './stress-test-scenario'
 import { TOUR_SCENARIO, tourSessions } from './tour-scenario'
 import { GUIDED_SCENARIO } from './guided-scenario'
+// The scenario data is a chunk loaded on demand (#662): the app reads it through demo-scenario.ts, which also reads the URL
+import { HAS_MOCK_SESSIONS, getScenarioName, getStressLevel } from './demo-scenario'
 
 // ─── Stress Test Support ─────────────────────────────────────────────────────
-// Add ?stress=light|medium|heavy|extreme to the URL to load a stress scenario.
+// Add ?stress=light|medium|heavy|extreme to the URL to load a stress scenario (demo-scenario.ts reads it).
 // This replaces the normal mock scenario for profiling purposes.
-
-function getStressLevel(): StressLevel | null {
-  if (typeof window === 'undefined') return null
-  const params = new URLSearchParams(window.location.search)
-  const level = params.get('stress')
-  if (level && level in STRESS_SCENARIOS) return level as StressLevel
-  return null
-}
-
 const stressLevel = getStressLevel()
 if (stressLevel) {
   // eslint-disable-next-line no-console
@@ -223,16 +216,6 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 // A workflow with two phases whose first one is finished: exercises the phase groups (#146) and
 // 'Hide inactive agents' on finished members (#147) in the demo app and its browser tests.
 
-/** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
-function getScenarioName(): string | null {
-  if (typeof window === 'undefined') return null
-  // `process` does not exist in a browser bundle that does not define the variable (#534): never read it bare.
-  // The bundler replaces the literal `process.env.NEXT_PUBLIC_DEMO_SCENARIO`; the try only covers a build that does not.
-  let fromEnv: string | undefined
-  try { fromEnv = process.env.NEXT_PUBLIC_DEMO_SCENARIO } catch { fromEnv = undefined }
-  return new URLSearchParams(window.location.search).get('scenario') || fromEnv || null
-}
-
 const WORKFLOW_MEMBERS: Array<{ name: string; phase: string }> = [
   { name: 'plan-a', phase: 'Plan' },
   { name: 'plan-b', phase: 'Plan' },
@@ -294,6 +277,7 @@ const WORKFLOW83_EVENTS: SimulationEvent[] = [
 ]
 const WORKFLOW83_MOCK_SCENARIO: SimulationEvent[] = [...WORKFLOW83_EVENTS].sort((a, b) => a.time - b.time)
 
+/** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
 const SCENARIO_NAME = getScenarioName()
 
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
@@ -304,11 +288,6 @@ export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   : SCENARIO_NAME === 'workflow83' ? WORKFLOW83_MOCK_SCENARIO
   : SCENARIO_NAME === 'team10' ? TEAM10_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
 
-/** True when the step-by-step guided demo (?scenario=guided) is the active scenario. */
-export const IS_GUIDED_DEMO = !stressLevel && SCENARIO_NAME === 'guided'
-
-/** Sessions the demo declares (the tour spans three: the relay would normally list them). Empty for the others. */
-export const HAS_MOCK_SESSIONS = !stressLevel && SCENARIO_NAME === 'tour'
 /** Dated at the call (the browser, after mount), see tourSessions */
 export const mockSessions = (now: number = Date.now()): SessionInfo[] => HAS_MOCK_SESSIONS ? tourSessions(now) : []
 

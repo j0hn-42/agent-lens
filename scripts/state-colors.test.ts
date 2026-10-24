@@ -154,7 +154,7 @@ test('a colour never carries a canvas state alone: each state has a word drawn u
 })
 
 test('the graph legend draws the canvas state colours of the active theme (same swatch as the node)', () => {
-  const src = readFileSync(join(__dirname, '../web/components/agent-visualizer/graph-legend.tsx'), 'utf8')
+  const src = readFileSync(join(__dirname, '../web/components/agent-visualizer/legend-panel.tsx'), 'utf8')
   assert.match(src, /const \[theme\] = useTheme\(\)/, 'the legend re-renders on a theme switch')
   assert.match(src, /<Swatch color=\{stateColor\(state, theme\)\} \/>/)
   assert.match(src, /stroke=\{stateColor\('complete', theme\)\}/, 'the dashed outline of a finished agent')

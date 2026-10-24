@@ -4,6 +4,7 @@
 // there. The locale is the one stored by the test (agent-lens:locale). Bundled by esbuild at test time; nothing of it ships.
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { loadWantedLocale } from '@/lib/locale'
 import { ProjectContextPanel } from '@/components/agent-visualizer/project-context-panel'
 import type { ProjectContextData } from '@/lib/project-context'
 
@@ -26,7 +27,8 @@ const context: ProjectContextData = {
   },
 }
 
-createRoot(document.getElementById('root')!).render(
+// #662: the French table is loaded on demand; the harness renders once the stored language is there, as the app does
+void loadWantedLocale().finally(() => createRoot(document.getElementById('root')!).render(
   <ProjectContextPanel
     visible
     sessionId={SESSION}
@@ -36,4 +38,4 @@ createRoot(document.getElementById('root')!).render(
     session={{ id: SESSION, runtime: 'claude', cwd: '/home/me/code/alpha/projects/un-repertoire-au-nom-assez-long', imported: false }}
     onClose={noop}
   />,
-)
+))

@@ -1,3 +1,4 @@
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {

@@ -2,6 +2,7 @@
  * Top bar texts in the interface language (#500, #501): pure logic. English is the text the bar had (compared with the
  * legacy functions); French says the same thing with the same figures and the same qualification.
  */
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ALL_SESSIONS_ID, type ConnectionStatus } from '../web/lib/bridge-types'

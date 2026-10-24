@@ -78,6 +78,3 @@ export function guidedSteps(locale: Locale): readonly GuidedStep[] {
     body: translate(locale, `tour.step.${def.id}.body` as MessageKey),
   }))
 }
-
-/** The demo tour in English: the steps the tests and the scenario read */
-export const GUIDED_STEPS: readonly GuidedStep[] = guidedSteps('en')

@@ -3,6 +3,7 @@
 // one stored by the test (agent-lens:locale). Bundled by esbuild at test time; nothing of it ships.
 import React from 'react'
 import { createRoot } from 'react-dom/client'
+import { loadWantedLocale } from '@/lib/locale'
 import { FileAttentionPanel } from '@/components/agent-visualizer/file-attention-panel'
 import { emptyWasteLedger, recordToolStart, recordToolEnd, type WasteLedger } from '@/lib/waste'
 import type { Agent, FileAttention } from '@/lib/agent-types'
@@ -31,6 +32,7 @@ for (let i = 0; i < fileCount; i++) {
   files.set(path, { path, reads: 2, edits: i % 2, totalTokens: 12_000 - i * 1000, lastAccessed: i, agents: [AGENT] })
 }
 
-createRoot(document.getElementById('root')!).render(
+// #662: the French table is loaded on demand; the harness renders once the stored language is there, as the app does
+void loadWantedLocale().finally(() => createRoot(document.getElementById('root')!).render(
   <FileAttentionPanel visible fileAttention={files} waste={waste} agents={agents} onClose={noop} onOpenFile={noop} />,
-)
+))
