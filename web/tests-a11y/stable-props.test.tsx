@@ -10,6 +10,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { ConversationPanel } from '@/components/agent-visualizer/conversation-panel'
 import { PanelDock } from '@/components/agent-visualizer/panel-dock'
 import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
+import { loadMockScenario } from '@/lib/demo-scenario'
 import { chromeRenderProbe } from '@/lib/row-sync'
 import { setTheme } from '@/lib/theme'
 import { COLORS, refreshColors } from '@/lib/colors'
@@ -45,11 +46,11 @@ test('the bridge object keeps its identity across renders that change none of it
   assert.equal(result.current, first, 'same object')
 })
 
-test('the bridge object changes when a field changes', () => {
+test('the bridge object changes when a field changes', async () => {
   const { result } = renderHook(() => useVSCodeBridge())
   const first = result.current
-  act(() => { result.current.loadDemo() })
-  act(() => { result.current.exitDemo() })
+  // #662: the demo turns on once its scenario chunk is loaded, not in the same tick as loadDemo()
+  await act(async () => { result.current.loadDemo(); await loadMockScenario() })
   assert.notEqual(result.current, first)
 })
 
