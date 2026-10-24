@@ -196,15 +196,17 @@ export class ClaudeSessionPipeline {
       this.host.onOversize?.(sessionId)
       return
     }
+    let conversation = false
     for (const line of lines) {
-      this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
+      const type = this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
+      if (type === 'user' || type === 'assistant') conversation = true
     }
     this.host.onTranscriptLines?.(sessionId, lines)
     // Permission-gated tool calls (Agent/Task are skipped: subagents are inherently slow)
     handlePermissionDetection(this.delegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
     scanSubagentsDir(this.delegate, this.parser, sessionId)
     // Only a new user or assistant entry is a resumed conversation: metadata written after the end never reopens it
-    this.resetInactivityTimer(sessionId, lines.some(isConversationLine))
+    this.resetInactivityTimer(sessionId, conversation)
   }
 
   /**
@@ -271,15 +273,5 @@ export class ClaudeSessionPipeline {
     }
     session.subagentWatchers.clear()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
-  }
-}
-
-/** A transcript line that records a conversation turn (user or assistant entry), not metadata */
-function isConversationLine(line: string): boolean {
-  try {
-    const type = (JSON.parse(line) as { type?: unknown } | null)?.type
-    return type === 'user' || type === 'assistant'
-  } catch {
-    return false
   }
 }

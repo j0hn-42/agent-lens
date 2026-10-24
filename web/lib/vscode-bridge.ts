@@ -89,7 +89,8 @@ class VSCodeBridge {
       case 'agent-event-batch':
         for (const event of Array.isArray(data.events) ? data.events : []) {
           if (!isAgentEvent(event)) continue
-          // A batch is only ever the history the relay replays on (re)connect, never live traffic
+          // A batch is only ever history, never live traffic: the relay's replay on (re)connect, or a transcript
+          // history it read while the page was connected (#652)
           const replayed = { ...event, replayed: true }
           for (const cb of this.eventListeners) {
             cb(replayed)

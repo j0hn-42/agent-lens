@@ -40,6 +40,11 @@ export interface ForceLayout {
   syncState(state: SimulationState, projects?: SessionProjects): SimulationState
   /** tick + apply on a whole state (one animation frame) */
   stepState(state: SimulationState): SimulationState
+  /**
+   * True when stepState(state) would change nothing (#660): the layout has cooled, `state` holds the agents of the last
+   * step, and neither the filter nor the agents kept drawn changed since. The simulation loop then skips the step.
+   */
+  isSettled(state: SimulationState): boolean
   /** Hold a node at a position (user drag): the simulation keeps it there and moves the others around it. */
   pin(id: string, x: number, y: number): void
   /**
@@ -89,6 +94,10 @@ export function createForceLayout(): ForceLayout {
   let keepIds: ReadonlyArray<string | null | undefined> = []
   /** The filter was toggled since the last step: the agents no longer drawn leave at once */
   let filterChanged = false
+  /** The agents kept drawn changed since the last step (see isSettled) */
+  let keepChanged = false
+  /** Agents of the state the last step returned (see isSettled) */
+  let steppedAgents: SimulationState['agents'] | null = null
   /** Workspaces moved by hand, the agents the anchors were last computed from, and the centre of every zone */
   const placements = new Map<string, { x: number; y: number }>()
   let laidOut = new Map<string, Agent>()
@@ -292,16 +301,24 @@ export function createForceLayout(): ForceLayout {
         centringBudget = CENTRING_TICKS
         active = true
       }
-      if (!active) return state
+      keepChanged = false
+      if (!active) { steppedAgents = state.agents; return state }
       tick()
       const agents = apply(state.agents)
+      steppedAgents = agents
       return agents === state.agents ? state : { ...state, agents }
+    },
+    isSettled(state) {
+      return !active && !filterChanged && !keepChanged && state.agents === steppedAgents
     },
     setHideInactive(hide) {
       if (hide !== hideInactive) filterChanged = true
       hideInactive = hide
     },
-    setKeepIds(ids) { keepIds = ids },
+    setKeepIds(ids) {
+      if (ids.length !== keepIds.length || ids.some((id, i) => id !== keepIds[i])) keepChanged = true
+      keepIds = ids
+    },
     pin(id, x, y) {
       const node = sim.nodes().find(n => n.id === id)
       if (!node) return
@@ -349,7 +366,7 @@ export function createForceLayout(): ForceLayout {
     },
     get placements() { return placements },
     get active() { return active },
-    destroy() { sim.stop(); sim.nodes([]); info = new Map(); placements.clear(); laidOut = new Map(); centres = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set(); countedIds = new Set(); keepIds = []; filterChanged = false },
+    destroy() { sim.stop(); sim.nodes([]); info = new Map(); placements.clear(); laidOut = new Map(); centres = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set(); countedIds = new Set(); keepIds = []; filterChanged = false; keepChanged = false; steppedAgents = null },
   }
   return layout
 }
