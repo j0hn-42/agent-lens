@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import { useStableObject } from '@/hooks/use-stable-object'
 import type { Agent, ToolCallNode, ToolCallState, Discovery } from "@/lib/agent-types"
 import { contextMenuPosition } from "@/lib/chrome-utils"
 
@@ -158,7 +159,7 @@ export function useSelectionState(deps: {
     setContextMenu(null)
   }, [clearAgent, clearTool, clearDiscovery])
 
-  return {
+  return useStableObject({
     selectedAgentId,
     hoveredAgentId,
     setHoveredAgentId,
@@ -179,5 +180,5 @@ export function useSelectionState(deps: {
     clearTool,
     clearDiscovery,
     clearAllSelections,
-  }
+  })
 }

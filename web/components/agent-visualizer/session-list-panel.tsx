@@ -362,7 +362,13 @@ export function SessionListPanel({
   const isObservedId = (id: string) => (observedSessionIds ? observedSessionIds.has(id) : observedSessions.has(id))
   const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
-  const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
+  // The previous forests are handed back so a node whose agent did not change keeps its identity (#658)
+  const forestsRef = useRef<Map<string, AgentNode[]>>(new Map())
+  const forests = useMemo(() => {
+    const next = visible ? buildAgentForests(agents.values(), forestsRef.current) : new Map<string, AgentNode[]>()
+    forestsRef.current = next
+    return next
+  }, [agents, visible])
   const [ownActiveOnly, setOwnActiveOnly] = useState(true)
   const activeOnly = storedActiveOnly !== undefined ? storedActiveOnly : ownActiveOnly
   const setActiveOnly = (next: boolean) => { setOwnActiveOnly(next); onActiveOnlyChange?.(next) }

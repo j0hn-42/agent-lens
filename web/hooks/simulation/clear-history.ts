@@ -24,7 +24,7 @@ export function clearHistoryState(prev: SimulationState): SimulationState {
   const timelineEntries = new Map<string, TimelineEntry>()
   for (const [id, entry] of prev.timelineEntries) {
     if (agents.has(id)) {
-      timelineEntries.set(id, { ...entry, blocks: [] })
+      timelineEntries.set(id, { ...entry, blocks: [], droppedBlocks: undefined })
     }
   }
 

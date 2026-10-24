@@ -16,7 +16,7 @@ type Params = Readonly<Record<string, string | number>>
 const t = (locale: Locale, key: MessageKey, params?: Params) => translate(locale, key, params)
 
 /** "one" and "other" forms of a message; the locale's plural rule picks (French: 0 and 1 are singular). The number is written for the locale. */
-function plural(locale: Locale, base: 'tl.aria.range' | 'tl.earlier', n: number, params: Params = {}): string {
+function plural(locale: Locale, base: 'tl.aria.range' | 'tl.earlier' | 'tl.olderBlocks', n: number, params: Params = {}): string {
   const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
   return t(locale, `${base}.${rule}` as MessageKey, { n: new Intl.NumberFormat(locale).format(n), ...params })
 }
@@ -56,6 +56,17 @@ export function timelineLabelText(locale: Locale, entries: readonly TimelineEntr
 
 export function earlierMessagesText(locale: Locale, hidden: number): string {
   return plural(locale, 'tl.earlier', hidden)
+}
+
+/** Total of the blocks dropped to keep the timeline bounded (#659). */
+export function totalDroppedBlocks(entries: Iterable<Pick<TimelineEntry, 'droppedBlocks'>>): number {
+  let n = 0
+  for (const e of entries) n += e.droppedBlocks ?? 0
+  return n
+}
+
+export function olderBlocksText(locale: Locale, hidden: number): string {
+  return plural(locale, 'tl.olderBlocks', hidden)
 }
 
 /** A piece of a block label: `data` is text that came from a tool call (name, arguments) and keeps its language. */
