@@ -43,6 +43,7 @@ interface AgentDetailCardProps {
     tokensMax: number
     tokensMaxAssumed?: boolean
     toolCalls: number
+    /** Age on the simulation clock, read by the caller when it renders (agentAge, #383 / #660) */
     timeAlive: number
     currentTool?: string
     kind?: 'main' | 'subagent' | 'teammate'

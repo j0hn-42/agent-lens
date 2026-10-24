@@ -125,7 +125,7 @@ export function handleAgentSpawn(
     tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensEstimated: lateUsage > 0 && early?.estimated === true,
     ...windowFor(ctx, initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
-    toolCalls: 0, toolErrors: 0, timeAlive: 0,
+    toolCalls: 0, toolErrors: 0,
     x, y, vx: 0, vy: 0,
     pinned: false, isMain,
     ...(runtime ? { runtime } : {}),
