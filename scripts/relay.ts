@@ -378,6 +378,11 @@ function deliverEvent(delivered: AgentEvent) {
   const sid = event.sessionId?.slice(0, SESSION_ID_DISPLAY) || '?'
   log(`[event] ${event.type} (session ${sid})`)
 
+  // History (#652): sent in batches once the load is over, after the buffer cap; live events one by one, after it.
+  // The history read before a live event goes out before it, with a cursor taken BEFORE this event is numbered: its
+  // agent-event is queued after that cursor, so a page resuming from the cursor still gets it (or counts it lost).
+  const live = !(event.sessionId && event.replayed === true)
+  if (live) flushHistory()
   const seq = ++eventSeq
   eventSeqs.set(event, seq)
   if (event.sessionId) {
@@ -386,8 +391,7 @@ function deliverEvent(delivered: AgentEvent) {
     agentTracker.ingest(event)
   }
 
-  // History (#652): sent in batches once the load is over, after the buffer cap; live events one by one, after it
-  if (event.sessionId && event.replayed === true) queueHistory(event.sessionId, event)
+  if (!live) queueHistory(event.sessionId!, event)
   else broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
 
   // Webhooks: a replayed history or an imported session is not something that just happened
