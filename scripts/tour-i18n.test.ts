@@ -1,8 +1,9 @@
 // #557: the guided tour (demo steps, live steps, card, offer, button) and the titles of the panels exist in every
 // locale, say the same thing (same ids, same numbers) and agree with the names of the palette and the top bar.
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { GUIDED_STEPS, guidedSteps } from '../web/lib/guided-steps'
+import { guidedSteps } from '../web/lib/guided-steps'
 import { buildLiveTourSteps } from '../web/lib/live-tour'
 import { LEGEND_ENTRY_IDS } from '../web/lib/legend-entries'
 import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from '../web/lib/messages'
@@ -16,7 +17,6 @@ const all: LegendPresence = { entries: [...LEGEND_ENTRY_IDS], agentFor: { 'state
 
 test('the demo tour has the same steps in every locale, with the same times, targets and numbers', () => {
   const en = guidedSteps('en')
-  assert.deepEqual(en, GUIDED_STEPS)
   for (const locale of LOCALES) {
     const steps = guidedSteps(locale)
     assert.deepEqual(steps.map(s => [s.id, s.time, s.target, s.opensLegend, s.covers]), en.map(s => [s.id, s.time, s.target, s.opensLegend, s.covers]))

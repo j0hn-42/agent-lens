@@ -7,6 +7,8 @@ import type { Frame, Locator, Page } from 'playwright'
  * the bar is returned as is.
  */
 export async function topbarButton(page: Page | Frame, name: string | RegExp): Promise<Locator> {
+  // The page renders on the client once its chunks are loaded (#662): wait for the bar before deciding it is folded
+  await page.locator('header').first().waitFor()
   const button = page.locator('header').getByRole('button', { name, exact: typeof name === 'string' })
   if (await button.count() > 0) return button
   const more = page.locator('header #topbar-more')

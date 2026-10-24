@@ -1,14 +1,14 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { useAgentSimulation } from '@/hooks/use-agent-simulation'
 import type { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import type { usePanelsState } from '@/hooks/use-panels-state'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 import { buildPaletteItems } from '@/lib/command-palette'
 import { sessionAttentionLabel } from '@/lib/card-text'
-import { useLocale } from '@/lib/locale'
-import { translate, type Locale } from '@/lib/messages'
+import { useLoadedLocaleCount, useLocale } from '@/lib/locale'
+import { LOCALES, loadLocale, translate, type Locale } from '@/lib/messages'
 import { agentRoleOf } from '@/lib/issue-links'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { useTheme } from '@/lib/theme'
@@ -54,6 +54,12 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
   const { togglePlayPause, zoomToFit, toggleFullscreen, toggleMute, openShortcuts, openSettings, openSettingsTab, settingsTabs, togglePresentation, clearHistory } = actions
   const [theme, setTheme] = useTheme()
   const { locale } = useLocale()
+  // A settings tab is found by its words in every language (settingsTabCommand): the palette loads the tables it does
+  // not have yet when it opens, and builds its list again when one arrives (#662)
+  const loadedLocales = useLoadedLocaleCount()
+  useEffect(() => {
+    if (open) for (const l of LOCALES) void loadLocale(l).catch(() => { /* not loaded: that language adds no keyword */ })
+  }, [open])
   const { waiting, errors, jump, nextInView } = attention
   const { start: startTour, label: tourLabel } = tour
   const { can: canExport, run: runExport } = exportSession
@@ -101,7 +107,7 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
       selectSession: bridge.selectSession,
       selectAgent,
     })
-  }, [open, singleKeyEnabled, bridge.selectedSessionId, bridge.sessions, bridge.selectSession, bridge.useMockData, bridge.launch, bridge.relayOrigin, listAgents, togglePlayPause, zoomToFit, toggleFullscreen,
+  }, [open, loadedLocales, singleKeyEnabled, bridge.selectedSessionId, bridge.sessions, bridge.selectSession, bridge.useMockData, bridge.launch, bridge.relayOrigin, listAgents, togglePlayPause, zoomToFit, toggleFullscreen,
     setShowHexGrid, toggleMute, openShortcuts, openSettings, openSettingsTab, settingsTabs, togglePresentation, clearHistory, canExport, runExport, waiting, errors, jump, nextInView,
     startTour, tourLabel, locale, notifyState, toggleNotify, theme, setTheme, setShowSessions, setShowTimeline, setShowStats, setShowSystem, toggleExclusivePanel, selectAgent])
 }

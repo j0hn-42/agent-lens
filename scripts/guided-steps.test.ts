@@ -1,13 +1,19 @@
-import { test } from 'node:test'
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
+import { test, before } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { GUIDED_SCENARIO } from '../web/lib/guided-scenario'
-import { GUIDED_STEPS, DESCRIBED_ONLY } from '../web/lib/guided-steps'
+import { guidedSteps, type GuidedStep, DESCRIBED_ONLY } from '../web/lib/guided-steps'
 import { LEGEND_ENTRY_IDS, type LegendEntryId } from '../web/lib/legend-entries'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import { linkState } from '../web/components/agent-visualizer/canvas/link-geometry'
 import { snapVisualState } from '../web/hooks/simulation/snap-visual-state'
+import { loadLocale } from '../web/lib/messages'
+
+/** The demo tour in English, written once its table is loaded (#662: no table is loaded at import) */
+let GUIDED_STEPS: readonly GuidedStep[] = []
+before(async () => { await loadLocale('en'); GUIDED_STEPS = guidedSteps('en') })
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},

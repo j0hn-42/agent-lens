@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { AgentVisualizer } from './components/agent-visualizer'
 import { vscodeBridge } from './lib/vscode-bridge'
+import { prepareBoot } from './lib/boot'
 import './app/globals.css'
 
 // Production webview: use VS Code API for messaging
@@ -18,4 +19,5 @@ if (vscodeBridge) {
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('Root element #root not found')
 const root = createRoot(rootElement)
-root.render(<AgentVisualizer />)
+// The language asked for and the demo scenario are chunks of their own (#662): the first render waits for them
+void prepareBoot().finally(() => root.render(<AgentVisualizer />))
