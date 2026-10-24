@@ -9,5 +9,6 @@
 
 ### In your language
 
+- the language select shows the language the interface is in (#613): each language is loaded when you pick it, and if its file does not load (network down, an outdated tab after an update) the select goes back to the language you had, and the stored choice with it, instead of saying *Français* over an English interface. A dialog (Settings, the command palette, Keyboard shortcuts) whose file does not load closes instead of staying open on nothing; opening it again tries to load it again.
 - the Settings dialog in full (appearance, sound, sessions, presentation, notifications, keyboard, preferences). The theme names Catppuccin, Midnight, Graphite, Neon, Ember and Anthropic are proper names and stay as they are; *High contrast* is translated.
 - the keyboard shortcuts dialog (#588): its title, the groups, the description of every shortcut (panels named as in the palette) and the single-key switch. The keys stay key names; only their words change (*Espace*, *Échap*, *Maj+F*).
