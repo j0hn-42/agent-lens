@@ -158,6 +158,8 @@ function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): b
 const sseClients = new Set<http.ServerResponse>()
 /** SSE clients accepted and waiting for the attaches in progress to end before they join (#651): they count toward the cap */
 let pendingSseClients = 0
+/** Of those, the ones that came through an allowed tunnel Host (#241): they count toward the remote cap too */
+let pendingRemoteSseClients = 0
 /** Clients that came through an allowed tunnel Host (#241): counted among sseClients, capped separately. */
 const remoteSseClients = new WeakSet<http.ServerResponse>()
 
@@ -1374,7 +1376,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Invalid session parameter')
         return
       }
-      if (sseClients.size + pendingSseClients >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
+      if (sseClients.size + pendingSseClients >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() + pendingRemoteSseClients >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
         res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '5' })
         res.end('Too many clients')
         return
@@ -1521,15 +1523,25 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // The event loop is free meanwhile; a client gone before that never joins.
       const attaching = pipeline.whenAttached()
       if (!attaching) { join(); return }
+      // Its slot is held from now: in the SSE cap and, through a tunnel, in the remote cap. Freed when it joins
+      // (it is then in sseClients) or when it leaves before, so a client that reconnects in a loop holds one slot only
+      const remote = hostClass === 'allowed'
       pendingSseClients++
-      let left = false
-      const leave = () => { left = true }
-      req.once('close', leave)
-      res.once('close', leave)
-      void attaching.then(() => {
+      if (remote) pendingRemoteSseClients++
+      let waiting = true
+      const release = () => {
+        if (!waiting) return
+        waiting = false
         pendingSseClients--
-        req.off('close', leave)
-        res.off('close', leave)
+        if (remote) pendingRemoteSseClients--
+        req.off('close', release)
+        res.off('close', release)
+      }
+      req.once('close', release)
+      res.once('close', release)
+      void attaching.then(() => {
+        const left = !waiting
+        release()
         if (left || res.destroyed) { clientSessionFilter.delete(res); return }
         join()
       })
