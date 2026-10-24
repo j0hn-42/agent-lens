@@ -16,7 +16,7 @@ import { hasContextPercentFor, contextPercentColor, contextAlertLevel } from './
 import { statsLabel, contextBarText, contextRingText } from './loss-labels'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
-import { getAgentGlowSprite, measureTextCached } from './render-cache'
+import { getAgentGlowSprite, getCachedLinearGradient, getPaintedSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
   isTeammate, isOrchestrator, orchestratorInfo, ellipsize, drawnStatusText, type OrchestratorInfo,
@@ -302,16 +302,31 @@ export function drawContextRing(
   }
 }
 
-function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette) {
-  ctx.save()
-  ctx.shadowColor = scene.depthShadow
-  ctx.shadowBlur = AGENT_DRAW.shadowBlur
-  ctx.shadowOffsetX = AGENT_DRAW.shadowOffsetX
-  ctx.shadowOffsetY = AGENT_DRAW.shadowOffsetY
-  drawHexagon(ctx, agent.x, agent.y, r * 0.9)
-  ctx.fillStyle = scene.cardBgFaintOverlay
-  ctx.fill()
-  ctx.restore()
+/**
+ * Depth shadow as a pre-rendered sprite (#661): a shadowBlur per agent per frame is the costliest raster of the
+ * canvas at 100+ agents. shadowBlur and its offsets are in screen px (they do not follow the transform), so the
+ * sprite is painted with blur and offsets divided by the zoom, held in half-octave steps: the shadow keeps its
+ * on-screen size within ~20 %, and the sprite is reused while the zoom moves inside a step. Only called from the
+ * detail zoom (LOD.detailMinZoom), which bounds the sprite: it would grow as 1/zoom without that gate.
+ */
+function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette, zoom: number) {
+  const step = 2 ** (Math.round(Math.log2(zoom > 0 ? zoom : 1) * 2) / 2)
+  const rq = Math.max(1, Math.round(r * 2) / 2)
+  const blur = AGENT_DRAW.shadowBlur / step
+  const ox = AGENT_DRAW.shadowOffsetX / step
+  const oy = AGENT_DRAW.shadowOffsetY / step
+  const half = rq + blur + Math.max(Math.abs(ox), Math.abs(oy)) + 2
+  const sprite = getPaintedSprite(`ds|${scene.depthShadow}|${scene.cardBgFaintOverlay}|${rq}|${step}`, half, (c, cx, cy) => {
+    c.shadowColor = scene.depthShadow
+    c.shadowBlur = blur
+    c.shadowOffsetX = ox
+    c.shadowOffsetY = oy
+    drawHexagon(c, cx, cy, rq * 0.9)
+    c.fillStyle = scene.cardBgFaintOverlay
+    c.fill()
+  })
+  const h = sprite.width / 2
+  ctx.drawImage(sprite, agent.x - h, agent.y - h)
 }
 
 function drawAgentGlow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isHovered: boolean, isSelected: boolean, isWaiting: boolean, theme: ThemeId | undefined) {
@@ -340,13 +355,15 @@ function drawScanline(ctx: CanvasRenderingContext2D, agent: Agent, r: number, co
   ctx.save()
   drawHexagon(ctx, agent.x, agent.y, r)
   ctx.clip()
-  const scanGrad = ctx.createLinearGradient(agent.x, scanY - AGENT_DRAW.scanlineHalfH, agent.x, scanY + AGENT_DRAW.scanlineHalfH)
+  // Gradient cached by colour and alpha, built around the origin; the context moves to the scan line (#661)
   const scanAlpha = isHovered ? '35' : '20'
-  scanGrad.addColorStop(0, withHexAlpha(color, '00'))
-  scanGrad.addColorStop(0.5, color + scanAlpha)
-  scanGrad.addColorStop(1, withHexAlpha(color, '00'))
+  const halfH = AGENT_DRAW.scanlineHalfH
+  const scanGrad = getCachedLinearGradient(ctx, `scan|${color}|${scanAlpha}|${halfH}`, -halfH, halfH, [
+    [0, withHexAlpha(color, '00')], [0.5, color + scanAlpha], [1, withHexAlpha(color, '00')],
+  ])
+  ctx.translate(agent.x, scanY)
   ctx.fillStyle = scanGrad
-  ctx.fillRect(agent.x - r, scanY - AGENT_DRAW.scanlineHalfH, r * 2, AGENT_DRAW.scanlineWidth)
+  ctx.fillRect(-r, -halfH, r * 2, AGENT_DRAW.scanlineWidth)
   ctx.restore()
 }
 
@@ -562,11 +579,12 @@ function drawAgentLabel(
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
+  // A label the overlay plan hides keeps its line count (the context bar moves with it) and nothing else (#661)
+  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
   // The status line is drawnStatusText, the function the agent rows of the Sessions panel quote (#502): a teammate's
   // activity, or "last known state: Working" for a stale node, whose state is no longer proven (that longer line is cut to fit)
   const status = drawnStatusText(agent, now)
   layout.statusLine = stale ? ellipsize(status, FRESHNESS_DRAW.labelMaxWidth, measure) : status
-  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
 
   ctx.save()
   ctx.translate(place.dx, place.dy)
@@ -852,7 +870,8 @@ export function drawAgents(
     const nodeAlpha = stale ? baseAlpha * FRESHNESS_DRAW.staleAlpha : baseAlpha
     ctx.globalAlpha = nodeAlpha
 
-    drawDepthShadow(ctx, agent, r, scene)
+    // Under the detail zoom the shadow is not drawn: its sprite grows as 1/zoom (966 px at the minimum zoom, #661)
+    if (lod.details) drawDepthShadow(ctx, agent, r, scene, opts.zoom)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting, sceneTheme)
     if (!reducedMotion && live) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion, sceneTheme)

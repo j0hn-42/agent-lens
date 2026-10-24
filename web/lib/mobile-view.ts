@@ -8,6 +8,17 @@
 const MOBILE_BREAKPOINT = 768
 /** Media query of the mobile view (the .98 keeps 767.5 px, a zoomed width, on the mobile side). */
 export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 0.02}px)`
+let mobileList: { source: typeof window.matchMedia; list: MediaQueryList } | null = null
+/**
+ * True under 768 px. The MediaQueryList is made once and kept (#661): its `matches` is live, so the canvas can ask
+ * every frame without a matchMedia call (and a style match) per frame. Rebuilt if window.matchMedia is replaced.
+ */
+export function isMobileViewport(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  if (!mobileList || mobileList.source !== window.matchMedia) mobileList = { source: window.matchMedia, list: window.matchMedia(MOBILE_QUERY) }
+  return !!mobileList.list?.matches
+}
+
 /** Side (px) of the touch target below 768 px; what TOUCH_TARGET gives the DOM controls, for the canvas zones. */
 export const TOUCH_TARGET_PX = 44
 

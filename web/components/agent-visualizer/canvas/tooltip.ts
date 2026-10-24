@@ -38,6 +38,34 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
   return { title: d.label, lines: [d.listing ? listedFileText(d.listing) : `Discovery: ${d.type}`] }
 }
 
+/**
+ * Size of the tooltip, read without a reflow (#661). The first read is the only synchronous one; after it a
+ * ResizeObserver keeps the size, delivered after layout, so the draw loop never forces one by reading
+ * offsetWidth in the middle of its writes. Without ResizeObserver every frame reads, as before.
+ */
+const tooltipSizes = new WeakMap<HTMLElement, { w: number; h: number }>()
+let tooltipObserver: ResizeObserver | null | undefined
+function tooltipSize(el: HTMLElement): { w: number; h: number } {
+  if (tooltipObserver === undefined) {
+    tooltipObserver = typeof ResizeObserver === 'function'
+      ? new ResizeObserver(entries => {
+        for (const e of entries) {
+          const t = e.target as HTMLElement
+          tooltipSizes.set(t, { w: t.offsetWidth, h: t.offsetHeight })
+        }
+      })
+      : null
+  }
+  if (!tooltipObserver) return { w: el.offsetWidth, h: el.offsetHeight }
+  let size = tooltipSizes.get(el)
+  if (!size) {
+    size = { w: el.offsetWidth, h: el.offsetHeight }
+    tooltipSizes.set(el, size)
+    tooltipObserver.observe(el)
+  }
+  return size
+}
+
 /** Anchor the tooltip above its node in screen space; hide when the node is gone or off-canvas. */
 export function positionTooltip(
   el: HTMLDivElement | null,
@@ -67,8 +95,7 @@ export function positionTooltip(
   }
   const sx = wx * transform.scale + transform.x
   const sy = wy * transform.scale + transform.y - radius * transform.scale - 8
-  const tw = el.offsetWidth
-  const th = el.offsetHeight
+  const { w: tw, h: th } = tooltipSize(el)
   const x = Math.min(Math.max(sx - tw / 2, 4), Math.max(4, canvasW - tw - 4))
   // Flip below the node when there is no room above
   const y = sy - th < 4 ? sy + radius * transform.scale * 2 + 16 : sy - th
