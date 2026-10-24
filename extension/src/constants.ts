@@ -594,3 +594,6 @@ export const SNAPSHOT_FUTURE_TOLERANCE_MS = 5_000
 export const OBSERVATIONS_MAX_SESSIONS = 25
 export const OBSERVATIONS_MAX_AGENTS_PER_SESSION = 50
 export const OBSERVATIONS_NAME_MAX = 64
+
+/** Cadence of the release pass of the non-Claude runtimes, independent of any client (#654): cheap, no I/O. */
+export const RUNTIME_RELEASE_INTERVAL_MS = 30_000

@@ -371,6 +371,9 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
   }
 
   /** Detach sessions ended for more than ACTIVE_SESSION_AGE_S. The scan reattaches them if their file resumes. */
+  /** Release pass alone, for a caller that owns the clock: a session silent past ACTIVE_SESSION_AGE_S is retired without a scan (#654). */
+  releaseIdle(): void { this.releaseEndedSessions() }
+
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {

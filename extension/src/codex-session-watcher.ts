@@ -339,6 +339,9 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
 
   /** Détache les sessions terminées depuis plus de ACTIVE_SESSION_AGE_S (watcher, timers, parser libérés).
    *  Le scan les rattache si leur fichier reprend. */
+  /** Release pass alone, for a caller that owns the clock: a session silent past ACTIVE_SESSION_AGE_S is retired without a scan (#654). */
+  releaseIdle(): void { this.releaseEndedSessions() }
+
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {

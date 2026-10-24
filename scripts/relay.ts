@@ -24,7 +24,7 @@ import { OpenCodeSessionWatcher } from '../extension/src/opencode-session-watche
 import { lifecycleTags } from '../extension/src/session-runtime'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
-  SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
+  SCAN_INTERVAL_MS, RUNTIME_RELEASE_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_REMOTE_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES, RELAY_MAX_IMPORTED_SESSIONS,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS, RELAY_SSE_RATE_BURST, RELAY_SSE_RATE_PER_S,
@@ -1121,7 +1121,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
 
   // The discovery scans of the other runtimes run on one shared interval, like the Claude scan: started by the
-  // first SSE client, stopped by the last (#654). Without a client their own watchers (fs.watch) still react.
+  // first SSE client, stopped by the last (#654). Without a client the Codex, Copilot, Pi and Gemini fs.watch still react; OpenCode (no fs.watch) is read at the next connection.
   const scanOtherRuntimes = () => {
     for (const scan of [
       () => codexWatcher?.scan(), () => copilotWatcher?.scan(), () => piWatcher?.scan(),
@@ -1130,8 +1130,17 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       try { scan() } catch (e) { log('[scan] Runtime scan failed:', e) }
     }
   }
+  // Release is not discovery: a session silent past ACTIVE_SESSION_AGE_S is retired (fs.watch, poll timer) even
+  // with nobody connected, on a slow timer and before /status counts (#654)
+  const releaseOtherRuntimes = () => {
+    for (const w of [codexWatcher, copilotWatcher, piWatcher, geminiWatcher, openCodeWatcher]) {
+      try { w?.releaseIdle() } catch (e) { log('[scan] Runtime release failed:', e) }
+    }
+  }
   const runtimeScanTicker = new SharedTicker(scanOtherRuntimes, SCAN_INTERVAL_MS)
   const hasOtherRuntimes = !!(codexWatcher || copilotWatcher || piWatcher || geminiWatcher || openCodeWatcher)
+  const runtimeReleaseTimer = hasOtherRuntimes ? setInterval(releaseOtherRuntimes, RUNTIME_RELEASE_INTERVAL_MS) : null
+  runtimeReleaseTimer?.unref()
 
   const telemetry = options.telemetry
   const sessionStart = Date.now()
@@ -1241,6 +1250,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       statusComputations++
       const hooksConfigured = wantClaude ? await hooksProbe(workspace) : false
       const disable1MContext = wantClaude ? isDisable1MContext() : false
+      releaseOtherRuntimes()
       let sessionCount = 0
       for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
@@ -1575,6 +1585,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         }
       }
       runtimeScanTicker.stop()
+      if (runtimeReleaseTimer) clearInterval(runtimeReleaseTimer)
       codexWatcher?.dispose()
       copilotWatcher?.dispose()
       piWatcher?.dispose()
