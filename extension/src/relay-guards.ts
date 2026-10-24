@@ -456,7 +456,12 @@ export interface ColdScan {
   cycle: number
   until: Map<string, number>
   /** Classement des dossiers par transcript le plus récent (#654) : recalculé tous les COLD_RESCAN_CYCLES cycles */
-  ranking?: { cycle: number; newest: Map<string, number> }
+  ranking?: {
+    cycle: number
+    newest: Map<string, number>
+    /** Folder mtime when it was measured: a folder whose mtime moved holds a new file (#613) */
+    seen?: Map<string, number>
+  }
 }
 export function createColdScan(): ColdScan { return { cycle: 0, until: new Map() } }
 
@@ -507,11 +512,27 @@ export function listProjectDirs(
       if (cold) cold.ranking = ranking
     }
     const known = ranking.newest
+    const seen = ranking.seen ??= new Map()
     const newest = new Map(names.map(n => {
+      const dir = path.join(root, n)
+      // A new session file changes the mtime of its folder: such a folder is measured again at once, outside the top
+      // too (one stat per folder).
+      let dirMs = 0
+      try { dirMs = fs.statSync(dir).mtimeMs } catch { /* vanished */ }
+      const last = seen.get(n)
       let ms = known.get(n)
-      if (ms === undefined) { ms = newestTranscriptMs(path.join(root, n)); known.set(n, ms) }
+      if (ms === undefined || last !== dirMs) {
+        ms = newestTranscriptMs(dir)
+        known.set(n, ms)
+        seen.set(n, dirMs)
+      }
       return [n, ms] as const
     }))
+    // Folders deleted since the last ranking do not stay in it
+    if (known.size > names.length) {
+      const present = new Set(names)
+      for (const k of known.keys()) if (!present.has(k)) { known.delete(k); seen.delete(k) }
+    }
     // Stable sort: equal activity keeps the by-name order
     names.sort((a, b) => (newest.get(b) ?? 0) - (newest.get(a) ?? 0))
   }
