@@ -2,12 +2,11 @@
 // Other strings stay in ui-glossary.ts and in their components until they move here.
 // The messages live in one file per domain, web/lib/messages/<domain>.ts, each with its fr and en tables side by side (#612):
 // add a key to the file of your domain, with its two languages. This file keeps the public API; the tables of each
-// language are assembled in web/lib/messages/locales/<locale>.ts (#662), the default one is in the first load and the
-// other one is loaded on demand (loadLocale). scripts/messages.test.ts checks keys and {placeholders} in every locale,
-// and that no key is in two domain files.
+// language are assembled in web/lib/messages/locales/<locale>.ts (#662), and each one is loaded on demand (loadLocale),
+// English too: the entries load the language asked for before their first render, so a reader gets one table only.
+// scripts/messages.test.ts checks keys and {placeholders} in every locale, and that no key is in two domain files.
 
 import type { MESSAGE_DOMAINS } from './messages/domains'
-import { TABLE as DEFAULT_TABLE } from './messages/locales/en'
 
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
@@ -25,15 +24,15 @@ type FrTable = UnionToIntersection<Domain['fr']>
 export type MessageKey = keyof FrTable
 export type MessageTable = Readonly<Record<MessageKey, string>>
 
-/** The tables loaded so far: the default locale from the start, the others once loadLocale resolved (#662) */
-const tables: Partial<Record<Locale, MessageTable>> = { [DEFAULT_LOCALE]: DEFAULT_TABLE }
+/** The tables loaded so far: none at start, each one once loadLocale resolved (#662) */
+const tables: Partial<Record<Locale, MessageTable>> = {}
 const pending = new Map<Locale, Promise<void>>()
 const loadedListeners = new Set<() => void>()
 
 /** One chunk per language: the import is what the bundler splits on */
 const LOADERS: Record<Locale, () => Promise<MessageTable>> = {
   fr: () => import('./messages/locales/fr').then(m => m.TABLE),
-  en: () => Promise.resolve(DEFAULT_TABLE),
+  en: () => import('./messages/locales/en').then(m => m.TABLE),
 }
 
 export function isLocaleLoaded(locale: Locale): boolean {
@@ -54,15 +53,32 @@ export function loadLocale(locale: Locale): Promise<void> {
   return p
 }
 
+/** Loads a locale, and the default one when that table does not load: what the boot and the tray CLI wait for (#662).
+ * `load` is loadLocale; a test passes a failing one. */
+export function loadLocaleOrDefault(locale: Locale, load: (l: Locale) => Promise<void> = loadLocale): Promise<void> {
+  return load(locale).catch(err => {
+    if (locale === DEFAULT_LOCALE) throw err
+    return load(DEFAULT_LOCALE)
+  })
+}
+
 export function onLocaleLoaded(cb: () => void): () => void {
   loadedListeners.add(cb)
   return () => { loadedListeners.delete(cb) }
 }
 
-/** The locale the interface can show now: the wanted one once its table is there, the default one until then, so the
- * `lang` of an element never names a language its text is not in (#662). */
+/** The loaded locale to read for a wanted one: itself, else the default one, else any loaded one (undefined: none yet) */
+function shownLocale(wanted: Locale): Locale | undefined {
+  if (isLocaleLoaded(wanted)) return wanted
+  if (tables[DEFAULT_LOCALE]) return DEFAULT_LOCALE
+  return LOCALES.find(l => tables[l] !== undefined)
+}
+
+/** The locale the interface can show now: the wanted one once its table is there, until then a locale whose table is
+ * (a French reader switching to English keeps French until English arrives), so the `lang` of an element never names
+ * a language its text is not in (#662). */
 export function effectiveLocale(wanted: Locale): Locale {
-  return isLocaleLoaded(wanted) ? wanted : DEFAULT_LOCALE
+  return shownLocale(wanted) ?? DEFAULT_LOCALE
 }
 
 function loadedTable(locale: Locale): MessageTable {
@@ -90,7 +106,9 @@ export function resolveLocale(stored: string | null | undefined, browserLanguage
 }
 
 export function translate(locale: Locale, key: MessageKey, params?: Readonly<Record<string, string | number>>): string {
-  const table = (isLocale(locale) && tables[locale]) || DEFAULT_TABLE
-  const text = table[key]
+  const shown = shownLocale(isLocale(locale) ? locale : DEFAULT_LOCALE)
+  // Nothing renders before the entries loaded a table (prepareBoot): no text is better than a key shown as text
+  if (!shown) throw new Error(`messages: the ${locale} table is not loaded yet, nor any other (await loadLocale('${locale}'))`)
+  const text = loadedTable(shown)[key]
   return params ? text.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m)) : text
 }

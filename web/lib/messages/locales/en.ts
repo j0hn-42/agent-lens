@@ -1,7 +1,7 @@
 /// <reference path="./locale-query.d.ts" />
 // The English table (#662): every domain of ../domains.ts, imported with `?locale=en`. The query makes the bundler build
 // one instance of each domain module for this table, where only `en` is used, so the French table is not in this
-// chunk (this one is the default locale: web/lib/messages.ts imports it statically). A domain added to
+// chunk (loaded on demand like fr.ts, it is also the fallback: web/lib/messages.ts, loadLocaleOrDefault). A domain added to
 // domains.ts is added here and in fr.ts; scripts/lazy-bundle.test.ts fails otherwise.
 import type { MessageTable } from '../../messages'
 import { en as common } from '../common?locale=en'

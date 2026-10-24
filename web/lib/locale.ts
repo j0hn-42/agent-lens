@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useSyncExternalStore } from 'react'
-import { DEFAULT_LOCALE, LOCALES, LOCALE_STORAGE_KEY, effectiveLocale, isLocaleLoaded, loadLocale, onLocaleLoaded, resolveLocale, translate, type Locale, type MessageKey } from './messages'
+import { DEFAULT_LOCALE, LOCALES, LOCALE_STORAGE_KEY, effectiveLocale, isLocaleLoaded, loadLocaleOrDefault, onLocaleLoaded, resolveLocale, translate, type Locale, type MessageKey } from './messages'
 
 export type LocaleChoice = Locale | 'auto'
 
@@ -49,7 +49,7 @@ export function getLocale(): Locale {
 
 /** Loads the table of the language asked for; the entries render once it resolves, so the first paint is in it (#662). */
 export function loadWantedLocale(): Promise<void> {
-  return loadLocale(wantedLocale())
+  return loadLocaleOrDefault(wantedLocale())
 }
 
 /** Unknown values are refused. `auto` forgets the stored choice. */

@@ -7,7 +7,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { loadLocale, type Locale } from '../../web/lib/messages'
+import { loadLocaleOrDefault, type Locale } from '../../web/lib/messages'
 import { startDriver, type DriverOptions, type RelaySpawnSpec } from './driver'
 
 export type CliArgs =
@@ -77,12 +77,16 @@ export function main(argv: string[], env: NodeJS.ProcessEnv): void {
     locale,
     log: message => console.error(`agent-lens-tray: ${message}`),
   }
-  // The French table is loaded on demand (#662): the first menu is already in the system language
-  void loadLocale(locale).catch(() => { /* not loaded: the labels stay in English */ }).then(() => {
+  // Each table is loaded on demand (#662): the first menu is already in the system language, English if it fails
+  loadLocaleOrDefault(locale).then(() => {
     const driver = startDriver(options)
     // The same path as the quit item; the relay itself is stopped over its IPC channel (see docs/tray.md).
     for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, () => driver.stop())
     void driver.done.then(code => process.exit(code))
+  }, (err: unknown) => {
+    // No table at all: the menu could not be labelled, a failure at start (exit code 1)
+    console.error(`agent-lens-tray: the labels could not be loaded: ${err instanceof Error ? err.message : String(err)}`)
+    process.exit(1)
   })
 }
 
