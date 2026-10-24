@@ -466,6 +466,8 @@ export interface PendingToolCall {
 
 export interface SubagentState {
   watcher: import('fs').FSWatcher | null
+  /** fs.watch failed (ENOSPC/EMFILE): the watch is not tried again at every read, the poll reads the file */
+  watchFailed?: boolean
   fileSize: number
   /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
   fileTail: string

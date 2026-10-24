@@ -267,6 +267,22 @@ describe('an idle subagent is read only by its end at attach (#651)', () => {
     assert.ok(!ids.includes('head-0') && !ids.includes('tail-0'), 'the history is never re-emitted')
   })
 
+  it('idle, last window without a line break: read in full, so the unfinished long line is emitted once complete (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit'))
+    const old = Date.now() - (ACTIVE_SESSION_AGE_S + 60) * 1000
+    const big = jl({ type: 'assistant', uuid: 'a-big', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'big-0', name: 'Bash', input: { command: 'x'.repeat(TEAMMATE_REPLAY_MAX_BYTES + 4096) } }] } })
+    const file = subagent(r.dir, 'a0000000000000003', call('head-0') + result('head-0') + big.slice(0, -10), old)
+    const session = r.session(S1)
+    await r.pipeline.attach(session)
+    const state = session.subagentWatchers.get(file)!
+    assert.ok(state.seenToolUseIds.has('head-0'), 'the file was read from its start')
+    fs.appendFileSync(file, big.slice(-10))
+    readSubagentNewLines(r.pipeline.delegate, r.pipeline.parser, file, S1)
+    const ids = r.delivered.filter(e => e.type === 'tool_call_start').map(e => e.payload.toolUseId)
+    assert.ok(ids.includes('big-0'), 'the call of the long line is not lost')
+  })
+
   it('active (written within ACTIVE_SESSION_AGE_S): read in full, as before', async () => {
     r = rig()
     r.transcript(S1, prompt('Audit'))
