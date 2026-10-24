@@ -87,6 +87,21 @@ async function waitFor(cond: () => boolean, ms: number): Promise<boolean> {
   return cond()
 }
 
+/** Polls (one short connection per try) until the relay has numbered `count` events more than `from`: the lines appended are read */
+async function waitForCursorAdvance(from: number, count: number, ms = 15_000): Promise<number> {
+  const end = Date.now() + ms
+  let seq = from
+  while (Date.now() < end) {
+    seq = cursorOf((await collect('?session=' + OTHER_SESSION, 3_000)).msgs)?.seq ?? seq
+    if (seq >= from + count) return seq
+    await sleep(100)
+  }
+  return seq
+}
+
+/** Messages in the transcript so far, whatever the tests before appended */
+const linesWritten = () => fs.readFileSync(transcript, 'utf8').split('\n').filter(Boolean).length
+
 const cursorOf = (msgs: Msg[]) => {
   const c = msgs.find(m => m.type === 'relay-cursor')
   return c && typeof c.instance === 'string' && typeof c.seq === 'number' ? { instance: c.instance, seq: c.seq } : null
@@ -176,8 +191,8 @@ describe('relay: events missed while the link was down (issue #366)', () => {
   it('counts the events the buffer evicted while the link was down, beyond what the replay cap alone leaves out', async () => {
     const before = cursorOf((await collect('', 10_000)).msgs)!
     await waitFor(() => relay.debugState().sseClients === 0, 2_000)
-    await appendLines(transcript, MESSAGES, MESSAGES + MORE)
-    await sleep(1_500)
+    await appendLines(transcript, linesWritten(), linesWritten() + MORE)
+    assert.ok(await waitForCursorAdvance(before.seq, MORE) >= before.seq + MORE, 'precondition: the relay read the appended lines')
     const { msgs, messages } = await collect(`?since=${before.instance}.${before.seq}`, 15_000)
     assert.ok(cursorOf(msgs), 'precondition: the replay was written in full')
     const loss = msgs.find(m => m.type === 'event-loss')
@@ -192,9 +207,9 @@ describe('relay: events missed while the link was down (issue #366)', () => {
     const now = cursorOf((await collect('', 10_000)).msgs)!
     await waitFor(() => relay.debugState().sseClients === 0, 2_000)
     const FEW = 5
-    const base = MESSAGES + MORE
+    const base = linesWritten()
     await appendLines(transcript, base, base + FEW)
-    await sleep(1_500)
+    assert.ok(await waitForCursorAdvance(now.seq, FEW) >= now.seq + FEW, 'precondition: the relay read the appended lines')
     const full = await collect('', 10_000)
     assert.ok(full.messages > 100, `precondition: a connection without since replays the buffer (${full.messages})`)
     const resumed = await collect(`?since=${now.instance}.${now.seq}`, 10_000)

@@ -1619,7 +1619,14 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         let buffers: ReadonlyMap<string, readonly AgentEvent[]> = eventBuffer
         if (sinceSeq !== null) {
           const after = new Map<string, readonly AgentEvent[]>()
-          for (const [sid, events] of eventBuffer) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
+          // With ?session=<id> only that session's buffer is read and copied, not the 50,000 events of every session
+          const afterSince = (events: readonly AgentEvent[]) => events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq)
+          if (sessionParam) {
+            const own = eventBuffer.get(sessionParam)
+            if (own) after.set(sessionParam, afterSince(own))
+          } else {
+            for (const [sid, events] of eventBuffer) after.set(sid, afterSince(events))
+          }
           buffers = after
         }
         const replay = capReplayBatches(
