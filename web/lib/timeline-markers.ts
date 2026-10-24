@@ -33,8 +33,8 @@ interface AgentSeen {
 export function createMarkerTracker() {
   const seen = new Map<string, AgentSeen>()
   let events: TimelineEvent[] = []
-  /** Markers dropped by MAX_MARKERS */
-  let capLost = 0
+  /** Markers dropped by MAX_MARKERS, per agent: an agent that is erased or replaced takes its own with it (#613) */
+  const capLost = new Map<string, number>()
   let idCounter = 0
   let result: MarkerResult = { events, lost: 0 }
 
@@ -93,7 +93,7 @@ export function createMarkerTracker() {
 
     if (removed.size > 0) {
       const kept = events.filter(e => !removed.has(e.nodeId ?? ''))
-      if (seen.size === 0) capLost = 0
+      for (const id of removed) capLost.delete(id)
       events = kept
       changed = true
     }
@@ -102,12 +102,16 @@ export function createMarkerTracker() {
       events = mergeSorted(events, fresh)
     }
     if (events.length > MAX_MARKERS) {
-      capLost += events.length - MAX_MARKERS
+      for (let i = 0; i < events.length - MAX_MARKERS; i++) {
+        const id = events[i].nodeId ?? ''
+        capLost.set(id, (capLost.get(id) ?? 0) + 1)
+      }
       events = events.slice(events.length - MAX_MARKERS)
       changed = true
     }
     if (changed) {
-      let lost = capLost
+      let lost = 0
+      for (const n of capLost.values()) lost += n
       for (const a of seen.values()) lost += a.lost
       result = { events, lost }
     }

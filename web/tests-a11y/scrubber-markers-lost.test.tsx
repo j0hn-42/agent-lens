@@ -15,6 +15,16 @@ const bar = (lostMarkers: number, isReviewing = false) => render(
     onSpeedChange={noop} timelineEvents={[]} eventCount={3} isReviewing={isReviewing} lostMarkers={lostMarkers} />,
 )
 
+test('the full sentence is visible text, not a title or a screen-reader copy: keyboard and touch users read it too (#613)', () => {
+  setLocaleChoice('en')
+  const { container } = bar(150)
+  const mark = container.querySelector('[data-markers-lost]')!
+  assert.equal(mark.textContent, '150 older markers not shown on the bar')
+  assert.equal(mark.querySelector('[aria-hidden="true"]'), null, 'no hidden abbreviation next to a hidden sentence')
+  assert.equal(mark.querySelector('.sr-only'), null)
+  assert.equal(mark.getAttribute('title'), null)
+})
+
 test('no lost marker: nothing is shown', () => {
   const { container } = bar(0)
   assert.equal(container.querySelector('[data-markers-lost]'), null)

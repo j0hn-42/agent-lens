@@ -162,6 +162,36 @@ test('another session with a full window and the same total is a replacement', (
   assert.equal(res.lost, 100)
 })
 
+test('markers lost to the cap are counted per agent: an erased agent takes its own with it (#613)', () => {
+  const conv: Conv = new Map(); const dropped = new Map<string, number>()
+  const tracker = createMarkerTracker()
+  // 'a' alone goes past the cap: its 10 oldest markers are dropped, then 'b' adds 5 (5 more of a's go)
+  let res = tracker.update(conv, dropped)
+  for (let i = 0; i < MAX_MARKERS + 10; i++) { feed(conv, dropped, 'a', i, i + 1); res = tracker.update(conv, dropped) }
+  feed(conv, dropped, 'b', MAX_MARKERS + 100, MAX_MARKERS + 105)
+  res = tracker.update(conv, dropped)
+  assert.equal(res.lost, 10 + 5, 'the cap dropped the oldest ones, all of them from a')
+  // 'a' is erased; 'b' remains with the markers it still has
+  conv.delete('a'); dropped.delete('a')
+  res = tracker.update(conv, dropped)
+  assert.equal(res.events.every(e => e.nodeId === 'b'), true)
+  assert.equal(res.lost, 0, 'the markers of an agent that is gone are no longer reported as missing')
+})
+
+test('a seek back resets the agent: the markers after the playhead are gone until the replay catches up (#613)', () => {
+  const tracker = createMarkerTracker()
+  const live = { conv: new Map() as Conv, dropped: new Map<string, number>() }
+  for (let i = 0; i < 300; i++) { feed(live.conv, live.dropped, 'a', i, i + 1, 'live'); tracker.update(live.conv, live.dropped) }
+  const back = replay(250, 'back')
+  const res = tracker.update(back.conv, back.dropped)
+  assert.equal(res.events[res.events.length - 1].timestamp, 249, 'nothing after the playhead')
+  assert.equal(res.events.length, 200, 'only the window of the replayed conversation')
+  assert.equal(res.lost, 50, 'the older ones the window no longer holds are counted')
+  const fwd = replay(300, 'fwd')
+  const again = tracker.update(fwd.conv, fwd.dropped)
+  assert.equal(again.events[again.events.length - 1].timestamp, 299, 'the replay catching up brings them back')
+})
+
 test('lost that comes only from the marker cap is not blamed on messages cut before being seen', () => {
   const conv: Conv = new Map(); const dropped = new Map<string, number>()
   const tracker = createMarkerTracker()
