@@ -674,7 +674,8 @@ export const TopBar = memo(function TopBar({
             color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
           }}
         >
-          <span aria-hidden="true">! </span>{attentionShort ? attention!.waiting + attention!.errors : attentionText}
+          {/* Under 1440 px the words are gone: the shape of the mark, not only the border colour, tells waiting (!) from an error (a cross), WCAG 1.4.1 */}
+          <span aria-hidden="true">{attentionShort ? `${attention!.waiting > 0 ? '!' : ''}${attention!.errors > 0 ? '✕' : ''}` : '!'} </span>{attentionShort ? attention!.waiting + attention!.errors : attentionText}
         </button>
       )}
 
@@ -832,7 +833,9 @@ export const TopBar = memo(function TopBar({
               {!commandsInBar && commandsButton(true)}
               <ToggleButton
                 id="topbar-mute"
-                active={!isMuted}
+                // Never drawn as active: its name flips (Mute / Unmute), so a bar for "sound on" would read "muted" under the name
+                // "Mute" and, without aria-pressed, would be a visible state a screen reader never gets (#613). The icon shows the state
+                active={false}
                 onClick={onToggleMute}
                 ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
                 title={isMuted ? t('topbar.unmute.title') : t('topbar.mute.title')}
