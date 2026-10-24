@@ -27,6 +27,9 @@ export const fr = {
   'bar.truncated.one': 'Historique tronqué : {n} événement plus ancien supprimé',
   'bar.truncated.other': 'Historique tronqué : {n} événements plus anciens supprimés',
   'bar.review.empty': 'Aucun événement à revoir pour l’instant',
+  'bar.markersLost': 'marqueurs manquants',
+  'bar.markersLost.one': '{n} marqueur plus ancien non affiché sur la barre (message coupé avant d’être vu)',
+  'bar.markersLost.other': '{n} marqueurs plus anciens non affichés sur la barre (messages coupés avant d’être vus)',
 } as const
 
 export const en: Record<keyof typeof fr, string> = {
@@ -53,4 +56,7 @@ export const en: Record<keyof typeof fr, string> = {
   'bar.truncated.one': 'History truncated: {n} older event dropped',
   'bar.truncated.other': 'History truncated: {n} older events dropped',
   'bar.review.empty': 'No events to review yet',
+  'bar.markersLost': 'markers missing',
+  'bar.markersLost.one': '{n} older marker not shown on the bar (message cut before it was seen)',
+  'bar.markersLost.other': '{n} older markers not shown on the bar (messages cut before they were seen)',
 }

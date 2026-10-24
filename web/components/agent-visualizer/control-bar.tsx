@@ -8,7 +8,7 @@ import { formatDuration } from '@/lib/utils'
 import { useLocale } from '@/lib/locale'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import type { ConnectionStatus } from '@/lib/bridge-types'
-import { blurFlagAction, formatEventCount, formatSpeed, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { blurFlagAction, formatEventCount, formatSpeed, liveBadge, formatTruncatedHistory, formatMarkersLost, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { Button } from '@/components/ui/button'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
@@ -35,6 +35,25 @@ interface ControlBarProps {
   connectionStatus?: ConnectionStatus
   /** Events dropped from the start of the history (event log cap): shows a 'history truncated' marker */
   droppedEvents?: number
+  /** Scrubber markers that could not be drawn (messages cut before they were seen, marker cap): says so instead of omitting them */
+  lostMarkers?: number
+}
+
+/** Next to the scrubber: some older markers are missing, with their number. */
+function MarkersLostMarker({ lost, locale }: { lost: number; locale: Locale }) {
+  const text = formatMarkersLost(lost, locale)
+  if (!text) return null
+  return (
+    <span
+      data-markers-lost=""
+      title={text}
+      className="shrink-0 text-[11px] font-mono rounded px-1"
+      style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
+    >
+      <span className="sr-only">{text}</span>
+      <span aria-hidden="true">{`${lost} ${translate(locale, 'bar.markersLost')}`}</span>
+    </span>
+  )
 }
 
 /** Marker at the start of the scrubber: the oldest part of the history is gone. */
@@ -172,7 +191,7 @@ export function ControlBar(props: ControlBarProps) {
 
 function LiveControlBar({
   currentTime, totalDuration, timelineEvents,
-  eventCount = 0, onEnterReview, isDemo = false, droppedEvents = 0, connectionStatus = 'watching',
+  eventCount = 0, onEnterReview, isDemo = false, droppedEvents = 0, lostMarkers = 0, connectionStatus = 'watching',
 }: ControlBarProps) {
   const { locale } = useLocale()
   const t = (key: MessageKey) => translate(locale, key)
@@ -214,6 +233,7 @@ function LiveControlBar({
         </span>
 
         <TruncationMarker dropped={droppedEvents} locale={locale} />
+        <MarkersLostMarker lost={lostMarkers} locale={locale} />
 
         {/* Read-only event track */}
         <div className="flex-1 min-w-12 relative h-6 flex items-center">
@@ -264,7 +284,7 @@ const CONFIRM_TIMEOUT_MS = 5000
 function ReviewControlBar({
   isPlaying, speed, currentTime, totalDuration,
   onPlayPause, onRestart, onSpeedChange, onSeek,
-  timelineEvents, isReviewing, onResumeLive, droppedEvents = 0,
+  timelineEvents, isReviewing, onResumeLive, droppedEvents = 0, lostMarkers = 0,
 }: ControlBarProps) {
   const { locale } = useLocale()
   const t = (key: MessageKey) => translate(locale, key)
@@ -348,6 +368,7 @@ function ReviewControlBar({
         </span>
 
         <TruncationMarker dropped={droppedEvents} locale={locale} />
+        <MarkersLostMarker lost={lostMarkers} locale={locale} />
 
         {/* Playback position slider (the Timeline is the panel opened by T) */}
         <div
