@@ -1140,7 +1140,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       scanCoalescer.run('scan', () => scanTranscripts(workspace, allWorkspaces))
         .catch(e => log('[scan] Failed:', e))
     }
-    wakeScan = scanNow
+    // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650).
+    // The wake-up of a cold transcript shares that debounce: a long session over maxSessionFileBytes is put back to
+    // sleep by each scan and woken by its next write, so it scanned on every write (#613)
+    projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
+    wakeScan = () => projectWatchScan?.request()
     scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
 
     // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
@@ -1177,8 +1181,6 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       : path.join(CLAUDE_DIR, encodeProjectDirName(resolved))
     if (projectDir && fs.existsSync(projectDir)) {
       try {
-        // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650)
-        projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
         projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => projectWatchScan?.onEvent(filename))
       } catch {}
     }
