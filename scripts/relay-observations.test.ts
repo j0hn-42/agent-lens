@@ -85,6 +85,12 @@ describe('relay GET /observations', () => {
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     port = (server.address() as { port: number }).port
     await touchEvents()
+    // Both transcripts are attached over several ticks (#651): a session is listed, and a line appended to it is
+    // live, once its attach ended. The tests start then, not after a fixed time (#440).
+    const end = Date.now() + 8000
+    const attached = () => relay.debugState().watchedSessions >= 2 && !relay.debugState().attaching
+    while (!attached() && Date.now() < end) await new Promise(r => setTimeout(r, 10))
+    assert.ok(attached(), 'precondition: both transcripts are attached')
   })
 
   after(() => {
