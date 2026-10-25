@@ -134,12 +134,12 @@ test('under loss the summary keeps the qualifiers of the list: "at least", "inco
   cleanup()
   assert.equal(summaryOf(panel(repeats(2, { limitReached: true }), 1).container).textContent, 'Repeated reads and calls: at least 2 repeated targets observed')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: no repeat observed (incomplete)')
+  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: no repeated target observed (incomplete)')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(0, { uncompared: 2 }), 1).container).textContent, 'Repeated reads and calls: no repeat observed, 2 calls not compared')
+  assert.equal(summaryOf(panel(repeats(0, { uncompared: 2 }), 1).container).textContent, 'Repeated reads and calls: no repeated target observed, 2 calls not compared')
   cleanup()
   act(() => setLocaleChoice('fr'))
-  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Lectures et appels répétés : aucune répétition observée (incomplet)')
+  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Lectures et appels répétés : aucune cible répétée observée (incomplet)')
 })
 
 test('axe finds nothing, folded and unfolded, in both languages', async () => {

@@ -63,7 +63,7 @@ test('top bar: a live hook flag counts as observed', () => {
 function announcer(extra: Partial<React.ComponentProps<typeof ChromeAnnouncer>> = {}) {
   return (
     <ChromeAnnouncer
-      connection={connectionDisplay('watching', false)} sessionLabel="All sessions" isReviewing={false} isEmpty={false}
+      connection={connectionDisplay('watching', false)} sessionLabel="All sessions" sessionLabelIsInterface isReviewing={false} isEmpty={false}
       sessions={sessions} sessionsWithActivity={new Set()} {...extra}
     />
   )
