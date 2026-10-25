@@ -42,7 +42,18 @@ export function useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnaps
   allViewKeyRef.current = bridge.allViewKey
   const { selectedSessionId, flushSessionEvents, getSessionEventCount, getBufferedEventCount, getBufferedLifecycleCount, getViewMark, getMemoryDropped } = bridge
   useLayoutEffect(() => {
-    if (selectedSessionId && selectedSessionId !== prevSelectedRef.current) {
+    // Nothing selected: a bridge reset (or the demo left) cleared the buffers and the counters every mark and number
+    // was taken against (#613). No counter backs the old number any more, and a snapshot or mark taken before is
+    // stale: the next view, even the same session again, starts from the buffer as it is now.
+    if (selectedSessionId === null) {
+      if (prevSelectedRef.current !== null) {
+        prevSelectedRef.current = null
+        sessionCacheRef.current.clear()
+      }
+      showDropped(0)
+      return
+    }
+    if (selectedSessionId !== prevSelectedRef.current) {
       // Save outgoing session state (if any)
       if (prevSelectedRef.current !== null) {
         sessionCacheRef.current.set(prevSelectedRef.current, {
