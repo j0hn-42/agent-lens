@@ -32,7 +32,7 @@ import {
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
   RELAY_SCOPE_RATE_BURST, RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
-  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S, RELAY_REPLAY_BATCH_SIZE, RELAY_MAX_PACED_BACKLOG_BYTES,
+  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S, RELAY_REPLAY_BATCH_SIZE, RELAY_MAX_PACED_BACKLOG_BYTES, WATCH_SCAN_DEBOUNCE_MS,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -863,7 +863,7 @@ export interface Relay {
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers, an attach in progress */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; runtimeScanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; runtimeScanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; runtimeScanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
@@ -1260,14 +1260,28 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
 
   // The discovery scans of the other runtimes run on one shared interval, like the Claude scan: started by the
-  // first SSE client, stopped by the last (#654). Without a client the Codex, Copilot, Pi and Gemini fs.watch still react; OpenCode (no fs.watch) is read at the next connection.
+  // first SSE client, stopped by the last (#654). It is a second SharedTicker next to scanTicker, not
+  // scanTicker.acquire(): scanTicker only exists when the Claude runtime is on (and its tick is the Claude scan), while
+  // these scans exist whenever another runtime does. In 'auto' mode a client therefore holds two one-second
+  // intervals, the Claude scan and this one. Without a client the Codex, Copilot, Pi and Gemini fs.watch still react; OpenCode (no fs.watch) is read at the next connection.
+  let runtimeScanRuns = 0
+  let lastRuntimeScanAt = 0
   const scanOtherRuntimes = () => {
+    runtimeScanRuns++
+    lastRuntimeScanAt = Date.now()
     for (const scan of [
       () => codexWatcher?.scan(), () => copilotWatcher?.scan(), () => piWatcher?.scan(),
       () => geminiWatcher?.scan(), () => openCodeWatcher?.scanNow(),
     ]) {
       try { scan() } catch (e) { log('[scan] Runtime scan failed:', e) }
     }
+  }
+  // The scan of a connection (before the client joins, so what it finds reaches it through the list and the replay)
+  // is skipped when one ran less than WATCH_SCAN_DEBOUNCE_MS ago: a burst of reconnections costs one scan of the five
+  // runtimes (statSync of Copilot included), not one each. What appeared in that window comes at the next tick.
+  const scanRuntimesOnConnect = () => {
+    if (Date.now() - lastRuntimeScanAt < WATCH_SCAN_DEBOUNCE_MS) return
+    scanOtherRuntimes()
   }
   // Release is not discovery: a session silent past ACTIVE_SESSION_AGE_S is retired (fs.watch, poll timer) even
   // with nobody connected, on a slow timer and before /status counts (#654)
@@ -1539,7 +1553,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
       // session list and the replay below, and not a second time as a live broadcast (issue #53).
       scanNow?.()
-      if (hasOtherRuntimes) scanOtherRuntimes()
+      if (hasOtherRuntimes) scanRuntimesOnConnect()
       const join = () => {
         // The history that scan read goes to the clients already there; this one gets it in its replay (#652)
         flushHistory()
@@ -1699,6 +1713,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       systemTimerActive: systemTicker.active,
       heartbeatTimerActive: heartbeatTicker.active,
       scanRuns: scanCoalescer.runs,
+      runtimeScanRuns,
       statusRuns: statusComputations,
       dedupSessions: reconciler.rememberedSessions,
       watchedSessions: sessions.size - importedSessions.size,
