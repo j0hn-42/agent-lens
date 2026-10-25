@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument } from './canvas-recorder'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
+import { planOverlays, planKey, resolvePlacement } from '../web/components/agent-visualizer/canvas/overlay-plan'
+import { computeClusters } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { lodForZoom } from '../web/components/agent-visualizer/canvas/draw-options'
 
 stubDocument()
@@ -40,6 +42,29 @@ test('drawAgents: a hidden label costs no text measure of its status line (#661)
   drawAgents(ctx, map([stale]), null, null, false, 1e9, opts(1, { plan: new Map() }))
   const measured = rec.ops.filter(o => o.name === 'measureText').map(o => String(o.args[0]))
   assert.ok(!measured.some(t => /last known/i.test(t)), `measured: ${measured.join(' | ')}`)
+})
+
+test('drawAgents: a label the plan hides is not laid out again, its line count comes from the plan (#613)', () => {
+  // Stacked on one spot: the plan hides some labels. Teammates wrap their name on two lines, so extraLines is 1.
+  const list = Array.from({ length: 6 }, (_, i) => agent(i, { kind: 'teammate', name: `hiddenprobe-${i}-aaaa-bbbb-cccc-dddd`, x: 400 + i * 4 }))
+  const agents = map(list)
+  const result = planOverlays({
+    agents, clusters: computeClusters(agents.values()), edgeBubbles: [], transform: { x: 0, y: 0, scale: 1 },
+    viewport: { w: 1200, h: 800 }, lod: lodForZoom(1), showStats: false, showCost: false, showSessionLabels: false,
+    selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null, simTime: 1, isBubbleHeld: () => false,
+  } as any)
+  const hidden = list.filter(a => result.plan.get(planKey.label(a.id))?.hidden)
+  assert.ok(hidden.length >= 1, 'precondition: the plan hides a label')
+  for (const a of hidden) {
+    const lines = resolvePlacement(result.plan, planKey.label(a.id), 1).extraLines
+    assert.equal(typeof lines, 'number', 'the plan carries the line count of a label it hides')
+  }
+  const { rec, ctx } = watched()
+  drawAgents(ctx, agents, null, null, false, 0, opts(1, { plan: result.plan }))
+  const measured = rec.ops.filter(o => o.name === 'measureText').map(o => String(o.args[0]))
+  for (const a of hidden) {
+    assert.ok(!measured.some(t => t.includes(a.name.slice(0, 14))), `the hidden label of ${a.name} was measured`)
+  }
 })
 
 test('drawAgents: the depth shadow is a sprite, no agent pays a shadowBlur per frame (#661)', () => {
