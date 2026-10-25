@@ -160,6 +160,8 @@ const sseClients = new Set<http.ServerResponse>()
 let pendingSseClients = 0
 /** Of those, the ones that came through an allowed tunnel Host (#241): they count toward the remote cap too */
 let pendingRemoteSseClients = 0
+/** The same waiting clients, to close them when the relay is disposed: they must not join a dead relay (#613) */
+const waitingSseClients = new Set<http.ServerResponse>()
 /** Clients that came through an allowed tunnel Host (#241): counted among sseClients, capped separately. */
 const remoteSseClients = new WeakSet<http.ServerResponse>()
 
@@ -1669,9 +1671,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       pendingSseClients++
       if (remote) pendingRemoteSseClients++
       let waiting = true
+      waitingSseClients.add(res)
       const release = () => {
         if (!waiting) return
         waiting = false
+        waitingSseClients.delete(res)
         pendingSseClients--
         if (remote) pendingRemoteSseClients--
         req.off('close', release)
@@ -1682,7 +1686,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       void attaching.then(() => {
         const left = !waiting
         release()
-        if (left || res.destroyed) { clientSessionFilter.delete(res); return }
+        if (left || res.destroyed || relayDisposed) { clientSessionFilter.delete(res); return }
         join()
       })
     },
@@ -1755,6 +1759,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       geminiWatcher?.dispose()
       openCodeWatcher?.dispose()
       for (const client of [...sseClients]) dropClient(client)
+      for (const client of [...waitingSseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) dropSession(id)
       eventBuffer.clear()
       historyPending.clear()
