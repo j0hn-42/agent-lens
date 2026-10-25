@@ -55,7 +55,7 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
       await panel.getByRole('region', { name: 'Fichiers et répétitions observés' }).waitFor()
       const summary = panel.locator('details > summary').first()
       await assert.doesNotReject(summary.waitFor(), 'the repeats are a native disclosure')
-      assert.match(await summary.innerText(), /^Lectures et appels répétés : 5 répétitions observées$/)
+      assert.match(await summary.innerText(), /^Lectures et appels répétés : 5 cibles répétées observées$/)
       const details = panel.locator('details').first()
       assert.equal(await details.evaluate(d => (d as HTMLDetailsElement).open), false, 'folded while files are listed')
       await expectFits(page, PANEL, `${w}x${h} folded`)
