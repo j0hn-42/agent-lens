@@ -397,6 +397,12 @@ describe('end to end against a real relay', () => {
       })
       req.on('error', reject)
     })
+    // The transcript is attached over several ticks (#651) and listed once its attach ended: the tests start then,
+    // not after a fixed time (#440)
+    const end = Date.now() + 8000
+    const attached = () => relay.debugState().watchedSessions >= 1 && !relay.debugState().attaching
+    while (!attached() && Date.now() < end) await new Promise(r => setTimeout(r, 10))
+    assert.ok(attached(), 'precondition: the transcript is attached')
   })
   after(async () => {
     relay?.dispose?.()
