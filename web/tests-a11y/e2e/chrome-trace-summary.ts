@@ -7,7 +7,8 @@
 //   A Layout outside them is the rendering step of the frame.
 // - Raster is `RasterTask` on any thread (tile workers); Paint and style recalculation (`UpdateLayoutTree`) are
 //   read on the main threads. A 2D canvas drawn in software (headless Chromium) is rasterised when its recorded
-//   draw calls are played back, in the `Commit` of the main thread: that is its raster time, not RasterTask.
+//   draw calls are played back, in the `Commit` of the main thread (hypothesis: no trace event is specific to the
+//   canvas, so Commit is a proxy for its raster time that may include other work), not RasterTask.
 // Times are in ms; per-frame values are null when the window holds no frame (nothing to divide by).
 
 export interface TraceEvent {
@@ -37,7 +38,7 @@ export interface TraceSummary {
   paint: Total
   styleRecalc: Total
   raster: Total
-  /** Commit on the main threads: where a software 2D canvas plays its draw calls back (its raster) */
+  /** Commit on the main threads: where a software 2D canvas would play its draw calls back (hypothesis; a proxy for its raster) */
   commit: Total
   script: Total
   /** Every task of the main threads (RunTask): what the page left of the main thread for input and rendering */

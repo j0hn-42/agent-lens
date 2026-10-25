@@ -86,7 +86,7 @@ Scope of the gain: it holds for a scene drawn as is. With "Hide inactive" on or 
 
 ### A hovered node under load, Chrome trace (`perf-chrome-profile.ts`, #661)
 
-A real Chromium trace (CDP `Tracing`, `devtools.timeline` and `disabled-by-default-devtools.timeline` categories) of 150 active agents while the pointer stays on a node and its tooltip is shown, 5 s per scene, before and after #679 (shadow sprite, cached scanline gradient, bubble buttons written on change, tooltip size from a `ResizeObserver`). A forced style recalculation or layout is one that runs inside a JavaScript task (the "Forced reflow" of the DevTools Performance panel). Headless Chromium draws the 2D canvas in software: its raster is the main thread's `Commit`, where the recorded draw calls are played back.
+A real Chromium trace (CDP `Tracing`, `devtools.timeline` and `disabled-by-default-devtools.timeline` categories) of 150 active agents while the pointer stays on a node and its tooltip is shown, 5 s per scene, before and after #679 (shadow sprite, cached scanline gradient, bubble buttons written on change, tooltip size from a `ResizeObserver`). A forced style recalculation or layout is one that runs inside a JavaScript task (the "Forced reflow" of the DevTools Performance panel). Headless Chromium draws the 2D canvas in software, which suggests that the main thread's `Commit` includes playing the recorded draw calls back. That is a hypothesis: no trace event is specific to the canvas, so the `Commit` column is a proxy for the canvas raster, not a measure of it.
 
 ```bash
 # Two builds already served (next start), profiled in alternation; PROFILE_OUT keeps the traces and screenshots
@@ -96,7 +96,7 @@ PROFILE_TARGETS=before=http://127.0.0.1:3100,after=http://127.0.0.1:3300 PROFILE
 
 Medians of 5 runs, viewport 1280x800, "before" is the parent of the #679 merge (`b01b5aa8`), "after" is `develop` at `e5667d38`:
 
-| scene | build | DPR | forced style recalc / frame | forced Layout / frame | canvas raster (Commit ms / frame) | rAF callback (ms) |
+| scene | build | DPR | forced style recalc / frame | forced Layout / frame | Commit (ms / frame, proxy for the canvas raster) | rAF callback (ms) |
 |---|---|---|---|---|---|---|
 | overview | before | 1 | 0.47 | 0.00 | 3.62 | 11.32 |
 | overview | after | 1 | 0.02 | 0.00 | 3.49 | 11.23 |
@@ -106,6 +106,8 @@ Medians of 5 runs, viewport 1280x800, "before" is the parent of the #679 merge (
 | zoomed | after | 1 | 0.02 | 0.00 | 6.81 | 8.46 |
 | zoomed | before | 2 | 0.46 | 0.00 | 15.84 | 15.50 |
 | zoomed | after | 2 | 0.04 | 0.00 | 15.63 | 15.58 |
+
+Forced Layout: the median is 0.00 per frame, which is a rounded median, not an absence. Over the runs, 3 forced Layout events for "before" (2 at the tooltip's `offsetWidth` in `positionTooltip`, 1 at the control bar) against 10 for "after" (9 at the `getBoundingClientRect` of the control bar, 1 in the pointer handler), almost all from runs where the hover did not hold. Apart from the tooltip, the control-bar source of "after" (44 style recalculations, 9 Layouts) is above its level before the merge and was not examined. The medians above include the runs where the tooltip was not seen during the trace (two are known: `develop` zoomed DPR 1 run 0 with the tooltip never seen, and `before` overview DPR 1 run 2 at 0.22 of the checks); `perf-chrome-profile.ts` now leaves such runs (shown for under 90% of the checks) out of the medians and of the sources and prints how many.
 
 The forced style recalculation read by the tooltip (`offsetWidth` after the style writes of the frame, about one frame in two while hovering, 1,839 events over 4,478 frames) is gone; what remains comes from the `?perf` panel's own `ctx.font`, the pointer handler's `getBoundingClientRect` and the control bar height. The canvas raster and the frame times are equal within 4%: in software rendering the depth shadow was not the main raster cost, so this trace shows no raster gain, and no regression. The main thread is busy about 990 ms per second in every row (software canvas, 150 animated agents), so the frame rate is bound by the machine, not by these changes.
 
@@ -128,13 +130,20 @@ HEAP_SNAPSHOT=/some/dir ...                  # also writes a .heapsnapshot per s
 
 Headless Chromium, demo app in a frame fed by its parent like a VS Code webview. 50 sessions of 5200 events each (260,000 events, past every count cap), posted with `postMessage` so no string is shared between two events. The JS heap of the page is read after a forced GC: before the feed, with the buffers full, and after a `reset` (which empties them). Profile **real**: the caps of the extension's parser (`ARGS_MAX` 80, `RESULT_MAX` 200, `MESSAGE_MAX` 2000, `EDIT_CONTENT_MAX` 500), 1239 JSON characters per event on average. Profile **worst**: every text field at 4096, 6965 characters per event.
 
-| buffers | profile | JS heap before (MB) | buffers full (MB) | after reset (MB) |
+| buffers | profile | JS heap before (MiB) | buffers full (MiB) | after reset (MiB) |
 |---|---|---|---|---|
 | counts only (before) | real | 15.3 | 340.4 | 25.8 |
 | counts only (before) | worst | 15.3 | 1729.5 | 63.5 |
 | with the byte caps | real | 15.3 | 91.9 | 27.9 |
 | with the byte caps | worst | 15.3 | 108.9 | 64.9 |
 
-With counts only, the 250,000 buffered events held 315 MB for the real profile (1.3 KB per event, close to its JSON length) and 1.7 GB for the worst. With the byte caps the heap stays between 92 and 109 MB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
+With counts only, the 250,000 buffered events held 315 MiB for the real profile (1.3 KiB per event, close to its JSON length) and 1.7 GiB for the worst. With the byte caps the heap stays between 92 and 109 MiB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
 
-Cost of buffering, Node on the same machine (`appendSessionEvent` and the All buffer, 260,000 events): 0.17 µs per event with counts only, 1.3 µs (real) and 3.3 µs (worst) with the byte caps, the JSON length of each event being computed once.
+Cost of buffering, `scripts/bench/session-buffers.mts` (`node --import tsx scripts/bench/session-buffers.mts`; `appendSessionEvent` alone, 260,000 events over 50 sessions, median of 7 rounds, Node 24 on a 13th Gen Intel Core i7-13700K, the All buffer not included; new event objects each round because the JSON length is computed once per object): 7.2 µs per event for the real profile and 15.2 µs for the worst one, with the 64 MiB cap in force (it frees whole sessions as the feed goes past it); 2.3 µs per event for the real profile when only the count caps apply. The figures are for that machine; run the script to get yours.
+
+### What a freed session shows (#613)
+
+The 64 MiB cap frees whole sessions, the least recently written first, well before the 50-session cap does: with the real profile (about 1.2 KiB per event) about 54,000 events fit across all the session buffers, that is about 10 full sessions (2 in the worst profile), against 250,000 events before the byte cap. A background session is therefore freed much more often than with the counts alone. What the page then does:
+
+- coming back to a session whose view was cached, when a trim dropped events after the cached count (the buffer keeps the lifecycle events at its head, so this is seen as soon as the dropped events reach the count minus those kept), the view does not resume from the cache (it would skip the events in between without saying so): it restarts and replays what the buffer still holds, lifecycle events included. When the buffer was freed instead, it holds no lifecycle event and a restart would empty the canvas: the cached view is kept and resumes with the events the buffer holds, the ones freed in between are not drawn and nothing on screen says it. A freed session that then received an `agent_spawn` looks like a trim and restarts with only the agents it knows since;
+- a freed session that receives new events starts a new buffer at its old total, without its earlier events, lifecycle ones included (`agent_spawn`, `team_info`). Opened without a cached view, it replays tool calls of an agent whose creation it never saw: the canvas does not draw those calls (the agent does not exist there) and, today, nothing on screen says so. A [session export](session-export.md) of a session that was freed and has not been written since holds no event.

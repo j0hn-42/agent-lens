@@ -8,8 +8,10 @@
 // centroid of the added light away from it, and the share of the added light that stays near lit pixels drops.
 // Measured on the demo (?scenario=team10, 900 x 600): share near lit pixels 0.64-0.69 with the fix at dpr 1 and 2,
 // 0.19-0.40 at dpr 2 without the setTransform(1, 0, 0, 1, 0, 0) of BloomRenderer.apply (0.63 at dpr 1, the control).
-// The centroid assertion fails there too (#613, 2026-10-25, first sample at dpr 2 without the call): near 0.309, centroid
-// off by dx 0.142 and dy 0.073 of the canvas against the 0.03 bound; the dpr 1 control reads dx 0.000, dy 0.004.
+// The centroid assertion would fail there too (inferred, not observed: under the mutation the `near` assertion fails
+// first, so the centroid one never ran). Measured on the first sample at dpr 2 without the call (#613, 2026-10-25):
+// near 0.309, centroid off by dx 0.142 and dy 0.073 of the canvas, both above the 0.03 bound; the dpr 1 control reads
+// dx 0.000, dy 0.004.
 // The samples are taken after 5 s, once the scene is drawn.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'

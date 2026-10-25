@@ -12,12 +12,12 @@ export const SESSION_BUFFER_MAX_SESSIONS = 50
 export const SESSION_BUFFER_LIFECYCLE_RESERVE = 400
 /**
  * Estimated bytes all session buffers may hold together (#659). Client-side only (the relay bounds counts): 50 full
- * buffers retained 314 MB in a real browser with the parser's payload caps (tests-a11y/e2e/heap-measure.ts). Past it the
+ * buffers retained 314 MiB in a real browser with the parser's payload caps (tests-a11y/e2e/heap-measure.ts). Past it the
  * least recently written sessions are freed first, as with the session-count cap; their base keeps the count.
  */
 const SESSION_BUFFER_MAX_BYTES = 64 * 1024 * 1024
 
-const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info'])
+export const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info'])
 
 export interface SessionBuffers {
   /** Insertion order = least recently written first */
@@ -115,6 +115,25 @@ export function sessionEventCount(s: SessionBuffers, sessionId: string): number 
 export function sessionEventsFrom(s: SessionBuffers, sessionId: string, fromIndex = 0): SimulationEvent[] {
   const buf = s.events.get(sessionId) ?? []
   return buf.slice(Math.max(0, fromIndex - (s.base.get(sessionId) ?? 0)))
+}
+
+/** Lifecycle events (agent_spawn, subagent_dispatch, team_info) the session's buffer still holds. */
+export function bufferedLifecycleCount(s: SessionBuffers, sessionId: string): number {
+  let n = 0
+  for (const e of s.events.get(sessionId) ?? []) if (LIFECYCLE_TYPES.has(e.type)) n++
+  return n
+}
+
+/**
+ * Whether a cached view must restart from the buffer instead of resuming at `snapshotCount` (#613).
+ * Only a trim qualifies, not a release: the buffer must still hold lifecycle events, otherwise a restart would
+ * draw an empty canvas where the snapshot still shows the agents (the snapshot is kept, with a silent gap).
+ * Lifecycle events survive at the head of a trimmed buffer, so the dropped events are the oldest non-lifecycle
+ * ones: events after the snapshot are lost as soon as `base` exceeds the snapshot's count minus the lifecycle
+ * events kept (an upper bound of those from before the snapshot, so it errs towards restarting).
+ */
+export function mustRestartFromBuffer(snapshotCount: number, base: number, lifecycleHeld: number): boolean {
+  return base > 0 && lifecycleHeld > 0 && base > snapshotCount - lifecycleHeld
 }
 
 /** Events of the session still in memory (not counting the dropped ones). */
