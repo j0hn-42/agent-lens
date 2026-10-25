@@ -457,12 +457,14 @@ export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement
   const state = (stateKey ? translate(locale, stateKey) : opts.connection.label).toLocaleLowerCase(locale)
   const parts: AnnouncementPart[] = [t('announce.connection', { state })]
   if (opts.sessionLabel) {
-    // A session name is data: the convention is lang="en" for data, so the French voice does not read it
+    // A session name is data: the convention is lang="en" for data, so the French voice does not read it.
+    // The "All sessions" label is interface text (#613): it stays in the language of the region.
+    const isInterfaceText = opts.sessionLabel === translate(locale, 'sessions.allSessions')
     const MARK = '\u0000'
     const [before, after = ''] = translate(locale, 'announce.session', { name: MARK }).split(MARK)
     parts.push({
       ...t('announce.session', { name: opts.sessionLabel }),
-      segments: [{ text: before, lang: locale }, { text: opts.sessionLabel, lang: 'en' }, ...(after ? [{ text: after, lang: locale }] : [])],
+      segments: [{ text: before, lang: locale }, { text: opts.sessionLabel, lang: isInterfaceText ? locale : 'en' }, ...(after ? [{ text: after, lang: locale }] : [])],
     })
   }
   parts.push(opts.isReviewing ? t('announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }) : t('announce.liveMode'))
