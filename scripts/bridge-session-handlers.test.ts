@@ -12,7 +12,7 @@ const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo =>
 
 /** A context made of plain values: the handlers only read and write through it */
 function makeCtx(initial: SessionInfo[] = [], selected: string | null = null) {
-  const calls = { notices: [] as string[], selectedSet: [] as (string | null)[], eventVersion: 0, models: 0, teamViews: 0, activity: [] as Set<string>[] }
+  const calls = { notices: [] as string[], selectedSet: [] as (string | null)[], models: 0, teamViews: 0, activity: [] as Set<string>[] }
   const ctx: SessionHandlerCtx & { sessions: SessionInfo[] } = {
     sessions: initial,
     updateSessions: update => { ctx.sessions = update(ctx.sessions) },
@@ -30,7 +30,6 @@ function makeCtx(initial: SessionInfo[] = [], selected: string | null = null) {
     setSessionModels: () => { calls.models++ },
     refreshTeamView: () => { calls.teamViews++ },
     setSessionsWithActivity: update => { calls.activity.push(update(new Set())) },
-    bumpEventVersion: () => { calls.eventVersion++ },
     pushNotice: (_kind, message) => { calls.notices.push(message) },
     now: () => 1000,
   }

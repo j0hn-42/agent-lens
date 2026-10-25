@@ -144,6 +144,17 @@ export const ConversationPanel = memo(function ConversationPanel({
     : activeTab === 'all' ? [...(droppedMessages?.values() ?? [])].reduce((a, b) => a + b, 0) : (droppedMessages?.get(activeTab) ?? 0)
   const multiSession = hasMultipleSessions(agents)
 
+  // Results shown in full ("Show all"), by message id: the windowing unmounts a row that scrolls out of view, and the
+  // state of the row would go with it (#613)
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpandedRow = useCallback((id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
+
   // Virtual list with auto-scroll
   const {
     visibleItems, handleScroll, measureRef,
@@ -318,7 +329,7 @@ export const ConversationPanel = memo(function ConversationPanel({
           // message of the conversation (data, "en") and an aria-label cannot declare a language (WCAG 3.1.2). The visible
           // role, agent and preview are all in this name (WCAG 2.5.3); the button content is not read a second time.
           aria-labelledby={`${pillLeadId} ${pillPreviewId}`}
-          title={agentName}
+          title={agentName.length > COLLAPSED_AGENT_NAME_MAX ? agentName : undefined}
           onClick={onOpen}
           className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING_INSET}`}
           style={{ maxWidth: PILL_MAX_WIDTH }}
@@ -383,7 +394,7 @@ export const ConversationPanel = memo(function ConversationPanel({
                 style={{ marginBottom: MESSAGE_GAP }}
               >
                 {TOOL_MESSAGE_TYPES.has(msg.type) ? (
-                  <TranscriptMessage message={msg} searchQuery={searchQuery} />
+                  <TranscriptMessage message={msg} searchQuery={searchQuery} expanded={expandedRows.has(msg.id)} onToggleExpanded={toggleExpandedRow} />
                 ) : (
                   <MessageRow
                     message={msg}
@@ -594,10 +605,9 @@ export const ConversationPanel = memo(function ConversationPanel({
               // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
               tabIndex={-1}
               onKeyDown={onTabKeyDown}
-              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 128 px high (four rows), 192 px under 768 px
-              // (44 px tabs), then a vertical scroll
-              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-32 max-md:max-h-48 overflow-y-auto outline-none"
-              style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
+              // Takes the row (Filter pair wraps below it when the panel is narrow). No height cap and no scroll: there are at most
+              // four agents here (the picker takes over from five), so every tab is shown; a cap hid one without any signal (#613)
+              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] outline-none"
             >
               {tabKeys.map((key, i) => {
                 const agent = key === 'all' ? undefined : agents.get(key)

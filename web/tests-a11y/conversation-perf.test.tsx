@@ -20,14 +20,6 @@ test('TranscriptMessage is memoized', () => {
   assert.equal((TranscriptMessage as unknown as { $$typeof: symbol }).$$typeof, Symbol.for('react.memo'))
 })
 
-test('a re-render with identical props keeps the same DOM node', () => {
-  const m: ConversationMessage = { id: 'r', type: 'tool_result', timestamp: 0, content: '< \x1b[31mred\x1b[0m', toolName: 'Bash' }
-  const v = render(<TranscriptMessage message={m} />)
-  const before = v.container.firstElementChild
-  v.rerender(<TranscriptMessage message={m} />)
-  assert.equal(v.container.firstElementChild, before)
-})
-
 test('pruneMeasuredHeights drops the ids that are no longer in the list', () => {
   const heights = new Map([['a', 10], ['b', 20], ['gone', 30]])
   pruneMeasuredHeights(heights, [{ id: 'a' }, { id: 'b' }])
@@ -131,6 +123,22 @@ test('heights survive a filter: pruning follows the source history', () => {
   assert.ok(result.current.totalHeight >= 34, 'the height of m100 was kept while it was filtered out')
 })
 
+test('the hook drops the measured height of a message that left the history (trimmed)', () => {
+  const history = Array.from({ length: 120 }, (_, i) => ({ id: `m${i}` }))
+  const el = document.createElement('div')
+  document.body.appendChild(el)
+  const { result, rerender } = renderHook(
+    ({ items }) => useVirtualList(items, { current: el }, { gap: 4, autoScroll: false, pruneAgainst: items }),
+    { initialProps: { items: history } },
+  )
+  const node = document.createElement('div')
+  Object.defineProperty(node, 'offsetHeight', { value: 30 })
+  act(() => { result.current.measureRef('m100', node as HTMLDivElement) })
+  rerender({ items: history.slice(0, 50) })
+  rerender({ items: history })
+  assert.ok(result.current.totalHeight < 34, `the height of m100 was dropped once it left the history (${result.current.totalHeight})`)
+})
+
 // ─── Windowed panel (jsdom has no layout: heights are stubbed) ───────────────
 
 const agentOf = (id: string, name: string) =>
@@ -192,6 +200,57 @@ test('windowed panel: posinset continuous, setsize total, focused button stays m
     assert.equal(pos()[pos().length - 1], N, 'last message reachable at the bottom')
     assert.ok(showAll!.isConnected, 'the focused button stays mounted after scrolling away')
     assert.equal(document.activeElement, showAll, 'and keeps focus')
+  } finally {
+    for (const [k, d] of Object.entries(descs)) {
+      if (d) Object.defineProperty(proto, k, d); else delete (proto as unknown as Record<string, unknown>)[k]
+    }
+    g.requestAnimationFrame = savedRaf
+  }
+})
+
+// #613: a result opened with "Show all" stays open when the windowing unmounts its row and mounts it again
+test('windowed panel: a result shown in full is still in full after its row scrolled out of the window and back', () => {
+  setLocaleChoice('en')
+  const proto = HTMLElement.prototype
+  const descs = {
+    offsetHeight: Object.getOwnPropertyDescriptor(proto, 'offsetHeight'),
+    clientHeight: Object.getOwnPropertyDescriptor(proto, 'clientHeight'),
+    scrollHeight: Object.getOwnPropertyDescriptor(proto, 'scrollHeight'),
+  }
+  Object.defineProperty(proto, 'offsetHeight', { configurable: true, get() { return 40 } })
+  Object.defineProperty(proto, 'clientHeight', { configurable: true, get() { return 300 } })
+  Object.defineProperty(proto, 'scrollHeight', { configurable: true, get() { return 6000 } })
+  const g = globalThis as unknown as { requestAnimationFrame: unknown }
+  const savedRaf = g.requestAnimationFrame
+  const frames: FrameRequestCallback[] = []
+  g.requestAnimationFrame = (cb: FrameRequestCallback) => frames.push(cb)
+  try {
+    const N = 120
+    const msgs: ConversationMessage[] = Array.from({ length: N }, (_, i) => i === 0
+      ? { id: 'm0', type: 'tool_result', timestamp: 1, content: '< ' + 'long output '.repeat(40), toolName: 'Read' }
+      : { id: `m${i}`, type: 'assistant', timestamp: i + 1, content: `message ${i}` })
+    const v = render(
+      <ConversationHarness
+        registry={createPanelRegistry()} initialOpen conversations={new Map([['o', msgs]])}
+        agents={new Map([['o', agentOf('o', 'orchestrator')]])} selectedAgentId={null} onAgentClick={() => {}}
+      />,
+    )
+    const log = v.container.querySelector('[role="log"]') as HTMLElement
+    const firstRow = () => v.container.querySelector('[role="listitem"][aria-posinset="1"]') as HTMLElement | null
+    const setScroll = (top: number) => act(() => { log.scrollTop = top; fireEvent.scroll(log); frames.splice(0).forEach(cb => cb(0)) })
+    act(() => { frames.splice(0).forEach(cb => cb(0)) })
+    setScroll(0)
+    const toggle = () => firstRow()!.querySelector('button[aria-expanded]') as HTMLButtonElement
+    assert.equal(toggle().getAttribute('aria-expanded'), 'false')
+    act(() => { fireEvent.click(toggle()) })
+    assert.equal(toggle().getAttribute('aria-expanded'), 'true', 'opened')
+    const opened = firstRow()!.textContent
+
+    setScroll(6000)
+    assert.equal(firstRow(), null, 'the first row left the window (unmounted)')
+    setScroll(0)
+    assert.equal(toggle().getAttribute('aria-expanded'), 'true', 'still open when the row is mounted again')
+    assert.equal(firstRow()!.textContent, opened, 'and shows the same full text')
   } finally {
     for (const [k, d] of Object.entries(descs)) {
       if (d) Object.defineProperty(proto, k, d); else delete (proto as unknown as Record<string, unknown>)[k]

@@ -6,11 +6,13 @@
 // openings, as it did when it was in the first bundle. Plain React (no next/dynamic): the same file runs in the Next
 // app and in the Vite bundles of the webview and the standalone app.
 
-import { useEffect, useState, type ComponentType, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type ReactElement } from 'react'
 
 interface LazyOptions<P> {
   /** Load and show only once this is true (a dialog: its `open` prop). Without it the first render loads. */
   when?: (props: P) => boolean
+  /** The chunk did not arrive: a dialog closes itself here, so it does not stay "open" with nothing on screen (#613) */
+  onLoadError?: (props: P, error: unknown) => void
 }
 
 export interface LazyComponent<P> {
@@ -33,12 +35,19 @@ export function lazyComponent<P extends object>(load: () => Promise<ComponentTyp
   function Lazy(props: P): ReactElement | null {
     const wanted = options.when ? options.when(props) : true
     const [Component, setComponent] = useState<ComponentType<P> | null>(() => loaded)
+    // The latest props, read when the load fails: the effect itself must not re-run on every render
+    const propsRef = useRef(props)
+    propsRef.current = props
     useEffect(() => {
       if (Component || !wanted) return
       let live = true
       preload().then(
         () => { if (live) setComponent(() => loaded) },
-        (err: unknown) => { console.error('[lazy] a chunk did not load', err) },
+        (err: unknown) => {
+          console.error('[lazy] a chunk did not load', err)
+          // `pending` is reset: the next opening loads again
+          if (live) options.onLoadError?.(propsRef.current, err)
+        },
       )
       return () => { live = false }
     }, [Component, wanted])

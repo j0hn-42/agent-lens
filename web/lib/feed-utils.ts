@@ -36,7 +36,11 @@ export function formatElapsed(seconds: number): { label: string; iso: string } {
   return { label: formatDuration(s), iso: `PT${s.toFixed(1)}S` }
 }
 
-/** Lists below this size are rendered in full (no windowing). 50 rows keep a re-render near 9 ms (200 rows cost ~33 ms, #657). */
+/**
+ * Lists below this size are rendered in full (no windowing). The 9 ms (50 rows) and 33 ms (200 rows) that chose it were
+ * measured on the rows before they were memoized (#657): they describe the cost the windowing avoids, not the cost of a
+ * re-render with the current code, which was not measured again.
+ */
 export const VIRTUALIZE_THRESHOLD = 50
 
 /** Forget the measured heights of ids that left the list (the map would otherwise only grow). */

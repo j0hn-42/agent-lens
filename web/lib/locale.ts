@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useSyncExternalStore } from 'react'
-import { DEFAULT_LOCALE, LOCALES, LOCALE_STORAGE_KEY, effectiveLocale, isLocaleLoaded, loadLocaleOrDefault, onLocaleLoaded, resolveLocale, translate, type Locale, type MessageKey } from './messages'
+import { DEFAULT_LOCALE, LOCALES, LOCALE_STORAGE_KEY, effectiveLocale, isLocaleLoaded, loadLocale, loadLocaleOrDefault, onLocaleLoaded, resolveLocale, translate, type Locale, type MessageKey } from './messages'
 
 export type LocaleChoice = Locale | 'auto'
 
@@ -52,9 +52,8 @@ export function loadWantedLocale(): Promise<void> {
   return loadLocaleOrDefault(wantedLocale())
 }
 
-/** Unknown values are refused. `auto` forgets the stored choice. */
-export function setLocaleChoice(choice: LocaleChoice): void {
-  if (!isChoice(choice)) return
+/** Keeps `choice` for this page and in the storage (`auto` forgets it). Blocked storage never throws. */
+function storeChoice(choice: LocaleChoice): void {
   pageChoice = choice
   try {
     if (choice === 'auto') window.localStorage.removeItem(LOCALE_STORAGE_KEY)
@@ -62,8 +61,24 @@ export function setLocaleChoice(choice: LocaleChoice): void {
     pageChoice = null
   } catch { /* storage blocked: the choice just lasts for this page */ }
   for (const cb of Array.from(listeners)) cb()
+}
+
+/**
+ * Unknown values are refused. `auto` forgets the stored choice. `load` is the loader of the tables (a test passes a
+ * failing one). When the table of the chosen language does not load, the choice goes back to the previous one, unless
+ * another choice was made meanwhile: the select never names a language the interface is not in (#613).
+ */
+export function setLocaleChoice(choice: LocaleChoice, load: (locale: Locale) => Promise<void> = loadLocale): void {
+  if (!isChoice(choice)) return
+  const previous = getLocaleChoice()
+  storeChoice(choice)
   // The interface switches when the table is there: onLocaleLoaded notifies the same subscribers
-  void loadWantedLocale().catch(() => { /* chunk not loaded: the interface stays in the language it shows */ })
+  load(wantedLocale()).catch(() => {
+    if (previous !== choice && getLocaleChoice() === choice) {
+      storeChoice(previous)
+      return loadLocaleOrDefault(wantedLocale(), load)
+    }
+  }).catch(() => { /* not even the default table: nothing more to do, the interface stays as it is */ })
 }
 
 export function subscribeLocale(cb: () => void): () => void {

@@ -33,7 +33,6 @@ export interface SessionHandlerCtx {
   setSessionModels: (models: ReadonlyMap<string, string>) => void
   refreshTeamView: () => void
   setSessionsWithActivity: (update: (prev: Set<string>) => Set<string>) => void
-  bumpEventVersion: () => void
   pushNotice: (kind: BridgeNotice['kind'], message: string) => void
   now: () => number
 }
@@ -119,6 +118,5 @@ export const SESSION_HANDLERS: Handlers = {
     ctx.refreshTeamView()
     ctx.setSessionsWithActivity(() => new Set())
     ctx.dismissedSessionsRef.current.clear()
-    ctx.bumpEventVersion()
   },
 }

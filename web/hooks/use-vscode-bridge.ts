@@ -198,7 +198,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // The consumed cursor of the session being left, taken when the selection changes and kept until the state
   // swap is done: events received in between sit in the buffer but reach no queue
   const outgoingCursorRef = useRef<{ id: string; cursor: number } | null>(null)
-  const [, setEventVersion] = useState(0) // re-render after a reset or a flush, never per live event (#645)
+  const [, setEventVersion] = useState(0) // re-render after a flush (one per call, measured: tests-a11y/bridge-no-render-per-event), never per live event (#645)
 
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -252,14 +252,26 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // Seeded after mount: the scenario is read from the URL, which the server render cannot know
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_DEMO === '0') return
-    // Not loaded at mount (an entry that did not wait for it): turn the demo on once it is
-    if (!isMockScenarioLoaded()) { showDemo(true); return }
-    if (!HAS_MOCK_SESSIONS || sessionsRef.current.length > 0) return
-    demoSessionsRef.current = true
-    updateSessions(() => mockSessions())
-    selectedSessionIdRef.current = ALL_SESSIONS_ID
-    setSelectedSessionId(ALL_SESSIONS_ID)
-  }, [updateSessions, showDemo])
+    const seedTourSessions = () => {
+      if (!HAS_MOCK_SESSIONS || sessionsRef.current.length > 0) return
+      demoSessionsRef.current = true
+      updateSessions(() => mockSessions())
+      selectedSessionIdRef.current = ALL_SESSIONS_ID
+      setSelectedSessionId(ALL_SESSIONS_ID)
+    }
+    if (isMockScenarioLoaded()) { seedTourSessions(); return }
+    // Not loaded at mount (an entry that did not wait for it): turn the demo on once it is, with the sessions the tour
+    // declares. A newer on/off request (a relay or the bridge took over) wins over this load (#613).
+    const request = ++demoRequestRef.current
+    loadMockScenario().then(
+      () => {
+        if (demoRequestRef.current !== request) return
+        setUseMockData(true)
+        seedTourSessions()
+      },
+      () => { /* chunk not loaded: the demo stays off, nothing is shown that was not loaded */ },
+    )
+  }, [updateSessions])
   // 'All' shows only the active sessions unless the Show mode is 'all' (#372). The choice lives in the preference blob:
   // Settings, the top bar, another tab and 'Reset preferences' all write the same field.
   const { prefs: uiPrefs } = useUiPreferences()
@@ -658,7 +670,6 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       updateSessions, selectedSessionIdRef, setSelectedSessionId, sessionSwitchPendingRef, pendingEventsRef,
       sessionBuffersRef, allEventsRef, allBaseRef, lastEventAtRef, modelTrackerRef, teamTrackerRef, dismissedSessionsRef,
       setSessionModels, refreshTeamView, setSessionsWithActivity, pushNotice,
-      bumpEventVersion: () => setEventVersion(v => v + 1),
       now: Date.now,
     }
     const unsubSession = bridge.onSession((type, data) => {

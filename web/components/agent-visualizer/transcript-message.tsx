@@ -56,8 +56,14 @@ export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?:
 }
 
 /** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. `ansi` renders SGR colors (Bash output). */
-function TruncatedText({ text, limit, query, color, ansi, locale }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean; locale: Locale }) {
-  const [showAll, setShowAll] = useState(false)
+function TruncatedText({ text, limit, query, color, ansi, locale, expanded, onToggle }: {
+  text: string; limit: number; query?: string; color?: string; ansi?: boolean; locale: Locale
+  /** Controlled by the panel (#613): the windowing unmounts a row that scrolls away, and its own state would go with it */
+  expanded?: boolean; onToggle?: () => void
+}) {
+  const [localShowAll, setLocalShowAll] = useState(false)
+  const showAll = onToggle ? expanded === true : localShowAll
+  const toggle = onToggle ?? (() => setLocalShowAll(v => !v))
   // Truncation counts visible characters: escape sequences are parsed out before cutting
   // Parsed once per text (up to 4000 chars), not on every render of the row (#657)
   const { segments, t } = useMemo(() => {
@@ -77,7 +83,7 @@ function TruncatedText({ text, limit, query, color, ansi, locale }: { text: stri
         <button
           type="button"
           aria-expanded={showAll}
-          onClick={() => setShowAll(v => !v)}
+          onClick={toggle}
           className={`block mt-0.5 min-h-6 px-1 rounded text-2xs font-mono underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
@@ -92,9 +98,12 @@ function TruncatedText({ text, limit, query, color, ansi, locale }: { text: stri
  * Tool activity rows of the Conversation panel (tool_call / tool_result). Conversation text, thinking and
  * agent-to-agent rows are rendered by the panel's own row component.
  */
-export const TranscriptMessage = memo(function TranscriptMessage({ message, searchQuery }: {
+export const TranscriptMessage = memo(function TranscriptMessage({ message, searchQuery, expanded, onToggleExpanded }: {
   message: ConversationMessage
   searchQuery?: string
+  /** The result is shown in full, and the toggle: kept by the panel across the unmounting of a windowed row (#613) */
+  expanded?: boolean
+  onToggleExpanded?: (messageId: string) => void
 }) {
   useThemeVersion() // memoized row: repaint on a theme switch (COLORS is mutated in place)
   const { locale } = useLocale()
@@ -153,7 +162,8 @@ export const TranscriptMessage = memo(function TranscriptMessage({ message, sear
             )}
           </div>
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
-            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} locale={locale} />
+            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} locale={locale}
+              expanded={expanded} onToggle={onToggleExpanded ? () => onToggleExpanded(message.id) : undefined} />
           </div>
           {!message.isError && <ResultPillView pill={message.resultPill} locale={locale} />}
         </div>
