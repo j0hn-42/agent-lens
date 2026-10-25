@@ -15,7 +15,7 @@ import type { AgentEvent, WatchedSession } from '../src/protocol'
 import { ClaudeSessionPipeline, type ClaudeSessionHost } from '../src/claude-session-pipeline'
 import { EventReconciler } from '../src/event-source-priority'
 import { readSubagentNewLines } from '../src/subagent-watcher'
-import { PRESCAN_CHUNK_BYTES, PRESCAN_SLICE_MS } from '../src/fs-utils'
+import { PRESCAN_CHUNK_BYTES, PRESCAN_SLICE_MS, AttachCancelled, TimeSlice } from '../src/fs-utils'
 import { ACTIVE_SESSION_AGE_S, TEAMMATE_REPLAY_MAX_BYTES } from '../src/constants'
 
 const S1 = '65100000-0000-4000-8000-000000000001'
@@ -365,5 +365,43 @@ describe('an idle subagent is read only by its end at attach (#651)', () => {
     const state = session.subagentWatchers.get(file)!
     assert.ok(state.seenToolUseIds.has('head-0') && state.seenToolUseIds.has('tail-0'))
     assert.equal(state.fileSize, fs.statSync(file).size)
+  })
+})
+
+/**
+ * The two alive() checks of loadHistory (after the stat, after the prescan) are tested one by one (#613): the slice
+ * is never cancelled here, so only the check itself can stop the attach, and each test lets the other one pass.
+ */
+describe('loadHistory checks alive() after the stat and after the prescan (#613)', () => {
+  let r: Rig | null = null
+  afterEach(() => {
+    if (!r) return
+    for (const s of r.sessions.values()) r.pipeline.release(s)
+    fs.rmSync(r.dir, { recursive: true, force: true })
+    r = null
+  })
+  type Loader = { loadHistory(s: WatchedSession, slice: TimeSlice, alive: () => boolean): Promise<void> }
+
+  it('dead after the stat: the transcript is not even prescanned', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(16 * 1024, 'a'))
+    const session = r.session(S1)
+    const prescan = mock.method(r.pipeline.parser, 'prescanExistingContentAsync')
+    let calls = 0
+    await assert.rejects((r.pipeline as unknown as Loader).loadHistory(session, new TimeSlice(), () => { calls++; return false }), AttachCancelled)
+    assert.equal(calls, 1, 'stopped at the first check')
+    assert.equal(prescan.mock.callCount(), 0, 'nothing was read')
+    assert.deepEqual(r.lifecycle, [])
+  })
+
+  it('dead after the prescan: the session is not announced (an empty transcript has no slice to notice it)', async () => {
+    r = rig()
+    r.transcript(S1, '')
+    const session = r.session(S1)
+    let calls = 0
+    await assert.rejects((r.pipeline as unknown as Loader).loadHistory(session, new TimeSlice(), () => ++calls < 2), AttachCancelled)
+    assert.equal(calls, 2, 'the second check is the one that stopped it')
+    assert.deepEqual(r.lifecycle, [], 'no started')
+    assert.equal(session.sessionDetected, false)
   })
 })
