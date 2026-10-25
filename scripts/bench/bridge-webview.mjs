@@ -1,10 +1,15 @@
 // #656: cost of an attach burst on the webview side, in real Chromium (Playwright + CDP). Not run by any test.
 // The production webview bundle (extension/dist/webview/index.js, `pnpm --dir web run build:webview`) is loaded in an
-// iframe, as VS Code does; the parent frame posts the burst to it with window.postMessage (the last hop before the
+// iframe, like a VS Code panel but not identical to it: neither page posts `__vscode-bridge-init`, so the bundle runs
+// with `isVSCode` false, not in panel mode. The event path measured (bridge.onEvent, then the hook) is the same in both
+// modes and every mode is measured that way, so the before/after comparison holds. The parent frame posts the burst to it with window.postMessage (the last hop before the
 // page), either one `agent-event` per event (before) or `agent-event-batch` of 500 marked `live` (what the panel sends
 // now, extension/src/event-coalescer.ts). No port is opened by the page: requests are answered by page.route.
 // Measures: post = time of the sending frame; last-dispatched = from the first post to the end of the page's last
-// 'message' listener (bridge + hook); with TRACE=1, message-tasks = sum of the HandlePostMessage tasks of the trace.
+// 'message' listener (bridge + hook). In `single` mode it also counts the React/scheduler tasks that run between the
+// 60,000 message tasks, so it is not the transport alone (measured: listeners alone 255 vs 149 ms; HandlePostMessage
+// sum 874 vs 198 ms with TRACE=1, which is the transport alone but inflated by tracing: last-dispatched is 1665 vs
+// 829 ms traced vs untraced). With TRACE=1, message-tasks = sum of the HandlePostMessage tasks of the trace.
 // Usage: node scripts/bench/bridge-webview.mjs [events=60000] [rounds=3]   (MODES=single,batch:500,live:500 TRACE=1)
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
@@ -51,6 +56,11 @@ const metric = (m, name) => m.metrics.find(x => x.name === name).value
 
 async function run(browser, mode) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  // Whatever run throws (300 s wait, Tracing/IO failure), the page is closed and Chromium is not left to the exit handler
+  try { return await runOn(page, mode) } finally { await page.close().catch(() => {}) }
+}
+
+async function runOn(page, mode) {
   await page.route(`${ORIGIN}/**`, (route) => {
     const p = new URL(route.request().url()).pathname
     if (p === '/index.js') return route.fulfill({ body: js, contentType: 'text/javascript' })
@@ -88,7 +98,7 @@ async function run(browser, mode) {
   await frame.waitForFunction((n) => window.__got >= n, N, { timeout: 300000, polling: 100 })
   const innerLast = await frame.evaluate(() => ({ lastAt: window.__lastAt, timeOrigin: performance.timeOrigin, handlerMs: window.__handlerMs }))
   const lastMs = innerLast.timeOrigin + innerLast.lastAt - (sent.timeOrigin + (await page.evaluate(() => window.__t0)))
-  if (!TRACE) { await page.close(); return { mode, postMs: sent.postMs, lastMs, handlerMs: innerLast.handlerMs, dispatches: 0, dispatchMs: 0, tasks: 0, taskMs: 0 } }
+  if (!TRACE) { return { mode, postMs: sent.postMs, lastMs, handlerMs: innerLast.handlerMs, dispatches: 0, dispatchMs: 0, tasks: 0, taskMs: 0 } }
   const done = new Promise((resolve) => cdp.once('Tracing.tracingComplete', resolve))
   await cdp.send('Tracing.end')
   const { stream } = await done
@@ -114,7 +124,6 @@ async function run(browser, mode) {
   }
   const dispatchMs = dispatches.reduce((s, e) => s + e.dur, 0) / 1000
   const taskMs = [...holding].reduce((s, e) => s + e.dur, 0) / 1000
-  await page.close()
   return { mode, postMs: sent.postMs, lastMs, handlerMs: innerLast.handlerMs, dispatches: dispatches.length, dispatchMs, tasks: holding.size, taskMs }
 }
 
@@ -122,8 +131,9 @@ const browser = await chromium.launch()
 browser.on('disconnected', () => console.error('browser disconnected'))
 const modes = (process.env.MODES ?? 'single,batch:500,live:500').split(',')
 const rows = []
-for (let r = 0; r < ROUNDS; r++) for (const mode of modes) rows.push(await run(browser, mode))
-await browser.close()
+try {
+  for (let r = 0; r < ROUNDS; r++) for (const mode of modes) rows.push(await run(browser, mode))
+} finally { await browser.close().catch(() => {}) }
 const f = (x) => x.toFixed(0)
 console.log('mode        post(ms) last-dispatched(ms) listeners(ms) dispatches dispatch(ms) tasks task(ms)')
 for (const r of rows) console.log([r.mode.padEnd(11), f(r.postMs).padStart(8), f(r.lastMs).padStart(19), f(r.handlerMs).padStart(13), String(r.dispatches).padStart(10), f(r.dispatchMs).padStart(12), String(r.tasks).padStart(5), f(r.taskMs).padStart(8)].join(' '))

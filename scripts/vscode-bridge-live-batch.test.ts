@@ -3,6 +3,9 @@ import { strict as assert } from 'node:assert'
 
 // #656: the VS Code panel sends the events of one 16 ms window as one `agent-event-batch` marked `live`. Such a batch
 // is live traffic: its events keep their own `replayed` flag. A batch without it is still history (relay replay, #652).
+// Of the four tests, only the first (a live batch keeps `replayed` undefined) fails without the change to
+// web/lib/vscode-bridge.ts; the other three (a batch without `live` is history, `live` is strict, an invalid event is
+// skipped) already passed on develop: they are non-regression tests, not red-then-green ones.
 type Listener = (e: { data: unknown; source: unknown; origin: string }) => void
 const listeners: Listener[] = []
 const parent = { postMessage() {} }

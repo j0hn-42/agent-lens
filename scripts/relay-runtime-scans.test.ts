@@ -31,6 +31,7 @@ const realTimeout = global.setTimeout
 // The Codex watcher finds a new rollout by itself, WATCH_SCAN_DEBOUNCE_MS after its fs.watch fires. To prove what the
 // scan of a CONNECTION finds, the tests hold that deferred scan back (its timer is recorded, not armed) until they have
 // connected, then let it run. Only the timers of exactly that delay are held, and only while held.
+let muteTicks = false
 let heldDeferred: (() => void)[] | null = null
 function holdWatcherScans(): () => void {
   const held: (() => void)[] = []
@@ -47,7 +48,9 @@ async function waitFor(pred: () => boolean, ms = 3000): Promise<boolean> {
 describe('scans of the other runtimes stop without a client (#654)', () => {
   before(async () => {
     global.setInterval = ((fn: () => void, ms?: number, ...args: unknown[]) => {
-      const t = (realSet as (...a: unknown[]) => unknown)(fn, ms, ...args)
+      // A test can mute the one-second ticks (muteTicks) to count only the scans of the connections
+      const run = ms === SCAN_INTERVAL_MS ? () => { if (!muteTicks) fn() } : fn
+      const t = (realSet as (...a: unknown[]) => unknown)(run, ms, ...args)
       if (ms === SCAN_INTERVAL_MS) liveScanIntervals.add(t)
       return t
     }) as typeof setInterval
@@ -201,11 +204,22 @@ describe('scans of the other runtimes stop without a client (#654)', () => {
   it('a burst of connections costs exactly one scan of the other runtimes, not one per connection and not none (#682)', async () => {
     await pastScanWindow()
     const before = relay.debugState().runtimeScanRuns
-    const reqs = Array.from({ length: 8 }, () => http.get({ host: '127.0.0.1', port, path: '/events', agent: false }))
-    for (const r of reqs) r.on('error', () => {})
-    assert.ok(await waitFor(() => relay.debugState().sseClients === 8))
-    for (const r of reqs) r.destroy()
-    assert.ok(await waitFor(() => relay.debugState().sseClients === 0))
+    // Independent of the wall clock (#613): Date is frozen, so the 250 ms coalescing window cannot expire between the
+    // eight connections however slow they are, and the one-second tick is muted, so a client kept past a tick is not counted
+    mock.timers.enable({ apis: ['Date'], now: Date.now() })
+    muteTicks = true
+    try {
+      const reqs = Array.from({ length: 8 }, () => http.get({ host: '127.0.0.1', port, path: '/events', agent: false }))
+      for (const r of reqs) r.on('error', () => {})
+      // Polls by count: with Date frozen, a deadline taken from Date.now() would never expire
+      const until = async (pred: () => boolean) => {
+        for (let i = 0; i < 500 && !pred(); i++) await new Promise(r => (realTimeout as typeof setTimeout)(r, 20))
+        return pred()
+      }
+      assert.ok(await until(() => relay.debugState().sseClients === 8))
+      for (const r of reqs) r.destroy()
+      assert.ok(await until(() => relay.debugState().sseClients === 0))
+    } finally { muteTicks = false; mock.timers.reset() }
     assert.equal(relay.debugState().runtimeScanRuns - before, 1, `8 connections made ${relay.debugState().runtimeScanRuns - before} scans`)
   })
 })
