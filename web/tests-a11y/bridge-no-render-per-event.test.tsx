@@ -46,8 +46,9 @@ test('events of a session that is not displayed: a render for the first two (act
   const before = renders
   act(() => { post(ev('b', 1)) })
   assert.ok(result.current.sessionsWithActivity.has('b'))
-  assert.ok(renders - before >= 1, 'the first event of the background session marks it')
+  assert.equal(renders - before, 1, 'the first event of the background session marks it: one render')
   for (let i = 2; i < 5; i++) act(() => { post(ev('b', i)) })
+  assert.equal(renders - before, 2, 'events 2 to 4: one more render (visibility), two renders in all for the first events')
   const settled = renders
   for (let i = 5; i < 55; i++) act(() => { post(ev('b', i)) })
   console.log(`[#613] renders for 50 more events of a background session: ${renders - settled}`)
@@ -65,7 +66,7 @@ test('a reset re-renders through the session state it clears, with no bump of it
   act(() => { result.current.flushSessionEvents('a') })
   const before = renders
   act(() => { post({ type: 'reset', reason: 'panel-reopened' }) })
-  assert.ok(renders - before >= 1, 'rendered')
+  assert.equal(renders - before, 2, 'rendered twice: the session state it clears, no bump')
   assert.equal(result.current.sessions.length, 0)
   assert.equal(result.current.selectedSessionId, null)
 })
