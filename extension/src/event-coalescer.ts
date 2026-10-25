@@ -2,7 +2,13 @@ import type { AgentEvent, ExtensionToWebviewMessage } from './protocol'
 
 /** How long the panel holds an event before sending it (#656): one frame, so a burst goes in a few messages */
 export const PANEL_EVENT_FLUSH_MS = 16
-/** At most this many events per `agent-event-batch` of the panel: a fuller buffer is sent at once (#656) */
+/**
+ * At most this many events per `agent-event-batch` of the panel: a fuller buffer is sent at once (#656).
+ * A count, not a byte budget (#613): with large payloads (long tool results) a batch can weigh tens of Mio in one
+ * postMessage where the same burst used to go as small messages. Same kind of cap as RELAY_MAX_* in relay.ts and
+ * relay-guards.ts, so no existing guard is weakened; measuring each event (JSON.stringify) to cut by bytes would
+ * double the serialization cost of every burst, which is the cost this coalescer removes.
+ */
 export const PANEL_EVENT_BATCH_MAX = 500
 
 export interface EventCoalescerOptions {
