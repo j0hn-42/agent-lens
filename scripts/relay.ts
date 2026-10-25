@@ -1620,8 +1620,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         // (#653). Nothing is lost by leaving it out; what the cap or the buffer cannot give back is still counted below.
         let buffers: ReadonlyMap<string, readonly AgentEvent[]> = eventBuffer
         if (sinceSeq !== null) {
+          // With ?session=, only that buffer is read (the replay keeps nothing else): not the 50,000 events of all sessions
           const after = new Map<string, readonly AgentEvent[]>()
-          for (const [sid, events] of eventBuffer) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
+          const sources: Iterable<[string, readonly AgentEvent[]]> = sessionParam
+            ? (eventBuffer.has(sessionParam) ? [[sessionParam, eventBuffer.get(sessionParam)!]] : [])
+            : eventBuffer
+          for (const [sid, events] of sources) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
           buffers = after
         }
         const replay = capReplayBatches(
