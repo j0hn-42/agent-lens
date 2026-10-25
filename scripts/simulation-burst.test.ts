@@ -206,8 +206,12 @@ test('the catch-up is cut into frame slices and ends with the same state as even
 // files of `pnpm test`, other worktrees, a 2-vCPU CI runner), so a fixed threshold failed under load while the code
 // had not changed (555 to 1257 ms for 230 to 490 ms otherwise). Each measure is divided by the time of a fixed
 // reference work that does not use the simulation code (copies of a 300-entry Map, the kind of work a batch does),
-// timed just before and just after it, in the same conditions. Load slows both; a regression of the simulation code
-// only slows the measure, so it still fails.
+// timed just before and just after it (the mean of the two), never during the measure. Load slows both as long as it
+// is stable over the few hundred ms of a run; a load that starts or stops in the middle of a measure is not
+// compensated, hence the fastest of RUNS runs. A regression of the simulation code only slows the measure, so it still
+// fails. Proof (#613, 2026-10-25): with `Object.assign(state, copyCollections(state))` at the top of the loop of
+// processEventBatch (the collections copied per event), the total is 1773, 1839 and 1842 ms for a reference of 42.3,
+// 42.5 and 42.8 ms, i.e. 41.9 to 43.0 references against a budget of 11.1: the test fails.
 // The budgets were set on a machine where the reference takes about 45 ms: 500 ms in total and 50 ms per frame
 // there, i.e. 11 and 1.1 references. Measured there: 4.6 to 6.2 references in total, 0.18 to 0.20 for the worst
 // frame; on the same machine with 3 other processes on its core (each measure 4x slower): 5.4 to 7.9 and 0.25 to 0.39.
