@@ -87,6 +87,21 @@ describe('subagent file watchers are held by active subagents only (#654)', () =
     assert.equal(state.watchFailed, true)
   })
 
+  it('a failure remembered at the first arming is forgotten once the subagent is idle: a later write is watched again (#613)', () => {
+    const { session, h } = setup(1, 0)
+    const watch = mock.method(fsModule, 'watch', () => { throw Object.assign(new Error('too many open files'), { code: 'EMFILE' }) })
+    try { scanSubagentsDir(h.delegate, h.parser, 's1') } finally { watch.mock.restore() }
+    assert.ok(watch.mock.callCount() >= 1, 'the arming failed at the first scan')
+    // The same scan releases the idle subagent: its failure is forgotten with its watcher
+    const [file, state] = [...session.subagentWatchers.entries()][0]
+    try {
+      assert.equal(state.watchFailed, false)
+      fs.appendFileSync(file, jl(assistantToolUse('again', 'Bash', { command: 'true' })))
+      readSubagentNewLines(h.delegate, h.parser, file, 's1')
+      assert.notEqual(state.watcher, null, 'the watcher is armed again')
+    } finally { h.closeWatchers() }
+  })
+
   it('a subagent whose dispatch is still open keeps its watcher however old its file is', () => {
     dir = tmpDir()
     writeTeammate(dir, {
