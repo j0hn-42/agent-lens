@@ -115,3 +115,31 @@ test('a reconnection keeps what was delivered: nothing tells the app to empty it
   FakeES.last.send({ type: 'agent-event', event: ev })
   assert.equal(messages.length, before + 1, 'a replayed duplicate is dropped')
 })
+
+// #613: the graph of the app after a reconnection is what proves the behaviour, not the absence of a message.
+test('the simulated graph keeps every event across a reconnection, whether the relay honours since or replays everything (#613)', async () => {
+  const graph = () => messages.filter(m => (m as { type?: string }).type === 'agent-event').map(m => (m as { event: { time: number } }).event.time)
+  const ev = (time: number) => ({ type: 'agent-event', event: { time, type: 'message', sessionId: 's' }, seq: 10 + time })
+  start()
+  FakeES.last.open()
+  FakeES.last.send({ type: 'relay-cursor', instance: INSTANCE, seq: 10 })
+  for (const t of [1, 2, 3]) FakeES.last.send(ev(t))
+  assert.deepEqual(graph(), [1, 2, 3])
+  FakeES.last.fail()
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.last.url, `http://relay/events?since=${INSTANCE}.13`, 'precondition: the cursor is sent back')
+  // A relay that honours since: only what is numbered after it
+  FakeES.last.open()
+  FakeES.last.send({ type: 'agent-event-batch', events: [ev(4).event] })
+  assert.deepEqual(graph(), [1, 2, 3], 'nothing emptied the graph')
+  const batchTimes = messages.flatMap(m => (m as { type?: string; events?: { time: number }[] }).type === 'agent-event-batch' ? (m as { events: { time: number }[] }).events.map(e => e.time) : [])
+  assert.deepEqual(batchTimes, [4], 'only the missing event arrived in the replay')
+  // A relay that ignores since (older, other instance) replays all: the copies already delivered are dropped
+  FakeES.last.fail()
+  await tick(BACKOFF_BASE_MS)
+  FakeES.last.open()
+  FakeES.last.send({ type: 'agent-event-batch', events: [1, 2, 3, 4, 5].map(t => ev(t).event) })
+  const all = [...graph(), ...messages.flatMap(m => (m as { type?: string; events?: { time: number }[] }).type === 'agent-event-batch' ? (m as { events: { time: number }[] }).events.map(e => e.time) : [])]
+  assert.deepEqual([...new Set(all)].sort(), [1, 2, 3, 4, 5])
+  assert.equal(all.length, 5, 'each event of the graph once: the replayed copies were dropped')
+})
