@@ -20,7 +20,7 @@ import {
 import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
-  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S, SUBAGENT_WATCH_IDLE_MS,
+  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S, SUBAGENT_WATCH_IDLE_MS, NORM_MAX_LINE_CHARS,
 } from './constants'
 import {
   safeWatch, readTrackedLines, readLinesChunked, readLineBatches, readJsonFileSafe, listSubagentTranscripts,
@@ -326,6 +326,13 @@ function startWatchingSubagentFile(
 }
 
 /**
+ * Longest unfinished line the full read keeps in memory: a line longer than NORM_MAX_LINE_CHARS characters (4 bytes
+ * each at most in UTF-8) is dropped by the normalizer anyway (#613). The prescan does not go through the normalizer, so a dropped line
+ * is counted and the history is then unproven: no spawn is inferred from it (#693).
+ */
+const SUBAGENT_FULL_READ_MAX_LINE_BYTES = NORM_MAX_LINE_CHARS * 4
+
+/**
  * startWatchingSubagentFile at attach (#651). An idle file (not written for ACTIVE_SESSION_AGE_S) is read only by
  * its end (readTranscriptTail, as a teammate's): the position is the end of its last complete line, so a line
  * still being written and every later call are read by the tail, none is lost. An active one is read in full,
@@ -341,6 +348,7 @@ async function startWatchingSubagentFileAsync(
   const start = beginSubagentFile(delegate, parser, filePath, sessionId)
   if (!start) return
   const pendingToolUseIds = new Set<string>()
+  let dropped = 0
   let mtimeMs: number | undefined
   try {
     const stat = await fs.promises.stat(filePath)
@@ -354,7 +362,7 @@ async function startWatchingSubagentFileAsync(
       start.state.fileTail = ''
       for (const line of tail.lines) prescanSubagentLine(line, start.state, pendingToolUseIds)
     } else {
-      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state)) {
+      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state, SUBAGENT_FULL_READ_MAX_LINE_BYTES, () => { dropped++ })) {
         for (const line of lines) {
           prescanSubagentLine(line, start.state, pendingToolUseIds)
           if (slice.due()) await slice.pause()
@@ -365,6 +373,12 @@ async function startWatchingSubagentFileAsync(
   } catch (err) {
     if (err instanceof AttachCancelled) throw err
     log.debug('Subagent initial read failed:', err)
+  }
+  if (dropped > 0) {
+    // A dropped line may have held the tool_result of a pending call (or a tool_use): the prescan is partial, so no
+    // spawn is decided from it (a finished subagent must not be shown as active)
+    log.warn(`Subagent ${path.basename(filePath)}: ${dropped} line(s) over the read cap were not prescanned; no spawn is inferred from its history`)
+    pendingToolUseIds.clear()
   }
   finishSubagentFile(delegate, parser, start, filePath, sessionId, pendingToolUseIds, mtimeMs)
 }
@@ -494,12 +508,15 @@ function armSubagentWatcher(
 function releaseIdleSubagentWatchers(parser: TranscriptParser, session: WatchedSession, sessionId: string, now = Date.now()): void {
   const registry = parser.getSubagentRegistry(sessionId)
   for (const state of session.subagentWatchers.values()) {
-    if (!state.watcher || state.lastWriteMs === undefined) continue
+    if ((!state.watcher && !state.watchFailed) || state.lastWriteMs === undefined) continue
     if (now - state.lastWriteMs < SUBAGENT_WATCH_IDLE_MS) continue
     // Teammates and workflow agents are judged by their tracker: working (open tool, recent write) keeps the watcher
     if (state.teammate && state.teammate.tracker.activity(now) === 'working') continue
     const record = state.agentId ? registry.getByFileKey(state.agentId) : undefined
     if (record?.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) continue
+    // A failed arming (EMFILE/ENOSPC) may have been passing: an idle subagent is tried again at its next write (#613)
+    state.watchFailed = false
+    if (!state.watcher) continue
     try { state.watcher.close() } catch { /* already closed */ }
     state.watcher = null
   }
