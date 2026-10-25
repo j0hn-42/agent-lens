@@ -1,5 +1,5 @@
 // #613 (review of PR 687): "190k / 200k tokens (incomplete)" under the context bar is ONE fillText, and in every theme it
-// is drawn at 4.5:1 or more on its plate over the canvas ground. The proof lives here (recording context, no browser) because
+// is drawn at 4.5:1 or more on its plate AND on the bare canvas ground (the label is wider than its plate: see below). The proof lives here (recording context, no browser) because
 // the demo has no session that lost events, and a screenshot taken under the first-run tour card proves nothing.
 import './canvas-recorder'
 import { test } from 'node:test'
@@ -40,6 +40,20 @@ for (const id of THEME_IDS) {
       assert.ok(parse(l.fillStyle), `${l.fillStyle} is a plain colour`)
       const r = ratio(over(l.fillStyle, plate, l.globalAlpha), plate)
       assert.ok(r >= 4.5, `${id}: ${l.args[0]} ${r.toFixed(2)}:1`)
+    }
+  })
+
+  // The plate is barWidth + 4 wide (64 or 78 px on the fixture) while the text is about 205 px of 11 px monospace: most of
+  // the glyphs, all of "(incomplete)", sit on the bare ground, not on the plate. The label deliberately overflows its plate,
+  // so the ground is a background the line must clear as well.
+  test(`${id}: the "(incomplete)" token line reaches 4.5:1 on the bare canvas ground where it overflows its plate`, () => {
+    const ground = solid(SCENE.void)
+    const lines = tokenLine(id, true).filter(l => /incomplete/.test(String(l.args[0])))
+    assert.ok(lines.length > 0)
+    for (const l of lines) {
+      assert.ok(parse(l.fillStyle), `${l.fillStyle} is a plain colour`)
+      const r = ratio(over(l.fillStyle, ground, l.globalAlpha), ground)
+      assert.ok(r >= 4.5, `${id}: ${l.args[0]} on the ground ${r.toFixed(2)}:1`)
     }
   })
 }
