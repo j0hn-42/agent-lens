@@ -103,7 +103,9 @@ function openSse(): Promise<Sse> {
 async function snapshot(): Promise<{ ids: string[]; replayed: Set<string> }> {
   const sse = await openSse()
   try {
-    await new Promise(r => setTimeout(r, 250))
+    // The cursor follows the list and the whole replay; the client gets them once the attach ended, however long
+    // it took (#651), so the snapshot waits for it instead of a fixed 250 ms (#440)
+    await sse.waitFor(m => m.type === 'relay-cursor', 8000)
     const list = sse.messages.find(m => m.type === 'session-list')
     const replayed = new Set<string>()
     for (const m of sse.messages) {
