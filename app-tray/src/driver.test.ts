@@ -27,6 +27,13 @@ async function until<T>(fn: () => T | undefined | false, ms = 4000): Promise<T> 
   }
 }
 
+/** The real fetch, counting the requests that have settled (answered, failed or aborted). */
+function countingFetch() {
+  let settled = 0
+  const f = ((u: string, init: RequestInit) => fetch(u, init).finally(() => { settled++ })) as unknown as typeof fetch
+  return { fetch: f, settled: () => settled }
+}
+
 const dirs: string[] = []
 const handles: DriverHandle[] = []
 const pids: number[] = []
@@ -197,15 +204,21 @@ describe('startDriver with a fake relay and a fake binary', () => {
   })
 
   it('names each failure kind once, without the raw answer', async () => {
+    // Counted probes, not a fixed delay (#440): on a loaded machine the fake relay can take longer than 400 ms to
+    // print its URL, and a sleep then saw no probe at all. Four answered probes prove "once", not "not yet".
+    // The probe timeout is long here: an answer slower than the rig's 500 ms on a loaded machine is a third kind
+    // (timeout), logged as it should be, but not the kind this part checks.
     for (const [mode, kind] of [['status-500', 'http-error'], ['status-bad-json', 'invalid-json']]) {
-      const r = rig({ FAKE_RELAY_MODE: mode })
-      await sleep(400)
+      const probes = countingFetch()
+      const r = rig({ FAKE_RELAY_MODE: mode }, {}, { fetch: probes.fetch, probeTimeoutMs: 10_000 })
+      await until(() => probes.settled() >= 4, 15_000)
       assert.deepEqual(r.logs.filter(l => l.includes('/status')), [`/status probe failed: ${kind}`], mode)
       r.handle.stop()
       await r.handle.done
     }
-    const r = rig({ FAKE_RELAY_MODE: 'status-hang' }, {}, { probeTimeoutMs: 60 })
-    await sleep(500)
+    const probes = countingFetch()
+    const r = rig({ FAKE_RELAY_MODE: 'status-hang' }, {}, { probeTimeoutMs: 60, fetch: probes.fetch })
+    await until(() => probes.settled() >= 4, 15_000)
     assert.deepEqual(r.logs.filter(l => l.includes('/status')), ['/status probe failed: timeout'])
   })
 

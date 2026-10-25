@@ -170,6 +170,9 @@ describe('relay: a session attached over several ticks (#651)', () => {
     await waitFor(() => !relay.debugState().attaching)
     await waitFor(() => relay.debugState().sseClients >= RELAY_MAX_SSE_CLIENTS)
     await waitFor(() => received.some(r => r.type === 'permission_requested'), 5000)
+    // What the relay wrote to the early client once it joined is read by this process later, on a loaded machine
+    // after the checks above (#440): wait for the cursor, written after the list and the whole replay.
+    await waitFor(() => messagesOf(early.text()).some(m => m.type === 'relay-cursor'), 15_000)
   })
 
   after(() => {
