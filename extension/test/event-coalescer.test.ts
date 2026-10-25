@@ -122,9 +122,11 @@ describe('VisualizerPanel sends its events through the coalescer (#656)', () => 
     return { panel, posted, close: () => onDispose?.() }
   }
 
-  it('events then another message: one live batch, then that message; a lone event later stays an agent-event', async () => {
+  it('events then another message: one live batch, then that message; a lone event later stays an agent-event', async (t) => {
     const { VisualizerPanel } = await import('../src/webview-provider')
     const f = fakeWebviewPanel()
+    // Closed even when an assertion fails: the static instance and its 16 ms timer must not outlive the test
+    t.after(() => f.close())
     const p = VisualizerPanel.revive(f.panel as never, { path: '/ext', fsPath: '/ext' } as never)
     p.sendEvent(ev(1)); p.sendEvent(ev(2))
     assert.equal(f.posted.length, 0)

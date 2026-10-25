@@ -1,6 +1,8 @@
 /**
  * The full-read fallback of an idle subagent file (a last window without a line break) must not keep an unbounded
- * unfinished line in memory: its carry is capped at the size the old path read (TEAMMATE_REPLAY_MAX_BYTES), and
+ * unfinished line in memory: its carry is capped at SUBAGENT_FULL_READ_MAX_LINE_BYTES = NORM_MAX_LINE_CHARS * 4
+ * (16 Mio, src/subagent-watcher.ts), not at TEAMMATE_REPLAY_MAX_BYTES (1 Mio) which only bounds the teammate replay.
+ * The peak per subagent file is therefore that cap plus one PRESCAN_CHUNK_BYTES block (4 Mio), about 20 Mio, and
  * Buffer.concat is no longer repeated over a growing carry (#613).
  */
 import { describe, it, afterEach } from 'node:test'
@@ -9,7 +11,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import './helpers/alias-vscode'
-import { readLineBatches } from '../src/fs-utils'
+import { readLineBatches, readNewFileLines } from '../src/fs-utils'
+import { setLogLevel } from '../src/logger'
 import { ClaudeSessionPipeline } from '../src/claude-session-pipeline'
 import { ACTIVE_SESSION_AGE_S, NORM_MAX_LINE_CHARS } from '../src/constants'
 import type { WatchedSession } from '../src/protocol'
@@ -55,6 +58,29 @@ describe('readLineBatches caps the unfinished line it carries (#613)', () => {
     assert.equal(tracked.fileTail, '')
     assert.equal(tracked.fileSize, fs.statSync(f).size, 'the offset is still the end of the file')
     assert.ok(maxConcat <= 4096 + 1024, `largest concatenation ${maxConcat}`)
+  })
+
+  it('a dropped line is logged at debug level with its offset and length, never its content', async () => {
+    const f = file('{"a":1}\n' + 'SECRET'.repeat(20_000) + '\n{"b":2}\n')
+    const logged: string[] = []
+    const origLog = console.log
+    setLogLevel('debug')
+    console.log = (...a: unknown[]) => { logged.push(a.map(String).join(' ')) }
+    try { await read(f, 1024, 4096) } finally { console.log = origLog; setLogLevel('info') }
+    const line = logged.find(l => l.includes('dropped'))
+    assert.ok(line, `no debug line in ${JSON.stringify(logged)}`)
+    assert.ok(line.includes('offset 8'), line)
+    assert.ok(line.includes(`${'SECRET'.length * 20_000} bytes`), line)
+    assert.ok(!line.includes('SECRET'), 'no content in the log')
+  })
+
+  it('the rest of an unfinished dropped line, appended later, is read live as a fragment (fate fixed by #613)', async () => {
+    const f = file('{"a":1}\n' + 'y'.repeat(100_000))
+    const { tracked } = await read(f, 1024, 4096)
+    assert.equal(tracked.fileTail, '')
+    fs.appendFileSync(f, 'yyy\n{"c":3}\n')
+    const next = readNewFileLines(f, tracked.fileSize, tracked.fileTail)!
+    assert.deepEqual(next.lines, ['yyy', '{"c":3}'], 'the rest is read as a malformed fragment: the normalizer counts it')
   })
 
   it('a line under the cap that spans chunks is still read whole, and an unfinished short tail is kept', async () => {
