@@ -494,12 +494,15 @@ function armSubagentWatcher(
 function releaseIdleSubagentWatchers(parser: TranscriptParser, session: WatchedSession, sessionId: string, now = Date.now()): void {
   const registry = parser.getSubagentRegistry(sessionId)
   for (const state of session.subagentWatchers.values()) {
-    if (!state.watcher || state.lastWriteMs === undefined) continue
+    if ((!state.watcher && !state.watchFailed) || state.lastWriteMs === undefined) continue
     if (now - state.lastWriteMs < SUBAGENT_WATCH_IDLE_MS) continue
     // Teammates and workflow agents are judged by their tracker: working (open tool, recent write) keeps the watcher
     if (state.teammate && state.teammate.tracker.activity(now) === 'working') continue
     const record = state.agentId ? registry.getByFileKey(state.agentId) : undefined
     if (record?.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) continue
+    // A failed arming (EMFILE/ENOSPC) may have been passing: an idle subagent is tried again at its next write (#613)
+    state.watchFailed = false
+    if (!state.watcher) continue
     try { state.watcher.close() } catch { /* already closed */ }
     state.watcher = null
   }
