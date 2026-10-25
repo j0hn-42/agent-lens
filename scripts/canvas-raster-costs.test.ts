@@ -8,6 +8,7 @@ import { recordingContext, stubDocument } from './canvas-recorder'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { planOverlays, planKey, resolvePlacement } from '../web/components/agent-visualizer/canvas/overlay-plan'
 import { computeClusters } from '../web/components/agent-visualizer/canvas/cluster-model'
+import { layoutAgentLabel, agentDrawRadius } from '../web/components/agent-visualizer/canvas/team-style'
 import { lodForZoom } from '../web/components/agent-visualizer/canvas/draw-options'
 
 stubDocument()
@@ -57,7 +58,10 @@ test('drawAgents: a label the plan hides is not laid out again, its line count c
   assert.ok(hidden.length >= 1, 'precondition: the plan hides a label')
   for (const a of hidden) {
     const lines = resolvePlacement(result.plan, planKey.label(a.id), 1).extraLines
-    assert.equal(typeof lines, 'number', 'the plan carries the line count of a label it hides')
+    // Teammates wrap their name on two lines: one extra line, and the very count the label would have when drawn
+    const measure = (t: string) => t.length * 11 * 0.6
+    assert.equal(lines, layoutAgentLabel(a, agentDrawRadius(a), measure, false, null).extraLines, 'the plan carries the line count of a label it hides')
+    assert.equal(lines, 1)
   }
   const { rec, ctx } = watched()
   drawAgents(ctx, agents, null, null, false, 0, opts(1, { plan: result.plan }))
@@ -160,4 +164,30 @@ test('drawAgents: the depth shadow keeps its screen size on a 2x display (#613)'
     assert.ok(shadow.ox * zoom * dpr > 3 * 0.8 && shadow.ox * zoom * dpr < 3 * 1.25, `on-screen x offset ${shadow.ox * zoom * dpr}`)
     assert.ok(shadow.oy * zoom * dpr > 5 * 0.8 && shadow.oy * zoom * dpr < 5 * 1.25, `on-screen y offset ${shadow.oy * zoom * dpr}`)
   }
+})
+
+test('planOverlays: the label blocks are measured by the measure the canvas gives, not by 0.6 em per character (#613)', () => {
+  // A name that wraps at 0.6 em per character but fits on one line with a narrower font (Consolas, CJK, emoji)
+  const r = agentDrawRadius(agent(0, { kind: 'teammate' }))
+  const narrow = (t: string) => t.length * 11 * 0.3
+  const wide = (t: string) => t.length * 11 * 0.6
+  let name = ''
+  for (let n = 4; n < 80 && !name; n++) {
+    const probe = agent(0, { kind: 'teammate', name: 'x'.repeat(n) })
+    if (layoutAgentLabel(probe, r, wide, false, null).extraLines !== layoutAgentLabel(probe, r, narrow, false, null).extraLines) name = probe.name
+  }
+  assert.ok(name, 'precondition: a name the two measures wrap differently')
+  const lone = agent(0, { kind: 'teammate', name, x: 400 })
+  const linesOf = (measureLabel?: (t: string) => number) => {
+    const agents = map([lone])
+    const { plan } = planOverlays({
+      agents, clusters: computeClusters(agents.values()), edgeBubbles: [], transform: { x: 0, y: 0, scale: 1 },
+      viewport: { w: 1200, h: 800 }, lod: lodForZoom(1), showStats: false, showCost: false, showSessionLabels: false,
+      selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null, simTime: 1, isBubbleHeld: () => false, measureLabel,
+    } as any)
+    return resolvePlacement(plan, planKey.label(lone.id), 1).extraLines
+  }
+  assert.equal(linesOf(wide), layoutAgentLabel(lone, r, wide, false, null).extraLines)
+  assert.equal(linesOf(narrow), layoutAgentLabel(lone, r, narrow, false, null).extraLines)
+  assert.notEqual(linesOf(narrow), linesOf(wide))
 })

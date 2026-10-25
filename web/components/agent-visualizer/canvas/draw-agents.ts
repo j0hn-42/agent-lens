@@ -30,6 +30,9 @@ export function getClaudeSparkPath() {
 }
 
 let _openaiLogoPath: Path2D | null = null
+/** Margin on each side of the token line inside its plate under the context bar (#613) */
+const TOKEN_PLATE_SIDE_PAD = 4
+
 function getOpenAILogoPath() {
   if (!_openaiLogoPath) _openaiLogoPath = new Path2D(OPENAI_LOGO_D)
   return _openaiLogoPath
@@ -182,19 +185,26 @@ export function drawContextComposition(
   const barX = agent.x - barWidth / 2
   const barY = agent.y + radius + CONTEXT_BAR.yOffset + yShift
 
+  // The token line is measured once: its plate is as wide as the text it doubles (#613), never narrower than the bar
+  const tokenText = showLabel ? contextBarText(agent, replayLost) : ''
+  let plateWidth = barWidth + 4
+  if (showLabel) {
+    ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
+    plateWidth = Math.max(plateWidth, Math.ceil(measureTextCached(ctx, tokenText)) + TOKEN_PLATE_SIDE_PAD * 2)
+  }
+
   // Background
   ctx.fillStyle = scene.cardBgDark
   ctx.beginPath()
-  ctx.roundRect(barX - 2, barY - 2, barWidth + 4, barHeight + (showLabel ? CONTEXT_BAR.labelBoxExtra : 4), CONTEXT_BAR.borderRadius)
+  ctx.roundRect(agent.x - plateWidth / 2, barY - 2, plateWidth, barHeight + (showLabel ? CONTEXT_BAR.labelBoxExtra : 4), CONTEXT_BAR.borderRadius)
   ctx.fill()
 
   // Label (hidden at low zoom by the level-of-detail rule)
   if (showLabel) {
     ctx.fillStyle = sceneColor(theme, 'text', scene.textMuted)
-    ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(contextBarText(agent, replayLost), agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+    ctx.fillText(tokenText, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
   }
 
   // Segments
@@ -581,6 +591,8 @@ function drawAgentLabel(
   scale = 1,
   /** Theme of the scene (#381); absent = the neon scene */
   theme?: ThemeId,
+  /** Radius the label wraps its text by: the node's own, not the breathing one, as the overlay plan sizes it (#613) */
+  layoutR = r,
 ): { extraLines: number; dx: number; dy: number; scale: number; visible: boolean } {
   const scene = scenePalette(theme)
   const ink = (c: string) => sceneColor(theme, 'text', c)
@@ -589,7 +601,7 @@ function drawAgentLabel(
   // A label the overlay plan hides keeps its line count (the context bar moves with it) and nothing else (#661):
   // the plan sized that count already, so the label is not laid out again (#613)
   if (!place.visible && place.extraLines !== undefined) return { extraLines: place.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
-  const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
+  const layout = layoutAgentLabel(agent, layoutR, measure, showSession, orch)
   if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
   // The status line is drawnStatusText, the function the agent rows of the Sessions panel quote (#502): a teammate's
   // activity, or "last known state: Working" for a stale node, whose state is no longer proven (that longer line is cut to fit)
@@ -904,7 +916,7 @@ export function drawAgents(
       ? drawAgentLabel(
         ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
         maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), labelPlacementOf(opts.plan, id, opts.zoom, !!opts.maskText),
-        now, stale, labelScale, sceneTheme,
+        now, stale, labelScale, sceneTheme, radius * agentDrawScale(agent),
       )
       : { extraLines: 0, dx: 0, dy: 0, scale: 1, visible: false }
     ctx.globalAlpha = nodeAlpha
