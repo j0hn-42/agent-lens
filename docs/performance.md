@@ -83,3 +83,28 @@ pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts --no-gate 
 Before, the age written at every frame copied every live agent (about 12,000 objects a second with 200 agents) and handed the draw loop a new agents Map each time, so its caches keyed on it never hit. Now the Map is kept at rest and the frame does not run at all.
 
 Scope of the gain: it holds for a scene drawn as is. With "Hide inactive" on or a collapsed branch, the scene builder (`sceneAgents`) hands the draw loop a new agents Map each frame, so `repeatCacheRef` (keyed on that Map) still misses and re-derives the repeat marks at every frame. Only `edgeLookupCacheRef` (keyed on the particles and edges, which the scene builder does not copy) keeps hitting. The figures above were measured without either option.
+
+### A hovered node under load, Chrome trace (`perf-chrome-profile.ts`, #661)
+
+A real Chromium trace (CDP `Tracing`, `devtools.timeline` and `disabled-by-default-devtools.timeline` categories) of 150 active agents while the pointer stays on a node and its tooltip is shown, 5 s per scene, before and after #679 (shadow sprite, cached scanline gradient, bubble buttons written on change, tooltip size from a `ResizeObserver`). A forced style recalculation or layout is one that runs inside a JavaScript task (the "Forced reflow" of the DevTools Performance panel). Headless Chromium draws the 2D canvas in software: its raster is the main thread's `Commit`, where the recorded draw calls are played back.
+
+```bash
+# Two builds already served (next start), profiled in alternation; PROFILE_OUT keeps the traces and screenshots
+PROFILE_TARGETS=before=http://127.0.0.1:3100,after=http://127.0.0.1:3300 PROFILE_RUNS=5 \
+  pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-chrome-profile.ts
+```
+
+Medians of 5 runs, viewport 1280x800, "before" is the parent of the #679 merge (`b01b5aa8`), "after" is `develop` at `e5667d38`:
+
+| scene | build | DPR | forced style recalc / frame | forced Layout / frame | canvas raster (Commit ms / frame) | rAF callback (ms) |
+|---|---|---|---|---|---|---|
+| overview | before | 1 | 0.47 | 0.00 | 3.62 | 11.32 |
+| overview | after | 1 | 0.02 | 0.00 | 3.49 | 11.23 |
+| overview | before | 2 | 0.48 | 0.00 | 10.40 | 15.21 |
+| overview | after | 2 | 0.11 | 0.00 | 10.52 | 15.05 |
+| zoomed | before | 1 | 0.46 | 0.00 | 7.01 | 8.79 |
+| zoomed | after | 1 | 0.02 | 0.00 | 6.81 | 8.46 |
+| zoomed | before | 2 | 0.46 | 0.00 | 15.84 | 15.50 |
+| zoomed | after | 2 | 0.04 | 0.00 | 15.63 | 15.58 |
+
+The forced style recalculation read by the tooltip (`offsetWidth` after the style writes of the frame, about one frame in two while hovering, 1,839 events over 4,478 frames) is gone; what remains comes from the `?perf` panel's own `ctx.font`, the pointer handler's `getBoundingClientRect` and the control bar height. The canvas raster and the frame times are equal within 4%: in software rendering the depth shadow was not the main raster cost, so this trace shows no raster gain, and no regression. The main thread is busy about 990 ms per second in every row (software canvas, 150 animated agents), so the frame rate is bound by the machine, not by these changes.
