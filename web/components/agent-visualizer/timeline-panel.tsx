@@ -571,7 +571,8 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
         {/* Blocks dropped to keep the timeline bounded (#659): counted, never lost silently */}
         {droppedBlocks > 0 && (
-          <div className="px-3 py-1 text-2xs font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMutedOpaque }}>
+          // aria-hidden: the name of the chart and the caption of its table already say it; read here too it would be said twice (#613)
+          <div aria-hidden="true" className="px-3 py-1 text-2xs font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMutedOpaque }}>
             {olderBlocksText(locale, droppedBlocks)}
           </div>
         )}

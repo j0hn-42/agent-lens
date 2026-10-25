@@ -48,6 +48,12 @@ test('trimmed blocks: the counter is shown and the table caption carries it (#61
   const text = olderBlocksText('en', 10)
   assert.equal(text, '10 older blocks not shown')
   assert.ok(view.getByText(text), 'the counter is on screen')
+  // The name of the chart carries the counter too (#613): the positive case, not only the negative one
+  const name = view.getByRole('img').getAttribute('aria-label') ?? ''
+  assert.ok(name.includes(text), `the name of the chart says the older blocks: "${name}"`)
+  // ... and the visible line is not read a second time after it: the name and the caption already carry it
+  const exposed = view.getAllByText(text).filter(el => el.closest('[aria-hidden="true"]') === null && el.closest('canvas') === null)
+  assert.equal(exposed.length, 0, 'the visible counter is also exposed to a screen reader, which reads the sentence twice')
   await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Table view' })) })
   const caption = view.getByRole('table').querySelector('caption')!
   assert.ok(caption.textContent?.includes(text), `the caption of the table says the blocks it does not list: "${caption.textContent}"`)
