@@ -24,7 +24,7 @@ import { HAS_MOCK_SESSIONS, isMockScenarioLoaded, loadMockScenario, mockSessions
 import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, runtimeRecheckKey, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
-  bufferedEventCount, sessionExportSlice,
+  bufferedEventCount, bufferedLifecycleCount, sessionExportSlice,
 } from '@/lib/session-buffers'
 import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss, type LossSource } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
@@ -71,6 +71,8 @@ interface BridgeHookResult {
   getSessionEvents: (sessionId: string) => { events: SimulationEvent[]; droppedBefore: number }
   /** Events of a real session still in memory (0 for 'All', a team or an unknown session) */
   getBufferedEventCount: (sessionId: string) => number
+  /** Lifecycle events (agent_spawn, team_info...) the session's buffer still holds (#613) */
+  getBufferedLifecycleCount: (sessionId: string) => number
   /** Ref to the currently selected session ID — updated synchronously, not via React state */
   selectedSessionIdRef: React.RefObject<string | null>
   /** True while the 'All' tab (union of every session) is selected */
@@ -779,6 +781,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return 0
     return bufferedEventCount(sessionBuffersRef.current, sessionId)
   }, [])
+  const getBufferedLifecycleCount = useCallback((sessionId: string): number => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return 0
+    return bufferedLifecycleCount(sessionBuffersRef.current, sessionId)
+  }, [])
 
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 
@@ -835,6 +841,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     getSessionEventCount,
     getSessionEvents,
     getBufferedEventCount,
+    getBufferedLifecycleCount,
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
     teams: teamView.teams,
     teamWorking: teamView.working,
