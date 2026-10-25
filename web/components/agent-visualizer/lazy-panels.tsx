@@ -15,7 +15,7 @@ import type { TourHighlight as TourHighlightComponent } from './tour-highlight'
 
 const whenOpen = (p: { open: boolean }) => p.open
 /** A dialog whose chunk did not load closes: it would otherwise stay open with nothing on screen, and the next opening loads again (#613) */
-export const closeOnError = { when: whenOpen, onLoadError: (p: { onClose: () => void }) => p.onClose() }
+const closeOnError = { when: whenOpen, onLoadError: (p: { onClose: () => void }) => p.onClose() }
 
 /** The three dialogs: loaded the first time they open, then kept mounted (closed, they render nothing themselves) */
 export const SettingsDialog = lazyComponent<ComponentProps<typeof SettingsDialogComponent>>(
