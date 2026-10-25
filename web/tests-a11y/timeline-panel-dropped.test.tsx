@@ -24,6 +24,19 @@ function entry(i: number, over: Partial<TimelineEntry> = {}): TimelineEntry {
 const entries = (n: number, over: (i: number) => Partial<TimelineEntry> = () => ({})) =>
   new Map(Array.from({ length: n }, (_, i) => [`a${i}`, entry(i, over(i))] as const))
 
+/** Number of places a screen reader finds the sentence: own text, aria-label, outside hidden branches and canvas fallbacks */
+function exposedCount(root: HTMLElement, text: string): number {
+  let n = 0
+  for (const el of Array.from(root.querySelectorAll('*'))) {
+    if (el.closest('[aria-hidden="true"], [hidden], canvas') !== null) continue
+    if ((el as HTMLElement).style?.display === 'none' || el.closest('[style*="display: none"]') !== null) continue
+    if (el.getAttribute('aria-label')?.includes(text)) n++
+    const own = Array.from(el.childNodes).filter(c => c.nodeType === 3).map(c => c.textContent).join('')
+    if (own.includes(text)) n++
+  }
+  return n
+}
+
 /** Names written by the label of each row in the last draw of the canvas */
 function recordLabels(): { last: () => string[]; restore: () => void } {
   const proto = window.HTMLCanvasElement.prototype as unknown as { getContext: unknown }
@@ -51,12 +64,12 @@ test('trimmed blocks: the counter is shown and the table caption carries it (#61
   // The name of the chart carries the counter too (#613): the positive case, not only the negative one
   const name = view.getByRole('img').getAttribute('aria-label') ?? ''
   assert.ok(name.includes(text), `the name of the chart says the older blocks: "${name}"`)
-  // ... and the visible line is not read a second time after it: the name and the caption already carry it
-  const exposed = view.getAllByText(text).filter(el => el.closest('[aria-hidden="true"]') === null && el.closest('canvas') === null)
-  assert.equal(exposed.length, 0, 'the visible counter is also exposed to a screen reader, which reads the sentence twice')
+  // ... and the sentence is exposed once in this view: count every place it is said (text, accessible names, captions)
+  assert.equal(exposedCount(view.container, text), 1, 'chart view: the sentence is read once')
   await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Table view' })) })
   const caption = view.getByRole('table').querySelector('caption')!
   assert.ok(caption.textContent?.includes(text), `the caption of the table says the blocks it does not list: "${caption.textContent}"`)
+  assert.equal(exposedCount(view.container, text), 1, 'table view: the sentence is read once')
 })
 
 test('no trimmed block: nothing is added to the caption or the counter (#613)', () => {

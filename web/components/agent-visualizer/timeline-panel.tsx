@@ -471,7 +471,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             className="w-full text-xs font-mono border-collapse"
             style={tableView ? { color: COLORS.textPrimary } : undefined}
           >
-            <caption className="sr-only">{ariaLabel}</caption>
+            <caption className="sr-only">{tableView ? ariaLabel : rangeLabel}</caption>
             <thead>
               <tr style={{ color: COLORS.textMutedOpaque }}>
                 <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.col.agent')}</th>
