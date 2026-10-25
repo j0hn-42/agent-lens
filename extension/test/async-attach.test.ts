@@ -294,6 +294,43 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     const starts = r.delivered.filter(e => e.type === 'tool_call_start' && e.payload.toolUseId === 'late')
     assert.equal(starts.length, 1, 'the call written during the attach is emitted once')
   })
+
+  it('a tool_use written while the session waits in the queue is live: one tool_call_start, a later hook of the same id adds none (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
+    r.transcript(S2, prompt('Second') + history(16 * 1024, 'b'))
+    const s1 = r.session(S1)
+    const s2 = r.session(S2)
+    const p1 = r.pipeline.attach(s1)
+    const p2 = r.pipeline.attach(s2)
+    // S2 is known (tracked) but its history is not read yet: what is written now is after its attach began
+    await underway(s1)
+    assert.equal(s2.seenToolUseIds.size, 0, 'S2 waits in the queue')
+    fs.appendFileSync(s2.filePath, call('win', 'Bash'))
+    await Promise.all([p1, p2])
+    const starts = () => r!.delivered.filter(e => e.sessionId === S2 && e.type === 'tool_call_start' && e.payload.toolUseId === 'win')
+    assert.equal(starts().length, 1, 'the call written after the attach began is shown, as a live one is')
+    assert.ok(!starts()[0].replayed, 'read live, not as history')
+    assert.ok(!r.delivered.some(e => e.type === 'tool_call_start' && String(e.payload.toolUseId).startsWith('b-')), 'the history before it is still not emitted as calls')
+    r.reconciler.submit({ time: 2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', toolUseId: 'win' }, sessionId: S2 }, { source: 'hook' })
+    assert.equal(starts().length, 1, 'the hook of the same id does not double it')
+  })
+
+  it('a tool_use written in the queue with its hook held meanwhile is shown once (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
+    r.transcript(S2, prompt('Second') + history(16 * 1024, 'b'))
+    const s1 = r.session(S1)
+    const s2 = r.session(S2)
+    const p1 = r.pipeline.attach(s1)
+    const p2 = r.pipeline.attach(s2)
+    await underway(s1)
+    fs.appendFileSync(s2.filePath, call('win', 'Bash'))
+    r.reconciler.submit({ time: 2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'Bash', toolUseId: 'win' }, sessionId: S2 }, { source: 'hook' })
+    await Promise.all([p1, p2])
+    const starts = r.delivered.filter(e => e.sessionId === S2 && e.type === 'tool_call_start' && e.payload.toolUseId === 'win')
+    assert.equal(starts.length, 1, 'the held hook and the transcript line collapse into one call')
+  })
 })
 
 describe('an idle subagent is read only by its end at attach (#651)', () => {
