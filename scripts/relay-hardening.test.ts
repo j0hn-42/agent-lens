@@ -107,7 +107,7 @@ describe('relay: hardening and source reconciliation', () => {
     fs.writeFileSync(transcript,
       line({ type: 'user', cwd: realWs, timestamp: new Date().toISOString(), message: { role: 'user', content: 'Run the build' } }))
 
-    // A slow disk at start (#440): the attach reads the transcript as history from its first stat on, over several
+    // A slow disk at start (#440): the attach reads the transcript as history from its turn on, over several
     // ticks (#651). The first stat of the transcript is held 300 ms, so the tests below always run while it
     // could still be under way, as they did under load, instead of only when the machine is slow.
     const realStat = fs.promises.stat
@@ -138,7 +138,7 @@ describe('relay: hardening and source reconciliation', () => {
     port = await listenLoopback(server, 0)
     // One long-lived client of the session: the live broadcasts, in the order the relay emits them
     live = await connectSSE(`/events?session=${SESSION}`)
-    // The SSE response starts before the attach ends. A line appended before its stat is history: prescanned,
+    // The SSE response starts before the attach ends. A line appended before the attach was asked is history: prescanned,
     // never emitted as a call. The tests write live lines, so they start once the transcript is followed (#440).
     assert.ok(await waitAttached(relay, 1), 'precondition: the transcript is attached')
   })

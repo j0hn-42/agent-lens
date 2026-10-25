@@ -331,6 +331,22 @@ describe('attaching a big session gives the event loop back (#651)', () => {
     const starts = r.delivered.filter(e => e.sessionId === S2 && e.type === 'tool_call_start' && e.payload.toolUseId === 'win')
     assert.equal(starts.length, 1, 'the held hook and the transcript line collapse into one call')
   })
+
+  it('a transcript rewritten shorter while queued is history up to its current end: nothing of it is read again as live (#613)', async () => {
+    r = rig()
+    r.transcript(S1, prompt('Audit') + history(2 * PRESCAN_CHUNK_BYTES, 'm'))
+    r.transcript(S2, prompt('Second') + history(64 * 1024, 'b'))
+    const s1 = r.session(S1)
+    const s2 = r.session(S2)
+    const p1 = r.pipeline.attach(s1)
+    const p2 = r.pipeline.attach(s2)
+    await underway(s1)
+    fs.writeFileSync(s2.filePath, prompt('Rewritten') + history(8 * 1024, 'c'))
+    await Promise.all([p1, p2])
+    assert.ok(s2.seenToolUseIds.has('c-0'), 'the rewritten content is the history')
+    assert.equal(s2.fileSize, fs.statSync(s2.filePath).size, 'the tail starts at its current end')
+    assert.ok(!r.delivered.some(e => e.type === 'tool_call_start' && e.sessionId === S2), 'no call of it is emitted as live')
+  })
 })
 
 describe('an idle subagent is read only by its end at attach (#651)', () => {
@@ -417,7 +433,7 @@ describe('loadHistory checks alive() after the stat and after the prescan (#613)
     fs.rmSync(r.dir, { recursive: true, force: true })
     r = null
   })
-  type Loader = { loadHistory(s: WatchedSession, slice: TimeSlice, alive: () => boolean): Promise<void> }
+  type Loader = { loadHistory(s: WatchedSession, slice: TimeSlice, alive: () => boolean, askedSize: number): Promise<void> }
 
   it('dead after the stat: the transcript is not even prescanned', async () => {
     r = rig()
@@ -425,7 +441,7 @@ describe('loadHistory checks alive() after the stat and after the prescan (#613)
     const session = r.session(S1)
     const prescan = mock.method(r.pipeline.parser, 'prescanExistingContentAsync')
     let calls = 0
-    await assert.rejects((r.pipeline as unknown as Loader).loadHistory(session, new TimeSlice(), () => { calls++; return false }), AttachCancelled)
+    await assert.rejects((r.pipeline as unknown as Loader).loadHistory(session, new TimeSlice(), () => { calls++; return false }, fs.statSync(session.filePath).size), AttachCancelled)
     assert.equal(calls, 1, 'stopped at the first check')
     assert.equal(prescan.mock.callCount(), 0, 'nothing was read')
     assert.deepEqual(r.lifecycle, [])
@@ -436,7 +452,7 @@ describe('loadHistory checks alive() after the stat and after the prescan (#613)
     r.transcript(S1, '')
     const session = r.session(S1)
     let calls = 0
-    await assert.rejects((r.pipeline as unknown as Loader).loadHistory(session, new TimeSlice(), () => ++calls < 2), AttachCancelled)
+    await assert.rejects((r.pipeline as unknown as Loader).loadHistory(session, new TimeSlice(), () => ++calls < 2, 0), AttachCancelled)
     assert.equal(calls, 2, 'the second check is the one that stopped it')
     assert.deepEqual(r.lifecycle, [], 'no started')
     assert.equal(session.sessionDetected, false)

@@ -157,11 +157,17 @@ export class ClaudeSessionPipeline {
    * answering). Until it resolves, the session is read by nothing else (readNewLines, the subagent scans). A
    * session released or replaced meanwhile is dropped at the next slice: never announced, never watched.
    * Rejects when the transcript cannot be read (stat).
+   *
+   * The history is what the transcript held when the attach was asked: its size is taken here, in the caller's tick,
+   * not when the attach comes up. What is written after it (while queued, during the stat or the prescan) is read
+   * by the live path once the attach ends, so a tool call written meanwhile is emitted as a live one (#613).
    */
   attach(session: WatchedSession): Promise<void> {
+    let size: number | Error
+    try { size = fs.statSync(session.filePath).size } catch (err) { size = err instanceof Error ? err : new Error(String(err)) }
     this.attaching.set(session.sessionId, session)
     const previous = this.attachQueue
-    const run = this.attachNow(session, previous)
+    const run = this.attachNow(session, previous, size)
     this.attachQueue = run.catch(() => {})
     return run
   }
@@ -171,7 +177,7 @@ export class ClaudeSessionPipeline {
     return this.attaching.size > 0 ? this.attachQueue : null
   }
 
-  private async attachNow(session: WatchedSession, previous: Promise<void>): Promise<void> {
+  private async attachNow(session: WatchedSession, previous: Promise<void>, size: number | Error): Promise<void> {
     const { sessionId, filePath } = session
     const alive = () => this.attaching.get(sessionId) === session && this.host.sessions.get(sessionId) === session
     const slice = new TimeSlice(() => !alive())
@@ -185,7 +191,9 @@ export class ClaudeSessionPipeline {
         await previous
         // One session per turn of the event loop; a session dropped while queued stops here
         await slice.pause()
-        await this.loadHistory(session, slice, alive)
+        // A transcript that could not be read rejects in its turn of the queue, as when the stat was made there
+        if (size instanceof Error) throw size
+        await this.loadHistory(session, slice, alive, size)
       })
     } catch (err) {
       if (err instanceof AttachCancelled) { this.dropCancelled(session); return }
@@ -228,16 +236,21 @@ export class ClaudeSessionPipeline {
     }
   }
 
-  /** The history part of an attach: everything already in the transcript and its subagent files. */
-  private async loadHistory(session: WatchedSession, slice: TimeSlice, alive: () => boolean): Promise<void> {
+  /**
+   * The history part of an attach: the first `askedSize` bytes of the transcript (its size when the attach was asked)
+   * and its subagent files.
+   */
+  private async loadHistory(session: WatchedSession, slice: TimeSlice, alive: () => boolean, askedSize: number): Promise<void> {
     const { sessionId, filePath } = session
-    const stat = await fs.promises.stat(filePath)
+    // A transcript gone by its turn rejects (no longer watched). One rewritten shorter meanwhile is read to its end and
+    // the tail starts there (readLineBatches), so nothing of it is read again as live.
+    await fs.promises.stat(filePath)
     // Released during the stat: nothing was read yet, so no slice would notice it (an empty transcript has none)
     if (!alive()) throw new AttachCancelled()
     // Pre-scan existing content for dedup IDs + collect recent entries for catch-up.
     // It also starts the tail from the end of what it read (only NEW events go forward),
     // keeping an unfinished last line in fileTail.
-    const catchUpEntries = await this.parser.prescanExistingContentAsync(filePath, stat.size, session, slice)
+    const catchUpEntries = await this.parser.prescanExistingContentAsync(filePath, askedSize, session, slice)
     this.parser.extractSessionLabel(catchUpEntries, session)
     // The last block of the prescan may have run after a release: not announced, since nothing would end it
     if (!alive()) throw new AttachCancelled()
