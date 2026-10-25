@@ -85,6 +85,21 @@ test('paint, style, raster (any thread) and JavaScript time are summed and given
   assert.equal(s.perFrameMs.script, 4)
 })
 
+test('Commit of the main thread (where a software 2D canvas is rasterised) is summed and given per frame', () => {
+  const s = summarizeTrace([
+    ...meta,
+    x('FireAnimationFrame', 0, 4000),
+    x('FireAnimationFrame', 16_000, 4000),
+    x('Commit', 5000, 6000),
+    x('Commit', 21_000, 2000),
+    // Another thread's Commit is not the page's
+    x('Commit', 0, 9000, { pid: 1, tid: 20 }),
+  ])
+  assert.equal(s.commit.count, 2)
+  assert.equal(s.commit.ms, 8)
+  assert.equal(s.perFrameMs.commit, 4)
+})
+
 test('main-thread busy time is the sum of its RunTask, other threads apart', () => {
   const s = summarizeTrace([
     ...meta,
