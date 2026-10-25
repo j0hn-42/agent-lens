@@ -12,8 +12,8 @@ import { translate } from '@/lib/messages'
 
 afterEach(() => { cleanup(); document.body.replaceChildren(); act(() => setLocaleChoice('auto')) })
 
-const view = (sessionLabel: string | null) => (
-  <ChromeAnnouncer connection={connectionDisplay('watching', false)} sessionLabel={sessionLabel} isReviewing={false} isEmpty={false} sessions={[]} sessionsWithActivity={new Set()} />
+const view = (sessionLabel: string | null, sessionLabelIsInterface = false) => (
+  <ChromeAnnouncer connection={connectionDisplay('watching', false)} sessionLabel={sessionLabel} sessionLabelIsInterface={sessionLabelIsInterface} isReviewing={false} isEmpty={false} sessions={[]} sessionsWithActivity={new Set()} />
 )
 
 test('fr region: the session name sits in a lang="en" span inside the lang="fr" region', () => {
@@ -28,8 +28,15 @@ test('fr region: the session name sits in a lang="en" span inside the lang="fr" 
 
 test('fr region: the "all sessions" label is translated and not marked lang="en"', () => {
   act(() => setLocaleChoice('fr'))
-  const { getByRole } = render(view(translate('fr', 'sessions.allSessions')))
+  const { getByRole } = render(view(translate('fr', 'sessions.allSessions'), true))
   const region = getByRole('status')
   assert.equal(region.querySelectorAll('span[lang="en"]').length, 0)
   assert.ok(region.textContent!.includes('Toutes les sessions'), region.textContent!)
+})
+
+test('fr region: a real session named like the "all sessions" label stays data (lang="en")', () => {
+  act(() => setLocaleChoice('fr'))
+  const { getByRole } = render(view(translate('fr', 'sessions.allSessions')))
+  const en = Array.from(getByRole('status').querySelectorAll('span[lang="en"]'))
+  assert.deepEqual(en.map(e => e.textContent), ['Toutes les sessions'])
 })
