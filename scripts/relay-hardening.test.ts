@@ -137,6 +137,10 @@ describe('relay: hardening and source reconciliation', () => {
     port = await listenLoopback(server, 0)
     // One long-lived client of the session: the live broadcasts, in the order the relay emits them
     live = await connectSSE(`/events?session=${SESSION}`)
+    // The SSE response starts before the attach ends. A line appended before its stat is history: prescanned,
+    // never emitted as a call. The tests write live lines, so they start once the transcript is followed (#440).
+    assert.ok(await waitFor(() => relay.debugState().watchedSessions >= 1 && !relay.debugState().attaching),
+      'precondition: the transcript is attached')
   })
 
   after(() => {
