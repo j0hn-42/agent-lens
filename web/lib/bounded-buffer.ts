@@ -40,9 +40,12 @@ export function estimateEventBytes(ev: object): number {
 /**
  * Appends `item`, then trims the oldest elements in one batch once the buffer passes `cap` elements or `capBytes`
  * estimated bytes by more than the slack, back under both. The newest element is always kept. Returns how many were
- * dropped; the caller adds it to its base offset, so every drop is counted.
+ * dropped; the caller adds it to its base offset, so every drop is counted. `onDrop` receives the dropped elements, oldest
+ * first (the bridge counts them per session, #613).
  */
-export function pushBounded<T extends object>(buf: T[], item: T, cap: number, capBytes: number, slack: number = ALL_BUFFER_SLACK): number {
+export function pushBounded<T extends object>(
+  buf: T[], item: T, cap: number, capBytes: number, slack: number = ALL_BUFFER_SLACK, onDrop?: (dropped: readonly T[]) => void,
+): number {
   buf.push(item)
   let bytes = (tallies.get(buf) ?? 0) + estimateEventBytes(item)
   let over = 0
@@ -51,7 +54,10 @@ export function pushBounded<T extends object>(buf: T[], item: T, cap: number, ca
       bytes -= estimateEventBytes(buf[over])
       over++
     }
-    if (over > 0) buf.splice(0, over)
+    if (over > 0) {
+      const dropped = buf.splice(0, over)
+      onDrop?.(dropped)
+    }
   }
   tallies.set(buf, bytes)
   return over

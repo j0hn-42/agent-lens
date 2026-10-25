@@ -2,7 +2,7 @@
 
 import { useStableObject } from '@/hooks/use-stable-object'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { pushBounded } from '@/lib/bounded-buffer'
@@ -26,6 +26,7 @@ import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, bufferedLifecycleCount, sessionExportSlice,
 } from '@/lib/session-buffers'
+import { createAllBufferCounts, countAllArrival, countAllDrops, unionMark, unionDroppedSince } from '@/lib/all-buffer-counts'
 import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss, type LossSource } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
@@ -38,6 +39,9 @@ export interface UseVSCodeBridgeOptions {
   /** Project the 'All' view is narrowed to (#291); null = every project. A project nobody belongs to any more is ignored. */
   projectScope?: string | null
 }
+
+/** See getViewMark */
+export type MemoryMark = number | ReadonlyMap<string, number>
 
 interface BridgeHookResult {
   isVSCode: boolean
@@ -73,6 +77,14 @@ interface BridgeHookResult {
   getBufferedEventCount: (sessionId: string) => number
   /** Lifecycle events (agent_spawn, team_info...) the session's buffer still holds (#613) */
   getBufferedLifecycleCount: (sessionId: string) => number
+  /** Where a view stands, for getMemoryDropped (#613): the consumed count of a session, per-session counts for a union view */
+  getViewMark: (viewId: string) => MemoryMark
+  /**
+   * Events of a view the page dropped from its own memory and never handed to it (#613): past `since` (from
+   * getViewMark, taken when the view was left), or all of them without one (a view rebuilt from the buffer). Counted
+   * from the buffers' counters, never estimated.
+   */
+  getMemoryDropped: (viewId: string, since?: MemoryMark) => number
   /** Ref to the currently selected session ID — updated synchronously, not via React state */
   selectedSessionIdRef: React.RefObject<string | null>
   /** True while the 'All' tab (union of every session) is selected */
@@ -202,7 +214,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const pendingCursorRef = useRef(0)
   // The consumed cursor of the session being left, taken when the selection changes and kept until the state
   // swap is done: events received in between sit in the buffer but reach no queue
-  const outgoingCursorRef = useRef<{ id: string; cursor: number } | null>(null)
+  // A union view also keeps its per-session mark (lib/all-buffer-counts), read from the queue before it is cleared
+  const outgoingCursorRef = useRef<{ id: string; cursor: number; mark?: ReadonlyMap<string, number> } | null>(null)
   const [, setEventVersion] = useState(0) // re-render after a flush (one per call, measured: tests-a11y/bridge-no-render-per-event), never per live event (#645)
 
   // Session state
@@ -298,6 +311,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
    *  so positions stay absolute and survive the cap. */
   const allEventsRef = useRef<SimulationEvent[]>([])
   const allBaseRef = useRef(0)
+  /** What each session put into the 'All' buffer and lost from it (#613): see lib/all-buffer-counts */
+  const allCountsRef = useRef(createAllBufferCounts())
   /** True while a session switch is pending (between auto-select and useLayoutEffect).
    *  Prevents the animation frame from processing events in the wrong simulation context. */
   const sessionSwitchPendingRef = useRef(false)
@@ -623,7 +638,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       // ... and in arrival order for the 'All' tab
       // Trimmed in batches (10 % over a cap, count or bytes), not one splice per event: amortized O(1) (#659).
       // allBaseRef counts every dropped event, so positions stay absolute.
-      allBaseRef.current += pushBounded(allEventsRef.current, simEvent, MAX_ALL_BUFFER, MAX_ALL_BUFFER_BYTES)
+      countAllArrival(allCountsRef.current, event.sessionId)
+      allBaseRef.current += pushBounded(allEventsRef.current, simEvent, MAX_ALL_BUFFER, MAX_ALL_BUFFER_BYTES, undefined, dropped => countAllDrops(allCountsRef.current, dropped))
 
       // Deliver to pending if session matches (ref is always current). The 'All' tab receives every event.
       // Skip if a session switch is pending — useLayoutEffect will flush
@@ -673,7 +689,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     // session list and the selection; event flushing is the consumer's (index.tsx layout effect).
     const sessionCtx: SessionHandlerCtx = {
       updateSessions, selectedSessionIdRef, setSelectedSessionId, sessionSwitchPendingRef, pendingEventsRef,
-      sessionBuffersRef, allEventsRef, allBaseRef, lastEventAtRef, modelTrackerRef, teamTrackerRef, dismissedSessionsRef,
+      sessionBuffersRef, allEventsRef, allBaseRef, allCountsRef, lastEventAtRef, modelTrackerRef, teamTrackerRef, dismissedSessionsRef,
       setSessionModels, refreshTeamView, setSessionsWithActivity, pushNotice,
       now: Date.now,
     }
@@ -715,8 +731,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     // What the outgoing view consumed: events still queued (paused view) were never handed to the simulation
     const leaving = selectedSessionIdRef.current
     if (leaving && outgoingCursorRef.current === null) {
-      const delivered = pendingEventsRef.current.length > 0 ? pendingCursorRef.current : currentEventCount(leaving)
-      outgoingCursorRef.current = { id: leaving, cursor: delivered }
+      const queued = pendingEventsRef.current.length > 0
+      const delivered = queued ? pendingCursorRef.current : currentEventCount(leaving)
+      const mark = isUnionSelection(leaving) ? unionMark(allCountsRef.current, queued ? pendingEventsRef.current : []) : undefined
+      outgoingCursorRef.current = { id: leaving, cursor: delivered, mark }
     }
     // Block event delivery to pending until the simulation state is swapped
     sessionSwitchPendingRef.current = true
@@ -751,8 +769,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     sessionSwitchPendingRef.current = false
     outgoingCursorRef.current = null
     pendingEventsRef.current.length = 0
-    pendingCursorRef.current = fromIndex
+    // The first event queued: what the buffer dropped before it is not behind the cursor as consumed (#613)
     if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) {
+      pendingCursorRef.current = Math.max(fromIndex, allBaseRef.current)
       // fromIndex is an absolute position: subtract what the cap already trimmed.
       // A team selection takes the events of the team's sessions out of the same arrival-order buffer.
       const all = allEventsRef.current
@@ -761,6 +780,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push({ ...all[i], replayed: true })
       }
     } else {
+      const s = sessionBuffersRef.current
+      pendingCursorRef.current = Math.max(fromIndex, sessionEventCount(s, sessionId) - bufferedEventCount(s, sessionId))
       // Re-fed from the buffer: the wall-clock moment of these events is lost, so they count as history
       pendingEventsRef.current.push(...sessionEventsFrom(sessionBuffersRef.current, sessionId, fromIndex).map(e => ({ ...e, replayed: true })))
     }
@@ -785,6 +806,22 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return 0
     return bufferedLifecycleCount(sessionBuffersRef.current, sessionId)
   }, [])
+
+  const getViewMark = useCallback((viewId: string): MemoryMark => {
+    if (!isUnionSelection(viewId)) return getSessionEventCount(viewId)
+    const outgoing = outgoingCursorRef.current
+    if (outgoing && outgoing.id === viewId && outgoing.mark) return outgoing.mark
+    return unionMark(allCountsRef.current, selectedSessionIdRef.current === viewId ? pendingEventsRef.current : [])
+  }, [getSessionEventCount])
+  const getMemoryDropped = useCallback((viewId: string, since?: MemoryMark): number => {
+    if (isUnionSelection(viewId)) {
+      // The same filter as a flush: the sessions the view shows now
+      return unionDroppedSince(allCountsRef.current, sid => matchesSelection(viewId, sid), typeof since === 'number' ? undefined : since)
+    }
+    const s = sessionBuffersRef.current
+    const base = sessionEventCount(s, viewId) - bufferedEventCount(s, viewId)
+    return Math.max(0, base - (typeof since === 'number' ? since : 0))
+  }, [matchesSelection])
 
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 
@@ -842,6 +879,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     getSessionEvents,
     getBufferedEventCount,
     getBufferedLifecycleCount,
+    getViewMark,
+    getMemoryDropped,
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
     teams: teamView.teams,
     teamWorking: teamView.working,
