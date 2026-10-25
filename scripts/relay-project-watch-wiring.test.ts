@@ -73,11 +73,16 @@ describe('relay: project dir watcher wiring (#650, #613)', () => {
     await sleep(WATCH_SCAN_DEBOUNCE_MS * 3)
     const before = scans()
     const WRITES = 20
+    const t0 = Date.now()
     for (let i = 0; i < WRITES; i++) { fs.appendFileSync(path.join(projectDir, `${BIG}.jsonl`), userLine(`b${i}`)); await sleep(15) }
+    // The bound follows the measured duration of the writes, not an assumed ~300 ms: under load they take longer and
+    // the debounce legitimately lets more scans through (one leading, one per window, one trailing)
+    const duration = Date.now() - t0
     await sleep(WATCH_SCAN_DEBOUNCE_MS * 3)
     const made = scans() - before
     assert.ok(made >= 1, 'the file is looked at again')
-    // About 300 ms of writes: a leading scan, then at most one more per WATCH_SCAN_DEBOUNCE_MS
-    assert.ok(made <= 4, `${WRITES} writes cost ${made} scans`)
+    const bound = 1 + Math.ceil(duration / WATCH_SCAN_DEBOUNCE_MS) + 1
+    // A scan per write would be WRITES (20): the bound stays under it while the writes last less than ~4 s
+    assert.ok(made <= bound, `${WRITES} writes over ${duration} ms cost ${made} scans (bound ${bound})`)
   })
 })

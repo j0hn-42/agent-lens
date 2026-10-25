@@ -1144,7 +1144,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     }
     // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650).
     // The wake-up of a cold transcript shares that debounce: a long session over maxSessionFileBytes is put back to
-    // sleep by each scan and woken by its next write, so it scanned on every write (#613)
+    // sleep by each scan and woken by its next write, so it scanned on every write (#613).
+    // Cost that remains: such a session still causes up to 1000 / WATCH_SCAN_DEBOUNCE_MS = 4 full scans per second for as
+    // long as it writes, with no SSE client (the tick alone is 1 per second). Inside the workspace folder
+    // projectDirWatcher already sent that untracked file through the same debounce, so the gain is for project folders
+    // outside the workspace. Not waking a file already counted in skippedSessions.sizeLimit whose size has not dropped
+    // under the cap would remove it; that is left to the owner (it changes when such a file is looked at again).
     projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
     wakeScan = () => projectWatchScan?.request()
     scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
