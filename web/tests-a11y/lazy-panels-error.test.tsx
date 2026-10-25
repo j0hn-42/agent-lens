@@ -35,6 +35,15 @@ test('the three dialogs are declared with closeOnError, the other panels are not
   }
 })
 
+test('every lazyComponent of lazy-panels.tsx is accounted for: closeOnError on the dialogs and on nothing else', () => {
+  const declared = [...source.matchAll(/export const (\w+) = lazyComponent[<(]/g)].map(m => m[1])
+  // A lazyComponent that is not an `export const Name = ...` would escape the list above
+  const calls = (source.match(/\blazyComponent\s*[<(]/g) ?? []).length
+  assert.equal(declared.length, calls, `every lazyComponent call is an exported declaration (${calls} calls, ${declared.length} declarations)`)
+  const withClose = declared.filter(name => declaration(name).includes('closeOnError')).sort()
+  assert.deepEqual(withClose, ['CommandPalette', 'SettingsDialog', 'ShortcutsDialog'], `a new lazy panel is either a dialog with closeOnError listed here, or has none (declared: ${declared.join(', ')})`)
+})
+
 test('closeOnError, as written in lazy-panels.tsx: an open dialog whose chunk fails calls onClose once; a closed one loads nothing', async () => {
   const line = source.split('\n').find(l => l.startsWith('const closeOnError = ')) ?? ''
   assert.ok(line, 'closeOnError is declared')

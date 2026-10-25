@@ -17,9 +17,12 @@
 // (top stack frame and the minified code around it) of the forced events. PROFILE_OUT=<dir> also keeps each trace,
 // a screenshot of each scene and a JSON of every run.
 //
-// Headless Chromium draws the 2D canvas in software, on the renderer main thread: the callback records the draw
-// calls and the main thread's Commit plays them back (the canvas raster), RasterTask only rasterises the DOM layers.
-// The canvas raster time is the "Commit ms / frame" column.
+// Hypothesis, not shown by the trace: headless Chromium draws the 2D canvas in software, so the main thread's Commit
+// would include playing the recorded draw calls back (the canvas raster); RasterTask only rasterises the DOM layers.
+// No trace event is specific to the canvas, so the "Commit ms / frame" column is a proxy for it, nothing more.
+//
+// A run whose tooltip was shown for less than MIN_TOOLTIP_RATIO of its checks did not measure the hovered state: it
+// is left out of the medians and of the sources, and the output says how many were left out (all stay in runs.json).
 import fs from 'node:fs'
 import path from 'node:path'
 import { chromium, type Browser, type CDPSession, type Frame, type Page } from 'playwright'
@@ -180,15 +183,20 @@ async function profileOnce(browser: Browser, target: string, base: string, dpr: 
   return out
 }
 
+/** Share of the tooltip checks that must have seen the tooltip for a run to count as a "node hovered" measure. */
+const MIN_TOOLTIP_RATIO = 0.9
+const hovered = (runs: Run[]) => runs.filter(r => r.tooltipShownRatio >= MIN_TOOLTIP_RATIO)
+
 const median = (xs: (number | null)[]) => {
   const v = xs.filter((x): x is number => x !== null).sort((a, b) => a - b)
   return v.length ? v[Math.floor((v.length - 1) / 2)] : null
 }
 const fmt = (n: number | null, d = 2) => (n === null ? 'n/a' : n.toFixed(d))
 
-function table(runs: Run[], targets: string[]): string {
+function table(all: Run[], targets: string[]): string {
+  const runs = hovered(all)
   const rows = [
-    '| scene | build | dpr | agents | frames | rAF interval (ms) | rAF callback mean / p95 (ms) | main thread busy (ms/s) | forced Layout / frame | forced style recalc / frame | Layout ms / frame | Style ms / frame | Paint ms / frame | Raster ms / frame | Commit ms / frame (canvas raster) | LayoutCount (getMetrics) | tooltip shown |',
+    '| scene | build | dpr | agents | frames | rAF interval (ms) | rAF callback mean / p95 (ms) | main thread busy (ms/s) | forced Layout / frame | forced style recalc / frame | Layout ms / frame | Style ms / frame | Paint ms / frame | Raster ms / frame | Commit ms / frame (proxy, may include the canvas raster: hypothesis) | LayoutCount (getMetrics) | tooltip shown |',
     '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ]
   for (const scene of ['overview', 'zoomed'] as const) for (const dpr of DPRS) for (const t of targets) {
@@ -212,7 +220,8 @@ async function snippet(base: string, at: string): Promise<string> {
 }
 
 /** Forced style recalcs and layouts by JS source, summed over every run and scene of each target. */
-async function sources(runs: Run[], targets: [string, string][]): Promise<string> {
+async function sources(all: Run[], targets: [string, string][]): Promise<string> {
+  const runs = hovered(all)
   const rows = ['| build | kind | at | forced events | frames | code around it (minified) |', '|---|---|---|---|---|---|']
   for (const [label, base] of targets) {
     const rs = runs.filter(r => r.target === label)
@@ -258,6 +267,8 @@ async function main() {
   }
   if (OUT) fs.writeFileSync(path.join(OUT, 'runs.json'), JSON.stringify(runs, null, 2))
   console.log(`Chromium ${version}, viewport ${VIEWPORT.width}x${VIEWPORT.height}, ${AGENTS} agents, ${RUNS} runs, ${SAMPLE_MS} ms traced while hovering; medians.`)
+  const left = runs.length - hovered(runs).length
+  console.log(`${left} of ${runs.length} runs left out of the medians and sources: tooltip shown for less than ${MIN_TOOLTIP_RATIO * 100}% of the checks, so the hovered state was not measured${left ? ` (${runs.filter(r => r.tooltipShownRatio < MIN_TOOLTIP_RATIO).map(r => `${r.target} ${r.scene} dpr${r.dpr} run${r.run}: ${fmt(r.tooltipShownRatio)}`).join('; ')})` : ''}.`)
   console.log(table(runs, targets.map(t => t[0])))
   console.log('')
   console.log(forced)

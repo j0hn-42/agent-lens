@@ -86,7 +86,7 @@ Scope of the gain: it holds for a scene drawn as is. With "Hide inactive" on or 
 
 ### A hovered node under load, Chrome trace (`perf-chrome-profile.ts`, #661)
 
-A real Chromium trace (CDP `Tracing`, `devtools.timeline` and `disabled-by-default-devtools.timeline` categories) of 150 active agents while the pointer stays on a node and its tooltip is shown, 5 s per scene, before and after #679 (shadow sprite, cached scanline gradient, bubble buttons written on change, tooltip size from a `ResizeObserver`). A forced style recalculation or layout is one that runs inside a JavaScript task (the "Forced reflow" of the DevTools Performance panel). Headless Chromium draws the 2D canvas in software: its raster is the main thread's `Commit`, where the recorded draw calls are played back.
+A real Chromium trace (CDP `Tracing`, `devtools.timeline` and `disabled-by-default-devtools.timeline` categories) of 150 active agents while the pointer stays on a node and its tooltip is shown, 5 s per scene, before and after #679 (shadow sprite, cached scanline gradient, bubble buttons written on change, tooltip size from a `ResizeObserver`). A forced style recalculation or layout is one that runs inside a JavaScript task (the "Forced reflow" of the DevTools Performance panel). Headless Chromium draws the 2D canvas in software, which suggests that the main thread's `Commit` includes playing the recorded draw calls back. That is a hypothesis: no trace event is specific to the canvas, so the `Commit` column is a proxy for the canvas raster, not a measure of it.
 
 ```bash
 # Two builds already served (next start), profiled in alternation; PROFILE_OUT keeps the traces and screenshots
@@ -96,7 +96,7 @@ PROFILE_TARGETS=before=http://127.0.0.1:3100,after=http://127.0.0.1:3300 PROFILE
 
 Medians of 5 runs, viewport 1280x800, "before" is the parent of the #679 merge (`b01b5aa8`), "after" is `develop` at `e5667d38`:
 
-| scene | build | DPR | forced style recalc / frame | forced Layout / frame | canvas raster (Commit ms / frame) | rAF callback (ms) |
+| scene | build | DPR | forced style recalc / frame | forced Layout / frame | Commit (ms / frame, proxy for the canvas raster) | rAF callback (ms) |
 |---|---|---|---|---|---|---|
 | overview | before | 1 | 0.47 | 0.00 | 3.62 | 11.32 |
 | overview | after | 1 | 0.02 | 0.00 | 3.49 | 11.23 |
@@ -106,6 +106,8 @@ Medians of 5 runs, viewport 1280x800, "before" is the parent of the #679 merge (
 | zoomed | after | 1 | 0.02 | 0.00 | 6.81 | 8.46 |
 | zoomed | before | 2 | 0.46 | 0.00 | 15.84 | 15.50 |
 | zoomed | after | 2 | 0.04 | 0.00 | 15.63 | 15.58 |
+
+Forced Layout: the median is 0.00 per frame, which is a rounded median, not an absence. Over the runs, 3 forced Layout events for "before" (2 at the tooltip's `offsetWidth` in `positionTooltip`, 1 at the control bar) against 10 for "after" (9 at the `getBoundingClientRect` of the control bar, 1 in the pointer handler), almost all from runs where the hover did not hold. Apart from the tooltip, the control-bar source of "after" (44 style recalculations, 9 Layouts) is above its level before the merge and was not examined. The medians above include the runs where the tooltip was not seen during the trace (two are known: `develop` zoomed DPR 1 run 0 with the tooltip never seen, and `before` overview DPR 1 run 2 at 0.22 of the checks); `perf-chrome-profile.ts` now leaves such runs (shown for under 90% of the checks) out of the medians and of the sources and prints how many.
 
 The forced style recalculation read by the tooltip (`offsetWidth` after the style writes of the frame, about one frame in two while hovering, 1,839 events over 4,478 frames) is gone; what remains comes from the `?perf` panel's own `ctx.font`, the pointer handler's `getBoundingClientRect` and the control bar height. The canvas raster and the frame times are equal within 4%: in software rendering the depth shadow was not the main raster cost, so this trace shows no raster gain, and no regression. The main thread is busy about 990 ms per second in every row (software canvas, 150 animated agents), so the frame rate is bound by the machine, not by these changes.
 
