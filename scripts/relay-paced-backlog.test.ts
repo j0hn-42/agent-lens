@@ -6,6 +6,8 @@
  * message carries at most MESSAGE_MAX characters: this test fills the buffer with the largest ones (25 sessions,
  * so that the 10,000-event total is reached and the replay counts at least that many events), connects a client that
  * reads nothing, and checks it is kept and gets the whole replay, cursor included, once it reads.
+ * It measures that case only (messages of MESSAGE_MAX = 2000 characters): other event types (a hook text can reach 4096
+ * characters) are not covered, and the "paced backlog overflowed" branch is not run here.
  * Own file: the relay is a per-process singleton.
  */
 import '../extension/test/helpers/alias-vscode'
@@ -34,7 +36,7 @@ async function waitFor(cond: () => boolean, ms: number): Promise<boolean> {
   return cond()
 }
 
-describe('relay: the largest connect replay stays under the paced backlog bound (#613)', () => {
+describe('relay: the replay of 10,000 messages of 2000 characters stays under the paced backlog bound (#613)', () => {
   let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
   let server: http.Server
   let port = 0

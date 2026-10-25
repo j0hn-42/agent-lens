@@ -207,11 +207,14 @@ describe('relay: events missed while the link was down (issue #366)', () => {
     const now = cursorOf((await collect('', 10_000)).msgs)!
     await waitFor(() => relay.debugState().sseClients === 0, 2_000)
     const FEW = 5
-    const base = MESSAGES + MORE
+    // Depends on the tests above, by design: they filled the buffer (RELAY_MAX_EVENTS_PER_SESSION events of SESSION), and
+    // filling it again here would cost as long as all of them. Alone, the precondition on `full.messages` fails with its
+    // message. The next line label is read from the transcript instead of recomputed from the constants above.
+    const base = fs.readFileSync(transcript, 'utf8').split('\n').length
     await appendLines(transcript, base, base + FEW)
     assert.ok(await waitForCursorAdvance(now.seq, FEW) >= now.seq + FEW, 'precondition: the relay numbered the appended lines')
     const full = await collect('', 10_000)
-    assert.ok(full.messages > 100, `precondition: a connection without since replays the buffer (${full.messages})`)
+    assert.ok(full.messages > 100, `precondition: the buffer filled by the tests above is replayed to a connection without since (${full.messages}); this test does not run alone`)
     const resumed = await collect(`?since=${now.instance}.${now.seq}`, 10_000)
     assert.ok(cursorOf(resumed.msgs), 'precondition: the replay was written in full')
     assert.equal(resumed.messages, FEW, 'only the messages the client has not received are replayed')
