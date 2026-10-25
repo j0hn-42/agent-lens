@@ -11,6 +11,7 @@ import {
   WEBVIEW_BG_COLOR, WEBVIEW_LOADING_TEXT, WEBVIEW_LOADING_TEXT_DIM,
 } from './constants'
 import { productionHtml } from './webview-html'
+import { EventCoalescer } from './event-coalescer'
 
 function getNonce(): string {
   const bytes = crypto.randomBytes(NONCE_LENGTH)
@@ -32,6 +33,8 @@ export class VisualizerPanel implements vscode.Disposable {
   private readonly _onCommand = new vscode.EventEmitter<WebviewToExtensionMessage>()
   private _wired = false
   private _ready = false
+  /** Events of one 16 ms window go as one message; every other message flushes them first (#656) */
+  private readonly events = new EventCoalescer({ post: (message) => this.postNow(message) })
 
   readonly onCommand = this._onCommand.event
   private readonly _onDisposed = new vscode.EventEmitter<void>()
@@ -116,8 +119,12 @@ export class VisualizerPanel implements vscode.Disposable {
     return VisualizerPanel.instance
   }
 
-  /** Send a typed message to the webview (fails silently if panel is disposed) */
+  /** Send a typed message to the webview, after the events sent before it (fails silently if panel is disposed) */
   postMessage(message: ExtensionToWebviewMessage): void {
+    this.events.post(message)
+  }
+
+  private postNow(message: ExtensionToWebviewMessage): void {
     try {
       this.panel.webview.postMessage(message)
     } catch {
@@ -125,9 +132,9 @@ export class VisualizerPanel implements vscode.Disposable {
     }
   }
 
-  /** Send an agent event to the webview */
+  /** Send an agent event to the webview: held one 16 ms window with the events that follow it (#656) */
   sendEvent(event: AgentEvent): void {
-    this.postMessage({ type: 'agent-event', event })
+    this.events.push(event)
   }
 
   /** Update connection status display */
@@ -262,6 +269,7 @@ export class VisualizerPanel implements vscode.Disposable {
 
   dispose(): void {
     VisualizerPanel.instance = undefined
+    this.events.dispose()
     for (const d of this.disposables) {
       d.dispose()
     }

@@ -16,7 +16,7 @@ Inside the VS Code webview the browser download may be refused; the message then
 
 ## What the file contains
 
-- The events of the session still in memory: at most the last 5000 (the session buffer). Earlier events dropped from memory are not in the file, and the file says how many there were ("Incomplete history").
+- The events of the session still in memory: at most the last 5000 (the session buffer), fewer when the buffers of all sessions together pass their memory cap (64 MiB, estimated; see [Performance](performance.md#memory-of-the-event-buffers-659)). Earlier events dropped from memory are not in the file, and the file says how many there were ("Incomplete history").
 - For a session received from the relay's replay: a context reading the relay replaced by a later reading of the same agent at the same instant has no row (it was not lost: the later reading sets the same context, see [Relay sources](relay-sources.md#replay-buffer-context-readings-replaced-at-the-same-instant-567)).
 - For each event: its type, its stream time, its payload (after redaction) and the *history replay* or *imported transcript* marks.
 - The session label and id, the export time, the event count and the redaction counts, by type.

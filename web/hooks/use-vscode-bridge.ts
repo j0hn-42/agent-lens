@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
-import { trimOldest } from '@/lib/bounded-buffer'
+import { pushBounded } from '@/lib/bounded-buffer'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
   activeSessionIds, finishedSessionIds, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject,
@@ -163,6 +163,9 @@ const MAX_LAST_EVENT_SESSIONS = 1000
 
 /** Max events kept in the arrival-order buffer that feeds the 'All' tab (oldest are dropped) */
 const MAX_ALL_BUFFER = 50_000
+/** Max estimated bytes of that buffer (#659): with the session buffers' cap (SESSION_BUFFER_MAX_BYTES, 64 MiB) the
+ *  events held stay under 96 MiB even when none is shared (314 MB measured with counts alone) */
+const MAX_ALL_BUFFER_BYTES = 32 * 1024 * 1024
 
 /**
  * Connects the VS Code bridge to the React app.
@@ -616,9 +619,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         appendSessionEvent(sessionBuffersRef.current, event.sessionId, simEvent, selectedSessionIdRef.current)
       }
       // ... and in arrival order for the 'All' tab
-      allEventsRef.current.push(simEvent)
-      // Trimmed in batches (10 % over the cap), not one splice per event: amortized O(1) (#659)
-      allBaseRef.current += trimOldest(allEventsRef.current, MAX_ALL_BUFFER)
+      // Trimmed in batches (10 % over a cap, count or bytes), not one splice per event: amortized O(1) (#659).
+      // allBaseRef counts every dropped event, so positions stay absolute.
+      allBaseRef.current += pushBounded(allEventsRef.current, simEvent, MAX_ALL_BUFFER, MAX_ALL_BUFFER_BYTES)
 
       // Deliver to pending if session matches (ref is always current). The 'All' tab receives every event.
       // Skip if a session switch is pending — useLayoutEffect will flush
