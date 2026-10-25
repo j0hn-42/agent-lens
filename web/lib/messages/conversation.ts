@@ -35,6 +35,7 @@ export const fr = {
   'conv.picker.unread.other': '{n} agents non lus',
   // After the agent's total of messages (« 5 messages, dont des non lus »): how many are unread is not known, so no number
   'conv.picker.someUnread': ', dont des non lus',
+  'conv.picker.unreadSuffix': 'avec des messages',
   'conv.picker.unreadOnly': 'Non lus seulement',
   'conv.picker.group.done': 'Terminés ({n})',
   'conv.picker.group.noTeam': 'Sans équipe ({n})',
@@ -183,6 +184,7 @@ export const en: Record<keyof typeof fr, string> = {
   'conv.picker.unread.one': '{n} agent unread',
   'conv.picker.unread.other': '{n} agents unread',
   'conv.picker.someUnread': ', some unread',
+  'conv.picker.unreadSuffix': 'with messages',
   'conv.picker.unreadOnly': 'Unread only',
   'conv.picker.group.done': 'Finished ({n})',
   'conv.picker.group.noTeam': 'No team ({n})',

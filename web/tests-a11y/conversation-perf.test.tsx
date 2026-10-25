@@ -270,26 +270,53 @@ for (const type of ['assistant', 'user', 'thinking'] as const) {
   })
 }
 
-// #613 (review of #689): proof that the ANSI parse is not run again by a re-render of a row. parseAnsi builds one RegExp
-// per call, so counting the constructions of that regex counts the parses.
-test('TranscriptMessage parses the ANSI of a shell result once, however many times its row renders again', () => {
-  const RealRegExp = RegExp
-  let parses = 0
-  const Spy = new Proxy(RealRegExp, {
-    construct(target, args, nt) {
-      if (typeof args[0] === 'string' && args[0].includes('\\x1b') && args[1] === 'g') parses++
-      return Reflect.construct(target, args, nt)
-    },
+// #613 (review of #690): the agent-to-agent rows (dispatch, return) go through the same MessageRow
+for (const type of ['dispatch', 'return'] as const) {
+  test(`windowed panel: a long ${type} row shown in full is still in full after its row scrolled out of the window and back`, () => {
+    expandedRowSurvivesWindowing({ id: 'm0', type, timestamp: 1, content: 'long message '.repeat(60), from: 'o', to: 'p' })
   })
+}
+
+// #613 (review of #689): the ids of messages dropped from the history leave the set of opened rows. Observed through a
+// message that comes back under the same id: it must not appear already opened.
+test('a message dropped from the history is forgotten: the same id coming back later is collapsed', () => {
+  setLocaleChoice('en')
+  const long: ConversationMessage = { id: 'm0', type: 'assistant', timestamp: 1, content: 'long message '.repeat(60) }
+  const other: ConversationMessage = { id: 'm1', type: 'assistant', timestamp: 2, content: 'short' }
+  const tree = (msgs: ConversationMessage[]) => (
+    <ConversationHarness
+      registry={createPanelRegistry()} initialOpen conversations={new Map([['o', msgs]])}
+      agents={new Map([['o', agentOf('o', 'orchestrator')]])} selectedAgentId={null} onAgentClick={() => {}}
+    />
+  )
+  const v = render(tree([long, other]))
+  const toggle = () => v.container.querySelector('[role="listitem"][aria-posinset="1"] button[aria-expanded]') as HTMLButtonElement
+  act(() => { fireEvent.click(toggle()) })
+  assert.equal(toggle().getAttribute('aria-expanded'), 'true', 'opened')
+  v.rerender(tree([other]))
+  assert.equal(v.container.querySelector('button[aria-expanded="true"]'), null, 'dropped')
+  v.rerender(tree([long, other]))
+  assert.equal(toggle().getAttribute('aria-expanded'), 'false', 'the old opened state did not outlive the message')
+})
+
+// #613 (review of #689): proof that the ANSI parse is not run again by a re-render of a row. The scanning loop of parseAnsi
+// calls exec on a regex whose source holds the escape character; counting those calls does not depend on how the regex is
+// built (new RegExp each time, a shared one with its lastIndex reset, any flags).
+test('TranscriptMessage parses the ANSI of a shell result once, however many times its row renders again', () => {
+  const realExec = RegExp.prototype.exec
+  let scans = 0
+  RegExp.prototype.exec = function (this: RegExp, str: string) {
+    if (this.source.includes('\\x1b') || this.source.includes('\x1b')) scans++
+    return realExec.call(this, str)
+  }
   const msg: ConversationMessage = { id: 'a1', type: 'tool_result', timestamp: 1, content: '< \x1b[31m' + 'red output '.repeat(30) + '\x1b[0m', toolName: 'Bash' }
-  globalThis.RegExp = Spy as unknown as RegExpConstructor
   try {
     const v = render(<TranscriptMessage message={msg} searchQuery="" />)
-    const afterMount = parses
+    const afterMount = scans
     assert.ok(afterMount >= 1, 'the counter sees the parse of the first render')
     for (let i = 0; i < 10; i++) v.rerender(<TranscriptMessage message={msg} searchQuery={i % 2 ? 'red' : ''} />)
-    assert.equal(parses, afterMount, 'ten more renders (new search text included) parse nothing again')
+    assert.equal(scans, afterMount, 'ten more renders (new search text included) parse nothing again')
   } finally {
-    globalThis.RegExp = RealRegExp
+    RegExp.prototype.exec = realExec
   }
 })
