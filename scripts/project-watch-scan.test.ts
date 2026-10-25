@@ -57,3 +57,21 @@ test('non-jsonl and missing filenames are ignored; dispose cancels the trailing 
     assert.equal(scans(), 1)
   } finally { mock.timers.reset() }
 })
+
+test('request() is debounced like an unknown file and ignores isTracked: the wake-up of a cold transcript (#613)', () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const { w, scans } = setup(['abc'])
+    for (let i = 0; i < 100; i++) w.request()
+    assert.equal(scans(), 1, 'one leading scan')
+    mock.timers.tick(250)
+    assert.equal(scans(), 2, 'one trailing scan for the requests that came in between')
+    mock.timers.tick(5000)
+    assert.equal(scans(), 2)
+    // Shares its window with onEvent: one scan for both watchers
+    w.request()
+    w.onEvent('new.jsonl')
+    assert.equal(scans(), 3)
+    w.dispose()
+  } finally { mock.timers.reset() }
+})
