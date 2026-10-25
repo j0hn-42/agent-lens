@@ -69,8 +69,8 @@ export const fr = {
   'waste.summary.count.other': '{heading} : {n} cibles répétées observées',
   'waste.summary.atLeast.one': '{heading} : au moins {n} cible répétée observée',
   'waste.summary.atLeast.other': '{heading} : au moins {n} cibles répétées observées',
-  'waste.summary.none': '{heading} : aucune répétition observée',
-  'waste.summary.noneIncomplete': '{heading} : aucune répétition observée (incomplet)',
+  'waste.summary.none': '{heading} : aucune cible répétée observée',
+  'waste.summary.noneIncomplete': '{heading} : aucune cible répétée observée (incomplet)',
   'waste.summary.uncompared.one': '{text}, {n} appel non comparé',
   'waste.summary.uncompared.other': '{text}, {n} appels non comparés',
 } as const
@@ -140,8 +140,8 @@ export const en: Record<keyof typeof fr, string> = {
   'waste.summary.count.other': '{heading}: {n} repeated targets observed',
   'waste.summary.atLeast.one': '{heading}: at least {n} repeated target observed',
   'waste.summary.atLeast.other': '{heading}: at least {n} repeated targets observed',
-  'waste.summary.none': '{heading}: no repeat observed',
-  'waste.summary.noneIncomplete': '{heading}: no repeat observed (incomplete)',
+  'waste.summary.none': '{heading}: no repeated target observed',
+  'waste.summary.noneIncomplete': '{heading}: no repeated target observed (incomplete)',
   'waste.summary.uncompared.one': '{text}, {n} call not compared',
   'waste.summary.uncompared.other': '{text}, {n} calls not compared',
 }
