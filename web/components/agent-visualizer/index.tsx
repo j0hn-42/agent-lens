@@ -240,7 +240,7 @@ export function AgentVisualizer() {
   }, [bridgeOpenFile])
 
   const {
-    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
+    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel, selectedSessionLabelIsInterface,
     hiddenKeepIds, listAgents, blankByHidingCount, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   } = useChromeData(agents, agentsRef, bridge, selection.selectedAgentId, hideInactiveShown)
 
@@ -343,7 +343,7 @@ export function AgentVisualizer() {
     <div className="h-screen w-full relative overflow-hidden" style={{ background: SCENE.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
-        connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
+        connection={connection} sessionLabel={selectedSessionLabel} sessionLabelIsInterface={selectedSessionLabelIsInterface} isReviewing={isReviewing} isEmpty={isEmpty}
         sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote} presentationNote={presentationNote}
       />
 

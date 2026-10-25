@@ -278,8 +278,11 @@ test('the whole announcement follows the locale: connection, session, live mode,
 
 test('the translated "all sessions" label is interface text: not marked lang="en" like a session name (#613)', () => {
   const base = { connection: connectionDisplay('watching', false), isReviewing: false, isEmpty: false, locale: 'fr' as const }
-  const all = buildAnnouncementParts({ ...base, sessionLabel: 'Toutes les sessions' }).find(p => p.segments)
+  const all = buildAnnouncementParts({ ...base, sessionLabel: 'Toutes les sessions', sessionLabelIsInterface: true }).find(p => p.segments)
   assert.equal(all?.segments?.some(s => s.lang === 'en'), false)
+  // A real session that happens to be named like the label is data: the flag decides, not the string (#613)
+  const lookalike = buildAnnouncementParts({ ...base, sessionLabel: 'Toutes les sessions' }).find(p => p.segments)
+  assert.equal(lookalike?.segments?.some(s => s.lang === 'en' && s.text === 'Toutes les sessions'), true)
   const named = buildAnnouncementParts({ ...base, sessionLabel: 'main' }).find(p => p.segments)
   assert.equal(named?.segments?.some(s => s.lang === 'en' && s.text === 'main'), true)
 })
