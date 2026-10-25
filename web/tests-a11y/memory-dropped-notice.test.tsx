@@ -89,6 +89,31 @@ test("the 'All' view: events trimmed from its buffer after the snapshot are coun
   assert.match(t.text(), /4999 older events freed from the page's memory/)
 })
 
+test('a bridge reset clears the counters behind the number: the notice goes, and does not come back with the same session', () => {
+  const t = mount()
+  const feed = () => act(() => {
+    post({ type: 'session-list', sessions: [info('a'), info('b')] })
+    post(ev('a', 0, 'agent_spawn'))
+    for (let i = 1; i < 5; i++) post(ev('a', i))
+    post(ev('b', 0, 'agent_spawn'))
+  })
+  feed()
+  t.show('a')
+  t.show('b')
+  act(() => { for (let i = 5; i < 12; i++) post(ev('a', i)) })
+  act(() => { for (let i = 0; i < SESSION_BUFFER_MAX_SESSIONS; i++) post(ev(`o${i}`, i)) })
+  t.show('a')
+  assert.match(t.text(), /7 older events freed from the page's memory/)
+  // Sent on every 'ready': the buffers and their counters are cleared, nothing is selected
+  act(() => { post({ type: 'reset', reason: 'panel-reopened' }) })
+  assert.equal(t.b().selectedSessionId, null)
+  assert.doesNotMatch(t.text(), /freed from the page's memory/, 'no counter backs the old number any more')
+  // The same session comes back and is selected again: nothing was freed since the reset
+  feed()
+  t.show('a')
+  assert.doesNotMatch(t.text(), /freed from the page's memory/, 'the old number does not come back with the session')
+})
+
 test('the notice reads in French too', () => {
   setLocaleChoice('fr')
   const r = render(<TruncationBanner stats={createStats()} memoryDropped={7} onDismiss={noop} />)
