@@ -161,7 +161,7 @@ export function AgentVisualizer() {
     setIsReviewing(false)
     pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
   }, [pushToast])
-  const sessionCacheRef = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
+  const { sessionCacheRef, memoryDropped, noteRebuilt } = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
 
   const { events: timelineEvents, lost: lostMarkers } = useTimelineEvents(conversations, droppedMessages)
 
@@ -227,7 +227,7 @@ export function AgentVisualizer() {
     zoomToFit,
     toggleGrid: () => setShowHexGrid(prev => !prev),
     clearHistory: handleClearHistory,
-    reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? handleReloadSessionEvents : null,
+    reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? () => { handleReloadSessionEvents(); noteRebuilt() } : null,
     // Read when the menu opens (the open menu re-renders): a workspace moved by hand can be put back
     arrangeWorkspaces: hasMovedWorkspaces() ? resetWorkspaces : null,
   }
@@ -262,7 +262,8 @@ export function AgentVisualizer() {
   // The rule depends on where the replay figure comes from (#605 review, round 4): the VS Code extension lowers its figure
   // while the page is open, so with it only a total above the dismissed one brings the notice back; with the relay a lower
   // total is a new loss too (#569)
-  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey), bridge.eventLossSource)
+  // The events the page freed from its own memory (#613) count in the same total: the notice comes back when it grows
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost + memoryDropped, truncationDismissed.get(truncationKey), bridge.eventLossSource)
   const truncationShown = truncation.show && !immersive
   // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
   const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey
@@ -289,8 +290,8 @@ export function AgentVisualizer() {
   }, [truncationDismissed, truncationKey])
   // A prop of the memoized dock (#658): the same element while its three inputs are the same
   const lossIndicator = useMemo(
-    () => <TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} onShow={reopenTruncationBanner} />,
-    [truncationStats, bridge.replayLost, reopenTruncationBanner],
+    () => <TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} memoryDropped={memoryDropped} onShow={reopenTruncationBanner} />,
+    [truncationStats, bridge.replayLost, memoryDropped, reopenTruncationBanner],
   )
   // The banner took the focus the user asked for: a later mount of it (leaving full screen, back after its total fell to 0)
   // keeps Details expanded but never moves the focus again (#569 review)
@@ -387,6 +388,7 @@ export function AgentVisualizer() {
             key={`${truncationKey}#${truncationReopenedHere ? truncationReopened?.n ?? 0 : 0}`}
             stats={truncationStats}
             replayLost={bridge.replayLost}
+            memoryDropped={memoryDropped}
             returnFocusId={PANEL_BUTTON_IDS.sessions}
             initialOpen={truncationReopenedHere}
             takeFocus={truncationReopenedHere && truncationReopened?.focus === true}

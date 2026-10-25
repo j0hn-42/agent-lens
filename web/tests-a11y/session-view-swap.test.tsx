@@ -17,6 +17,8 @@ function setup(fake: Fake) {
     getSessionEventCount: () => fake.count,
     getBufferedEventCount: () => fake.buffered,
     getBufferedLifecycleCount: () => fake.lifecycle,
+    getViewMark: () => fake.count,
+    getMemoryDropped: () => 0,
     allViewKey: 'k',
   }
   const props = {

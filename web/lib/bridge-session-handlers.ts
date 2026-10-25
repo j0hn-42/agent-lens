@@ -12,6 +12,7 @@ import type { createTeamTracker } from '../hooks/simulation/team-info'
 import type { SessionModelTracker } from './session-model'
 import type { SessionBuffers } from './session-buffers'
 import { clearSessionBuffers } from './session-buffers'
+import { clearAllBufferCounts, type AllBufferCounts } from './all-buffer-counts'
 import type { SimulationEvent } from './agent-types'
 import type { BridgeNotice, SessionInfo } from './vscode-bridge'
 
@@ -26,6 +27,7 @@ export interface SessionHandlerCtx {
   sessionBuffersRef: Ref<SessionBuffers>
   allEventsRef: Ref<SimulationEvent[]>
   allBaseRef: Ref<number>
+  allCountsRef: Ref<AllBufferCounts>
   lastEventAtRef: Ref<Map<string, number>>
   modelTrackerRef: Ref<Pick<SessionModelTracker, 'clear'>>
   teamTrackerRef: Ref<Pick<ReturnType<typeof createTeamTracker>, 'clear'>>
@@ -113,6 +115,7 @@ export const SESSION_HANDLERS: Handlers = {
     ctx.setSessionModels(new Map())
     ctx.allEventsRef.current = []
     ctx.allBaseRef.current = 0
+    clearAllBufferCounts(ctx.allCountsRef.current)
     ctx.lastEventAtRef.current.clear()
     ctx.teamTrackerRef.current.clear()
     ctx.refreshTeamView()

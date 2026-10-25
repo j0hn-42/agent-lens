@@ -37,9 +37,10 @@ function mount() {
   }
   const r = render(<Harness />)
   const b = () => box.bridge!
-  // Select a view and let the simulation take what was flushed to it (the layout effect flushes)
+  // Select a view (the session list may have auto-selected it already) and let the simulation take what was flushed
+  // to it (the layout effect flushes)
   const show = (id: string) => {
-    act(() => { b().selectSession(id) })
+    if (b().selectedSessionId !== id) act(() => { b().selectSession(id) })
     act(() => { b().consumeEvents() })
   }
   const text = () => r.container.querySelector('[data-truncation-banner]')?.textContent ?? ''

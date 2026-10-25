@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { SESSION_HANDLERS, type SessionHandlerCtx } from '../web/lib/bridge-session-handlers'
 import { createSessionBuffers, appendSessionEvent, sessionEventCount } from '../web/lib/session-buffers'
+import { createAllBufferCounts, countAllArrival } from '../web/lib/all-buffer-counts'
 import { createTeamTracker } from '../web/hooks/simulation/team-info'
 import { SessionModelTracker } from '../web/lib/session-model'
 import type { SessionInfo } from '../web/lib/vscode-bridge'
@@ -23,6 +24,7 @@ function makeCtx(initial: SessionInfo[] = [], selected: string | null = null) {
     sessionBuffersRef: { current: createSessionBuffers() },
     allEventsRef: { current: [] as SimulationEvent[] },
     allBaseRef: { current: 0 },
+    allCountsRef: { current: createAllBufferCounts() },
     lastEventAtRef: { current: new Map<string, number>() },
     modelTrackerRef: { current: new SessionModelTracker() },
     teamTrackerRef: { current: createTeamTracker() },
@@ -113,6 +115,7 @@ test('reset: clears every buffer and selection, and says so unless it is a plain
   appendSessionEvent(ctx.sessionBuffersRef.current, 'a', { time: 1, type: 'x', payload: {}, sessionId: 'a' } as unknown as SimulationEvent, 'a')
   ctx.allEventsRef.current.push({} as SimulationEvent)
   ctx.allBaseRef.current = 5
+  countAllArrival(ctx.allCountsRef.current, 'a')
   ctx.lastEventAtRef.current.set('a', 1)
   ctx.dismissedSessionsRef.current.set('z', session('z'))
   SESSION_HANDLERS.reset(ctx, 'scope-changed')
@@ -121,6 +124,7 @@ test('reset: clears every buffer and selection, and says so unless it is a plain
   assert.equal(sessionEventCount(ctx.sessionBuffersRef.current, 'a'), 0)
   assert.equal(ctx.allEventsRef.current.length, 0)
   assert.equal(ctx.allBaseRef.current, 0)
+  assert.equal(ctx.allCountsRef.current.arrived.size, 0, 'the per-session counts of the All buffer go with it (#613)')
   assert.equal(ctx.lastEventAtRef.current.size, 0)
   assert.equal(ctx.dismissedSessionsRef.current.size, 0)
   assert.deepEqual(calls.notices, ['Scope changed: the session view was reloaded'])
