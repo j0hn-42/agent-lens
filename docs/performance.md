@@ -105,11 +105,11 @@ Headless Chromium, demo app in a frame fed by its parent like a VS Code webview.
 
 | buffers | profile | JS heap before (MB) | buffers full (MB) | after reset (MB) |
 |---|---|---|---|---|
-| counts only (before) | real | 15.4 | 342.0 | 26.0 |
-| counts only (before) | worst | 15.3 | 1729.0 | 63.0 |
-| with the byte caps | real | 15.3 | 95.6 | 30.3 |
-| with the byte caps | worst | 15.3 | 110.5 | 66.4 |
+| counts only (before) | real | 15.3 | 340.4 | 25.8 |
+| counts only (before) | worst | 15.3 | 1729.5 | 63.5 |
+| with the byte caps | real | 15.3 | 91.9 | 27.9 |
+| with the byte caps | worst | 15.3 | 108.9 | 64.9 |
 
-With counts only, the 250,000 buffered events held 316 MB for the real profile (1.3 KB per event, close to its JSON length) and 1.7 GB for the worst. With the byte caps the heap stays between 95 and 111 MB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
+With counts only, the 250,000 buffered events held 315 MB for the real profile (1.3 KB per event, close to its JSON length) and 1.7 GB for the worst. With the byte caps the heap stays between 92 and 109 MB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
 
 Cost of buffering, Node on the same machine (`appendSessionEvent` and the All buffer, 260,000 events): 0.17 µs per event with counts only, 1.3 µs (real) and 3.3 µs (worst) with the byte caps, the JSON length of each event being computed once.

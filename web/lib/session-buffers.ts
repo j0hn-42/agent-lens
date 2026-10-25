@@ -106,7 +106,6 @@ export function clearSessionBuffers(s: SessionBuffers): void {
   s.totalBytes = 0
 }
 
-
 /** Absolute number of events ever buffered for the session (dropped ones included). */
 export function sessionEventCount(s: SessionBuffers, sessionId: string): number {
   return (s.base.get(sessionId) ?? 0) + (s.events.get(sessionId)?.length ?? 0)
