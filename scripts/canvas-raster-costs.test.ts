@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument } from './canvas-recorder'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
+import { planOverlays, planKey, resolvePlacement } from '../web/components/agent-visualizer/canvas/overlay-plan'
+import { computeClusters } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { lodForZoom } from '../web/components/agent-visualizer/canvas/draw-options'
 
 stubDocument()
@@ -40,6 +42,29 @@ test('drawAgents: a hidden label costs no text measure of its status line (#661)
   drawAgents(ctx, map([stale]), null, null, false, 1e9, opts(1, { plan: new Map() }))
   const measured = rec.ops.filter(o => o.name === 'measureText').map(o => String(o.args[0]))
   assert.ok(!measured.some(t => /last known/i.test(t)), `measured: ${measured.join(' | ')}`)
+})
+
+test('drawAgents: a label the plan hides is not laid out again, its line count comes from the plan (#613)', () => {
+  // Stacked on one spot: the plan hides some labels. Teammates wrap their name on two lines, so extraLines is 1.
+  const list = Array.from({ length: 6 }, (_, i) => agent(i, { kind: 'teammate', name: `hiddenprobe-${i}-aaaa-bbbb-cccc-dddd`, x: 400 + i * 4 }))
+  const agents = map(list)
+  const result = planOverlays({
+    agents, clusters: computeClusters(agents.values()), edgeBubbles: [], transform: { x: 0, y: 0, scale: 1 },
+    viewport: { w: 1200, h: 800 }, lod: lodForZoom(1), showStats: false, showCost: false, showSessionLabels: false,
+    selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null, simTime: 1, isBubbleHeld: () => false,
+  } as any)
+  const hidden = list.filter(a => result.plan.get(planKey.label(a.id))?.hidden)
+  assert.ok(hidden.length >= 1, 'precondition: the plan hides a label')
+  for (const a of hidden) {
+    const lines = resolvePlacement(result.plan, planKey.label(a.id), 1).extraLines
+    assert.equal(typeof lines, 'number', 'the plan carries the line count of a label it hides')
+  }
+  const { rec, ctx } = watched()
+  drawAgents(ctx, agents, null, null, false, 0, opts(1, { plan: result.plan }))
+  const measured = rec.ops.filter(o => o.name === 'measureText').map(o => String(o.args[0]))
+  for (const a of hidden) {
+    assert.ok(!measured.some(t => t.includes(a.name.slice(0, 14))), `the hidden label of ${a.name} was measured`)
+  }
 })
 
 test('drawAgents: the depth shadow is a sprite, no agent pays a shadowBlur per frame (#661)', () => {
@@ -88,17 +113,51 @@ test('drawAgents: the depth shadow sprite stays small from the detail zoom up (#
   assert.ok(widest > 0 && widest < 300, `sprite width ${widest}`)
 })
 
-test('drawAgents: the depth shadow keeps its screen size on a 2x display (#613)', () => {
-  // shadowBlur is in sprite pixels, then scaled by zoom * dpr: at dpr 2 the sprite is painted with half the blur
-  const widthAt = (dpr: number): number => {
-    const widths = spriteWidths(() => {
-      const { ctx } = watched()
-      drawAgents(ctx, map([agent(0, { scale: 1.37 })]), null, null, false, 0, opts(1, { dpr }))
+/** The shadow properties each sprite canvas was painted with while `run` draws */
+function spriteShadows(run: () => void): Array<{ blur: number; ox: number; oy: number }> {
+  const doc = (globalThis as any).document
+  const painted: Array<{ blur: number; ox: number; oy: number }> = []
+  const original = doc.createElement
+  doc.createElement = (...a: unknown[]) => {
+    const c = original(...a)
+    const seen = { blur: 0, ox: 0, oy: 0 }
+    painted.push(seen)
+    const real = c.getContext
+    c.getContext = (...b: unknown[]) => new Proxy(real.apply(c, b), {
+      set(t, p, v) {
+        if (p === 'shadowBlur') seen.blur = Number(v)
+        if (p === 'shadowOffsetX') seen.ox = Number(v)
+        if (p === 'shadowOffsetY') seen.oy = Number(v)
+        t[p] = v
+        return true
+      },
     })
-    return Math.max(0, ...widths)
+    return c
   }
-  const w1 = widthAt(1)
-  const w2 = widthAt(2)
-  assert.ok(w1 > 0 && w2 > 0, `sprites ${w1} / ${w2}`)
-  assert.ok(w2 < w1, `dpr 2 sprite (${w2} px) is not smaller than the dpr 1 one (${w1} px)`)
+  try { run() } finally { doc.createElement = original }
+  return painted.filter(p => p.blur > 0)
+}
+
+test('drawAgents: the depth shadow keeps its screen size on a 2x display (#613)', () => {
+  // shadowBlur and the offsets are in sprite pixels, then scaled by zoom * dpr: the sprite is painted with the
+  // shadow divided by that device scale, so blur * zoom * dpr stays the on-screen blur (within the half-octave step, ~20 %)
+  const zoom = 1
+  const paintAt = (dpr: number) => {
+    const found = spriteShadows(() => {
+      const { ctx } = watched()
+      drawAgents(ctx, map([agent(0, { scale: 1.37 })]), null, null, false, 0, opts(zoom, { dpr }))
+    })
+    assert.equal(found.length, 1, `one sprite painted at dpr ${dpr}`)
+    return found[0]
+  }
+  const dpr1 = paintAt(1)
+  const dpr2 = paintAt(2)
+  assert.ok(Math.abs(dpr1.blur / dpr2.blur - 2) < 1e-9, `blur ${dpr1.blur} at dpr 1, ${dpr2.blur} at dpr 2: not halved`)
+  assert.ok(Math.abs(dpr1.ox / dpr2.ox - 2) < 1e-9 && Math.abs(dpr1.oy / dpr2.oy - 2) < 1e-9, 'offsets are not halved')
+  for (const [dpr, shadow] of [[1, dpr1], [2, dpr2]] as const) {
+    const screen = shadow.blur * zoom * dpr
+    assert.ok(screen > 15 * 0.8 && screen < 15 * 1.25, `on-screen blur ${screen} px at dpr ${dpr}, expected about 15`)
+    assert.ok(shadow.ox * zoom * dpr > 3 * 0.8 && shadow.ox * zoom * dpr < 3 * 1.25, `on-screen x offset ${shadow.ox * zoom * dpr}`)
+    assert.ok(shadow.oy * zoom * dpr > 5 * 0.8 && shadow.oy * zoom * dpr < 5 * 1.25, `on-screen y offset ${shadow.oy * zoom * dpr}`)
+  }
 })
