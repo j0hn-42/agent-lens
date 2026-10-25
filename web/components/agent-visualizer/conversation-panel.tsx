@@ -155,6 +155,21 @@ export const ConversationPanel = memo(function ConversationPanel({
     })
   }, [])
 
+  // Opened rows of messages that left the history (MAX_CONVERSATION_MESSAGES) are forgotten. A message hidden by a filter
+  // or by the tools toggle is still in the history, so it keeps its state. Closed: nothing is built, nothing to compare.
+  useEffect(() => {
+    if (!open) return
+    setExpandedRows(prev => {
+      if (prev.size === 0) return prev
+      const live = new Set<string>()
+      for (const list of conversations.values()) for (const m of list) live.add(m.id)
+      for (const m of allMessages) live.add(m.id)
+      let next: Set<string> | null = null
+      for (const id of prev) if (!live.has(id)) (next ??= new Set(prev)).delete(id)
+      return next ?? prev
+    })
+  }, [open, conversations, allMessages])
+
   // Virtual list with auto-scroll
   const {
     visibleItems, handleScroll, measureRef,
