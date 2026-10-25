@@ -11,6 +11,8 @@ import { useUnobservedSessionCount } from '@/hooks/use-unobserved-sessions'
 interface ChromeAnnouncerProps {
   connection: ConnectionDisplay
   sessionLabel: string | null
+  /** The label is the "All sessions" or team heading (interface text), not a session name (#613) */
+  sessionLabelIsInterface?: boolean
   isReviewing: boolean
   isEmpty: boolean
   sessions: ReadonlyArray<SessionInfo>
@@ -25,10 +27,10 @@ interface ChromeAnnouncerProps {
  * Polite live region: connection, session, review mode and empty state changes, plus the number of
  * listed sessions whose activity is not observed (issue #52), which follows the observation tracker.
  */
-export function ChromeAnnouncer({ connection, sessionLabel, isReviewing, isEmpty, sessions, sessionsWithActivity, fullscreenNote, presentationNote }: ChromeAnnouncerProps) {
+export function ChromeAnnouncer({ connection, sessionLabel, sessionLabelIsInterface, isReviewing, isEmpty, sessions, sessionsWithActivity, fullscreenNote, presentationNote }: ChromeAnnouncerProps) {
   const unobservedSessions = useUnobservedSessionCount(sessions, sessionsWithActivity)
   const { locale } = useLocale()
-  const parts = buildAnnouncementParts({ connection, sessionLabel, isReviewing, isEmpty, unobservedSessions, fullscreenNote, presentationNote, locale })
+  const parts = buildAnnouncementParts({ connection, sessionLabel, sessionLabelIsInterface, isReviewing, isEmpty, unobservedSessions, fullscreenNote, presentationNote, locale })
   // The whole sentence is in the locale (#613): the region declares it, each piece too.
   return (
     <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" lang={locale}>
