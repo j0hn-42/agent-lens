@@ -43,7 +43,7 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
  * ResizeObserver keeps the size, delivered after layout, so the draw loop never forces one by reading
  * offsetWidth in the middle of its writes. Without ResizeObserver every frame reads, as before.
  */
-const tooltipSizes = new WeakMap<HTMLElement, { w: number; h: number }>()
+let tooltipSizes = new WeakMap<HTMLElement, { w: number; h: number }>()
 /** What positions a tooltip again once its size is known (the last positionTooltip call for that element) */
 const tooltipPlacers = new WeakMap<HTMLElement, () => void>()
 let tooltipObserver: ResizeObserver | null = null
@@ -52,6 +52,9 @@ function tooltipSize(el: HTMLElement): { w: number; h: number } {
   const Ctor = typeof ResizeObserver === 'function' ? ResizeObserver : null
   if (Ctor !== tooltipObserverCtor) {
     tooltipObserverCtor = Ctor
+    // The observer being replaced stops watching, and what it watched is read and observed again by the new one (#613)
+    tooltipObserver?.disconnect()
+    tooltipSizes = new WeakMap()
     tooltipObserver = Ctor
       ? new Ctor(entries => {
         for (const e of entries) {
