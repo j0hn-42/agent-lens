@@ -58,6 +58,12 @@ describe('relay webhooks', () => {
     await new Promise<void>(resolve => {
       const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => { res.resume(); setTimeout(() => { req.destroy(); resolve() }, 600) })
     })
+    // The attach reads the history over several ticks (#651): a line appended before it ends is history, never
+    // notified. The tests append live lines, so they start once the transcript is followed, not after a fixed time (#440).
+    const end = Date.now() + 8000
+    const attached = () => relay.debugState().watchedSessions >= 1 && !relay.debugState().attaching
+    while (!attached() && Date.now() < end) await new Promise(r => setTimeout(r, 10))
+    assert.ok(attached(), 'precondition: the transcript is attached')
   })
 
   after(() => {

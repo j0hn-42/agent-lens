@@ -9,14 +9,19 @@ import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { RELAY_STATUS_RATE_PER_S } from '../extension/src/constants'
 
 const SESSION = '42042042-0420-4420-8420-420420420420'
+
+// Each poll is a GET /status, which is rate-limited: polled faster than the bucket refills, an attach slower than
+// the burst answers 429 and the test fails on its body (#440). Polled below the refill rate, it never runs dry.
+const POLL_MS = Math.ceil(1000 / RELAY_STATUS_RATE_PER_S) + 50
 
 async function waitFor(cond: () => Promise<boolean>, ms = 15_000): Promise<boolean> {
   const end = Date.now() + ms
   while (Date.now() < end) {
     if (await cond()) return true
-    await new Promise(r => setTimeout(r, 25))
+    await new Promise(r => setTimeout(r, POLL_MS))
   }
   return cond()
 }
