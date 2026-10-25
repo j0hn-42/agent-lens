@@ -100,3 +100,33 @@ describe('the full read of an idle subagent file keeps no line longer than the n
     } finally { pipeline.release(session) }
   })
 })
+
+describe('an active subagent file with a dropped complete line proves no spawn (#693)', () => {
+  let dir = ''
+  afterEach(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }) })
+
+  it('a tool_result line longer than the cap does not leave its tool_use pending: no spawn is emitted from the partial prescan', async () => {
+    const S = '61300000-0000-4000-8000-000000000002'
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-full-read-drop-'))
+    const lead = path.join(dir, `${S}.jsonl`)
+    fs.writeFileSync(lead, JSON.stringify({ type: 'user', uuid: 'p', message: { role: 'user', content: 'Audit' } }) + '\n')
+    const subDir = path.join(dir, S, 'subagents')
+    fs.mkdirSync(subDir, { recursive: true })
+    const file = path.join(subDir, 'agent-a0000000000000010.jsonl')
+    const use = { type: 'assistant', uuid: 'a', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_big', name: 'Bash', input: { command: 'ls' } }] } }
+    const result = { type: 'user', uuid: 'r', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_big', content: 'z'.repeat(5 * NORM_MAX_LINE_CHARS) }] } }
+    fs.writeFileSync(file, JSON.stringify(use) + '\n' + JSON.stringify(result) + '\n')
+    fs.writeFileSync(path.join(subDir, 'agent-a0000000000000010.meta.json'), JSON.stringify({ agentType: 'general-purpose', description: 'Sub' }))
+    const sessions = new Map<string, WatchedSession>()
+    const events: Array<{ event: string }> = []
+    const pipeline = new ClaudeSessionPipeline({ sessions, submit: (e: { event: string }) => { events.push(e) }, fireLifecycle: () => {}, withHistory: <T,>(load: () => T) => load() } as never)
+    const session = pipeline.newSession(S, lead)
+    sessions.set(S, session)
+    try {
+      await pipeline.attach(session)
+      const state = session.subagentWatchers.get(file)!
+      assert.equal(state.spawnEmitted, false, 'a finished subagent is not shown as active')
+      assert.equal(events.filter(e => e.event === 'agent_spawn').length, 0)
+    } finally { pipeline.release(session) }
+  })
+})

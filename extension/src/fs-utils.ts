@@ -235,6 +235,8 @@ export async function* readLineBatches(
    * Unbounded when absent.
    */
   maxLineBytes?: number,
+  /** Called once for each line dropped for exceeding maxLineBytes: the caller knows what it read is partial. */
+  onDropped?: () => void,
 ): AsyncGenerator<string[]> {
   const fh = await fs.promises.open(filePath, 'r')
   let offset = 0
@@ -261,6 +263,7 @@ export async function* readLineBatches(
       if (maxLineBytes !== undefined && rest.length > maxLineBytes) {
         carry = Buffer.alloc(0)
         skipping = true
+        onDropped?.()
       } else {
         carry = Buffer.from(rest)
       }

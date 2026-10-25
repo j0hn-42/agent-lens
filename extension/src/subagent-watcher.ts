@@ -327,7 +327,8 @@ function startWatchingSubagentFile(
 
 /**
  * Longest unfinished line the full read keeps in memory: a line longer than NORM_MAX_LINE_CHARS characters (4 bytes
- * each at most in UTF-8) is dropped by the normalizer anyway, so nothing the web side could show is lost (#613).
+ * each at most in UTF-8) is dropped by the normalizer anyway (#613). The prescan does not go through the normalizer, so a dropped line
+ * is counted and the history is then unproven: no spawn is inferred from it (#693).
  */
 const SUBAGENT_FULL_READ_MAX_LINE_BYTES = NORM_MAX_LINE_CHARS * 4
 
@@ -347,6 +348,7 @@ async function startWatchingSubagentFileAsync(
   const start = beginSubagentFile(delegate, parser, filePath, sessionId)
   if (!start) return
   const pendingToolUseIds = new Set<string>()
+  let dropped = 0
   let mtimeMs: number | undefined
   try {
     const stat = await fs.promises.stat(filePath)
@@ -360,7 +362,7 @@ async function startWatchingSubagentFileAsync(
       start.state.fileTail = ''
       for (const line of tail.lines) prescanSubagentLine(line, start.state, pendingToolUseIds)
     } else {
-      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state, SUBAGENT_FULL_READ_MAX_LINE_BYTES)) {
+      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state, SUBAGENT_FULL_READ_MAX_LINE_BYTES, () => { dropped++ })) {
         for (const line of lines) {
           prescanSubagentLine(line, start.state, pendingToolUseIds)
           if (slice.due()) await slice.pause()
@@ -371,6 +373,12 @@ async function startWatchingSubagentFileAsync(
   } catch (err) {
     if (err instanceof AttachCancelled) throw err
     log.debug('Subagent initial read failed:', err)
+  }
+  if (dropped > 0) {
+    // A dropped line may have held the tool_result of a pending call (or a tool_use): the prescan is partial, so no
+    // spawn is decided from it (a finished subagent must not be shown as active)
+    log.warn(`Subagent ${path.basename(filePath)}: ${dropped} line(s) over the read cap were not prescanned; no spawn is inferred from its history`)
+    pendingToolUseIds.clear()
   }
   finishSubagentFile(delegate, parser, start, filePath, sessionId, pendingToolUseIds, mtimeMs)
 }
