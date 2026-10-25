@@ -668,3 +668,29 @@ test('CONTRIBUTING states the 44 px mobile target only for the Button variants t
     else assert.ok(!yes.includes(`\`${name}\``) && line.includes(`\`${name}\` stays at 24 px`), `${name} lacks TOUCH_TARGET: named as the 24 px exception`)
   }
 })
+
+test('CONTRIBUTING guarantees of the shared Button are the ones button.tsx carries, variant by variant (#613)', () => {
+  const c = read('CONTRIBUTING.md')
+  const src = read('web/components/ui/button.tsx')
+  const block = src.match(/const BASE_CLASS[^\n]*\{\n([\s\S]*?)\n\}/)?.[1] ?? ''
+  const entries = [...block.matchAll(/^ {2}(\w+):([\s\S]*?)(?=^ {2}\w+:|$(?![\s\S]))/gm)]
+  assert.ok(entries.length >= 4, 'BASE_CLASS entries are found')
+  // "24 px minimum target" and "theme focus ring": every variant's class carries them
+  assert.match(c, /24 px minimum target/)
+  assert.match(c, /focus ring \(`FOCUS_RING`\)/)
+  for (const [, name, body] of entries) {
+    assert.ok(body.includes('min-h-6') && body.includes('min-w-6'), `${name} carries the 24 px minimum target`)
+    assert.ok(body.includes('FOCUS_RING'), `${name} carries the focus ring`)
+  }
+  // "renders type=button"
+  assert.match(c, /renders `type="button"`/)
+  assert.ok(/<button[^>]*type="button"/.test(src), 'Button renders type="button"')
+  // "colours from COLORS": only the variants whose baseStyle reads COLORS; the sentence names them and says bar draws its own
+  const style = src.match(/function baseStyle[\s\S]*?\n\}\n/)?.[0] ?? ''
+  const withColors = entries.map(([, n]) => n).filter(n => new RegExp(`case '${n}':[^]*?COLORS`).test(style))
+  assert.deepStrictEqual([...withColors].sort(), ['control', 'decision', 'tour'])
+  const line = c.split('\n').find(l => l.includes('colours from `COLORS`')) ?? ''
+  assert.ok(line, 'CONTRIBUTING states where the colours come from')
+  for (const n of withColors) assert.ok(line.includes(`\`${n}\``), `the colours sentence names ${n}`)
+  assert.ok(line.includes('`bar`') && /through `style`/.test(line), 'and says bar draws its own through style')
+})
