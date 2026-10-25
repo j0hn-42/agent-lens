@@ -414,6 +414,8 @@ export const ConversationPanel = memo(function ConversationPanel({
                     runtime={agents.get(msg.agentId)?.runtime}
                     onFilterPair={(() => { const rp = pairOfMessage(msg); return rp ? () => selectPair(rp[0], rp[1]) : undefined })()}
                     contentId={`${baseId}-msg-${msg.id}`}
+                    expanded={expandedRows.has(msg.id)}
+                    onToggleExpanded={toggleExpandedRow}
                     onCopy={msg.type === 'dispatch' || msg.type === 'return' ? () => { void copyMessage(msg) } : undefined}
                   />
                 )}
@@ -827,7 +829,7 @@ function sessionChipOf(agent: Agent | undefined): string | undefined {
   return (agent.sessionLabel ?? agent.sessionId).slice(0, 24)
 }
 
-function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, searchQuery, onClick, runtime, contentId, onFilterPair, onCopy }: {
+function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, searchQuery, onClick, runtime, contentId, expanded, onToggleExpanded, onFilterPair, onCopy }: {
   message: ConversationMessage
   agentName: string
   fromName?: string
@@ -840,12 +842,14 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
   onClick: (e: React.MouseEvent) => void
   runtime?: Agent['runtime']
   contentId: string
+  /** "Show all" state, kept by the panel: the windowing unmounts a row that scrolls away (#613) */
+  expanded: boolean
+  onToggleExpanded: (id: string) => void
   /** Communication rows: filter the panel on the two agents of this row (keyboard path for Shift-click) */
   onFilterPair?: () => void
   /** DISPATCH / RETURN rows: copy the full prompt or report */
   onCopy?: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const { locale } = useLocale()
   const commKind = commKindOf(message)
   const role = commKind ? COMM_STYLE[commKind] : (ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant)
@@ -950,7 +954,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           aria-controls={contentId}
           className={`text-2xs font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
-          onClick={() => setExpanded(prev => !prev)}
+          onClick={() => onToggleExpanded(message.id)}
         >
           <ChevronIcon direction={expanded ? 'up' : 'down'} size={10} className="mr-1" />
           {expanded ? tr(locale, 'conv.showLess') : tr(locale, 'conv.showAll', { n: truncated.hidden })}
