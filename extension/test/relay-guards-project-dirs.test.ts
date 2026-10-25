@@ -1,8 +1,12 @@
 /**
  * Cost of the ranking of project folders past RELAY_MAX_PROJECT_DIRS (#654, #613). Between two recomputes
  * (COLD_RESCAN_CYCLES scans) a scan costs one readdir of the root and one fs.statSync per folder, nothing per
- * transcript. Measured on 3000 folders (tmpfs, warm cache, median of 10 scans): 4.2 ms; 1000 folders: 1.4 ms;
+ * transcript. Measured once on 3000 folders (warm cache, median of 10 scans): 4.2 ms; 1000 folders: 1.4 ms;
  * 201 folders: 0.5 ms (the first scan, which measures every folder, costs 15.8 ms / 6.1 ms / 2.3 ms).
+ * Scope of the measure: the folders were created under os.tmpdir() (/tmp, ext4 on the dev machine, not tmpfs) by a
+ * throwaway script that is not in the repository, so the figures are orders of magnitude, not a reproducible
+ * benchmark. They do not cover WSL2 with ~/.claude on a slower filesystem (/mnt/c, 9p), nor a cold cache; the
+ * asserted behaviour below (one stat per folder, none per transcript) does not depend on them.
  */
 import { describe, it, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
