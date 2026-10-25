@@ -6,6 +6,7 @@ import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import { waitAttached } from './relay-test-helpers'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -46,7 +47,8 @@ function touchEvents(): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
       res.resume()
-      setTimeout(() => { req.destroy(); resolve() }, 600)
+      req.destroy()
+      resolve()
     })
     req.on('error', reject)
   })
@@ -87,10 +89,7 @@ describe('relay GET /observations', () => {
     await touchEvents()
     // Both transcripts are attached over several ticks (#651): a session is listed, and a line appended to it is
     // live, once its attach ended. The tests start then, not after a fixed time (#440).
-    const end = Date.now() + 8000
-    const attached = () => relay.debugState().watchedSessions >= 2 && !relay.debugState().attaching
-    while (!attached() && Date.now() < end) await new Promise(r => setTimeout(r, 10))
-    assert.ok(attached(), 'precondition: both transcripts are attached')
+    assert.ok(await waitAttached(relay, 2), 'precondition: both transcripts are attached')
   })
 
   after(() => {
