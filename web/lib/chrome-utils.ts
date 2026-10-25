@@ -415,6 +415,8 @@ export type ModeNote = 'on' | 'off'
 export function buildAnnouncement(opts: {
   connection: ConnectionDisplay
   sessionLabel: string | null
+  /** The label is interface text (the "All sessions" or team heading, #613), not a session name: it stays in the language of the region. Decided by the caller, never by comparing strings. */
+  sessionLabelIsInterface?: boolean
   isReviewing: boolean
   isEmpty: boolean
   /** Listed sessions with no received event (issue #52): their activity is unknown */
@@ -458,8 +460,8 @@ export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement
   const parts: AnnouncementPart[] = [t('announce.connection', { state })]
   if (opts.sessionLabel) {
     // A session name is data: the convention is lang="en" for data, so the French voice does not read it.
-    // The "All sessions" label is interface text (#613): it stays in the language of the region.
-    const isInterfaceText = opts.sessionLabel === translate(locale, 'sessions.allSessions')
+    // The "All sessions" and team labels are interface text (#613): the caller says so, a session named alike stays data.
+    const isInterfaceText = opts.sessionLabelIsInterface === true
     const MARK = '\u0000'
     const [before, after = ''] = translate(locale, 'announce.session', { name: MARK }).split(MARK)
     parts.push({
