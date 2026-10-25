@@ -211,9 +211,14 @@ test('the catch-up is cut into frame slices and ends with the same state as even
 // The budgets were set on a machine where the reference takes about 45 ms: 500 ms in total and 50 ms per frame
 // there, i.e. 11 and 1.1 references. Measured there: 4.6 to 6.2 references in total, 0.18 to 0.20 for the worst
 // frame; on the same machine with 3 other processes on its core (each measure 4x slower): 5.4 to 7.9 and 0.25 to 0.39.
+// The ratio does not carry across hardware: on the GitHub runner the reference takes about the same time (40 to
+// 64 ms) while the burst is about 2.5x slower, so the total measured 12.9 to 15.6 references there (runs 40156404799
+// and 40156420758 of develop). The CI budget is 2.5x the one set here; a regression of the simulation code (20
+// references here when injected) is about 2.5x larger there too, so it still fails.
 const REFERENCE_MS_WHERE_SET = 45
-const TOTAL_BUDGET = 500 / REFERENCE_MS_WHERE_SET
-const FRAME_BUDGET = 50 / REFERENCE_MS_WHERE_SET
+const CI_FACTOR = process.env.CI ? 2.5 : 1
+const TOTAL_BUDGET = (500 / REFERENCE_MS_WHERE_SET) * CI_FACTOR
+const FRAME_BUDGET = (50 / REFERENCE_MS_WHERE_SET) * CI_FACTOR
 
 // The fastest of RUNS ratios is kept, each measure taken separately; every run is executed (no early exit).
 const RUNS = 3
