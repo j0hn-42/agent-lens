@@ -6,7 +6,8 @@
 //   (offsetWidth, getBoundingClientRect...) after a write, the "Forced reflow" of the DevTools Performance panel.
 //   A Layout outside them is the rendering step of the frame.
 // - Raster is `RasterTask` on any thread (tile workers); Paint and style recalculation (`UpdateLayoutTree`) are
-//   read on the main threads.
+//   read on the main threads. A 2D canvas drawn in software (headless Chromium) is rasterised when its recorded
+//   draw calls are played back, in the `Commit` of the main thread: that is its raster time, not RasterTask.
 // Times are in ms; per-frame values are null when the window holds no frame (nothing to divide by).
 
 export interface TraceEvent {
@@ -36,16 +37,18 @@ export interface TraceSummary {
   paint: Total
   styleRecalc: Total
   raster: Total
+  /** Commit on the main threads: where a software 2D canvas plays its draw calls back (its raster) */
+  commit: Total
   script: Total
   /** Every task of the main threads (RunTask): what the page left of the main thread for input and rendering */
   mainBusy: Total
   /** Where the forced events come from: top frame of their JS stack (needs the devtools.timeline.stack category) */
   forcedSources: ForcedSource[]
-  perFrameMs: { script: number | null; layout: number | null; forcedLayout: number | null; forcedStyleRecalc: number | null; paint: number | null; styleRecalc: number | null; raster: number | null }
+  perFrameMs: { script: number | null; layout: number | null; forcedLayout: number | null; forcedStyleRecalc: number | null; paint: number | null; styleRecalc: number | null; raster: number | null; commit: number | null }
 }
 
 const JS_TASKS = new Set(['FireAnimationFrame', 'FunctionCall', 'EventDispatch', 'TimerFire', 'EvaluateScript', 'RunMicrotasks'])
-const KEPT = new Set([...JS_TASKS, 'Layout', 'Paint', 'UpdateLayoutTree', 'RasterTask', 'RunTask'])
+const KEPT = new Set([...JS_TASKS, 'Layout', 'Paint', 'UpdateLayoutTree', 'RasterTask', 'RunTask', 'Commit'])
 
 interface Span { name: string; key: string; start: number; end: number; args?: Record<string, unknown> }
 
@@ -118,6 +121,7 @@ export function summarizeTrace(events: TraceEvent[], window: { fromUs?: number; 
   const paint = named('Paint')
   const style = named('UpdateLayoutTree')
   const forcedStyle = style.filter(insideJs)
+  const commit = named('Commit')
 
   const intervals: number[] = []
   const byThread = new Map<string, Span[]>()
@@ -138,6 +142,7 @@ export function summarizeTrace(events: TraceEvent[], window: { fromUs?: number; 
     paint: total(paint),
     styleRecalc: total(style),
     raster: total(raster),
+    commit: total(commit),
     script: total(frames),
     mainBusy: total(named('RunTask')),
     forcedSources: forcedSources([...forced, ...forcedStyle]),
@@ -149,6 +154,7 @@ export function summarizeTrace(events: TraceEvent[], window: { fromUs?: number; 
       paint: per(ms(paint)),
       styleRecalc: per(ms(style)),
       raster: per(ms(raster)),
+      commit: per(ms(commit)),
     },
   }
 }

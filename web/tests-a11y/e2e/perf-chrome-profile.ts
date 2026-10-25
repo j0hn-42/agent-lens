@@ -17,8 +17,9 @@
 // (top stack frame and the minified code around it) of the forced events. PROFILE_OUT=<dir> also keeps each trace,
 // a screenshot of each scene and a JSON of every run.
 //
-// Headless Chromium draws the 2D canvas in software, on the renderer main thread: the canvas raster cost is inside
-// the requestAnimationFrame callback, not in RasterTask (which only rasterises the DOM layers).
+// Headless Chromium draws the 2D canvas in software, on the renderer main thread: the callback records the draw
+// calls and the main thread's Commit plays them back (the canvas raster), RasterTask only rasterises the DOM layers.
+// The canvas raster time is the "Commit ms / frame" column.
 import fs from 'node:fs'
 import path from 'node:path'
 import { chromium, type Browser, type CDPSession, type Frame, type Page } from 'playwright'
@@ -187,14 +188,14 @@ const fmt = (n: number | null, d = 2) => (n === null ? 'n/a' : n.toFixed(d))
 
 function table(runs: Run[], targets: string[]): string {
   const rows = [
-    '| scene | build | dpr | agents | frames | rAF interval (ms) | rAF callback mean / p95 (ms) | main thread busy (ms/s) | forced Layout / frame | forced style recalc / frame | Layout ms / frame | Style ms / frame | Paint ms / frame | Raster ms / frame | LayoutCount (getMetrics) | tooltip shown |',
-    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| scene | build | dpr | agents | frames | rAF interval (ms) | rAF callback mean / p95 (ms) | main thread busy (ms/s) | forced Layout / frame | forced style recalc / frame | Layout ms / frame | Style ms / frame | Paint ms / frame | Raster ms / frame | Commit ms / frame (canvas raster) | LayoutCount (getMetrics) | tooltip shown |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   ]
   for (const scene of ['overview', 'zoomed'] as const) for (const dpr of DPRS) for (const t of targets) {
     const rs = runs.filter(r => r.target === t && r.dpr === dpr && r.scene === scene)
     if (!rs.length) continue
     const f = (pick: (r: Run) => number | null) => median(rs.map(pick))
-    rows.push(`| ${scene} | ${t} | ${dpr} | ${f(r => r.overlay.agents)} | ${f(r => r.trace.frames)} | ${fmt(f(r => r.trace.frameIntervalMs.mean))} | ${fmt(f(r => r.trace.frameMs.mean))} / ${fmt(f(r => r.trace.frameMs.p95))} | ${fmt(f(r => r.trace.mainBusy.ms / (SAMPLE_MS / 1000)), 0)} | ${fmt(f(r => r.trace.forcedLayoutsPerFrame))} | ${fmt(f(r => r.trace.forcedStyleRecalcsPerFrame))} | ${fmt(f(r => r.trace.perFrameMs.layout), 3)} | ${fmt(f(r => r.trace.perFrameMs.styleRecalc), 3)} | ${fmt(f(r => r.trace.perFrameMs.paint), 3)} | ${fmt(f(r => r.trace.perFrameMs.raster), 3)} | ${f(r => r.metrics.LayoutCount)} | ${fmt(f(r => r.tooltipShownRatio))} |`)
+    rows.push(`| ${scene} | ${t} | ${dpr} | ${f(r => r.overlay.agents)} | ${f(r => r.trace.frames)} | ${fmt(f(r => r.trace.frameIntervalMs.mean))} | ${fmt(f(r => r.trace.frameMs.mean))} / ${fmt(f(r => r.trace.frameMs.p95))} | ${fmt(f(r => r.trace.mainBusy.ms / (SAMPLE_MS / 1000)), 0)} | ${fmt(f(r => r.trace.forcedLayoutsPerFrame))} | ${fmt(f(r => r.trace.forcedStyleRecalcsPerFrame))} | ${fmt(f(r => r.trace.perFrameMs.layout), 3)} | ${fmt(f(r => r.trace.perFrameMs.styleRecalc), 3)} | ${fmt(f(r => r.trace.perFrameMs.paint), 3)} | ${fmt(f(r => r.trace.perFrameMs.raster), 3)} | ${fmt(f(r => r.trace.perFrameMs.commit))} | ${f(r => r.metrics.LayoutCount)} | ${fmt(f(r => r.tooltipShownRatio))} |`)
   }
   return rows.join('\n')
 }
