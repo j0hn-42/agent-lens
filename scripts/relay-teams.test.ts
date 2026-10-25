@@ -29,8 +29,14 @@ function snapshot(port: number): Promise<Snapshot> {
     const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
       res.setEncoding('utf8')
       let buf = ''
-      res.on('data', (c: string) => { buf += c })
-      setTimeout(() => {
+      // The relay answers at once but writes nothing until the sessions found are attached (over several ticks, #651):
+      // the window opens on the first message, so a slow attach is never cut short by a fixed delay (#440)
+      let opened = false
+      res.on('data', (c: string) => {
+        buf += c
+        if (!opened) { opened = true; setTimeout(finish, 700) }
+      })
+      function finish() {
         req.destroy()
         const events: Ev[] = []
         let sessionList: Array<Record<string, unknown>> = []
@@ -42,7 +48,7 @@ function snapshot(port: number): Promise<Snapshot> {
           else if (msg.type === 'session-list') sessionList = msg.sessions
         }
         resolve({ events, sessionList })
-      }, 700)
+      }
     })
     req.on('error', reject)
   })
