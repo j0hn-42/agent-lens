@@ -275,6 +275,8 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
           >
             <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: COLORS.unreadDot }} />
             {pluralCountText(locale, 'conv.picker.unread', unreadIds.length)}
+            {/* The visible text is the accessible name: without this, a reader says "12 agents unread" and loses "with messages" */}
+            {' '}<span className="sr-only">{t('conv.picker.unreadSuffix')}</span>
           </button>
         )}
         {children}

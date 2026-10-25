@@ -1277,7 +1277,7 @@ for (const locale of LOCALES) {
     assert.equal(langOf(button), locale)
     assert.equal(button.querySelector('[lang="en"][data-i18n-exempt]')?.textContent, 'orchestrator', 'the agent name in the button is data, lang="en"')
     strings.push(...surfaceStrings(view.container))
-    fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.unread.one', { n: 1 }) }))
+    fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.unread.one', { n: 1 }) + ' ' + MESSAGES[locale]['conv.picker.unreadSuffix'] }))
     strings.push(...surfaceStrings(view.container))
     fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['conv.picker.unreadOnly'] }))
     fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.group.done', { n: 6 }) }))
