@@ -275,3 +275,11 @@ test('the whole announcement follows the locale: connection, session, live mode,
   assert.ok(buildAnnouncement({ connection: connectionDisplay('watching', true), sessionLabel: null, isReviewing: false, isEmpty: false, locale: 'fr' }).startsWith('Connexion : démo.'))
   assert.equal(buildAnnouncement({ connection: connectionDisplay('watching', false), sessionLabel: null, isReviewing: false, isEmpty: false, unobservedSessions: 1, locale: 'fr' }), 'Connexion : en direct. Mode direct. 1 session listée, activité non observée')
 })
+
+test('the translated "all sessions" label is interface text: not marked lang="en" like a session name (#613)', () => {
+  const base = { connection: connectionDisplay('watching', false), isReviewing: false, isEmpty: false, locale: 'fr' as const }
+  const all = buildAnnouncementParts({ ...base, sessionLabel: 'Toutes les sessions' }).find(p => p.segments)
+  assert.equal(all?.segments?.some(s => s.lang === 'en'), false)
+  const named = buildAnnouncementParts({ ...base, sessionLabel: 'main' }).find(p => p.segments)
+  assert.equal(named?.segments?.some(s => s.lang === 'en' && s.text === 'main'), true)
+})

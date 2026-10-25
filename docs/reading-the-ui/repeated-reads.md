@@ -6,8 +6,8 @@ The section is a disclosure (Enter or Space on its summary opens or folds it; sc
 
 | Summary | It means |
 | --- | --- |
-| **Repeated reads and calls: N repeats observed** | N rows below, one per repeated target (a file read again, a Glob or a command run again): the unit is a repeat, not a call. "observed", never "wasted". |
-| **… at least N repeats observed** | The tracking limit was reached, or the relay could not replay some events: the list is a lower bound. |
+| **Repeated reads and calls: N repeated targets observed** | N rows below, one per repeated target (a file read again, a Glob or a command run again): the unit is a target, not a call and not a repeat (a file read three times is one target). "observed", never "wasted". |
+| **… at least N repeated targets observed** | The tracking limit was reached, or the relay could not replay some events: the list is a lower bound. |
 | **… no repeat observed** | No row. It proves only that none was seen among the calls compared. |
 | **… no repeat observed (incomplete)** | No row, and the list is a lower bound (tracking limit or events not replayed): never a bare 0. |
 | **…, N calls not compared** | N calls arrived without the input needed to compare them; a repeat may hide among them. |

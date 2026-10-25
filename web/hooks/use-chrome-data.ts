@@ -10,6 +10,8 @@ import { listedAgents, emptiedByHidingCount } from '@/lib/inactive-agents'
 import { deriveSessionLinks } from '@/lib/session-links'
 import { detectedSessions } from '@/lib/session-model'
 import { selectionLabel } from '@/lib/session-tree'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 
 type Simulation = ReturnType<typeof useAgentSimulation>
 type Bridge = ReturnType<typeof useVSCodeBridge>
@@ -32,6 +34,8 @@ export function useChromeData(
     return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale, idleAgentCount: idle, errorAgentCount: error }
   }, [countsKey, agents])
 
+  const { locale } = useLocale()
+
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
     const ids = bridge.allViewSessionIds
@@ -40,7 +44,7 @@ export function useChromeData(
 
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
   const selectedSessionLabel = bridge.isAllSelected
-    ? 'All sessions'
+    ? translate(locale, 'sessions.allSessions')
     : parseTeamSelection(bridge.selectedSessionId) !== null
       ? selectionLabel(bridge.selectedSessionId, bridge.sessions, bridge.teams)
       : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
