@@ -113,17 +113,51 @@ test('drawAgents: the depth shadow sprite stays small from the detail zoom up (#
   assert.ok(widest > 0 && widest < 300, `sprite width ${widest}`)
 })
 
-test('drawAgents: the depth shadow keeps its screen size on a 2x display (#613)', () => {
-  // shadowBlur is in sprite pixels, then scaled by zoom * dpr: at dpr 2 the sprite is painted with half the blur
-  const widthAt = (dpr: number): number => {
-    const widths = spriteWidths(() => {
-      const { ctx } = watched()
-      drawAgents(ctx, map([agent(0, { scale: 1.37 })]), null, null, false, 0, opts(1, { dpr }))
+/** The shadow properties each sprite canvas was painted with while `run` draws */
+function spriteShadows(run: () => void): Array<{ blur: number; ox: number; oy: number }> {
+  const doc = (globalThis as any).document
+  const painted: Array<{ blur: number; ox: number; oy: number }> = []
+  const original = doc.createElement
+  doc.createElement = (...a: unknown[]) => {
+    const c = original(...a)
+    const seen = { blur: 0, ox: 0, oy: 0 }
+    painted.push(seen)
+    const real = c.getContext
+    c.getContext = (...b: unknown[]) => new Proxy(real.apply(c, b), {
+      set(t, p, v) {
+        if (p === 'shadowBlur') seen.blur = Number(v)
+        if (p === 'shadowOffsetX') seen.ox = Number(v)
+        if (p === 'shadowOffsetY') seen.oy = Number(v)
+        t[p] = v
+        return true
+      },
     })
-    return Math.max(0, ...widths)
+    return c
   }
-  const w1 = widthAt(1)
-  const w2 = widthAt(2)
-  assert.ok(w1 > 0 && w2 > 0, `sprites ${w1} / ${w2}`)
-  assert.ok(w2 < w1, `dpr 2 sprite (${w2} px) is not smaller than the dpr 1 one (${w1} px)`)
+  try { run() } finally { doc.createElement = original }
+  return painted.filter(p => p.blur > 0)
+}
+
+test('drawAgents: the depth shadow keeps its screen size on a 2x display (#613)', () => {
+  // shadowBlur and the offsets are in sprite pixels, then scaled by zoom * dpr: the sprite is painted with the
+  // shadow divided by that device scale, so blur * zoom * dpr stays the on-screen blur (within the half-octave step, ~20 %)
+  const zoom = 1
+  const paintAt = (dpr: number) => {
+    const found = spriteShadows(() => {
+      const { ctx } = watched()
+      drawAgents(ctx, map([agent(0, { scale: 1.37 })]), null, null, false, 0, opts(zoom, { dpr }))
+    })
+    assert.equal(found.length, 1, `one sprite painted at dpr ${dpr}`)
+    return found[0]
+  }
+  const dpr1 = paintAt(1)
+  const dpr2 = paintAt(2)
+  assert.ok(Math.abs(dpr1.blur / dpr2.blur - 2) < 1e-9, `blur ${dpr1.blur} at dpr 1, ${dpr2.blur} at dpr 2: not halved`)
+  assert.ok(Math.abs(dpr1.ox / dpr2.ox - 2) < 1e-9 && Math.abs(dpr1.oy / dpr2.oy - 2) < 1e-9, 'offsets are not halved')
+  for (const [dpr, shadow] of [[1, dpr1], [2, dpr2]] as const) {
+    const screen = shadow.blur * zoom * dpr
+    assert.ok(screen > 15 * 0.8 && screen < 15 * 1.25, `on-screen blur ${screen} px at dpr ${dpr}, expected about 15`)
+    assert.ok(shadow.ox * zoom * dpr > 3 * 0.8 && shadow.ox * zoom * dpr < 3 * 1.25, `on-screen x offset ${shadow.ox * zoom * dpr}`)
+    assert.ok(shadow.oy * zoom * dpr > 5 * 0.8 && shadow.oy * zoom * dpr < 5 * 1.25, `on-screen y offset ${shadow.oy * zoom * dpr}`)
+  }
 })
