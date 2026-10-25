@@ -1,6 +1,6 @@
 /**
  * Minimal vscode module shim for running extension code outside VS Code.
- * Only implements what hook-server.ts and session-watcher.ts actually use.
+ * Only implements what hook-server.ts, session-watcher.ts and webview-provider.ts (tests) actually use.
  */
 'use strict'
 
@@ -16,8 +16,14 @@ class EventEmitter {
   dispose() { this._listeners = [] }
 }
 
+const Uri = {
+  file: (p) => ({ fsPath: p, path: p, toString: () => `file://${p}` }),
+  joinPath: (base, ...segments) => Uri.file([base.path, ...segments].join('/')),
+}
+
 module.exports = {
   EventEmitter,
+  Uri,
   workspace: {
     workspaceFolders: [{ uri: { fsPath: process.cwd() } }],
     getConfiguration: () => ({ get: () => undefined }),
