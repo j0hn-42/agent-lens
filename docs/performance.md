@@ -83,3 +83,33 @@ pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts --no-gate 
 Before, the age written at every frame copied every live agent (about 12,000 objects a second with 200 agents) and handed the draw loop a new agents Map each time, so its caches keyed on it never hit. Now the Map is kept at rest and the frame does not run at all.
 
 Scope of the gain: it holds for a scene drawn as is. With "Hide inactive" on or a collapsed branch, the scene builder (`sceneAgents`) hands the draw loop a new agents Map each frame, so `repeatCacheRef` (keyed on that Map) still misses and re-derives the repeat marks at every frame. Only `edgeLookupCacheRef` (keyed on the particles and edges, which the scene builder does not copy) keeps hitting. The figures above were measured without either option.
+
+## Memory of the event buffers (#659)
+
+The page keeps the events it received so it can rebuild a session when you switch to it, and the **All** view in arrival order: one buffer per session (at most 50 sessions, 5000 events each, like the relay) and one All buffer (50,000 events). Counts alone did not bound memory, so both are also capped in **estimated bytes** (the length of each event's JSON, computed once per event; the two buffers share the same event objects):
+
+- the session buffers together: **64 MiB**. Past it, the least recently written sessions are freed first (never the selected one, nor the one being written), as with the 50-session cap; if those two alone still pass it, they lose their oldest events, lifecycle events last. Their count is kept: positions stay absolute and an export says how many earlier events were dropped ([Session export](session-export.md));
+- the All buffer: **32 MiB**, trimmed from the oldest in one batch past 10% over the cap, like its count cap. Every dropped event is added to its base counter.
+
+The simulation of the selected session keeps its own log (5000 events at most, `MAX_EVENT_LOG`); it is not one of these buffers.
+
+### In a real browser (`heap-measure.ts`)
+
+```bash
+unshare -rn sh -c 'ip link set lo up; pnpm --dir web exec node --import tsx tests-a11y/e2e/heap-measure.ts'
+HEAP_PROFILE=worst ...                       # every text field at the normalizer cap (4096)
+HEAP_SNAPSHOT=/some/dir ...                  # also writes a .heapsnapshot per step there
+```
+
+Headless Chromium, demo app in a frame fed by its parent like a VS Code webview. 50 sessions of 5200 events each (260,000 events, past every count cap), posted with `postMessage` so no string is shared between two events. The JS heap of the page is read after a forced GC: before the feed, with the buffers full, and after a `reset` (which empties them). Profile **real**: the caps of the extension's parser (`ARGS_MAX` 80, `RESULT_MAX` 200, `MESSAGE_MAX` 2000, `EDIT_CONTENT_MAX` 500), 1239 JSON characters per event on average. Profile **worst**: every text field at 4096, 6965 characters per event.
+
+| buffers | profile | JS heap before (MB) | buffers full (MB) | after reset (MB) |
+|---|---|---|---|---|
+| counts only (before) | real | 15.3 | 340.4 | 25.8 |
+| counts only (before) | worst | 15.3 | 1729.5 | 63.5 |
+| with the byte caps | real | 15.3 | 91.9 | 27.9 |
+| with the byte caps | worst | 15.3 | 108.9 | 64.9 |
+
+With counts only, the 250,000 buffered events held 315 MB for the real profile (1.3 KB per event, close to its JSON length) and 1.7 GB for the worst. With the byte caps the heap stays between 92 and 109 MB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
+
+Cost of buffering, Node on the same machine (`appendSessionEvent` and the All buffer, 260,000 events): 0.17 µs per event with counts only, 1.3 µs (real) and 3.3 µs (worst) with the byte caps, the JSON length of each event being computed once.
