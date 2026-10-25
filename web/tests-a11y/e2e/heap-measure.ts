@@ -118,6 +118,7 @@ async function settle(frame: Frame) {
   await frame.evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 500))))')
 }
 
+/** Mio (1024^2 bytes), like the caps of the buffers */
 const mb = (b: number) => (b / 1024 / 1024).toFixed(1)
 
 async function main() {
@@ -159,13 +160,13 @@ async function main() {
     const total = SESSIONS * EVENTS_PER_SESSION
     console.log(`profil ${PROFILE} : ${SESSIONS} sessions x ${EVENTS_PER_SESSION} events = ${total} events postés en ${feedS.toFixed(0)} s, JSON moyen ${avgJson.toFixed(0)} car./event`)
     console.log(`tas lu par CDP sur : ${target}`)
-    console.log('| étape | tas JS utilisé (Mo) | instantané (Mo) |')
+    console.log('| étape | tas JS utilisé (Mio) | instantané (Mio) |')
     console.log('|---|---|---|')
     const snapCell = (v: number | null) => (v === null ? '-' : mb(v))
     console.log(`| avant le flux | ${mb(before)} | ${snapCell(snapBefore)} |`)
     console.log(`| buffers pleins | ${mb(filled)} | ${snapCell(snapFilled)} |`)
     console.log(`| après reset | ${mb(after)} | ${snapCell(snapAfter)} |`)
-    console.log(`retenu par les buffers (pleins - reset) : ${mb(filled - after)} Mo ; croissance (pleins - avant) : ${mb(filled - before)} Mo`)
+    console.log(`retenu par les buffers (pleins - reset) : ${mb(filled - after)} Mio ; croissance (pleins - avant) : ${mb(filled - before)} Mio`)
   } finally {
     await browser.close()
     await server?.stop()

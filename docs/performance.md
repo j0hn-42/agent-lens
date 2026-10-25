@@ -128,13 +128,20 @@ HEAP_SNAPSHOT=/some/dir ...                  # also writes a .heapsnapshot per s
 
 Headless Chromium, demo app in a frame fed by its parent like a VS Code webview. 50 sessions of 5200 events each (260,000 events, past every count cap), posted with `postMessage` so no string is shared between two events. The JS heap of the page is read after a forced GC: before the feed, with the buffers full, and after a `reset` (which empties them). Profile **real**: the caps of the extension's parser (`ARGS_MAX` 80, `RESULT_MAX` 200, `MESSAGE_MAX` 2000, `EDIT_CONTENT_MAX` 500), 1239 JSON characters per event on average. Profile **worst**: every text field at 4096, 6965 characters per event.
 
-| buffers | profile | JS heap before (MB) | buffers full (MB) | after reset (MB) |
+| buffers | profile | JS heap before (MiB) | buffers full (MiB) | after reset (MiB) |
 |---|---|---|---|---|
 | counts only (before) | real | 15.3 | 340.4 | 25.8 |
 | counts only (before) | worst | 15.3 | 1729.5 | 63.5 |
 | with the byte caps | real | 15.3 | 91.9 | 27.9 |
 | with the byte caps | worst | 15.3 | 108.9 | 64.9 |
 
-With counts only, the 250,000 buffered events held 315 MB for the real profile (1.3 KB per event, close to its JSON length) and 1.7 GB for the worst. With the byte caps the heap stays between 92 and 109 MB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
+With counts only, the 250,000 buffered events held 315 MiB for the real profile (1.3 KiB per event, close to its JSON length) and 1.7 GiB for the worst. With the byte caps the heap stays between 92 and 109 MiB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
 
-Cost of buffering, Node on the same machine (`appendSessionEvent` and the All buffer, 260,000 events): 0.17 µs per event with counts only, 1.3 µs (real) and 3.3 µs (worst) with the byte caps, the JSON length of each event being computed once.
+Cost of buffering, `scripts/bench/session-buffers.mts` (`node --import tsx scripts/bench/session-buffers.mts`; `appendSessionEvent` alone, 260,000 events over 50 sessions, median of 7 rounds, Node 24 on a 13th Gen Intel Core i7-13700K, the All buffer not included; new event objects each round because the JSON length is computed once per object): 7.2 µs per event for the real profile and 15.2 µs for the worst one, with the 64 MiB cap in force (it frees whole sessions as the feed goes past it); 2.3 µs per event for the real profile when only the count caps apply. The figures are for that machine; run the script to get yours.
+
+### What a freed session shows (#613)
+
+The 64 MiB cap frees whole sessions, the least recently written first, well before the 50-session cap does: with the real profile (about 1.2 KiB per event) about 54,000 events fit across all the session buffers, that is about 10 full sessions (2 in the worst profile), against 250,000 events before the byte cap. A background session is therefore freed much more often than with the counts alone. What the page then does:
+
+- coming back to a session whose view was cached, when the buffer freed or trimmed events past the cached count, the view does not resume from the cache (it would skip the events in between without saying so): it restarts and replays what the buffer still holds;
+- a freed session that receives new events starts a new buffer at its old total, without its earlier events, lifecycle ones included (`agent_spawn`, `team_info`). Opened without a cached view, it replays tool calls of an agent whose creation it never saw: the canvas does not draw those calls (the agent does not exist there) and, today, nothing on screen says so. The export says how many earlier events were dropped.

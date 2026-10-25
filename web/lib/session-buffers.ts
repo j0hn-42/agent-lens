@@ -12,7 +12,7 @@ export const SESSION_BUFFER_MAX_SESSIONS = 50
 export const SESSION_BUFFER_LIFECYCLE_RESERVE = 400
 /**
  * Estimated bytes all session buffers may hold together (#659). Client-side only (the relay bounds counts): 50 full
- * buffers retained 314 MB in a real browser with the parser's payload caps (tests-a11y/e2e/heap-measure.ts). Past it the
+ * buffers retained 314 MiB in a real browser with the parser's payload caps (tests-a11y/e2e/heap-measure.ts). Past it the
  * least recently written sessions are freed first, as with the session-count cap; their base keeps the count.
  */
 const SESSION_BUFFER_MAX_BYTES = 64 * 1024 * 1024
@@ -115,6 +115,12 @@ export function sessionEventCount(s: SessionBuffers, sessionId: string): number 
 export function sessionEventsFrom(s: SessionBuffers, sessionId: string, fromIndex = 0): SimulationEvent[] {
   const buf = s.events.get(sessionId) ?? []
   return buf.slice(Math.max(0, fromIndex - (s.base.get(sessionId) ?? 0)))
+}
+
+/** Events a cached snapshot taken at `snapshotCount` can no longer be given back: the ones between it and the
+ *  buffer's `base` (the session was freed or trimmed since). 0 means the buffer still holds everything after the snapshot. */
+export function eventsLostSinceSnapshot(snapshotCount: number, base: number): number {
+  return Math.max(0, base - snapshotCount)
 }
 
 /** Events of the session still in memory (not counting the dropped ones). */
