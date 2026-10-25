@@ -564,6 +564,12 @@ function maskedOrchestrator(info: OrchestratorInfo | null, masked: boolean | und
   return info && masked ? { ...info, groupName: maskText(info.groupName) } : info
 }
 
+/** Placement of an agent label; a masked name can wrap differently, so the plan's line count is not trusted then */
+function labelPlacementOf(plan: DrawOpts['plan'], id: string, zoom: number, masked: boolean): ResolvedPlacement {
+  const place = resolvePlacement(plan, planKey.label(id), zoom)
+  return masked && place.extraLines !== undefined ? { ...place, extraLines: undefined } : place
+}
+
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
   orch: OrchestratorInfo | null, place: ResolvedPlacement,
@@ -580,8 +586,10 @@ function drawAgentLabel(
   const ink = (c: string) => sceneColor(theme, 'text', c)
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
+  // A label the overlay plan hides keeps its line count (the context bar moves with it) and nothing else (#661):
+  // the plan sized that count already, so the label is not laid out again (#613)
+  if (!place.visible && place.extraLines !== undefined) return { extraLines: place.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
-  // A label the overlay plan hides keeps its line count (the context bar moves with it) and nothing else (#661)
   if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
   // The status line is drawnStatusText, the function the agent rows of the Sessions panel quote (#502): a teammate's
   // activity, or "last known state: Working" for a stale node, whose state is no longer proven (that longer line is cut to fit)
@@ -895,7 +903,7 @@ export function drawAgents(
     const labelDrawn = lod.labels
       ? drawAgentLabel(
         ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
-        maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
+        maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), labelPlacementOf(opts.plan, id, opts.zoom, !!opts.maskText),
         now, stale, labelScale, sceneTheme,
       )
       : { extraLines: 0, dx: 0, dy: 0, scale: 1, visible: false }
