@@ -117,12 +117,6 @@ export function sessionEventsFrom(s: SessionBuffers, sessionId: string, fromInde
   return buf.slice(Math.max(0, fromIndex - (s.base.get(sessionId) ?? 0)))
 }
 
-/** Events a cached snapshot taken at `snapshotCount` can no longer be given back: the ones between it and the
- *  buffer's `base` (the session was freed or trimmed since). 0 means the buffer still holds everything after the snapshot. */
-export function eventsLostSinceSnapshot(snapshotCount: number, base: number): number {
-  return Math.max(0, base - snapshotCount)
-}
-
 /** Lifecycle events (agent_spawn, subagent_dispatch, team_info) the session's buffer still holds. */
 export function bufferedLifecycleCount(s: SessionBuffers, sessionId: string): number {
   let n = 0

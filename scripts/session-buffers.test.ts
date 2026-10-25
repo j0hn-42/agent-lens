@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, sessionEventCount, sessionEventsFrom,
-  eventsLostSinceSnapshot, mustRestartFromBuffer, bufferedLifecycleCount,
+  mustRestartFromBuffer, bufferedLifecycleCount,
 } from '../web/lib/session-buffers'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
@@ -12,14 +12,7 @@ const ev = (sessionId: string, time: number, type: string): SimulationEvent =>
 
 // #613: a snapshot cached at count N is resumed from N; when the buffer's base went past N (the session was freed
 // or trimmed meanwhile) the events between N and the base are gone, and the view must not pretend to continue.
-test('eventsLostSinceSnapshot: events between the snapshot and the buffer base, 0 when it can be resumed (#613)', () => {
-  assert.equal(eventsLostSinceSnapshot(100, 0), 0)
-  assert.equal(eventsLostSinceSnapshot(100, 100), 0, 'base at the snapshot: nothing between')
-  assert.equal(eventsLostSinceSnapshot(100, 160), 60)
-  assert.equal(eventsLostSinceSnapshot(0, 5), 5)
-})
-
-test('session buffers: a snapshot older than a freed session cannot be resumed, the gap is what the base counts (#613)', () => {
+test('session buffers: a freed session keeps its base, and a view cached before it keeps its snapshot (#613)', () => {
   const s = createSessionBuffers()
   for (let i = 0; i < 100; i++) appendSessionEvent(s, 'a', ev('a', i, i === 0 ? 'agent_spawn' : 'tool_call_start'), 'a')
   const snapshotCount = sessionEventCount(s, 'a')
@@ -28,8 +21,10 @@ test('session buffers: a snapshot older than a freed session cannot be resumed, 
   for (let i = 100; i < 120; i++) appendSessionEvent(s, 'a', ev('a', i, 'tool_call_start'), 'b')
   const base = sessionEventCount(s, 'a') - sessionEventsFrom(s, 'a', 0).length
   assert.equal(base, 100)
-  assert.equal(eventsLostSinceSnapshot(snapshotCount, base), 0, 'a snapshot taken at the release point resumes cleanly')
-  assert.equal(eventsLostSinceSnapshot(40, base), 60, 'a snapshot taken earlier lost the events up to the base')
+  // Freed: no lifecycle event is held any more, so the view resumes from its snapshot instead of restarting
+  assert.equal(bufferedLifecycleCount(s, 'a'), 0)
+  assert.equal(mustRestartFromBuffer(snapshotCount, base, bufferedLifecycleCount(s, 'a')), false, 'a snapshot taken at the release point resumes')
+  assert.equal(mustRestartFromBuffer(40, base, bufferedLifecycleCount(s, 'a')), false, 'a snapshot taken earlier is kept too')
 })
 
 // #613: documented in docs/performance.md and reading-the-ui/relay-and-losses.md: what a freed session
@@ -72,6 +67,6 @@ test('trim keeps lifecycle at the head: 10 spawns + 4990 calls, snapshot 5000, 4
   const snapshot = sessionEventCount(s, 'a')
   for (let i = 5000; i < 9995; i++) appendSessionEvent(s, 'a', ev('a', i, 'tool_call_start'), 'a')
   const base = sessionEventCount(s, 'a') - sessionEventsFrom(s, 'a', 0).length
-  assert.equal(eventsLostSinceSnapshot(snapshot, base), 0, 'the base alone misses it')
+  assert.ok(base < snapshot, 'the base alone does not show the events lost after the snapshot')
   assert.equal(mustRestartFromBuffer(snapshot, base, bufferedLifecycleCount(s, 'a')), true)
 })
