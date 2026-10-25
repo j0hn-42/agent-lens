@@ -155,6 +155,11 @@ export interface OverlayPlanInput {
   covers?: Iterable<Rect>
   /** Events the relay could not replay, per session id (#366): the qualified stats text and cost pill are wider, the plan reserves what is drawn */
   replayLost?: ReadonlyMap<string, number>
+  /**
+   * Width of a text at the agent label font, as the canvas measures it. The label blocks (and so the line count the
+   * context bar hangs under) then wrap where the drawn label wraps; without it, 0.6 em per character (#613).
+   */
+  measureLabel?: (text: string) => number
 }
 
 /**
@@ -329,7 +334,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     let labelRight: number | undefined
     // Agent label: full block, or one line "name · status" when the room is short
     if (input.lod.labels) {
-      const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
+      const measure = input.measureLabel ?? ((text: string) => estimateTextWidth(text, LABEL_FONT))
       const block = agentLabelBlock(a, r, measure, {
         showSession: input.showSessionLabels && secondaryAllowed, orchestrator: orchestratorInfo(a, input.teams), details: input.lod.details,
         replayLost: input.replayLost,

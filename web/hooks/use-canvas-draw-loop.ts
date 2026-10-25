@@ -3,7 +3,7 @@ import type { Particle, Edge, DepthParticle, TeamSummary } from '@/lib/agent-typ
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import {
-  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold,
+  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, AGENT_DRAW, expiryHold,
 } from '@/lib/canvas-constants'
 import { BloomRenderer } from '@/components/agent-visualizer/bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from '@/components/agent-visualizer/background-layer'
@@ -343,6 +343,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       const cappedEdgeBubbles = capEdgeBubbles(edgeBubbles)
       const heldBubbleKeys = new Set<string>()
       for (const b of cappedEdgeBubbles) if (deps.heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
+      const labelMeasure = (t: string) => {
+        ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
+        return measureTextCached(ctx, t)
+      }
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
           agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys,
@@ -357,6 +361,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
           toolCards: toolCardRects(toolCalls.values(), toolCardSize),
           // Halo titles move off the workspace headers and the collapsed Conversation pill (#378)
           workspaceZones, covers: deps.getCovers(), replayLost: opts.replayLost,
+          // Labels wrap where the drawn labels wrap: the line count of the context bar comes from this plan (#613)
+          measureLabel: labelMeasure,
         })
         : EMPTY_PLAN
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)
