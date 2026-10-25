@@ -9,6 +9,7 @@ import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import { waitAttached } from './relay-test-helpers'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -139,8 +140,7 @@ describe('relay: hardening and source reconciliation', () => {
     live = await connectSSE(`/events?session=${SESSION}`)
     // The SSE response starts before the attach ends. A line appended before its stat is history: prescanned,
     // never emitted as a call. The tests write live lines, so they start once the transcript is followed (#440).
-    assert.ok(await waitFor(() => relay.debugState().watchedSessions >= 1 && !relay.debugState().attaching),
-      'precondition: the transcript is attached')
+    assert.ok(await waitAttached(relay, 1), 'precondition: the transcript is attached')
   })
 
   after(() => {

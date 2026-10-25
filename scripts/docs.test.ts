@@ -687,7 +687,8 @@ test('CONTRIBUTING guarantees of the shared Button are the ones button.tsx carri
   assert.ok(/<button[^>]*type="button"/.test(src), 'Button renders type="button"')
   // "colours from COLORS": only the variants whose baseStyle reads COLORS; the sentence names them and says bar draws its own
   const style = src.match(/function baseStyle[\s\S]*?\n\}\n/)?.[0] ?? ''
-  const withColors = entries.map(([, n]) => n).filter(n => new RegExp(`case '${n}':[^]*?COLORS`).test(style))
+  // A case counts only when its own return (after any fallthrough labels) reads COLORS: the match stops at that return
+  const withColors = entries.map(([, n]) => n).filter(n => new RegExp(`case '${n}':(?:\\s*case '\\w+':)*\\s*return[^\\n]*COLORS`).test(style))
   assert.deepStrictEqual([...withColors].sort(), ['control', 'decision', 'tour'])
   const line = c.split('\n').find(l => l.includes('colours from `COLORS`')) ?? ''
   assert.ok(line, 'CONTRIBUTING states where the colours come from')

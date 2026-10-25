@@ -212,6 +212,9 @@ test('the catch-up is cut into frame slices and ends with the same state as even
 // fails. Proof (#613, 2026-10-25): with `Object.assign(state, copyCollections(state))` at the top of the loop of
 // processEventBatch (the collections copied per event), the total is 1773, 1839 and 1842 ms for a reference of 42.3,
 // 42.5 and 42.8 ms, i.e. 41.9 to 43.0 references against a budget of 11.1: the test fails.
+// That mutation is not a pure performance regression: it also changes the state produced (the collections are replaced
+// by copies per event), so two equivalence tests fail with it as well ("a live batch stamps freshness...", "the catch-up
+// is cut into frame slices..."). The figures above are those of the perf test alone.
 // The budgets were set on a machine where the reference takes about 45 ms: 500 ms in total and 50 ms per frame
 // there, i.e. 11 and 1.1 references. Measured there: 4.6 to 6.2 references in total, 0.18 to 0.20 for the worst
 // frame; on the same machine with 3 other processes on its core (each measure 4x slower): 5.4 to 7.9 and 0.25 to 0.39.
