@@ -20,7 +20,7 @@ import {
 import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
-  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S, SUBAGENT_WATCH_IDLE_MS,
+  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S, SUBAGENT_WATCH_IDLE_MS, NORM_MAX_LINE_CHARS,
 } from './constants'
 import {
   safeWatch, readTrackedLines, readLinesChunked, readLineBatches, readJsonFileSafe, listSubagentTranscripts,
@@ -326,6 +326,12 @@ function startWatchingSubagentFile(
 }
 
 /**
+ * Longest unfinished line the full read keeps in memory: a line longer than NORM_MAX_LINE_CHARS characters (4 bytes
+ * each at most in UTF-8) is dropped by the normalizer anyway, so nothing the web side could show is lost (#613).
+ */
+const SUBAGENT_FULL_READ_MAX_LINE_BYTES = NORM_MAX_LINE_CHARS * 4
+
+/**
  * startWatchingSubagentFile at attach (#651). An idle file (not written for ACTIVE_SESSION_AGE_S) is read only by
  * its end (readTranscriptTail, as a teammate's): the position is the end of its last complete line, so a line
  * still being written and every later call are read by the tail, none is lost. An active one is read in full,
@@ -354,7 +360,7 @@ async function startWatchingSubagentFileAsync(
       start.state.fileTail = ''
       for (const line of tail.lines) prescanSubagentLine(line, start.state, pendingToolUseIds)
     } else {
-      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state)) {
+      for await (const lines of readLineBatches(filePath, stat.size, undefined, start.state, SUBAGENT_FULL_READ_MAX_LINE_BYTES)) {
         for (const line of lines) {
           prescanSubagentLine(line, start.state, pendingToolUseIds)
           if (slice.due()) await slice.pause()

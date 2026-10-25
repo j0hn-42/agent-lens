@@ -229,10 +229,17 @@ export async function* readLineBatches(
   size: number,
   chunkBytes = PRESCAN_CHUNK_BYTES,
   tracked?: TailedFile,
+  /**
+   * Longest unfinished line kept between two blocks. Past it the line is dropped up to its next line break (and its
+   * tail is not kept): the carry never grows by Buffer.concat copies of a line read whole in memory (#613).
+   * Unbounded when absent.
+   */
+  maxLineBytes?: number,
 ): AsyncGenerator<string[]> {
   const fh = await fs.promises.open(filePath, 'r')
   let offset = 0
   let carry: Buffer = Buffer.alloc(0)
+  let skipping = false
   try {
     while (offset < size) {
       const len = Math.min(chunkBytes, size - offset)
@@ -240,10 +247,24 @@ export async function* readLineBatches(
       const { bytesRead: n } = await fh.read(buf, 0, len, offset)
       if (n <= 0) break
       offset += n
-      let data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n)
+      let block = buf.subarray(0, n)
+      if (skipping) {
+        // The rest of a dropped line: nothing is kept until its line break
+        const nl = block.indexOf(0x0a)
+        if (nl < 0) continue
+        block = block.subarray(nl + 1)
+        skipping = false
+      }
+      let data = carry.length ? Buffer.concat([carry, block]) : block
       const cut = data.lastIndexOf(0x0a)
-      if (cut < 0) { carry = Buffer.from(data); continue }
-      carry = Buffer.from(data.subarray(cut + 1))
+      const rest = cut < 0 ? data : data.subarray(cut + 1)
+      if (maxLineBytes !== undefined && rest.length > maxLineBytes) {
+        carry = Buffer.alloc(0)
+        skipping = true
+      } else {
+        carry = Buffer.from(rest)
+      }
+      if (cut < 0) continue
       data = data.subarray(0, cut)
       yield data.toString('utf-8').split(/\r?\n/)
     }
