@@ -242,6 +242,10 @@ export async function* readLineBatches(
   let offset = 0
   let carry: Buffer = Buffer.alloc(0)
   let skipping = false
+  // Where the dropped line started and how many bytes of it were seen: logged (never its content) when it ends
+  let droppedAt = 0
+  let droppedBytes = 0
+  const logDropped = () => watchLog.debug(`Line dropped past ${maxLineBytes} bytes: offset ${droppedAt}, ${droppedBytes} bytes`)
   try {
     while (offset < size) {
       const len = Math.min(chunkBytes, size - offset)
@@ -253,7 +257,9 @@ export async function* readLineBatches(
       if (skipping) {
         // The rest of a dropped line: nothing is kept until its line break
         const nl = block.indexOf(0x0a)
-        if (nl < 0) continue
+        if (nl < 0) { droppedBytes += block.length; continue }
+        droppedBytes += nl
+        logDropped()
         block = block.subarray(nl + 1)
         skipping = false
       }
@@ -263,6 +269,8 @@ export async function* readLineBatches(
       if (maxLineBytes !== undefined && rest.length > maxLineBytes) {
         carry = Buffer.alloc(0)
         skipping = true
+        droppedAt = offset - rest.length
+        droppedBytes = rest.length
         onDropped?.()
       } else {
         carry = Buffer.from(rest)
@@ -274,6 +282,8 @@ export async function* readLineBatches(
   } finally {
     await fh.close()
   }
+  // Unfinished at the end of the file: the rest, written later, is read live as a fragment (the normalizer counts it malformed)
+  if (skipping) logDropped()
   if (tracked) {
     tracked.fileSize = offset
     tracked.fileTail = carry.toString('latin1')
