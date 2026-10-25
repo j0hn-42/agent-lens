@@ -74,7 +74,7 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
   })
 
   // #613: the way a user gets there at 320 px (from More in the top bar, not the F key), then the repeats unfolded: the summary
-  // (« Lectures et appels répétés : … répétitions observées ») and its list are measured too
+  // (« Lectures et appels répétés : … cibles répétées observées ») and its list are measured too
   if (w === 320) test(`fr ${w}x${h}: Files & repeats opened from More, its summary unfolded, fits (#613)`, { timeout: 180_000 }, async () => {
     const page = await open(w, h)
     try {
