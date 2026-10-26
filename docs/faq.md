@@ -28,7 +28,7 @@ Try `pnpm run dev:demo` to check that the app itself works: it plays a tour on m
 
 ## Agents or sessions disappear from the canvas
 
-**Hide inactive** is on by default. It hides agents whose turn is over, and, in the All view, sessions marked finished more than 10 minutes ago. When it hides everything, the canvas says "N finished agents hidden" with a **Show** button. Turn **Hide inactive** off (in **More**, or in **Settings**) to see everything again. See [Reading the UI](reading-the-ui/filters.md).
+**Hide inactive** is on by default. It hides agents whose turn is over, and, in the All view, sessions marked finished more than 10 minutes ago. When it hides everything, the canvas says "N finished agents hidden" with a **Show** button. Turn **Hide inactive** off to see everything again: the toggle is in the top bar's More menu and in the settings dialog. How it works is in [Reading the UI](reading-the-ui/filters.md).
 
 ## A session says "Not observed"
 
