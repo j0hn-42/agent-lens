@@ -2,7 +2,7 @@
   "name": "agent-lens",
   "displayName": "Agent Lens",
   "description": "Real-time visualization of Claude Code, Codex, GitHub Copilot, Pi, Gemini CLI and OpenCode agent orchestration",
-  "version": "0.10.0",
+  "version": "1.0.0",
   "publisher": "jobailla",
   "license": "Apache-2.0",
   "repository": {
