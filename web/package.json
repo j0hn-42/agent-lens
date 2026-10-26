@@ -10,7 +10,8 @@
     "lint:a11y": "node --import tsx tests-a11y/lint-baseline.ts",
     "test:a11y": "node --import tsx --import ./tests-a11y/setup.ts --test \"tests-a11y/*.test.tsx\"",
     "test:e2e": "node --import tsx --test --test-concurrency=1 \"tests-a11y/e2e/*.e2e.ts\"",
-    "test:e2e:shard": "node --import tsx tests-a11y/e2e/run-shard.ts"
+    "test:e2e:shard": "node --import tsx tests-a11y/e2e/run-shard.ts",
+    "capture:media": "node --import tsx scripts/capture-media.ts"
   },
   "dependencies": {
     "d3-force": "^3.0.0",
