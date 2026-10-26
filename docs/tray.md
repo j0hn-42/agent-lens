@@ -130,6 +130,52 @@ For each platform the script looks at its secrets (an empty secret counts as abs
 
 Each signing step receives only the secrets of its own platform, as environment variables; no secret is expanded in a script, and the build step sees none. The decoded certificate is written to a `0600` file in the runner's temporary directory and removed. The output of the signing tools is printed only when a step fails, with every secret value replaced by `***` (Actions also masks registered secrets).
 
+### Setting up the secrets
+
+Only the owner of the repository can do this: nothing in the repository creates, holds or tests these values. They are repository secrets of `j0hn-42/agent-lens`, set in GitHub under Settings > Secrets and variables > Actions, or with `gh secret set` as below. Without a value, `gh secret set` asks for it at a hidden prompt, and a file can be piped on its standard input. Never pass a value with `--body`: it would stay in your shell history. Set every secret of a platform, or none of them: a partial set fails the release (see above). `gh secret list --repo j0hn-42/agent-lens` shows the names, never the values.
+
+**macOS (Developer ID and notarization).**
+
+1. The team needs a paid Apple Developer Program membership. Only its Account Holder can create a Developer ID certificate.
+2. Create a certificate of type **Developer ID Application** (not Apple Development, not Developer ID Installer), in Xcode (Settings > Accounts > Manage Certificates) or in Certificates, Identifiers & Profiles on developer.apple.com, on the Mac that keeps its private key.
+3. In Keychain Access, export that certificate with its private key as a `.p12` file, protected by a password:
+
+   ```bash
+   base64 < developer-id.p12 | gh secret set MACOS_CERTIFICATE_P12_BASE64 --repo j0hn-42/agent-lens
+   gh secret set MACOS_CERTIFICATE_PASSWORD --repo j0hn-42/agent-lens    # the .p12 export password
+   ```
+
+   The line breaks that `base64` adds are accepted.
+4. On that Mac, `security find-identity -v -p codesigning` lists the identity between quotes, for example `Developer ID Application: Name (ABCDE12345)`. Copy it exactly:
+
+   ```bash
+   gh secret set MACOS_SIGNING_IDENTITY --repo j0hn-42/agent-lens
+   ```
+
+5. The Team ID is the ten characters between parentheses at the end of the identity (also in Membership details on developer.apple.com). The release fails if the signature carries another one:
+
+   ```bash
+   gh secret set MACOS_NOTARY_TEAM_ID --repo j0hn-42/agent-lens
+   ```
+
+6. Notarization needs an Apple ID that is a member of the team, and an app-specific password created for it at account.apple.com (Sign-In and Security > App-Specific Passwords). The Apple ID's own password does not work:
+
+   ```bash
+   gh secret set MACOS_NOTARY_APPLE_ID --repo j0hn-42/agent-lens    # the Apple ID email
+   gh secret set MACOS_NOTARY_PASSWORD --repo j0hn-42/agent-lens    # the app-specific password
+   ```
+
+**Windows (Authenticode).** The script signs with a certificate file (`signtool sign /f <file> /p <password>`), so it needs a code signing certificate whose private key is exportable as a `.pfx`. Since 1 June 2023 the CA/Browser Forum requires the private key of every new code signing certificate (OV and EV) to be generated and kept in hardware, a token or an HSM, so certificate authorities no longer issue such a file. A certificate bought today will most likely not fit this step: signing with it needs a cloud signing service or a hardware token on the runner, which `sign-tray.mjs` does not support and which is separate work. Only a certificate issued before that date, still valid, with an exportable key, fits:
+
+```bash
+base64 < code-signing.pfx | gh secret set WINDOWS_CERTIFICATE_PFX_BASE64 --repo j0hn-42/agent-lens
+gh secret set WINDOWS_CERTIFICATE_PASSWORD --repo j0hn-42/agent-lens    # the .pfx password
+```
+
+In PowerShell, the first line is `[Convert]::ToBase64String([IO.File]::ReadAllBytes("code-signing.pfx")) | gh secret set WINDOWS_CERTIFICATE_PFX_BASE64 --repo j0hn-42/agent-lens`.
+
+**After the secrets are set.** Nothing proves them until a release runs with the tray package present: the job log must print `signed and verified` for each platform, and the published names must have lost `-unsigned`. Anyone can then check a downloaded file: `codesign --verify --strict --verbose=2 <file>` and `codesign --display --verbose=2 <file>` (Developer ID, `runtime` flag, Team ID) on macOS; `signtool verify /pa <file>` or `Get-AuthenticodeSignature <file>` in PowerShell on Windows.
+
 ### Checksums
 
 `sign-tray.mjs` writes a `<file>.sha256` next to each binary when it is built. The release job checks them with `sha256sum -c` after downloading the artefacts (a mismatch fails the release), then attaches a `SHA256SUMS` of every file it publishes, the `.vsix` included. Check a download with `sha256sum -c SHA256SUMS --ignore-missing`. A checksum proves that the file is the one the workflow built, not who built it: it is not a signature.

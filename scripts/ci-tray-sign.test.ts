@@ -194,6 +194,14 @@ test('a certificate secret that is not base64 fails before any tool runs (#512)'
   assert.deepEqual(r.log, [])
 })
 
+test('a certificate secret wrapped over several lines, as base64 prints it on Linux, is accepted (#512)', () => {
+  const wrapped = (WIN.WINDOWS_CERTIFICATE_PFX_BASE64.match(/.{1,8}/g) ?? []).join('\n') + '\n'
+  const r = run('windows', { ...WIN, WINDOWS_CERTIFICATE_PFX_BASE64: wrapped })
+  assert.equal(r.code, 0, r.stderr)
+  assert.deepEqual(r.log.map(l => l.args[0]), ['sign', 'verify'])
+  assertNoSecret(r)
+})
+
 test('bad arguments exit 2 (#512)', () => {
   assert.equal(run('beos', {}).code, 2)
   assert.equal(run('linux', {}, ['--name', '../escape']).code, 2, 'the name is a plain file name')
