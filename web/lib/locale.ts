@@ -4,10 +4,14 @@
  * The choice is `auto` (follow the browser language) or an explicit locale. It lives only in this browser
  * (LOCALE_STORAGE_KEY); blocked storage never throws, the choice then lasts for the page. Pure resolution
  * stays in messages.ts; this module only reads `window` and notifies React.
+ *
+ * The table of a language other than the default one is loaded on demand (#662): the locale the interface shows is the
+ * wanted one once its table is there (effectiveLocale), so a `lang` never names a language the text is not in. The
+ * entries wait for loadWantedLocale before their first render; a switch in Settings shows the new language once loaded.
  */
 
 import { useCallback, useSyncExternalStore } from 'react'
-import { DEFAULT_LOCALE, LOCALES, LOCALE_STORAGE_KEY, resolveLocale, translate, type Locale, type MessageKey } from './messages'
+import { DEFAULT_LOCALE, LOCALES, LOCALE_STORAGE_KEY, effectiveLocale, isLocaleLoaded, loadLocale, loadLocaleOrDefault, onLocaleLoaded, resolveLocale, translate, type Locale, type MessageKey } from './messages'
 
 export type LocaleChoice = Locale | 'auto'
 
@@ -30,17 +34,26 @@ export function getLocaleChoice(): LocaleChoice {
   return isChoice(stored) && stored !== 'auto' ? stored : 'auto'
 }
 
-/** Language the interface shows: the explicit choice, else the browser languages, else English. */
-export function getLocale(): Locale {
+/** Language asked for: the explicit choice, else the browser languages, else English. */
+function wantedLocale(): Locale {
   if (typeof window === 'undefined') return DEFAULT_LOCALE
   const choice = getLocaleChoice()
   if (choice !== 'auto') return choice
   return resolveLocale(null, window.navigator.languages?.length ? window.navigator.languages : [window.navigator.language])
 }
 
-/** Unknown values are refused. `auto` forgets the stored choice. */
-export function setLocaleChoice(choice: LocaleChoice): void {
-  if (!isChoice(choice)) return
+/** Language the interface shows: the one asked for once its table is loaded, English until then (#662). */
+export function getLocale(): Locale {
+  return effectiveLocale(wantedLocale())
+}
+
+/** Loads the table of the language asked for; the entries render once it resolves, so the first paint is in it (#662). */
+export function loadWantedLocale(): Promise<void> {
+  return loadLocaleOrDefault(wantedLocale())
+}
+
+/** Keeps `choice` for this page and in the storage (`auto` forgets it). Blocked storage never throws. */
+function storeChoice(choice: LocaleChoice): void {
   pageChoice = choice
   try {
     if (choice === 'auto') window.localStorage.removeItem(LOCALE_STORAGE_KEY)
@@ -50,9 +63,33 @@ export function setLocaleChoice(choice: LocaleChoice): void {
   for (const cb of Array.from(listeners)) cb()
 }
 
+/**
+ * Unknown values are refused. `auto` forgets the stored choice. `load` is the loader of the tables (a test passes a
+ * failing one). When the table of the chosen language does not load, the choice goes back to the previous one, unless
+ * another choice was made meanwhile: the select never names a language the interface is not in (#613).
+ */
+export function setLocaleChoice(choice: LocaleChoice, load: (locale: Locale) => Promise<void> = loadLocale): void {
+  if (!isChoice(choice)) return
+  const previous = getLocaleChoice()
+  storeChoice(choice)
+  // The interface switches when the table is there: onLocaleLoaded notifies the same subscribers
+  load(wantedLocale()).catch(() => {
+    if (previous !== choice && getLocaleChoice() === choice) {
+      storeChoice(previous)
+      return loadLocaleOrDefault(wantedLocale(), load)
+    }
+  }).catch(() => { /* not even the default table: nothing more to do, the interface stays as it is */ })
+}
+
 export function subscribeLocale(cb: () => void): () => void {
   listeners.add(cb)
-  return () => { listeners.delete(cb) }
+  const offLoaded = onLocaleLoaded(cb)
+  return () => { listeners.delete(cb); offLoaded() }
+}
+
+/** How many locale tables are loaded: a list built from every language (the palette keywords) is built again when one arrives */
+export function useLoadedLocaleCount(): number {
+  return useSyncExternalStore(onLocaleLoaded, () => LOCALES.filter(isLocaleLoaded).length, () => 1)
 }
 
 /** Effective locale, the stored choice and its setter; components re-render when the choice changes. */

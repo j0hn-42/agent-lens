@@ -3,7 +3,8 @@
  * session filter, replay dedupe, and the controller that wires them to an EventSource.
  *
  * Polling decision: the relay has no GET endpoint that returns the events (they only flow over
- * SSE, with a replay of its buffer on every connect). After POLL_AFTER_FAILURES consecutive
+ * SSE; a connection replays its buffer, or only the events numbered after the `since` cursor the client sends
+ * back, #653). After POLL_AFTER_FAILURES consecutive
  * failures the client therefore stops hammering /events and polls the cheap GET /status for
  * reachability every POLL_INTERVAL_MS; as soon as /status answers it tries SSE again. If that
  * SSE attempt fails, the client stays in polling mode (the failure counter is not reset until
@@ -22,7 +23,7 @@ export const POLL_INTERVAL_MS = 5_000
 export const BACKOFF_JITTER_RATIO = 0.2
 /** Timeout of one reachability probe */
 export const POLL_TIMEOUT_MS = 4_000
-/** After a reconnect, how long identical events are treated as the relay's buffer replay and dropped */
+/** After a reconnect, how long identical events are treated as a buffer replay and dropped (a relay that ignores `since`, or an older one) */
 export const REPLAY_WINDOW_MS = 10_000
 /** Relay keep-alive period (mirrors RELAY_SSE_HEARTBEAT_MS; a test compares them) */
 export const HEARTBEAT_INTERVAL_MS = 15_000
@@ -265,7 +266,8 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       const reconnected = hasConnected
       hasConnected = true
       state = nextLinkState(state, 'open')
-      // The relay replays its buffer on every connect: remember what was delivered, drop repeats afterwards
+      // A relay that honours `since` replays only what this client lacks. The dedupe below is for an older relay, or
+      // a `since` it ignored (another instance, malformed): it replays its buffer, so repeats are dropped for a while
       replayUntil = reconnected ? Date.now() + REPLAY_WINDOW_MS : 0
       armWatchdog(src)
       emit('connected')

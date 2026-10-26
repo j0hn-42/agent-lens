@@ -85,3 +85,31 @@ test('e2e: no new serious or critical axe violation with presentation mode on', 
     assert.deepEqual(unexpected, [])
   } finally { await close() }
 })
+
+// #613: the badge is `fixed left-1/2` with its own width: at 320 px, in English and in French (the longer text), it stays inside the
+// window, is not cut, causes no sideways scroll and does not sit on the top bar.
+for (const [locale, name] of [['en', 'Presentation mode · V to stop'], ['fr', 'Mode présentation · V pour arrêter']] as const) {
+  test(`e2e: 320 px, ${locale}: the badge is inside the window, not cut, and below the top bar (#613)`, async () => {
+    const context = await browser.newContext({ viewport: { width: 320, height: 568 } })
+    await context.addInitScript(`try { window.localStorage.setItem('agent-lens:locale', '${locale}') } catch (e) {}`)
+    const page = await context.newPage()
+    try {
+      await page.goto(server.url)
+      await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
+      await waitForStableLayout(page)
+      await page.evaluate('document.activeElement && document.activeElement.blur()')
+      await page.keyboard.press('v')
+      const badge = page.locator('button', { hasText: name })
+      await badge.waitFor()
+      const m = await badge.evaluate(el => {
+        const r = el.getBoundingClientRect()
+        const bar = document.querySelector('header')!.getBoundingClientRect()
+        return { left: r.left, right: r.right, top: r.top, barBottom: bar.bottom, scroll: el.scrollWidth, client: el.clientWidth, doc: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth }
+      })
+      assert.ok(m.left >= 0 && m.right <= m.vw, `the badge is inside the window (${m.left}..${m.right} of ${m.vw})`)
+      assert.ok(m.scroll <= m.client, `the badge text is not cut (${m.scroll} > ${m.client})`)
+      assert.ok(m.top >= m.barBottom - 1, `the badge starts below the top bar (${m.top} < ${m.barBottom})`)
+      assert.ok(m.doc <= m.vw, `no sideways scroll (${m.doc} > ${m.vw})`)
+    } finally { await context.close() }
+  })
+}

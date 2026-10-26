@@ -1,3 +1,4 @@
+import './all-locales' // #662: both languages are loaded before the tests
 import { test } from 'node:test'
 import { translate } from '../web/lib/messages'
 import { strict as assert } from 'node:assert'
@@ -250,6 +251,16 @@ test('announcement of review mode names the button with the catalog text of the 
   assert.equal(buildAnnouncement({ ...base, isReviewing: false, locale: 'fr' }), 'Connexion : en direct. Mode direct')
 })
 
+test('the session name of the announcement is data: its own piece declares lang="en", the sentence around it stays in the locale (#613)', () => {
+  const base = { connection: connectionDisplay('watching', false), sessionLabel: 'refactor-auth', isReviewing: false, isEmpty: false }
+  const fr = buildAnnouncementParts({ ...base, locale: 'fr' }).find(p => p.segments)!
+  assert.equal(fr.text, 'Session : refactor-auth', 'the text is the same sentence')
+  assert.deepEqual(fr.segments, [{ text: 'Session : ', lang: 'fr' }, { text: 'refactor-auth', lang: 'en' }])
+  const en = buildAnnouncementParts({ ...base, locale: 'en' }).find(p => p.segments)!
+  assert.deepEqual(en.segments, [{ text: 'Session: ', lang: 'en' }, { text: 'refactor-auth', lang: 'en' }])
+  assert.equal(buildAnnouncementParts({ ...base, sessionLabel: null, locale: 'fr' }).some(p => p.segments), false)
+})
+
 test('the whole announcement follows the locale: connection, session, live mode, empty, unobserved, full screen, presentation (#613)', () => {
   const all = (locale: 'en' | 'fr', fullscreen: 'on' | 'off', presentation: 'on' | 'off', status: Parameters<typeof connectionDisplay>[0] = 'watching') => buildAnnouncement({
     connection: connectionDisplay(status, false), sessionLabel: 'main', isReviewing: false, isEmpty: true, unobservedSessions: 2,
@@ -263,4 +274,15 @@ test('the whole announcement follows the locale: connection, session, live mode,
   }
   assert.ok(buildAnnouncement({ connection: connectionDisplay('watching', true), sessionLabel: null, isReviewing: false, isEmpty: false, locale: 'fr' }).startsWith('Connexion : démo.'))
   assert.equal(buildAnnouncement({ connection: connectionDisplay('watching', false), sessionLabel: null, isReviewing: false, isEmpty: false, unobservedSessions: 1, locale: 'fr' }), 'Connexion : en direct. Mode direct. 1 session listée, activité non observée')
+})
+
+test('the translated "all sessions" label is interface text: not marked lang="en" like a session name (#613)', () => {
+  const base = { connection: connectionDisplay('watching', false), isReviewing: false, isEmpty: false, locale: 'fr' as const }
+  const all = buildAnnouncementParts({ ...base, sessionLabel: 'Toutes les sessions', sessionLabelIsInterface: true }).find(p => p.segments)
+  assert.equal(all?.segments?.some(s => s.lang === 'en'), false)
+  // A real session that happens to be named like the label is data: the flag decides, not the string (#613)
+  const lookalike = buildAnnouncementParts({ ...base, sessionLabel: 'Toutes les sessions' }).find(p => p.segments)
+  assert.equal(lookalike?.segments?.some(s => s.lang === 'en' && s.text === 'Toutes les sessions'), true)
+  const named = buildAnnouncementParts({ ...base, sessionLabel: 'main' }).find(p => p.segments)
+  assert.equal(named?.segments?.some(s => s.lang === 'en' && s.text === 'main'), true)
 })

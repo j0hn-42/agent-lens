@@ -1,3 +1,4 @@
+import './all-locales' // #662: the tables are loaded on demand, every one is loaded before the tests
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
@@ -458,4 +459,64 @@ test('S2: the summary and the message count do not share a unit', () => {
   const msgs: any[] = [1, 2, 3].map(i => ({ kind: 'message_sent', id: `l#${i}`, link: 'l', name: 'A', from: 'A', to: 'B', newOnLink: 3 }))
   const q = enqueueAnnouncements(createAnnouncementQueue(), [...burst, ...msgs])
   assert.deepEqual(q.items.map(i => i.text), ['5 agent graph updates', '3 messages sent between agents'])
+})
+
+// ─── #649: the tool history is not rebuilt every frame ───
+
+/** A string whose `replace` (the work done by `clip`) is counted. */
+function countedText(value: string, counter: { n: number }): any {
+  const s: any = new String(value)
+  s.replace = (...a: any[]) => { counter.n++; return (String.prototype.replace as any).apply(value, a) }
+  return s
+}
+
+test('updateToolHistory: N frames without change do not call clip again (#649)', () => {
+  const counter = { n: 0 }
+  const tc = tool({ state: 'error', args: countedText('a   b', counter), errorMessage: countedText('boom', counter), result: countedText('r', counter) })
+  const history = new Map()
+  updateToolHistory(history, new Map([['t1', tc]]))
+  const first = counter.n
+  assert.ok(first > 0)
+  const entry = history.get('t1')
+  for (let i = 0; i < 50; i++) {
+    // a fade changes the tc reference and its opacity, not the fields the entry reads
+    updateToolHistory(history, new Map([['t1', { ...tc, opacity: 1 - i / 100, x: i }]]))
+  }
+  assert.equal(counter.n, first)
+  assert.equal(history.get('t1'), entry)
+})
+
+test('updateToolHistory: an entry is rebuilt when a field it reads changes (#649)', () => {
+  const history = new Map()
+  const base = tool({ state: 'running', args: 'a' })
+  updateToolHistory(history, new Map([['t1', base]]))
+  const steps: Array<Record<string, unknown>> = [
+    { state: 'complete', result: 'ok' },
+    { result: 'ok 2' },
+    { tokenCost: 42 },
+    { args: 'b' },
+    { state: 'error', errorMessage: 'bad' },
+    { errorMessage: 'worse' },
+    { state: 'expired', endObserved: false },
+    // the fields below each change alone (a field leaving sameSource would turn one of these red)
+    { endObserved: true },
+    { endObserved: false },
+    { agentId: 'other-agent' },
+    { toolName: 'OtherTool' },
+    { mcp: { server: 's1', tool: 't1' } },
+    { mcp: { server: 's2', tool: 't1' } },
+    { mcp: { server: 's2', tool: 't2' } },
+  ]
+  let cur = base
+  for (const s of steps) {
+    cur = { ...cur, ...s }
+    const before = history.get('t1')
+    updateToolHistory(history, new Map([['t1', cur]]))
+    assert.notEqual(history.get('t1'), before, JSON.stringify(s))
+  }
+  const e = history.get('t1')
+  assert.equal(e.state, 'expired')
+  assert.equal(e.error, '')
+  assert.ok(e.warning)
+  assert.equal(e.tokenCost, 42)
 })

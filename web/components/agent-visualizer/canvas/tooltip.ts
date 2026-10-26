@@ -38,6 +38,45 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
   return { title: d.label, lines: [d.listing ? listedFileText(d.listing) : `Discovery: ${d.type}`] }
 }
 
+/**
+ * Size of the tooltip, read without a reflow (#661). The first read is the only synchronous one; after it a
+ * ResizeObserver keeps the size, delivered after layout, so the draw loop never forces one by reading
+ * offsetWidth in the middle of its writes. Without ResizeObserver every frame reads, as before.
+ */
+let tooltipSizes = new WeakMap<HTMLElement, { w: number; h: number }>()
+/** What positions a tooltip again once its size is known (the last positionTooltip call for that element) */
+const tooltipPlacers = new WeakMap<HTMLElement, () => void>()
+let tooltipObserver: ResizeObserver | null = null
+let tooltipObserverCtor: unknown
+function tooltipSize(el: HTMLElement): { w: number; h: number } {
+  const Ctor = typeof ResizeObserver === 'function' ? ResizeObserver : null
+  if (Ctor !== tooltipObserverCtor) {
+    tooltipObserverCtor = Ctor
+    // The observer being replaced stops watching, and what it watched is read and observed again by the new one (#613)
+    tooltipObserver?.disconnect()
+    tooltipSizes = new WeakMap()
+    tooltipObserver = Ctor
+      ? new Ctor(entries => {
+        for (const e of entries) {
+          const t = e.target as HTMLElement
+          tooltipSizes.set(t, { w: t.offsetWidth, h: t.offsetHeight })
+          // The observer is delivered after layout and before paint, but after this frame's draw: place the
+          // tooltip again now with the new size, or its content change shows one frame at the old size (#613).
+          tooltipPlacers.get(t)?.()
+        }
+      })
+      : null
+  }
+  if (!tooltipObserver) return { w: el.offsetWidth, h: el.offsetHeight }
+  let size = tooltipSizes.get(el)
+  if (!size) {
+    size = { w: el.offsetWidth, h: el.offsetHeight }
+    tooltipSizes.set(el, size)
+    tooltipObserver.observe(el)
+  }
+  return size
+}
+
 /** Anchor the tooltip above its node in screen space; hide when the node is gone or off-canvas. */
 export function positionTooltip(
   el: HTMLDivElement | null,
@@ -48,6 +87,7 @@ export function positionTooltip(
   target: NavNode | null,
 ) {
   if (!el) return
+  tooltipPlacers.set(el, () => positionTooltip(el, transform, canvasW, canvasH, scene, target))
   let wx: number | null = null
   let wy: number | null = null
   let radius = 0
@@ -67,8 +107,7 @@ export function positionTooltip(
   }
   const sx = wx * transform.scale + transform.x
   const sy = wy * transform.scale + transform.y - radius * transform.scale - 8
-  const tw = el.offsetWidth
-  const th = el.offsetHeight
+  const { w: tw, h: th } = tooltipSize(el)
   const x = Math.min(Math.max(sx - tw / 2, 4), Math.max(4, canvasW - tw - 4))
   // Flip below the node when there is no room above
   const y = sy - th < 4 ? sy + radius * transform.scale * 2 + 16 : sy - th

@@ -92,6 +92,21 @@ const cursorOf = (msgs: Msg[]) => {
   return c && typeof c.instance === 'string' && typeof c.seq === 'number' ? { instance: c.instance, seq: c.seq } : null
 }
 
+/**
+ * Waits until the relay has numbered `count` more events than `from`. Polls through `?session=` of a session that has
+ * no events: its replay is empty, only the cursor comes back, so the wait costs nothing and does not depend on a delay.
+ */
+async function waitForCursorAdvance(from: number, count: number, ms = 15_000): Promise<number> {
+  const end = Date.now() + ms
+  let seq = from
+  while (Date.now() < end) {
+    seq = cursorOf((await collect(`?session=${OTHER_SESSION}`, 2_000)).msgs)?.seq ?? seq
+    if (seq >= from + count) return seq
+    await sleep(100)
+  }
+  return seq
+}
+
 describe('relay: events missed while the link was down (issue #366)', () => {
   let firstCursor: { instance: string; seq: number } | null = null
 
@@ -177,7 +192,7 @@ describe('relay: events missed while the link was down (issue #366)', () => {
     const before = cursorOf((await collect('', 10_000)).msgs)!
     await waitFor(() => relay.debugState().sseClients === 0, 2_000)
     await appendLines(transcript, MESSAGES, MESSAGES + MORE)
-    await sleep(1_500)
+    assert.ok(await waitForCursorAdvance(before.seq, MORE) >= before.seq + MORE, 'precondition: the relay numbered the appended lines')
     const { msgs, messages } = await collect(`?since=${before.instance}.${before.seq}`, 15_000)
     assert.ok(cursorOf(msgs), 'precondition: the replay was written in full')
     const loss = msgs.find(m => m.type === 'event-loss')
@@ -186,5 +201,39 @@ describe('relay: events missed while the link was down (issue #366)', () => {
     // alone cannot account for more than their difference, so a larger gap proves the evicted numbers were counted
     assert.ok(gap > RELAY_MAX_EVENTS_PER_SESSION - RELAY_MAX_REPLAY_PER_SESSION, `the evicted events count (${gap})`)
     assert.ok(gap >= MORE - messages, `every message missed is accounted for (${gap}, ${messages} replayed of ${MORE} appended)`)
+  })
+
+  it('a client back with a valid ?since= is replayed only the events numbered after it (#653)', async () => {
+    const now = cursorOf((await collect('', 10_000)).msgs)!
+    await waitFor(() => relay.debugState().sseClients === 0, 2_000)
+    const FEW = 5
+    // Depends on the tests above, by design: they filled the buffer (RELAY_MAX_EVENTS_PER_SESSION events of SESSION), and
+    // filling it again here would cost as long as all of them. Alone, the precondition on `full.messages` fails with its
+    // message. The next line label is read from the transcript instead of recomputed from the constants above.
+    const base = fs.readFileSync(transcript, 'utf8').split('\n').length
+    await appendLines(transcript, base, base + FEW)
+    assert.ok(await waitForCursorAdvance(now.seq, FEW) >= now.seq + FEW, 'precondition: the relay numbered the appended lines')
+    const full = await collect('', 10_000)
+    assert.ok(full.messages > 100, `precondition: the buffer filled by the tests above is replayed to a connection without since (${full.messages}); this test does not run alone`)
+    const resumed = await collect(`?since=${now.instance}.${now.seq}`, 10_000)
+    assert.ok(cursorOf(resumed.msgs), 'precondition: the replay was written in full')
+    assert.equal(resumed.messages, FEW, 'only the messages the client has not received are replayed')
+    assert.equal(resumed.msgs.find(m => m.type === 'event-loss')?.gap?.[SESSION], undefined, 'nothing was lost: no gap')
+  })
+
+  it('?session= with ?since= reads only the buffer of that session (#613)', async () => {
+    const now = cursorOf((await collect(`?session=${OTHER_SESSION}`, 2_000)).msgs)!
+    // The numbers of the events are read through a WeakMap: count the reads of events of the big session
+    const realGet = WeakMap.prototype.get
+    let readsOfOtherSessions = 0
+    WeakMap.prototype.get = function (this: WeakMap<object, unknown>, key: object) {
+      if ((key as { sessionId?: unknown } | null)?.sessionId === SESSION) readsOfOtherSessions++
+      return realGet.call(this, key)
+    } as typeof WeakMap.prototype.get
+    try {
+      const { msgs } = await collect(`?session=${OTHER_SESSION}&since=${now.instance}.${now.seq}`, 5_000)
+      assert.ok(cursorOf(msgs), 'precondition: the connection was served')
+    } finally { WeakMap.prototype.get = realGet }
+    assert.equal(readsOfOtherSessions, 0, 'the buffer of another session is neither walked nor copied')
   })
 })

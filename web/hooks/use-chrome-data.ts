@@ -9,7 +9,9 @@ import { agentActivityCounts, buildSessionMeta, connectionDisplay, labelAgentsWi
 import { listedAgents, emptiedByHidingCount } from '@/lib/inactive-agents'
 import { deriveSessionLinks } from '@/lib/session-links'
 import { detectedSessions } from '@/lib/session-model'
-import { selectionLabel } from '@/lib/session-tree'
+import { selectionLabelText } from '@/lib/top-bar-text'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 
 type Simulation = ReturnType<typeof useAgentSimulation>
 type Bridge = ReturnType<typeof useVSCodeBridge>
@@ -32,6 +34,8 @@ export function useChromeData(
     return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale, idleAgentCount: idle, errorAgentCount: error }
   }, [countsKey, agents])
 
+  const { locale } = useLocale()
+
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
     const ids = bridge.allViewSessionIds
@@ -39,10 +43,12 @@ export function useChromeData(
   }, [bridge.allViewSessionIds, bridge.sessions])
 
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
+  // "All sessions" and a team heading are interface text, in the language of the interface; a session label is data (#613)
+  const selectedSessionLabelIsInterface = bridge.isAllSelected || parseTeamSelection(bridge.selectedSessionId) !== null
   const selectedSessionLabel = bridge.isAllSelected
-    ? 'All sessions'
+    ? translate(locale, 'sessions.allSessions')
     : parseTeamSelection(bridge.selectedSessionId) !== null
-      ? selectionLabel(bridge.selectedSessionId, bridge.sessions, bridge.teams)
+      ? selectionLabelText(locale, bridge.selectedSessionId, bridge.sessions, bridge.teams)
       : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
 
   // The selected agent stays listed even when it would be hidden
@@ -64,7 +70,7 @@ export function useChromeData(
   )
 
   return {
-    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
+    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel, selectedSessionLabelIsInterface,
     hiddenKeepIds, listAgents, blankByHidingCount, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   }
 }

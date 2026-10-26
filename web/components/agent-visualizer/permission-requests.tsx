@@ -134,7 +134,7 @@ export function PermissionRequests({ sessionLabel, onShownChange }: PermissionRe
       lang={locale}
       data-permission-requests=""
       className="absolute right-3 flex flex-col gap-2 max-h-[60vh] max-md:max-h-[30vh] overflow-y-auto pointer-events-none"
-      style={{ zIndex: Z.controlBar + 6, top: 'var(--topbar-h, 3.75rem)', width: 'min(28rem, calc(100% - 1.5rem))' }}
+      style={{ zIndex: Z.permissionBanner, top: 'var(--topbar-h, 3.75rem)', width: 'min(28rem, calc(100% - 1.5rem))' }}
     >
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
         <h2
@@ -142,13 +142,13 @@ export function PermissionRequests({ sessionLabel, onShownChange }: PermissionRe
           data-permission-head=""
           ref={headingRef}
           tabIndex={-1}
-          className={rows.length ? `m-0 text-[11px] font-mono font-semibold tracking-wider pointer-events-auto rounded ${FOCUS_RING}` : 'sr-only'}
+          className={rows.length ? `m-0 text-2xs font-mono font-semibold tracking-wider pointer-events-auto rounded ${FOCUS_RING}` : 'sr-only'}
           style={{ color: COLORS.panelLabel }}
         >
           {rows.length ? t('permission.title') : t('permission.titleEmpty')}
         </h2>
         {rows.length > 0 && (
-          <p data-permission-head="" className="m-0 text-[11px] font-mono pointer-events-auto rounded px-2 py-1" style={{ color: COLORS.textMuted, background: COLORS.panelBg }}>
+          <p data-permission-head="" className="m-0 text-2xs font-mono pointer-events-auto rounded px-2 py-1" style={{ color: COLORS.textMuted, background: COLORS.panelBg }}>
             {t('permission.intro')}
           </p>
         )}
@@ -256,7 +256,7 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onF
       role="group"
       aria-labelledby={titleId}
       data-nonce={r.nonce}
-      className="pointer-events-auto rounded p-2 flex flex-col gap-1 text-[11px] font-mono"
+      className="pointer-events-auto rounded p-2 flex flex-col gap-1 text-2xs font-mono"
       style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.waiting_permission}`, color: COLORS.textPrimary }}
     >
       <p id={titleId} className="m-0 font-semibold break-all">{subject}</p>

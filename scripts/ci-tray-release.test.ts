@@ -131,3 +131,22 @@ test('docs/tray.md names every signing secret and says what stays unproven witho
     assert.ok(section.includes(needle), `the section mentions ${needle}`)
   }
 })
+
+test('docs/tray.md gives the owner a procedure for each signing secret, on this fork only (#512)', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs/tray.md'), 'utf8')
+  const start = doc.indexOf('### Setting up the secrets')
+  assert.ok(start >= 0, 'a Setting up the secrets subsection')
+  const rest = doc.slice(doc.indexOf('\n', start) + 1)
+  const end = rest.search(/^##+ /m)
+  const section = end < 0 ? rest : rest.slice(0, end)
+  for (const s of [...MAC_SECRETS, ...WIN_SECRETS]) {
+    assert.ok(section.includes(`gh secret set ${s} --repo j0hn-42/agent-lens`), `a gh secret set command for ${s}`)
+  }
+  assert.ok(!section.includes('patoles/'), 'never the upstream repository')
+  for (const needle of ['Developer ID Application', 'Account Holder', 'security find-identity -v -p codesigning',
+    'app-specific password', 'Team ID', 'hardware', 'exportable', 'Settings > Secrets and variables > Actions']) {
+    assert.ok(section.includes(needle), `the procedure mentions ${needle}`)
+  }
+  const commands = section.split('\n').filter(l => /gh secret set \w+ --repo/.test(l))
+  assert.ok(commands.length >= 8 && commands.every(l => !/--body|\s-b\s/.test(l)), 'values are piped or typed at the prompt, never put on the command line')
+})

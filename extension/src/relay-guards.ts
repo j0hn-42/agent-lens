@@ -278,32 +278,77 @@ function replaceSupersededReading(buf: AgentEvent[], event: AgentEvent): void {
   const prev = candidates.get(agent)
   if (prev && supersedes(event, prev)) {
     for (let i = buf.length - 1; i >= Math.max(0, buf.length - CONTEXT_SCAN_LIMIT); i--) {
-      if (buf[i] === prev) { buf.splice(i, 1); break }
+      // Only neutral events follow `prev` (any other one ends the candidacy), so no agent_activity moves: its index
+      // stays right and only learns the new length (#652)
+      if (buf[i] === prev) { buf.splice(i, 1); const index = activityIndex.get(buf); if (index) index.length = buf.length; break }
     }
   }
   candidates.set(agent, event)
 }
 
-/** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
- *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */
-export function trimKeepingLifecycle(buf: AgentEvent[], max: number, out?: AgentEvent[]): number {
-  let removed = 0
-  while (buf.length > max) {
-    let lifecycle = 0
-    let victim = -1
-    for (let i = 0; i < buf.length; i++) {
-      if (LIFECYCLE_TYPES.has(buf[i].type)) { lifecycle++; continue }
-      if (buf[i].type === ACTIVITY_TYPE) continue
-      victim = i
-      break
+/**
+ * Trim a buffer that exceeds `max` events down to `target` (default `max`), evicting the oldest non-lifecycle event
+ * first. Lifecycle events are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE.
+ * One pass (#652): the victims and their order are those of evicting one event at a time until `target`.
+ */
+export function trimKeepingLifecycle(buf: AgentEvent[], max: number, out?: AgentEvent[], target = max): number {
+  if (buf.length <= max) return 0
+  const len = buf.length
+  let toRemove = len - Math.max(0, Math.min(target, max))
+  const removed = new Uint8Array(len)
+  // `head`: the oldest event still there; `scan`: the oldest chatter event (neither lifecycle nor activity) still
+  // there, or `len`; `lifecycle`: the lifecycle events still there before `scan`
+  let head = 0, scan = 0, lifecycle = 0
+  const count = toRemove
+  while (toRemove > 0) {
+    while (removed[head]) head++
+    if (scan < head) scan = head
+    while (scan < len && (removed[scan] || LIFECYCLE_TYPES.has(buf[scan].type) || buf[scan].type === ACTIVITY_TYPE)) {
+      if (!removed[scan] && LIFECYCLE_TYPES.has(buf[scan].type)) lifecycle++
+      scan++
     }
-    if (victim < 0 || lifecycle > RELAY_REPLAY_LIFECYCLE_RESERVE) victim = 0
-    const [gone] = buf.splice(victim, 1)
-    if (out) out.push(gone)
-    removed++
+    let victim = scan
+    if (scan >= len || lifecycle > RELAY_REPLAY_LIFECYCLE_RESERVE) {
+      victim = head
+      if (LIFECYCLE_TYPES.has(buf[victim].type)) lifecycle--
+    }
+    removed[victim] = 1
+    if (out) out.push(buf[victim])
+    toRemove--
   }
-  return removed
+  let w = 0
+  for (let r = 0; r < len; r++) if (!removed[r]) buf[w++] = buf[r]
+  buf.length = w
+  return count
 }
+
+/** Where the latest agent_activity of each agent sits in a buffer (#652), and the buffer length it was taken at. */
+interface ActivityIndex { at: Map<unknown, number>; length: number }
+const activityIndex = new WeakMap<AgentEvent[], ActivityIndex>()
+
+function indexActivities(buf: AgentEvent[]): ActivityIndex {
+  const at = new Map<unknown, number>()
+  for (let i = 0; i < buf.length; i++) if (buf[i].type === ACTIVITY_TYPE) at.set(agentNameOf(buf[i]), i)
+  const index = { at, length: buf.length }
+  activityIndex.set(buf, index)
+  return index
+}
+
+/** Index of the agent_activity of `name` in `buf`, -1 when none. O(1); rebuilt (O(n)) only for a buffer changed from outside. */
+function findActivity(buf: AgentEvent[], name: unknown): number {
+  let index = activityIndex.get(buf)
+  if (!index || index.length !== buf.length) index = indexActivities(buf)
+  const at = index.at.get(name)
+  if (at === undefined) return -1
+  const e = buf[at]
+  if (e && e.type === ACTIVITY_TYPE && agentNameOf(e) === name) return at
+  // Moved by a change the index did not see: look again
+  const fresh = indexActivities(buf).at.get(name)
+  return fresh === undefined ? -1 : fresh
+}
+
+/** Trim target of a full buffer (#652): back to 90 % of the cap, so the next trim is 10 % of the cap away. A cap under 10 is kept exactly. */
+const trimTarget = (max: number) => max - Math.floor(max / 10)
 
 /**
  * Append an event to a per-session buffer, keeping memory bounded: at most
@@ -311,6 +356,8 @@ export function trimKeepingLifecycle(buf: AgentEvent[], max: number, out?: Agent
  * evicted first) and `total` events overall. `protect` is never evicted.
  * Only the latest agent_activity per agent is kept, and a context_update superseded at the same instant is
  * replaced (#567, see supersedes): neither is counted in `evicted`, the state they lead to is the same.
+ * O(1) amortised per append (#652): a full buffer is trimmed in one pass back to 90 % of `perSession`, and the
+ * activity to replace is found through an index.
  */
 export function appendBounded(
   buffers: Map<string, AgentEvent[]>,
@@ -325,12 +372,20 @@ export function appendBounded(
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
   replaceSupersededReading(buf, event)
-  const previous = event.type === ACTIVITY_TYPE ? buf.findIndex(e => e.type === ACTIVITY_TYPE && agentNameOf(e) === agentNameOf(event)) : -1
+  const previous = event.type === ACTIVITY_TYPE ? findActivity(buf, agentNameOf(event)) : -1
   // Only the latest activity per (session, agent) is replayed: replace in place, it stays after the spawn
   if (previous >= 0) buf[previous] = event
-  else buf.push(event)
+  else {
+    buf.push(event)
+    const index = activityIndex.get(buf)
+    if (index && index.length === buf.length - 1) {
+      index.length = buf.length
+      if (event.type === ACTIVITY_TYPE) index.at.set(agentNameOf(event), buf.length - 1)
+    }
+  }
   const gone: AgentEvent[] | undefined = onEvict ? [] : undefined
-  const trimmed = trimKeepingLifecycle(buf, lim.perSession, gone)
+  const trimmed = trimKeepingLifecycle(buf, lim.perSession, gone, trimTarget(lim.perSession))
+  if (trimmed > 0) activityIndex.delete(buf)
   if (evicted) addEvicted(evicted, sessionId, trimmed, lim.sessions)
   if (onEvict && gone && gone.length > 0) onEvict(sessionId, gone)
   // Re-insert so Map order reflects recency of writes
@@ -353,6 +408,7 @@ export function appendBounded(
   if (totalEvents > lim.total) {
     const cut = Math.min(buf.length - 1, totalEvents - lim.total)
     const head = buf.splice(0, cut)
+    activityIndex.delete(buf)
     if (evicted) addEvicted(evicted, sessionId, cut, lim.sessions)
     if (onEvict && head.length > 0) onEvict(sessionId, head)
   }
@@ -396,7 +452,17 @@ export interface DiscoveryOptions {
 }
 
 /** État de scan froid du relais : `cycle` est incrémenté par l'appelant à chaque scan. */
-export interface ColdScan { cycle: number; until: Map<string, number> }
+export interface ColdScan {
+  cycle: number
+  until: Map<string, number>
+  /** Classement des dossiers par transcript le plus récent (#654) : recalculé tous les COLD_RESCAN_CYCLES cycles */
+  ranking?: {
+    cycle: number
+    newest: Map<string, number>
+    /** Folder mtime when it was measured: a folder whose mtime moved holds a new file (#613) */
+    seen?: Map<string, number>
+  }
+}
 export function createColdScan(): ColdScan { return { cycle: 0, until: new Map() } }
 
 /** mtime of the most recent `.jsonl` directly in `dir` (0 when none or unreadable). Regular files only. */
@@ -427,6 +493,7 @@ export function listProjectDirs(
   match: ((name: string) => boolean) | null,
   maxDirs = RELAY_MAX_PROJECT_DIRS,
   report?: { truncated: boolean },
+  cold?: ColdScan,
 ): string[] {
   const out: string[] = []
   if (report) { report.truncated = false }
@@ -437,7 +504,35 @@ export function listProjectDirs(
     .map(e => e.name)
     .sort()
   if (names.length > maxDirs) {
-    const newest = new Map(names.map(n => [n, newestTranscriptMs(path.join(root, n))]))
+    // readdir + lstat of every transcript of every folder: redone only every COLD_RESCAN_CYCLES scans when the
+    // caller passes its ColdScan (a folder unknown to the last ranking is measured at once)
+    let ranking = cold?.ranking
+    if (!ranking || !cold || cold.cycle - ranking.cycle >= COLD_RESCAN_CYCLES || cold.cycle < ranking.cycle) {
+      ranking = { cycle: cold?.cycle ?? 0, newest: new Map() }
+      if (cold) cold.ranking = ranking
+    }
+    const known = ranking.newest
+    const seen = ranking.seen ??= new Map()
+    const newest = new Map(names.map(n => {
+      const dir = path.join(root, n)
+      // A new session file changes the mtime of its folder: such a folder is measured again at once, outside the top
+      // too (one stat per folder).
+      let dirMs = 0
+      try { dirMs = fs.statSync(dir).mtimeMs } catch { /* vanished */ }
+      const last = seen.get(n)
+      let ms = known.get(n)
+      if (ms === undefined || last !== dirMs) {
+        ms = newestTranscriptMs(dir)
+        known.set(n, ms)
+        seen.set(n, dirMs)
+      }
+      return [n, ms] as const
+    }))
+    // Folders deleted since the last ranking do not stay in it
+    if (known.size > names.length) {
+      const present = new Set(names)
+      for (const k of known.keys()) if (!present.has(k)) { known.delete(k); seen.delete(k) }
+    }
     // Stable sort: equal activity keeps the by-name order
     names.sort((a, b) => (newest.get(b) ?? 0) - (newest.get(a) ?? 0))
   }

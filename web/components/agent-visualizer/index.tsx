@@ -16,7 +16,7 @@ import type { AnnounceLevel } from "@/lib/ui-preferences"
 import { Z } from "@/lib/agent-types"
 import { COLORS, SCENE } from "@/lib/colors"
 
-import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
+import { IS_GUIDED_DEMO, mockDuration } from "@/lib/demo-scenario"
 import { useChromeModes } from "@/hooks/use-chrome-modes"
 import { useAttentionSummary } from "@/hooks/use-attention-summary"
 import { useInspector } from "@/hooks/use-inspector"
@@ -40,10 +40,9 @@ import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
 import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
 import { useReviewControls } from "@/hooks/use-review-controls"
-import { GuidedTourCard } from "./guided-tour-card"
+import { GuidedTourCard, TourHighlight } from "./lazy-panels"
 import { TourOffer } from "./tour-offer"
 import { useTourOffer } from "@/hooks/use-tour-offer"
-import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
@@ -114,6 +113,7 @@ export function AgentVisualizer() {
     frameRef, agents, toolCalls, edges, discoveries, fileAttention, waste, timelineEntries, currentTime, isPlaying, speed, maxTimeReached,
     conversations, droppedEvents, droppedMessages, normalizationStats, unattributed, foreignAttention, catchUp, links, teams,
     play, pause, restart, setSpeed, seekToTime, updateAgentPosition, setLayoutKeepIds, saveSnapshot, restoreSnapshot,
+    moveWorkspace, workspaceCentre, resetWorkspaces, hasMovedWorkspaces,
   } = useVisualizerSimulation(bridge, isReviewing, hideInactiveShown)
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -161,9 +161,9 @@ export function AgentVisualizer() {
     setIsReviewing(false)
     pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
   }, [pushToast])
-  const sessionCacheRef = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
+  const { sessionCacheRef, memoryDropped, noteRebuilt } = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
 
-  const timelineEvents = useTimelineEvents(conversations)
+  const { events: timelineEvents, lost: lostMarkers } = useTimelineEvents(conversations, droppedMessages)
 
   const zoomToFit = useCallback(() => setZoomToFitTrigger(n => n + 1), [])
   const {
@@ -214,23 +214,33 @@ export function AgentVisualizer() {
 
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
 
+  const toggleSessions = useCallback(() => setShowSessions(prev => !prev), [setShowSessions])
+  const toggleStats = useCallback(() => setShowStats(prev => !prev), [setShowStats])
+  const toggleTimeline = useCallback(() => setShowTimeline(prev => !prev), [setShowTimeline])
+  const togglePanel = useCallback(
+    (panel: Parameters<typeof toggleExclusivePanel>[0] | 'system') => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel)),
+    [setShowSystem, toggleExclusivePanel],
+  )
   const menuActions = {
     showStats, showGrid: showHexGrid,
-    toggleStats: () => setShowStats(prev => !prev),
+    toggleStats,
     zoomToFit,
     toggleGrid: () => setShowHexGrid(prev => !prev),
     clearHistory: handleClearHistory,
-    reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? handleReloadSessionEvents : null,
+    reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? () => { handleReloadSessionEvents(); noteRebuilt() } : null,
+    // Read when the menu opens (the open menu re-renders): a workspace moved by hand can be put back
+    arrangeWorkspaces: hasMovedWorkspaces() ? resetWorkspaces : null,
   }
 
   const sessionActions = useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef })
 
+  const { bridgeOpenFile } = bridge
   const openFile = useCallback((filePath: string, line?: number) => {
-    bridge.bridgeOpenFile(filePath, line)
-  }, [bridge])
+    bridgeOpenFile(filePath, line)
+  }, [bridgeOpenFile])
 
   const {
-    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
+    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel, selectedSessionLabelIsInterface,
     hiddenKeepIds, listAgents, blankByHidingCount, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   } = useChromeData(agents, agentsRef, bridge, selection.selectedAgentId, hideInactiveShown)
 
@@ -252,7 +262,8 @@ export function AgentVisualizer() {
   // The rule depends on where the replay figure comes from (#605 review, round 4): the VS Code extension lowers its figure
   // while the page is open, so with it only a total above the dismissed one brings the notice back; with the relay a lower
   // total is a new loss too (#569)
-  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey), bridge.eventLossSource)
+  // The events the page freed from its own memory (#613) count in the same total: the notice comes back when it grows
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost + memoryDropped, truncationDismissed.get(truncationKey), bridge.eventLossSource)
   const truncationShown = truncation.show && !immersive
   // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
   const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey
@@ -270,18 +281,30 @@ export function AgentVisualizer() {
     setTruncationDismissed(next)
     setTruncationReopened(null)
   }
-  const reopenTruncationBanner = () => {
+  const reopenTruncationBanner = useCallback(() => {
     const next = new Map(truncationDismissed)
     next.delete(truncationKey)
     writeTruncationDismissals(tabStorage(), next)
     setTruncationDismissed(next)
     setTruncationReopened(prev => ({ key: truncationKey, n: (prev?.key === truncationKey ? prev.n : 0) + 1, focus: true }))
-  }
+  }, [truncationDismissed, truncationKey])
+  // A prop of the memoized dock (#658): the same element while its three inputs are the same
+  const lossIndicator = useMemo(
+    () => <TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} memoryDropped={memoryDropped} onShow={reopenTruncationBanner} />,
+    [truncationStats, bridge.replayLost, memoryDropped, reopenTruncationBanner],
+  )
   // The banner took the focus the user asked for: a later mount of it (leaving full screen, back after its total fell to 0)
   // keeps Details expanded but never moves the focus again (#569 review)
   const truncationFocusTaken = useCallback(() => setTruncationReopened(prev => (prev && prev.focus ? { ...prev, focus: false } : prev)), [])
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
+
+  // Props of the memoized dock (#658): the same objects while what they hold did not change
+  const dockSim = useMemo(() => ({ fileAttention, waste, agents, timelineEntries, currentTime }), [fileAttention, waste, agents, timelineEntries, currentTime])
+  const agentCounts = useMemo(
+    () => ({ active: activeAgentCount, done: doneAgentCount, stale: staleAgentCount, idle: idleAgentCount, error: errorAgentCount }),
+    [activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount],
+  )
 
   const scopeProps = useScopeControls(bridge, uiPrefs)
 
@@ -321,7 +344,7 @@ export function AgentVisualizer() {
     <div className="h-screen w-full relative overflow-hidden" style={{ background: SCENE.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
-        connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
+        connection={connection} sessionLabel={selectedSessionLabel} sessionLabelIsInterface={selectedSessionLabelIsInterface} isReviewing={isReviewing} isEmpty={isEmpty}
         sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote} presentationNote={presentationNote}
       />
 
@@ -339,7 +362,7 @@ export function AgentVisualizer() {
         lossMarked={truncation.total > 0 && !truncation.show}
         showMode={showMode} onChangeShowMode={updateShowMode} finishedSessionCount={bridge.finishedSessionCount}
         selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}
-        showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
+        showSessions={showSessions} onToggleSessions={toggleSessions}
         isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
         connectionDetail={bridge.connectionDetail} onRetryConnection={bridge.relayOrigin !== null ? bridge.retryRelay : undefined} onExitDemo={bridge.exitDemo}
@@ -348,9 +371,7 @@ export function AgentVisualizer() {
         unattributedTokens={usage.summary.unattributedTokens} unattributedCost={usage.summary.unattributedCost} unattributedEstimated={unattributedEstimated}
         showFileAttention={showFileAttention} showConversation={showConversation} showContext={showContext} showSystem={showSystem}
         showCostOverlay={showCostOverlay} showTimeline={showTimeline} showStats={showStats} isMuted={isMuted}
-        onToggleStats={() => setShowStats(prev => !prev)}
-        onTogglePanel={panel => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel))}
-        onToggleTimeline={() => setShowTimeline(prev => !prev)}
+        onToggleStats={toggleStats} onTogglePanel={togglePanel} onToggleTimeline={toggleTimeline}
         onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings} onOpenPalette={openPalette}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
         quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota && quotaSourceActive}
@@ -367,6 +388,7 @@ export function AgentVisualizer() {
             key={`${truncationKey}#${truncationReopenedHere ? truncationReopened?.n ?? 0 : 0}`}
             stats={truncationStats}
             replayLost={bridge.replayLost}
+            memoryDropped={memoryDropped}
             returnFocusId={PANEL_BUTTON_IDS.sessions}
             initialOpen={truncationReopenedHere}
             takeFocus={truncationReopenedHere && truncationReopened?.focus === true}
@@ -388,7 +410,7 @@ export function AgentVisualizer() {
           title="Exit full screen (Z)"
           className={`fixed top-2 right-2 rounded-md p-2 ${FOCUS_RING}`}
           // Drawn on the scene ground, so scene colours (>= 3:1 for the icon and the outline) whatever the theme
-          style={{ zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
+          style={{ zIndex: Z.notice, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
         >
           <FullscreenIcon exit />
         </button>
@@ -419,6 +441,8 @@ export function AgentVisualizer() {
         onAgentClick={handleCanvasAgentClick}
         onAgentHover={selection.setHoveredAgentId}
         onAgentDrag={updateAgentPosition}
+        onWorkspaceDrag={moveWorkspace}
+        getWorkspaceCentre={workspaceCentre}
         onContextMenu={selection.handleContextMenu}
         onToolCallClick={selection.handleToolCallClick}
         selectedToolCallId={selection.selectedToolCallId}
@@ -449,7 +473,7 @@ export function AgentVisualizer() {
       />
 
       <SelectionOverlays
-        selection={selection} inspector={inspector} agents={agents} links={links} droppedMessages={droppedMessages}
+        selection={selection} inspector={inspector} agents={agents} currentTime={currentTime} links={links} droppedMessages={droppedMessages}
         health={health} bridge={bridge} selectedLinkId={selectedLinkId} onCloseLink={() => setSelectedLinkId(null)}
         onEscapeFromCard={escapeFromDetailCard} menuActions={menuActions}
       />
@@ -459,13 +483,13 @@ export function AgentVisualizer() {
       <ControlBar
         isPlaying={isPlaying} speed={speed} currentTime={currentTime}
         totalDuration={bridge.useMockData
-          ? (isReviewing ? Math.max(maxTimeReached, currentTime) : MOCK_DURATION)
+          ? (isReviewing ? Math.max(maxTimeReached, currentTime) : mockDuration())
           : Math.max(maxTimeReached, currentTime)
         }
         onPlayPause={handlePlayPause} onRestart={handleClearHistory} onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData} connectionStatus={bridge.connectionStatus} onSeek={handleSeek}
         timelineEvents={timelineEvents} eventCount={timelineEvents.length} isReviewing={isReviewing}
-        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents}
+        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents} lostMarkers={lostMarkers}
       />
       </div>
 
@@ -476,10 +500,10 @@ export function AgentVisualizer() {
       />
 
       <PanelDock
-        panels={panels} sim={{ fileAttention, waste, agents, timelineEntries, currentTime }} bridge={bridge} selection={selection}
+        panels={panels} sim={dockSim} bridge={bridge} selection={selection}
         attention={attention} health={health} sessionActions={sessionActions} uiPrefs={uiPrefs} allSessionCount={allSessionCount}
-        agentCounts={{ active: activeAgentCount, done: doneAgentCount, stale: staleAgentCount, idle: idleAgentCount, error: errorAgentCount }}
-        lossIndicator={<TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} onShow={reopenTruncationBanner} />}
+        agentCounts={agentCounts}
+        lossIndicator={lossIndicator}
         replayLostBySession={replayLostBySession}
         listAgents={listAgents} agentLabel={agentLabel} openFile={openFile} fetchContext={fetchContext} contextOrigin={contextOrigin}
         tourShowsInactive={tourShowsInactive}

@@ -202,20 +202,53 @@ test('the catch-up is cut into frame slices and ends with the same state as even
   assert.deepStrictEqual(comparable(state), comparable(expected))
 })
 
-// The budgets are wall-clock: strict on a developer machine, but a shared 2-vCPU CI runner measured 0.9 to 1.2 s
-// for the 0.33 s this takes locally (#210). CI gets a 4x allowance; the sliced-catch-up checks above are what
-// prove the work is cut into frames, so this test only guards against an order-of-magnitude regression there.
-const PERF_FACTOR = process.env.CI ? 4 : 1
+// The budgets are relative (#440): a wall-clock measure grows with whatever else runs on the machine (the parallel
+// files of `pnpm test`, other worktrees, a 2-vCPU CI runner), so a fixed threshold failed under load while the code
+// had not changed (555 to 1257 ms for 230 to 490 ms otherwise). Each measure is divided by the time of a fixed
+// reference work that does not use the simulation code (copies of a 300-entry Map, the kind of work a batch does),
+// timed just before and just after it (the mean of the two), never during the measure. Load slows both as long as it
+// is stable over the few hundred ms of a run; a load that starts or stops in the middle of a measure is not
+// compensated, hence the fastest of RUNS runs. A regression of the simulation code only slows the measure, so it still
+// fails. Proof (#613, 2026-10-25): with `Object.assign(state, copyCollections(state))` at the top of the loop of
+// processEventBatch (the collections copied per event), the total is 1773, 1839 and 1842 ms for a reference of 42.3,
+// 42.5 and 42.8 ms, i.e. 41.9 to 43.0 references against a budget of 11.1: the test fails.
+// That mutation is not a pure performance regression: it also changes the state produced (the collections are replaced
+// by copies per event), so two equivalence tests fail with it as well ("a live batch stamps freshness...", "the catch-up
+// is cut into frame slices..."). The figures above are those of the perf test alone.
+// The budgets were set on a machine where the reference takes about 45 ms: 500 ms in total and 50 ms per frame
+// there, i.e. 11 and 1.1 references. Measured there: 4.6 to 6.2 references in total, 0.18 to 0.20 for the worst
+// frame; on the same machine with 3 other processes on its core (each measure 4x slower): 5.4 to 7.9 and 0.25 to 0.39.
+// The ratio does not carry across hardware: on the GitHub runner the reference takes about the same time (40 to
+// 64 ms) while the burst is about 2.5x slower, so the total measured 12.9 to 15.6 references there (runs 40156404799
+// and 40156420758 of develop). The CI budget is 2.5x the one set here; a regression of the simulation code (20
+// references here when injected) is about 2.5x larger there too, so it still fails.
+const REFERENCE_MS_WHERE_SET = 45
+const CI_FACTOR = process.env.CI ? 2.5 : 1
+const TOTAL_BUDGET = (500 / REFERENCE_MS_WHERE_SET) * CI_FACTOR
+const FRAME_BUDGET = (50 / REFERENCE_MS_WHERE_SET) * CI_FACTOR
 
-// Other processes (the parallel test files of `pnpm test`, other worktrees) only ever add wall-clock time to a
-// measure: a single run read 555 and 785 ms under load for 230 to 490 ms otherwise (#440). The budgets below hold
-// for the fastest of RUNS runs, each measure taken separately. The thresholds are unchanged, every run is executed
-// (no early exit), and a regression of the code itself slows every run, so it still fails.
+// The fastest of RUNS ratios is kept, each measure taken separately; every run is executed (no early exit).
 const RUNS = 3
 
-interface BurstMeasure { total: number; worst: number; oneBatch: number; agents: number }
+/** The reference work: 3000 copy-on-write updates of a 300-entry Map. Independent of the code under test. */
+function referenceWork(): number {
+  const t0 = performance.now()
+  let m = new Map<string, { id: number; n: number }>()
+  for (let i = 0; i < 300; i++) m.set(`a${i}`, { id: i, n: 0 })
+  for (let k = 0; k < 3000; k++) {
+    const next = new Map(m)
+    const key = `a${k % 300}`
+    next.set(key, { ...next.get(key)!, n: k })
+    m = next
+  }
+  if (m.size !== 300) throw new Error('reference work')
+  return performance.now() - t0
+}
+
+interface BurstMeasure { total: number; worst: number; oneBatch: number; agents: number; reference: number }
 
 function measureBurst(events: readonly SimulationEvent[]): BurstMeasure {
+  const before = referenceWork()
   const queue = createCatchUp()
   enqueueCatchUp(queue, events, RECEIVED_AT)
   let state = createEmptyState()
@@ -230,20 +263,22 @@ function measureBurst(events: readonly SimulationEvent[]): BurstMeasure {
   const t0 = performance.now()
   processEventBatch(events, createEmptyState(), makeCtx(), { advanceClock: true })
   const oneBatch = performance.now() - t0
-  return { total: frames.reduce((a, b) => a + b, 0), worst: Math.max(...frames), oneBatch, agents: state.agents.size }
+  const reference = (before + referenceWork()) / 2
+  return { total: frames.reduce((a, b) => a + b, 0), worst: Math.max(...frames), oneBatch, agents: state.agents.size, reference }
 }
 
-test('perf: 10 000 events on 300 agents in under 500 ms in total, no frame over 50 ms (fastest of 3 runs, x4 allowance on CI)', () => {
+test('perf: 10 000 events on 300 agents in under 11 reference works in total (500 ms where set), no frame over 1.1 (50 ms), fastest of 3 runs', () => {
   const events = burstEvents(10_000, 300)
-  // Warm-up (JIT) on another batch, so the measure is the steady cost
+  // Warm-up (JIT) on another batch and on the reference, so the measure is the steady cost
   processEventBatch(burstEvents(2000, 50), createEmptyState(), makeCtx(), { advanceClock: true, receivedAt: RECEIVED_AT })
+  referenceWork()
 
   const runs = Array.from({ length: RUNS }, () => measureBurst(events))
   for (const r of runs) assert.equal(r.agents, 300)
-  const fastest = (key: 'total' | 'worst' | 'oneBatch') => Math.min(...runs.map((r) => r[key]))
-  const all = (key: 'total' | 'worst' | 'oneBatch') => runs.map((r) => r[key].toFixed(1)).join(', ')
-  assert.ok(fastest('total') < 500 * PERF_FACTOR, `total ${all('total')} ms`)
-  assert.ok(fastest('worst') < 50 * PERF_FACTOR, `worst frame ${all('worst')} ms`)
+  const fastest = (key: 'total' | 'worst' | 'oneBatch') => Math.min(...runs.map((r) => r[key] / r.reference))
+  const all = (key: 'total' | 'worst' | 'oneBatch') => runs.map((r) => `${r[key].toFixed(1)} ms / ${r.reference.toFixed(1)} ms`).join(', ')
+  assert.ok(fastest('total') < TOTAL_BUDGET, `total ${all('total')}`)
+  assert.ok(fastest('worst') < FRAME_BUDGET, `worst frame ${all('worst')}`)
   // The whole burst in one batch (seek) also stays under the budget
-  assert.ok(fastest('oneBatch') < 500 * PERF_FACTOR, `one batch ${all('oneBatch')} ms`)
+  assert.ok(fastest('oneBatch') < TOTAL_BUDGET, `one batch ${all('oneBatch')}`)
 })

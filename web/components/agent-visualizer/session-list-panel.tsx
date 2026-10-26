@@ -130,7 +130,7 @@ function StateMarker({ state }: { state: string }) {
   const color = STATE_COLOR[state] ?? (state === 'paused' ? COLORS.paused : COLORS.idle)
   const shape = stateMarkerShape(state)
   if (shape === 'check' || shape === 'cross') {
-    return <span aria-hidden="true" data-state-marker={shape} className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>{shape === 'check' ? '✓' : '✕'}</span>
+    return <span aria-hidden="true" data-state-marker={shape} className="w-3 shrink-0 text-2xs leading-none" style={{ color }}>{shape === 'check' ? '✓' : '✕'}</span>
   }
   const box = stateMarkerBox(shape, color)
   return (
@@ -144,7 +144,7 @@ function StateMarker({ state }: { state: string }) {
 }
 
 function SessionMarker({ kind }: { kind: SessionStatusKind }) {
-  if (kind === 'completed') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color: COLORS.idle }}>✓</span>
+  if (kind === 'completed') return <span aria-hidden="true" className="w-3 shrink-0 text-2xs leading-none" style={{ color: COLORS.idle }}>✓</span>
   const isNew = kind === 'new-activity'
   return (
     <span
@@ -224,7 +224,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
-        className={`${ROW_GRID} w-full min-h-6 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+        className={`${ROW_GRID} w-full min-h-6 rounded py-0.5 pr-2 text-left text-2xs hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
         <span className={`flex min-w-0 items-center gap-x-1.5 ${drawn && stale ? 'flex-wrap' : ''} ${COLUMN_CLASSES.name}`}>
@@ -296,7 +296,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
         return (
           <li key={`${seg.kind}:${label}`}>
             <div role="group" aria-label={label}>
-              <p className="m-0 text-[11px] font-semibold" style={{ paddingLeft: 8 + depth * 14, color: COLORS.textMuted }}>
+              <p className="m-0 text-2xs font-semibold" style={{ paddingLeft: 8 + depth * 14, color: COLORS.textMuted }}>
                 {label} <span className="font-normal" style={{ color: COLORS.textDim }}>({seg.items.length})</span>
               </p>
               <ul className="list-none p-0 m-0">{seg.items.map(i => row(i.node, depth))}</ul>
@@ -362,7 +362,13 @@ export function SessionListPanel({
   const isObservedId = (id: string) => (observedSessionIds ? observedSessionIds.has(id) : observedSessions.has(id))
   const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
-  const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
+  // The previous forests are handed back so a node whose agent did not change keeps its identity (#658)
+  const forestsRef = useRef<Map<string, AgentNode[]>>(new Map())
+  const forests = useMemo(() => {
+    const next = visible ? buildAgentForests(agents.values(), forestsRef.current) : new Map<string, AgentNode[]>()
+    forestsRef.current = next
+    return next
+  }, [agents, visible])
   const [ownActiveOnly, setOwnActiveOnly] = useState(true)
   const activeOnly = storedActiveOnly !== undefined ? storedActiveOnly : ownActiveOnly
   const setActiveOnly = (next: boolean) => { setOwnActiveOnly(next); onActiveOnlyChange?.(next) }
@@ -540,7 +546,7 @@ export function SessionListPanel({
               aria-pressed={activeOnly}
               onClick={() => { setAnnouncement(t(activeOnly ? 'sessions.announce.all' : 'sessions.announce.activeOnly', { n: (activeOnly ? sessions : filterActiveSessions(sessions, selectedSessionId, isObserved)).length })); setActiveOnly(!activeOnly) }}
               title={t('sessions.activeOnlyHelp')}
-              className={`min-h-6 px-2 rounded text-[11px] ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+              className={`min-h-6 px-2 rounded text-2xs ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
               style={{
                 background: activeOnly ? COLORS.toggleActive : COLORS.toggleInactive,
                 border: `1px solid ${COLORS.controlBorder}`,
@@ -551,17 +557,17 @@ export function SessionListPanel({
             </button>
           )}
         >
-          <span className="text-[11px] uppercase tracking-wider" style={{ color: COLORS.textPrimary }}>
+          <span className="text-2xs uppercase tracking-wider" style={{ color: COLORS.textPrimary }}>
             {t('sessions.title')}
           </span>
-          <span className="text-[11px]" style={{ color: COLORS.textMuted }}>
+          <span className="text-2xs" style={{ color: COLORS.textMuted }}>
             {t('sessions.count', { active: activeCount, total: sessions.length })}
           </span>
         </PanelHeader>
         {/* #372 (owner's decision): the two visibility filters stay, with their different rules; this line shows both
             states as set, so a session listed on the canvas and not here (or the reverse) is explained. Plain text, no
             control; the separator is drawn, not read */}
-        <p data-testid="sessions-filter-scope" className="m-0 px-2 pb-1.5 text-[11px]" style={{ color: COLORS.textMuted }}>
+        <p data-testid="sessions-filter-scope" className="m-0 px-2 pb-1.5 text-2xs" style={{ color: COLORS.textMuted }}>
           {/* "all sessions" only when nothing narrows the list: search, project, runtime and branch count as much as Active only */}
           <span>{t(activeOnly ? (filtering ? 'sessions.scope.list.activeOnlyFiltered' : 'sessions.scope.list.activeOnly') : (filtering ? 'sessions.scope.list.filtered' : 'sessions.scope.list.all'))}</span>
           {canvasHideInactive !== undefined && (
@@ -577,7 +583,7 @@ export function SessionListPanel({
         {viewCounts && (
           // #523: the agent counts of the view, moved from the top bar with the same text, in the interface language
           // (#500); the full wording is read, the compact one drawn
-          <p data-testid="sessions-agent-counts" className="m-0 px-2 pb-1.5 text-[11px] tabular-nums" style={{ color: COLORS.textMuted }}>
+          <p data-testid="sessions-agent-counts" className="m-0 px-2 pb-1.5 text-2xs tabular-nums" style={{ color: COLORS.textMuted }}>
             <span aria-hidden="true">{viewCounts.drawn}</span>
             <span className="sr-only">{viewCounts.spoken}</span>
           </p>
@@ -585,7 +591,7 @@ export function SessionListPanel({
         {lossIndicator}
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
-        <div role="search" aria-label={t('sessions.search.group')} className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">
+        <div role="search" aria-label={t('sessions.search.group')} className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-2xs">
           <input
             type="search"
             aria-label={t('sessions.search')}
@@ -593,7 +599,7 @@ export function SessionListPanel({
             aria-describedby={searchHintId}
             value={query}
             onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
-            className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}
+            className={`min-h-6 min-w-0 flex-1 rounded px-2 text-2xs ${FOCUS_RING}`}
             style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           />
           {(projects.length > 1 || filter.projectId !== null) && (
@@ -601,7 +607,7 @@ export function SessionListPanel({
               aria-label={t('sessions.filter.project')}
               value={filter.projectId ?? ''}
               onChange={e => { const projectId = e.target.value || null; changeFilter({ projectId }); announceMatches({ ...filter, projectId }) }}
-              className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
+              className={`min-h-6 max-w-[40%] rounded px-1 text-2xs ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
               <option value="">{t('sessions.filter.allProjects')}</option>
@@ -613,7 +619,7 @@ export function SessionListPanel({
               aria-label={t('sessions.filter.runtime')}
               value={filter.runtime ?? ''}
               onChange={e => { const runtime = (e.target.value || null) as RuntimeFilter | null; changeFilter({ runtime }); announceMatches({ ...filter, runtime }) }}
-              className={`min-h-6 rounded px-1 text-[11px] ${FOCUS_RING}`}
+              className={`min-h-6 rounded px-1 text-2xs ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
               <option value="">{t('sessions.filter.allRuntimes')}</option>
@@ -630,7 +636,7 @@ export function SessionListPanel({
               aria-label={t('sessions.filter.branch')}
               value={filter.branch ?? ''}
               onChange={e => { const branch = e.target.value || null; changeFilter({ branch }); announceMatches({ ...filter, branch }) }}
-              className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
+              className={`min-h-6 max-w-[40%] rounded px-1 text-2xs ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
               <option value="">{t('sessions.filter.allBranches')}</option>
@@ -641,7 +647,7 @@ export function SessionListPanel({
             <button
               type="button"
               onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null, branch: null }); setAnnouncement(C.filterClearedText(locale, sessions.length)) }}
-              className={`min-h-6 px-2 rounded text-[11px] ${FOCUS_RING}`}
+              className={`min-h-6 px-2 rounded text-2xs ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >
               {t('sessions.filter.clear')}
@@ -662,7 +668,7 @@ export function SessionListPanel({
         >
           {rows.length > 0 && <ColumnHeader />}
           {shownSessionCount === 0 && (
-            <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
+            <div className="text-2xs py-2 text-center" style={{ color: COLORS.textMuted }}>
               {filtering && sessions.length > 0 ? t('sessions.empty.match') : activeOnly && sessions.length > 0 ? t('sessions.empty.active') : t('sessions.empty.none')}
               {scopeHint && !filtering && <span className="block mt-1">{scopeHint}</span>}
             </div>
@@ -670,7 +676,7 @@ export function SessionListPanel({
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label={t('sessions.title')} data-sensitive="">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
-              const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-2xs hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
               const rowBase = `flex flex-wrap items-center gap-x-1.5 gap-y-0 ${rowLook}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
@@ -678,7 +684,7 @@ export function SessionListPanel({
                 // The heading of the sessions outside any repository is ours (session-tree), a project name is data
                 const heading = row.id === 'project:none' ? t('sessions.project.none') : row.projectName
                 return (
-                  <li key={row.id} className="mt-1.5 px-2 pt-1 text-[11px] tracking-wider uppercase truncate" style={{ color: COLORS.textDim }} title={heading}>
+                  <li key={row.id} className="mt-1.5 px-2 pt-1 text-2xs tracking-wider uppercase truncate" style={{ color: COLORS.textDim }} title={heading}>
                     <span className="sr-only">{t('sessions.project')}{' '}</span>{heading}
                   </li>
                 )
@@ -836,7 +842,7 @@ export function SessionListPanel({
                         title={t('sessions.rename.title')}
                         onMouseDown={e => e.preventDefault()}
                         onClick={() => startRename(session.id)}
-                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        className={`min-h-6 min-w-6 rounded text-2xs leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                         style={{ color: COLORS.textMuted }}
                       >
                         <span aria-hidden="true">✎</span>
@@ -848,7 +854,7 @@ export function SessionListPanel({
                         aria-label={t('sessions.export', { label: session.label })}
                         title={t('sessions.export.title')}
                         onClick={() => onExportSession(session.id)}
-                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        className={`min-h-6 min-w-6 rounded text-2xs leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                         style={{ color: COLORS.textMuted }}
                       >
                         <span aria-hidden="true">⤓</span>
@@ -859,7 +865,7 @@ export function SessionListPanel({
                       aria-label={t('sessions.hide', { label: session.label })}
                       title={t('sessions.hide', { label: session.label })}
                       onClick={() => onCloseSession(session.id)}
-                      className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                      className={`min-h-6 min-w-6 rounded text-2xs leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                       style={{ color: COLORS.tabClose }}
                     >
                       <span aria-hidden="true">✕</span>

@@ -41,6 +41,10 @@ export const fr = {
   'truncation.indicator.show': 'Afficher la notice',
   // Mark on the Sessions button of the top bar while a loss is known and the notice is closed (#569 review), read after the button label
   'truncation.topbarMark': 'graphe incomplet, pertes listées dans le panneau Sessions',
+  // Events the page freed from its own memory (client buffer cap) before handing them to the view shown (#613)
+  'truncation.memory.one': '{n} événement plus ancien retiré de la mémoire de la page',
+  'truncation.memory.other': '{n} événements plus anciens retirés de la mémoire de la page',
+  'truncation.reason.memoryDropped': 'Événements plus anciens retirés de la mémoire de la page (plafond de son tampon)',
 } as const
 
 export const en: Record<keyof typeof fr, string> = {
@@ -83,4 +87,8 @@ export const en: Record<keyof typeof fr, string> = {
   'truncation.indicator.show': 'Show notice',
   // Mark on the Sessions button of the top bar while a loss is known and the notice is closed (#569 review), read after the button label
   'truncation.topbarMark': 'graph incomplete, losses listed in the Sessions panel',
+  // Events the page freed from its own memory (client buffer cap) before handing them to the view shown (#613)
+  'truncation.memory.one': "{n} older event freed from the page's memory",
+  'truncation.memory.other': "{n} older events freed from the page's memory",
+  'truncation.reason.memoryDropped': "Older events freed from the page's memory (its buffer cap)",
 }

@@ -94,7 +94,7 @@ function ClampedText({ text, max }: { text: string; max: number }) {
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(v => !v)}
-          className={`ml-1.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING_INSET}`}
+          className={`ml-1.5 min-h-6 px-1 rounded text-2xs underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? tt('tool.showLess') : tt('tool.showAll')}
@@ -112,7 +112,7 @@ function ShowAllToggle({ visible, showAll, onToggle }: { visible: boolean; showA
       type="button"
       aria-expanded={showAll}
       onClick={onToggle}
-      className={`mt-0.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING_INSET}`}
+      className={`mt-0.5 min-h-6 px-1 rounded text-2xs underline ${FOCUS_RING_INSET}`}
       style={{ color: COLORS.textMuted }}
     >
       {showAll ? t('tool.showLess') : t('tool.showAll')}
@@ -127,7 +127,7 @@ function FilePath({ path: filePath }: { path: string }) {
   const short = truncatePath(filePath)
   if (!openFile) {
     return (
-      <div {...DATA_EN} className="text-[11px] mb-1 truncate" style={{ color: COLORS.filePathInactive }} title={filePath}>
+      <div {...DATA_EN} className="text-2xs mb-1 truncate" style={{ color: COLORS.filePathInactive }} title={filePath}>
         {short}
       </div>
     )
@@ -138,7 +138,7 @@ function FilePath({ path: filePath }: { path: string }) {
       onClick={() => openFile(filePath)}
       title={filePath}
       aria-label={t('tool.open', { path: filePath })}
-      className={`block max-w-full min-h-6 mb-1 text-left text-[11px] truncate rounded hover:underline ${FOCUS_RING_INSET}`}
+      className={`block max-w-full min-h-6 mb-1 text-left text-2xs truncate rounded hover:underline ${FOCUS_RING_INSET}`}
       style={{ color: COLORS.filePathActive }}
     >
       <span {...DATA_EN}>{short}</span>
@@ -156,7 +156,7 @@ function EditSummary({ stats, pairs, outcome }: { stats: EditStats; pairs?: read
   const sentence = pairs ? editSentenceText(locale, stats, pairs, outcome) : null
   if (pairs && sentence == null) return null
   return (
-    <div role="group" aria-label={t('tool.edit.summary')} className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
+    <div role="group" aria-label={t('tool.edit.summary')} className="mb-1 flex flex-wrap items-center gap-x-2 text-2xs font-mono">
       {sentence != null ? (
         <span style={{ color: COLORS.contentDim }}>{sentence}</span>
       ) : (
@@ -234,7 +234,7 @@ function PatchContent({ data, compact }: { data: Record<string, unknown>; compac
   return (
     <div>
       {files.length > 0 && (
-        <ul aria-label={t('tool.patch.files')} className="mb-1 list-none p-0 m-0 text-[11px] font-mono">
+        <ul aria-label={t('tool.patch.files')} className="mb-1 list-none p-0 m-0 text-2xs font-mono">
           {files.map(f => (
             <li key={`${f.op} ${f.path}`} title={f.path} className="truncate" style={{ color: COLORS.filePathInactive }}>
               <span {...DATA_EN} style={{ color: COLORS.contentDim }}>{f.op}</span>{' '}<span {...DATA_EN}>{f.path}</span>
@@ -243,7 +243,7 @@ function PatchContent({ data, compact }: { data: Record<string, unknown>; compac
         </ul>
       )}
       {stats && <EditSummary stats={{ added: stats.added, removed: stats.removed, blocks: null }} />}
-      {cut && <div className="mb-1 text-[11px]" style={{ color: COLORS.contentDim }}>{t('tool.patch.cut', { n: PATCH_CAPTURE_LIMIT })}</div>}
+      {cut && <div className="mb-1 text-2xs" style={{ color: COLORS.contentDim }}>{t('tool.patch.cut', { n: PATCH_CAPTURE_LIMIT })}</div>}
       <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
         {body.lines.map((line, i) => {
           const added = line.startsWith('+')
@@ -282,7 +282,7 @@ function MultiEditContent({ data, compact, outcome }: { data: Record<string, unk
       {stats && <EditSummary stats={stats} pairs={edits.map(e => ({ old: e.old_string, next: e.new_string }))} outcome={outcome} />}
       {edits.map((e, i) => (
         <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
-          <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>{t('tool.block', { i: i + 1, n: edits.length })}</div>
+          <div className="mb-0.5 text-2xs" style={{ color: COLORS.contentDim }}>{t('tool.block', { i: i + 1, n: edits.length })}</div>
           <DiffBlock oldText={e.old_string} newText={e.new_string} maxLines={showAll ? Infinity : base} asked={outcome !== undefined} />
         </div>
       ))}
@@ -310,7 +310,7 @@ function TodoContent({ data }: { data: Record<string, unknown> }) {
   return (
     <>
     {progress && (
-      <div role="group" aria-label={t('tool.todo.progress')} className="mb-1 flex flex-wrap gap-x-2 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
+      <div role="group" aria-label={t('tool.todo.progress')} className="mb-1 flex flex-wrap gap-x-2 text-2xs font-mono" style={{ color: COLORS.contentDim }}>
         <span>{pluralText(locale, 'tool.todo.done', progress.total, { done: progress.done, total: progress.total })}</span>
         {progress.active > 0 && <span>{t('tool.todo.active', { n: progress.active })}</span>}
       </div>
@@ -349,7 +349,7 @@ function Pills({ label, items }: { label: string; items: Array<{ key: string; ic
       {items.map(it => (
         <li
           key={it.key}
-          className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono"
+          className="inline-flex items-center gap-1 rounded px-1.5 py-px text-2xs font-mono"
           style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }}
         >
           {it.icon}
@@ -366,7 +366,7 @@ function Pills({ label, items }: { label: string; items: Array<{ key: string; ic
  */
 export function ResultPillView({ pill, locale = 'en' }: { pill: ResultPill | null | undefined; locale?: Locale }) {
   if (!pill) return null
-  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono'
+  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-px text-2xs font-mono'
   const chipStyle = { background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }
   return (
     <ul aria-label={tr(locale, 'tool.result.summary')} className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
@@ -415,7 +415,7 @@ function TaskContent({ data }: { data: Record<string, unknown> }) {
   if (!type && !description) return null
   return (
     <div {...DATA_EN} className="text-xs font-mono break-words">
-      {type && <span className="mr-1.5 rounded px-1.5 py-px text-[11px]" style={{ background: COLORS.codeBlockBg, color: COLORS.tool_calling }}>{type}</span>}
+      {type && <span className="mr-1.5 rounded px-1.5 py-px text-2xs" style={{ background: COLORS.codeBlockBg, color: COLORS.tool_calling }}>{type}</span>}
       {description && <span style={{ color: COLORS.assistantText }}>{description}</span>}
     </div>
   )
@@ -428,7 +428,7 @@ function NotebookContent({ data }: { data: Record<string, unknown> }) {
     <div>
       <FilePath path={path} />
       {(cell || mode) && (
-        <div {...DATA_EN} className="text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
+        <div {...DATA_EN} className="text-2xs font-mono" style={{ color: COLORS.contentDim }}>
           {[cell, mode].filter(Boolean).join(', ')}
         </div>
       )}
@@ -447,7 +447,7 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
   return (
     <div>
       {description && (
-        <div {...DATA_EN} className="text-[11px] mb-1" style={{ color: COLORS.contentDim }}>{description}</div>
+        <div {...DATA_EN} className="text-2xs mb-1" style={{ color: COLORS.contentDim }}>{description}</div>
       )}
       <div className="rounded px-1.5 py-1 text-xs font-mono break-words" style={{ background: COLORS.codeBlockBg, color: COLORS.tool_calling }}>
         <span aria-hidden="true" className="mr-1" style={{ color: COLORS.contentDim }}>$</span>
@@ -475,7 +475,7 @@ function WriteContent({ data, compact }: { data: Record<string, unknown>; compac
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <div className="mb-1 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>{toolLinesText(locale, stats.lines)}</div>}
+      {stats && <div className="mb-1 text-2xs font-mono" style={{ color: COLORS.contentDim }}>{toolLinesText(locale, stats.lines)}</div>}
       <div className="rounded px-1.5 py-1 text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim }}>
         {t.lines.map((line, i) => (
           <div key={i} className={showAll ? 'whitespace-pre-wrap break-words' : 'truncate'} title={!showAll && line.length > 60 ? line : undefined}><span {...DATA_EN}>{line || ' '}</span></div>
@@ -498,7 +498,7 @@ function ReadContent({ data }: { data: Record<string, unknown> }) {
     <div>
       <FilePath path={filePath} />
       {range && (
-        <div className="text-[11px]" style={{ color: COLORS.contentDim }}>
+        <div className="text-2xs" style={{ color: COLORS.contentDim }}>
           {range.to == null ? t('tool.read.from', { from: range.from }) : t('tool.read.range', { from: range.from, to: range.to })}
         </div>
       )}
@@ -555,13 +555,13 @@ function WebFetchContent({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div>
-      {host && <div {...DATA_EN} className="mb-1 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>{host}</div>}
+      {host && <div {...DATA_EN} className="mb-1 text-2xs font-mono" style={{ color: COLORS.contentDim }}>{host}</div>}
       <div className="rounded px-1.5 py-1 text-xs font-mono break-all" style={{ background: COLORS.codeBlockBg, color: COLORS.filePathActive }}>
         <span aria-hidden="true" className="mr-1"><GlobeIcon /></span><span className="sr-only">{t('tool.fetch')} </span>
         <ClampedText text={url} max={80} />
       </div>
       {prompt && (
-        <div className="mt-1 text-[11px] break-words" style={{ color: COLORS.contentDim }}>
+        <div className="mt-1 text-2xs break-words" style={{ color: COLORS.contentDim }}>
           <ClampedText text={prompt} max={120} />
         </div>
       )}

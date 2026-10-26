@@ -15,6 +15,7 @@ import { deriveFileConflicts, conflictPath, conflictPathSet } from '@/lib/file-c
 import type { Agent } from '@/lib/agent-types'
 import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
 import { WasteSection } from './waste-section'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 interface FileAttentionPanelProps {
   visible: boolean
@@ -51,7 +52,7 @@ function FileTimelineDetails({ path, timeline, label, incomplete, locale }: {
 }) {
   const L = fileTimelineText(locale)
   return (
-    <details className="mt-1 text-[11px] font-mono">
+    <details className="mt-1 text-2xs font-mono">
       <summary className={`cursor-pointer min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`} style={{ color: COLORS.textMuted }}>
         {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{' '}{L.summaryOfParts()[0]}<span {...DATA_EN}>{path}</span>{L.summaryOfParts()[1]}</span>
       </summary>
@@ -102,7 +103,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       <DockResizer label={t('files.resize')} valueText={px => t('sessions.resize.value', { px })} controls={dockPanelDomId('files')} />
       <div lang={locale} className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h }}>
         <PanelHeader onClose={onClose} closeLabel={t('common.close')}>
-          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
+          <span lang={locale} className="text-2xs font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
             {translate(locale, 'panel.heading.files')}
           </span>
         </PanelHeader>
@@ -116,25 +117,25 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
         >
           <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} replayLost={replayLost} defaultOpen={files.length === 0} />
           {files.length === 0 && (
-            <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
+            <div className="text-2xs font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
               {replayLost > 0 ? t('files.emptyIncomplete') : t('files.empty')}
             </div>
           )}
           {conflicts.length === 0 && replayLost > 0 && (
-            <p data-testid="file-conflicts-incomplete" className="m-0 mb-2 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+            <p data-testid="file-conflicts-incomplete" className="m-0 mb-2 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
               {t('files.conflicts.lostLine', { heading: conflictHeadingText(locale, 0, replayLost) ?? '', sentence: lostSentence(locale, replayLost) })}
             </p>
           )}
           {conflicts.length > 0 && (
             <div className="mb-2">
-              <h3 id="file-conflicts-heading" className="text-[11px] font-mono font-semibold mb-1" style={{ color: COLORS.error }}>
+              <h3 id="file-conflicts-heading" className="text-2xs font-mono font-semibold mb-1" style={{ color: COLORS.error }}>
                 {t('files.conflicts.heading', { heading: conflictHeadingText(locale, conflicts.length, replayLost) ?? '' })}
               </h3>
               <ul aria-label={t('files.conflicts.list')} className="space-y-1 list-none p-0 m-0">
                 {conflicts.map(c => {
                   const who = conflictEditorsText(locale, c, label)
                   return (
-                    <li key={c.path} className="rounded px-2 py-1.5 text-[11px] font-mono" style={{ background: COLORS.fileCardBg, border: `1px solid ${COLORS.error}40` }}>
+                    <li key={c.path} className="rounded px-2 py-1.5 text-2xs font-mono" style={{ background: COLORS.fileCardBg, border: `1px solid ${withHexAlpha(COLORS.error, '40')}` }}>
                       {onOpenFile ? (
                         <button
                           type="button"
@@ -174,10 +175,10 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             const conflicted = inConflict.has(conflictPath(file.path) ?? '')
             const headerInner = (
               <>
-                <span {...DATA_EN} className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: heatColor }}>
+                <span {...DATA_EN} className="text-2xs font-mono truncate min-w-0 flex-1 text-left" style={{ color: heatColor }}>
                   {displayPath}
                 </span>
-                <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
+                <span className="text-2xs font-mono shrink-0" style={{ color: COLORS.textMuted }}>
                   {tokenSpoken === null ? '—' : hasTokens ? (
                     <>
                       <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens, locale)}`}</span>
@@ -196,7 +197,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 className="rounded px-2 py-1.5 motion-safe:transition-colors"
                 style={{
                   background: COLORS.fileCardBg,
-                  border: `1px solid ${canOpen ? heatColor + '30' : heatColor + '15'}`,
+                  border: `1px solid ${canOpen ? withHexAlpha(heatColor, '30') : withHexAlpha(heatColor, '15')}`,
                 }}
               >
                 {/* Filename */}
@@ -223,20 +224,20 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 {/* Stats row */}
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
                   {file.reads > 0 && (
-                    <span className="text-[11px] font-mono" style={{ color: COLORS.filePathActive }}>
+                    <span className="text-2xs font-mono" style={{ color: COLORS.filePathActive }}>
                       {pluralText(locale, 'files.reads', file.reads)}{succeededNoteText(locale, file.reads, file.readers)}
                     </span>
                   )}
                   {file.edits > 0 && (
-                    <span className="text-[11px] font-mono" style={{ color: COLORS.tool }}>
+                    <span className="text-2xs font-mono" style={{ color: COLORS.tool }}>
                       {pluralText(locale, 'files.edits', file.edits)}{succeededNoteText(locale, file.edits, file.editors)}
                     </span>
                   )}
                   {conflicted && (
-                    <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.error }}>{t('files.conflict')}</span>
+                    <span className="text-2xs font-mono font-semibold" style={{ color: COLORS.error }}>{t('files.conflict')}</span>
                   )}
                   {file.agents.length > 0 && (
-                    <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}
+                    <span className="text-2xs font-mono" style={{ color: COLORS.textMuted }}
                       title={file.agents.join(', ')}
                     >
                       {pluralText(locale, 'count.agent', file.agents.length)}
@@ -254,7 +255,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
 
         {/* Summary */}
         {files.length > 0 && (
-          <div className="mt-2 pt-2 flex justify-between text-[11px] font-mono" style={{
+          <div className="mt-2 pt-2 flex justify-between text-2xs font-mono" style={{
             borderTop: `1px solid ${COLORS.holoBorder08}`,
             color: COLORS.textMuted,
           }}>

@@ -161,9 +161,11 @@ test('unread: a pill "n unread" beside the button opens the list on the unread a
   more.set('b3', [...base.get('b3')!, msg('b3-2', 'assistant', 50, 'late news')])
   r.retree({ selectedAgentId: 'b1', conversations: more })
   // The pill counts agents, not messages: it says so (b3 got one message, but « 1 unread » read as one unread message)
-  const pill = r.getByRole('button', { name: '1 agent with unread messages' })
+  // The visible text is the accessible name (WCAG 2.4.6): a visually hidden suffix keeps the meaning "with messages"
+  const pill = r.getByRole('button', { name: '1 agent unread with messages' })
   assert.equal(pill.getAttribute('aria-label'), null)
-  assert.equal(pill.textContent, '1 agent with unread messages')
+  assert.equal(pill.querySelector('.sr-only')?.textContent, 'with messages')
+  assert.equal(pill.textContent, '1 agent unread with messages')
   fireEvent.click(pill)
   const only = r.getByRole('button', { name: 'Unread only' })
   assert.equal(only.getAttribute('aria-pressed'), 'true')
@@ -240,14 +242,14 @@ test('below the threshold the tabs stay, wrap instead of scrolling sideways, and
   assert.ok(r.getAllByRole('tab').every(t => t.className.includes('max-md:min-h-11')), '44 px targets under 768 px')
 })
 
-test('French: the pill says « agents avec des messages non lus », the option keeps its total apart from « non lus »', () => {
+test('French: the pill says « agents non lus », the option keeps its total apart from « non lus »', () => {
   setLocaleChoice('fr')
   const r = panel({ selectedAgentId: 'b1' })
   const more = new Map(base)
   more.set('b3', [...base.get('b3')!, msg('b3-2', 'assistant', 50, 'late news')])
   more.set('b4', [...base.get('b4')!, msg('b4-2', 'assistant', 51, 'later news')])
   r.retree({ selectedAgentId: 'b1', conversations: more })
-  const pill = r.getByRole('button', { name: '2 agents avec des messages non lus' })
+  const pill = r.getByRole('button', { name: '2 agents non lus avec des messages' })
   fireEvent.click(pill)
   const option = r.getByRole('option', { name: /^builder-03 / })
   assert.match(option.textContent ?? '', /^builder-03 \(.+\) 2 messages, dont des non lus$/)
@@ -308,4 +310,21 @@ test('the switch never takes focus from elsewhere: focus outside the agent row s
   act(() => { outside.focus() })
   act(() => { r.retree({ conversations: new Map([...base].slice(0, 5)) }) })
   assertFocused(outside, 'focus outside the agent row stays there')
+})
+
+test('live: when the agent of the active option finishes, its option moves to Finished and is brought into view again (#613)', () => {
+  const r = panel()
+  const input = openPicker(r)
+  fireEvent.click(r.getByRole('button', { name: /^Finished/ }))
+  for (let i = 0; i < 4; i++) fireEvent.keyDown(input, { key: 'ArrowDown' })
+  const before = activeOption(input)!
+  assert.match(before.textContent ?? '', /builder-03/, 'precondition: the active option is builder-03')
+  scrolled.length = 0
+  const finished = new Map(agents)
+  finished.set('b3', agent('b3', 'builder-03', { teamName: 'mega', teamKind: 'workflow', kind: 'teammate', activity: 'done' }))
+  act(() => { r.retree({ agents: finished }) })
+  const after = activeOption(input)!
+  assert.match(after.textContent ?? '', /builder-03/, 'the active option is still the same agent')
+  assert.match(after.textContent ?? '', /done/i)
+  assert.ok(scrolled.includes(after), 'the option, now in another group, is scrolled into view again')
 })

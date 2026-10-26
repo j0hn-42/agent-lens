@@ -7,6 +7,7 @@ import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import { waitAttached } from './relay-test-helpers'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -393,10 +394,14 @@ describe('end to end against a real relay', () => {
     await new Promise<void>((resolve, reject) => {
       const req = http.get({ host: '127.0.0.1', port: base.port, path: '/events', agent: false }, res => {
         res.resume()
-        setTimeout(() => { req.destroy(); resolve() }, 600)
+        req.destroy()
+        resolve()
       })
       req.on('error', reject)
     })
+    // The transcript is attached over several ticks (#651) and listed once its attach ended: the tests start then,
+    // not after a fixed time (#440)
+    assert.ok(await waitAttached(relay, 1), 'precondition: the transcript is attached')
   })
   after(async () => {
     relay?.dispose?.()

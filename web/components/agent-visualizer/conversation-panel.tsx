@@ -6,7 +6,9 @@
 // It replaces the former message feed, session transcript and per-agent chat. The per-agent chat is a preset
 // of this panel: selecting an agent opens it with that agent's tab selected.
 
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId } from 'react'
+import { chromeRenderProbe } from '@/lib/row-sync'
+import { useThemeVersion } from '@/lib/theme'
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useId, memo } from 'react'
 import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
@@ -42,6 +44,7 @@ import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-messa
 import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from './top-bar'
 import { truncateName } from '@/lib/truncate-name'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 export interface ConversationPanelProps {
   /** Whether the open panel (true) or the collapsed pill (false) is shown */
@@ -71,10 +74,12 @@ const PILL_MAX_WIDTH = 320
 
 // ─── Main component ─────────────────────────────────────────────────────────
 
-export function ConversationPanel({
+export const ConversationPanel = memo(function ConversationPanel({
   open, onOpen, onClose,
   conversations, agents, selectedAgentId, onAgentClick, links, droppedMessages, teams,
 }: ConversationPanelProps) {
+  chromeRenderProbe.onRender?.('ConversationPanel')
+  useThemeVersion() // memoized: repaint the COLORS-based inline styles on a theme switch
   const [activeTab, setActiveTab] = useState<string>(() => tabForSelection(selectedAgentId))
   const [unread, setUnread] = useState<Set<string>>(new Set())
   const [showTools, setShowTools] = useState(true)
@@ -139,11 +144,37 @@ export function ConversationPanel({
     : activeTab === 'all' ? [...(droppedMessages?.values() ?? [])].reduce((a, b) => a + b, 0) : (droppedMessages?.get(activeTab) ?? 0)
   const multiSession = hasMultipleSessions(agents)
 
+  // Results shown in full ("Show all"), by message id: the windowing unmounts a row that scrolls out of view, and the
+  // state of the row would go with it (#613)
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpandedRow = useCallback((id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
+
+  // Opened rows of messages that left the history (MAX_CONVERSATION_MESSAGES) are forgotten. A message hidden by a filter
+  // or by the tools toggle is still in the history, so it keeps its state. Closed: nothing is built, nothing to compare.
+  useEffect(() => {
+    if (!open) return
+    setExpandedRows(prev => {
+      if (prev.size === 0) return prev
+      const live = new Set<string>()
+      for (const list of conversations.values()) for (const m of list) live.add(m.id)
+      for (const m of allMessages) live.add(m.id)
+      let next: Set<string> | null = null
+      for (const id of prev) if (!live.has(id)) (next ??= new Set(prev)).delete(id)
+      return next ?? prev
+    })
+  }, [open, conversations, allMessages])
+
   // Virtual list with auto-scroll
   const {
     visibleItems, handleScroll, measureRef,
     isAtBottom, scrollToBottom, startIndex, listStyle, windowStyle, newCount,
-  } = useVirtualList(messages, logRef, { gap: MESSAGE_GAP, autoScroll: true })
+  } = useVirtualList(messages, logRef, { gap: MESSAGE_GAP, autoScroll: true, pruneAgainst: allMessages })
 
   // Track unread messages per agent tab: only agents whose message count increased
   useEffect(() => {
@@ -313,7 +344,7 @@ export function ConversationPanel({
           // message of the conversation (data, "en") and an aria-label cannot declare a language (WCAG 3.1.2). The visible
           // role, agent and preview are all in this name (WCAG 2.5.3); the button content is not read a second time.
           aria-labelledby={`${pillLeadId} ${pillPreviewId}`}
-          title={agentName}
+          title={agentName.length > COLLAPSED_AGENT_NAME_MAX ? agentName : undefined}
           onClick={onOpen}
           className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING_INSET}`}
           style={{ maxWidth: PILL_MAX_WIDTH }}
@@ -322,11 +353,11 @@ export function ConversationPanel({
           <span id={pillPreviewId} hidden {...DATA_EN}>{preview}</span>
           <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: role.text }} />
           {/* Role as text too: colour alone must not carry it (WCAG 1.4.1) */}
-          <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
-          <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
+          <span className="text-2xs font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
+          <span className="text-2xs font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
             {truncateName(agentName, COLLAPSED_AGENT_NAME_MAX)}
           </span>
-          <span {...DATA_EN} className="text-[11px] font-mono truncate" style={{ color: role.text }}>
+          <span {...DATA_EN} className="text-2xs font-mono truncate" style={{ color: role.text }}>
             {preview}{latestMessage.content.length > PREVIEW_MAX ? '...' : ''}
           </span>
           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }}><ChevronIcon direction="down" /></span>
@@ -343,7 +374,7 @@ export function ConversationPanel({
 
   const droppedLocal = droppedText(locale, droppedCount)
   const droppedNote = droppedLocal ? (
-    <p className="text-[11px] font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedLocal}</p>
+    <p className="text-2xs font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedLocal}</p>
   ) : null
   const messageList = (
     <>
@@ -361,7 +392,7 @@ export function ConversationPanel({
     >
       {messages.length === 0 ? (
         <div className="flex items-center justify-center py-6">
-          <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+          <span className="text-2xs font-mono" style={{ color: COLORS.textMuted }}>
             {searching ? t('conv.emptySearch') : pairActive ? pairEmptyTextT(locale, pair, nameOfAgent) : t('conv.empty')}
           </span>
         </div>
@@ -378,7 +409,7 @@ export function ConversationPanel({
                 style={{ marginBottom: MESSAGE_GAP }}
               >
                 {TOOL_MESSAGE_TYPES.has(msg.type) ? (
-                  <TranscriptMessage message={msg} searchQuery={searchQuery} />
+                  <TranscriptMessage message={msg} searchQuery={searchQuery} expanded={expandedRows.has(msg.id)} onToggleExpanded={toggleExpandedRow} />
                 ) : (
                   <MessageRow
                     message={msg}
@@ -398,6 +429,8 @@ export function ConversationPanel({
                     runtime={agents.get(msg.agentId)?.runtime}
                     onFilterPair={(() => { const rp = pairOfMessage(msg); return rp ? () => selectPair(rp[0], rp[1]) : undefined })()}
                     contentId={`${baseId}-msg-${msg.id}`}
+                    expanded={expandedRows.has(msg.id)}
+                    onToggleExpanded={toggleExpandedRow}
                     onCopy={msg.type === 'dispatch' || msg.type === 'return' ? () => { void copyMessage(msg) } : undefined}
                   />
                 )}
@@ -447,7 +480,7 @@ export function ConversationPanel({
       aria-expanded={pickerOpen}
       title={t('conv.pair.title')}
       onClick={() => setPickerOpen(v => !v)}
-      className={`shrink-0 min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+      className={`shrink-0 min-h-6 ${TOUCH_TARGET} px-2 rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
       style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
     >
       {t('conv.pair.button')}
@@ -474,14 +507,14 @@ export function ConversationPanel({
         {/* Header */}
         <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0 max-md:flex-wrap" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <h2 id={titleId} className="m-0 text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
+            <h2 id={titleId} className="m-0 text-2xs font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
               {panelName(locale, 'conversation')}
             </h2>
-            <span className="text-[11px] font-mono whitespace-nowrap shrink-0" style={{ color: COLORS.panelLabelDim }}>
+            <span className="text-2xs font-mono whitespace-nowrap shrink-0" style={{ color: COLORS.panelLabelDim }}>
               {searching ? messageCountText(locale, totalCount, messages.length) : messageCountText(locale, totalCount)}
             </span>
             {presetAgent && presetColor && (
-              <span className="text-[11px] font-mono inline-flex items-center gap-1 min-w-0" style={{ color: presetColor }}>
+              <span className="text-2xs font-mono inline-flex items-center gap-1 min-w-0" style={{ color: presetColor }}>
                 <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: presetColor, boxShadow: `0 0 6px ${presetColor}` }} />
                 <span className="truncate" title={presetAgent.name}>{presetAgent.name}</span>
                 <span>{stateText(locale, presetAgent.state)}</span>
@@ -495,7 +528,7 @@ export function ConversationPanel({
               aria-pressed={showTools}
               title={t('conv.toolCalls.title')}
               onClick={() => setShowTools(v => !v)}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showTools ? COLORS.toggleActive : 'transparent',
                 color: showTools ? COLORS.assistantText : COLORS.textMuted,
@@ -509,7 +542,7 @@ export function ConversationPanel({
               disabled={messages.length === 0}
               onClick={exportConversation}
               title={t('conv.export.title')}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
               {t('conv.export')}
@@ -522,7 +555,7 @@ export function ConversationPanel({
               aria-expanded={showSearch}
               aria-controls={searchId}
               title={t('conv.search')}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showSearch ? COLORS.toggleActive : 'transparent',
                 color: showSearch ? COLORS.assistantText : COLORS.textMuted,
@@ -589,10 +622,9 @@ export function ConversationPanel({
               // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
               tabIndex={-1}
               onKeyDown={onTabKeyDown}
-              // Takes the row (Filter pair wraps below it when the panel is narrow); up to 128 px high (four rows), 192 px under 768 px
-              // (44 px tabs), then a vertical scroll
-              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] max-h-32 max-md:max-h-48 overflow-y-auto outline-none"
-              style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
+              // Takes the row (Filter pair wraps below it when the panel is narrow). No height cap and no scroll: there are at most
+              // four agents here (the picker takes over from five), so every tab is shown; a cap hid one without any signal (#613)
+              className="flex flex-wrap gap-1 min-w-0 flex-[1_1_12rem] outline-none"
             >
               {tabKeys.map((key, i) => {
                 const agent = key === 'all' ? undefined : agents.get(key)
@@ -633,7 +665,7 @@ export function ConversationPanel({
                 type="button"
                 aria-expanded={pickerOpen}
                 onClick={() => setPickerOpen(v => !v)}
-                className={`min-h-6 ${TOUCH_TARGET} px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                className={`min-h-6 ${TOUCH_TARGET} px-2 rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
                 style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
               >
                 {t('conv.pair.button')}
@@ -649,7 +681,7 @@ export function ConversationPanel({
                     value={value}
                     onChange={e => set(e.target.value)}
                     // No fixed width: a long agent name is no longer cut at 120 px; the panel width is the limit
-                    className={`min-h-6 ${TOUCH_TARGET} max-w-full min-w-0 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                    className={`min-h-6 ${TOUCH_TARGET} max-w-full min-w-0 rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
                     style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
                   >
                     <option value="">{label}</option>
@@ -667,12 +699,12 @@ export function ConversationPanel({
           <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? t('conv.teamsAndWorkflows') : t('conv.teams')} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING_INSET}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
             {teamGroups.map(g => (
               <div key={g.key} role="group" aria-label={teamChipTexts(locale, g).label}>
-                <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
+                <h3 className="text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
                   {teamChipTexts(locale, g).heading}
                 </h3>
                 <ul className="flex flex-wrap gap-x-2 gap-y-0.5 pb-1">
                   {g.items.map(a => (
-                    <li key={a.id} className="text-[11px] font-mono flex items-center gap-1" style={{ color: COLORS.textMuted }}>
+                    <li key={a.id} className="text-2xs font-mono flex items-center gap-1" style={{ color: COLORS.textMuted }}>
                       <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full" style={{ background: teamColorOf(a, teams) ?? COLORS.textMuted }} />
                       {a.name}
                       <span className="sr-only">, {hierarchyTermText(locale, a)}</span>
@@ -701,7 +733,7 @@ export function ConversationPanel({
         {/* Intentional: the log is not live (it would read every message). While pinned to the bottom the
             list is already in view; when scrolled up this polite status line announces only the unseen count. */}
         <div role="status" className="sr-only">{!isAtBottom && newCount > 0 ? newMessagesLabel : ''}</div>
-        <p role="status" data-testid="copy-feedback" className={`m-0 px-3 text-[11px] font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
+        <p role="status" data-testid="copy-feedback" className={`m-0 px-3 text-2xs font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {!isAtBottom && messages.length > 0 && (
           <div className="flex justify-center py-1 flex-shrink-0" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
@@ -709,7 +741,7 @@ export function ConversationPanel({
               type="button"
               aria-controls={listId}
               onClick={scrollToBottom}
-              className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING_INSET}`}
+              className={`text-2xs font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.scrollBtnText }}
             >
               <ArrowDownIcon size={11} className="mr-1 align-[-1px]" />
@@ -720,7 +752,7 @@ export function ConversationPanel({
       </div>
     </SlidingPanel>
   )
-}
+})
 
 /** Role label of a conversation message: the assistant is named after the runtime of the agent that spoke. */
 function roleLabelOf(type: string, runtime?: Agent['runtime']): string {
@@ -773,7 +805,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       onClick={onClick}
       className={`px-2 min-h-7 ${TOUCH_TARGET} max-w-full rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
       style={{
-        background: active ? color + '26' : COLORS.holoBg05,
+        background: active ? withHexAlpha(color, '26') : COLORS.holoBg05,
         color: active ? color : COLORS.textMuted,
         ...tabBorderStyle({ active, color, accent, done }),
       }}
@@ -789,7 +821,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       {count !== undefined && count > 0 && (
         <span aria-hidden="true" className="text-[10px] tabular-nums px-1 rounded" style={{ background: COLORS.holoBg10, color: COLORS.textMuted }}>{count}</span>
       )}
-      {done && <span aria-hidden="true" className="text-[11px]">{tr(locale, 'conv.tab.done')}</span>}
+      {done && <span aria-hidden="true" className="text-2xs">{tr(locale, 'conv.tab.done')}</span>}
       {hasUnread && (
         <>
           <span className="sr-only"> {tr(locale, 'conv.tab.unread')}</span>
@@ -812,7 +844,7 @@ function sessionChipOf(agent: Agent | undefined): string | undefined {
   return (agent.sessionLabel ?? agent.sessionId).slice(0, 24)
 }
 
-function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, searchQuery, onClick, runtime, contentId, onFilterPair, onCopy }: {
+function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, searchQuery, onClick, runtime, contentId, expanded, onToggleExpanded, onFilterPair, onCopy }: {
   message: ConversationMessage
   agentName: string
   fromName?: string
@@ -825,12 +857,14 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
   onClick: (e: React.MouseEvent) => void
   runtime?: Agent['runtime']
   contentId: string
+  /** "Show all" state, kept by the panel: the windowing unmounts a row that scrolls away (#613) */
+  expanded: boolean
+  onToggleExpanded: (id: string) => void
   /** Communication rows: filter the panel on the two agents of this row (keyboard path for Shift-click) */
   onFilterPair?: () => void
   /** DISPATCH / RETURN rows: copy the full prompt or report */
   onCopy?: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
   const { locale } = useLocale()
   const commKind = commKindOf(message)
   const role = commKind ? COMM_STYLE[commKind] : (ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant)
@@ -865,30 +899,30 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
         <span className="flex items-center gap-1.5 mb-0.5 flex-wrap">
           {direction ? (
             <>
-              <span className="text-[11px] font-mono font-semibold break-all" style={{ color: role.text }}>
+              <span className="text-2xs font-mono font-semibold break-all" style={{ color: role.text }}>
                 {from}<span aria-hidden="true"> {'→'} </span><span className="sr-only"> {tr(locale, 'conv.row.to')} </span>{to}
               </span>
-              <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
+              <span className="text-2xs font-mono font-semibold" style={{ color: role.text }}>
                 <span aria-hidden="true">- </span><span className="sr-only">, </span>{roleLabel}
               </span>
             </>
           ) : (
-            <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
+            <span className="text-2xs font-mono font-semibold" style={{ color: role.text }}>
               {roleLabel}
             </span>
           )}
           {showAgent && !direction && (
-            <span className="text-[11px] font-mono truncate" title={agentName} style={{ color: COLORS.textMuted }}>
+            <span className="text-2xs font-mono truncate" title={agentName} style={{ color: COLORS.textMuted }}>
               {agentName}
             </span>
           )}
           {sessionChip && (
-            <span className="text-[11px] font-mono truncate max-w-[96px] px-1 rounded" title={tr(locale, 'conv.row.sessionTitle', { id: sessionChip })}
+            <span className="text-2xs font-mono truncate max-w-[96px] px-1 rounded" title={tr(locale, 'conv.row.sessionTitle', { id: sessionChip })}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}>
               {sessionChip}
             </span>
           )}
-          <time dateTime={time.iso} className="text-[11px] font-mono ml-auto shrink-0" style={{ color: COLORS.textMuted }}>
+          <time dateTime={time.iso} className="text-2xs font-mono ml-auto shrink-0" style={{ color: COLORS.textMuted }}>
             {time.label}
           </time>
         </span>
@@ -908,7 +942,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-label={direction ? tr(locale, 'conv.pair.rowAria', { direction }) : tr(locale, 'conv.pair.button')}
           onClick={onFilterPair}
-          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+          className={`text-2xs font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {tr(locale, 'conv.pair.button')}
@@ -920,7 +954,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-label={direction ? tr(locale, 'conv.row.copyAriaDir', { role: roleLabel.toLowerCase(), direction }) : tr(locale, 'conv.row.copyAria', { role: roleLabel.toLowerCase() })}
           onClick={onCopy}
-          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+          className={`text-2xs font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {tr(locale, 'conv.row.copy')}
@@ -933,9 +967,9 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-expanded={expanded}
           aria-controls={contentId}
-          className={`text-[11px] font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+          className={`text-2xs font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
-          onClick={() => setExpanded(prev => !prev)}
+          onClick={() => onToggleExpanded(message.id)}
         >
           <ChevronIcon direction={expanded ? 'up' : 'down'} size={10} className="mr-1" />
           {expanded ? tr(locale, 'conv.showLess') : tr(locale, 'conv.showAll', { n: truncated.hidden })}

@@ -6,6 +6,7 @@ import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import { waitAttached, touchEvents } from './relay-test-helpers'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -55,9 +56,10 @@ describe('relay webhooks', () => {
     server = http.createServer((req, res) => { if (req.url?.startsWith('/events')) return relay.handleSSE(req, res); res.writeHead(404); res.end() })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     const port = (server.address() as { port: number }).port
-    await new Promise<void>(resolve => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => { res.resume(); setTimeout(() => { req.destroy(); resolve() }, 600) })
-    })
+    await touchEvents(port)
+    // The attach reads the history over several ticks (#651): a line appended before it ends is history, never
+    // notified. The tests append live lines, so they start once the transcript is followed, not after a fixed time (#440).
+    assert.ok(await waitAttached(relay, 1), 'precondition: the transcript is attached')
   })
 
   after(() => {

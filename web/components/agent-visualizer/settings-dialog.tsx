@@ -93,8 +93,8 @@ function SwitchRow({ label, help, extraHelp, checked, onChange }: {
       />
       <label htmlFor={id} className="cursor-pointer text-xs font-mono" style={{ color: COLORS.textPrimary }}>
         {label}
-        <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>{help}</span>
-        {extraHelp && <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>{extraHelp}</span>}
+        <span className="block text-2xs" style={{ color: COLORS.textMuted }}>{help}</span>
+        {extraHelp && <span className="block text-2xs" style={{ color: COLORS.textMuted }}>{extraHelp}</span>}
       </label>
     </div>
   )
@@ -114,7 +114,7 @@ function LanguageSelect({ id, choice, onChange, autoLabel, frLabel, enLabel }: {
       id={id}
       value={choice}
       onChange={e => onChange(e.target.value as LocaleChoice)}
-      className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono ${FOCUS_RING}`}
+      className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-2xs font-mono ${FOCUS_RING}`}
       style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: 'inherit' }}
     >
       <option value="auto" style={{ background: COLORS.surface, color: COLORS.ink }}>{autoLabel}</option>
@@ -127,7 +127,7 @@ function LanguageSelect({ id, choice, onChange, autoLabel, frLabel, enLabel }: {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section aria-label={title} className="mb-3">
-      <h3 className="m-0 mb-1 text-[11px] font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
+      <h3 className="m-0 mb-1 text-2xs font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
         {title}
       </h3>
       {children}
@@ -167,13 +167,13 @@ function ResetSection({ onReset, signature, shown }: { onReset: () => void; sign
     focusNext.current = null
   }, [asking])
   const buttonStyle = { background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
-  const buttonClass = `min-h-6 rounded px-2 py-1 text-[11px] font-mono ${FOCUS_RING}`
+  const buttonClass = `min-h-6 rounded px-2 py-1 text-2xs font-mono ${FOCUS_RING}`
   return (
     <Section title={t('settings.section.reset')}>
-      <p id={helpId} className="m-0 mb-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.reset.help')}</p>
+      <p id={helpId} className="m-0 mb-1 text-2xs font-mono" style={{ color: COLORS.textMuted }}>{t('settings.reset.help')}</p>
       {asking ? (
         <div role="group" aria-labelledby={askId} className="flex flex-wrap items-center gap-2">
-          <span id={askId} className="text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>{t('settings.reset.ask')}</span>
+          <span id={askId} className="text-2xs font-mono" style={{ color: COLORS.textPrimary }}>{t('settings.reset.ask')}</span>
           <button
             ref={confirmRef}
             type="button"
@@ -204,7 +204,7 @@ function ResetSection({ onReset, signature, shown }: { onReset: () => void; sign
           {t('settings.reset')}
         </button>
       )}
-      <p role="status" className="m-0 mt-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+      <p role="status" className="m-0 mt-1 text-2xs font-mono" style={{ color: COLORS.textMuted }}>
         {done ? t('settings.reset.done') : ''}
       </p>
     </Section>
@@ -228,7 +228,7 @@ function AnnouncementsSection({ announcements }: { announcements: NonNullable<Se
             const level = ANNOUNCE_LEVELS.find(l => l === e.target.value)
             if (level) announcements.onLevelChange(level)
           }}
-          className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono ${FOCUS_RING}`}
+          className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-2xs font-mono ${FOCUS_RING}`}
           style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: 'inherit' }}
         >
           {ANNOUNCE_LEVELS.map(level => (
@@ -236,7 +236,7 @@ function AnnouncementsSection({ announcements }: { announcements: NonNullable<Se
           ))}
         </select>
       </div>
-      <p id={helpId} className="m-0 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.announce.help')}</p>
+      <p id={helpId} className="m-0 text-2xs font-mono" style={{ color: COLORS.textMuted }}>{t('settings.announce.help')}</p>
     </Section>
   )
 }
@@ -288,12 +288,12 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
         />
       </div>
       {invalid && (
-        <p id={errorId} role="alert" className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.error }}>
+        <p id={errorId} role="alert" className="m-0 pl-8 text-2xs font-mono" style={{ color: COLORS.error }}>
           {t('settings.notify.invalid')}
         </p>
       )}
       {!usable && state !== 'unsupported' && state !== 'denied' && (
-        <p className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.notify.rulesPending')}</p>
+        <p className="m-0 pl-8 text-2xs font-mono" style={{ color: COLORS.textMuted }}>{t('settings.notify.rulesPending')}</p>
       )}
     </Section>
   )
@@ -386,7 +386,7 @@ export function SettingsDialog({
       ref={backdropRef}
       {...stopPropagationHandlers}
       className="fixed inset-0 flex items-start justify-center p-3"
-      style={{ zIndex: Z.contextMenu + 1, background: 'rgba(0, 0, 0, 0.5)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
     >
       <div
         ref={ref}
@@ -421,7 +421,7 @@ export function SettingsDialog({
                   tabIndex={isSelected ? 0 : -1}
                   onClick={() => select(id, false)}
                   onKeyDown={onTabKeyDown}
-                  className={`-mb-px min-h-6 flex-auto rounded-t px-2 py-1 text-center text-[11px] font-mono ${isSelected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+                  className={`-mb-px min-h-6 flex-auto rounded-t px-2 py-1 text-center text-2xs font-mono ${isSelected ? 'font-semibold' : ''} ${FOCUS_RING}`}
                   style={{
                     color: isSelected ? COLORS.textPrimary : COLORS.textMuted,
                     background: isSelected ? COLORS.tabSelectedBg : 'transparent',
@@ -456,12 +456,12 @@ export function SettingsDialog({
           {onOpenViewControls && (
             // #372: a link row on the model of 'View keyboard shortcuts', not a copy of the View controls
             <Section title={t('settings.section.view')}>
-              <p id={viewHelpId} className="m-0 mb-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.view.help')}</p>
+              <p id={viewHelpId} className="m-0 mb-1 text-2xs font-mono" style={{ color: COLORS.textMuted }}>{t('settings.view.help')}</p>
               <button
                 type="button"
                 aria-describedby={viewHelpId}
                 onClick={() => { onClose(); onOpenViewControls() }}
-                className={`min-h-6 rounded px-2 py-1 text-[11px] font-mono underline ${FOCUS_RING}`}
+                className={`min-h-6 rounded px-2 py-1 text-2xs font-mono underline ${FOCUS_RING}`}
                 style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
               >
                 {t('settings.view.open')}
@@ -532,7 +532,7 @@ export function SettingsDialog({
             <button
               type="button"
               onClick={() => { onClose(); onOpenShortcuts() }}
-              className={`mt-1 min-h-6 rounded px-2 py-1 text-[11px] font-mono underline ${FOCUS_RING}`}
+              className={`mt-1 min-h-6 rounded px-2 py-1 text-2xs font-mono underline ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
               {t('settings.shortcuts')}

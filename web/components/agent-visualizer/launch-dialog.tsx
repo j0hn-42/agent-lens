@@ -160,7 +160,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
       {...stopPropagationHandlers}
       {...{ [INSPECTOR_KEEP_ATTR]: '' }}
       className="fixed inset-0 flex items-center justify-center p-3"
-      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
+      style={{ zIndex: Z.dialog, background: 'var(--lens-scrim)' }}
     >
       <div
         ref={ref}
@@ -176,7 +176,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
           <h2 id={titleId} className="m-0 mb-3 text-xs font-mono font-semibold" style={{ color: COLORS.textPrimary }}>
             {t('launch.button', { n: issue })}
           </h2>
-          <dl className="m-0 flex flex-col gap-1 text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>
+          <dl className="m-0 flex flex-col gap-1 text-2xs font-mono" style={{ color: COLORS.textPrimary }}>
             <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.repo')}</dt><dd className="m-0 min-w-0 break-all">{repo}</dd></div>
             <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.issue')}</dt><dd className="m-0">#{issue}</dd></div>
             <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.role')}</dt><dd className="m-0 break-all">agent:{role}</dd></div>
@@ -191,7 +191,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
             </div>
           </dl>
 
-          <div className="mt-3 flex flex-col gap-1 text-[11px] font-mono">
+          <div className="mt-3 flex flex-col gap-1 text-2xs font-mono">
             <label htmlFor={tokenId} style={{ color: COLORS.textPrimary }}>{t('launch.token')}</label>
             <input
               id={tokenId}
@@ -209,7 +209,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
             </p>
           </div>
 
-          <div role="status" aria-live="polite" className="mt-3 text-[11px] font-mono" data-testid="launch-status">
+          <div role="status" aria-live="polite" className="mt-3 text-2xs font-mono" data-testid="launch-status">
             {latest && (
               <p className="m-0" style={{ color: COLORS.textPrimary }}>
                 {t('launch.stateLine', { state: launchStateLabel(latest, locale) })}
@@ -227,7 +227,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
               <div role="group" aria-label={t('launch.stopZone')} className="flex flex-col gap-1">
                 {confirmingStop ? (
                   <>
-                    <p id={helpStopId} className="m-0 text-[11px]" style={{ color: COLORS.textPrimary }}>{t('launch.stopConfirmHelp')}</p>
+                    <p id={helpStopId} className="m-0 text-2xs" style={{ color: COLORS.textPrimary }}>{t('launch.stopConfirmHelp')}</p>
                     <div className="flex flex-wrap gap-2">
                       <button
                         ref={confirmStopRef}

@@ -11,12 +11,17 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { vscodeBridge } from '@/lib/vscode-bridge'
 import { setLocaleChoice } from '@/lib/locale'
 import { DEFAULT_CALM_LAYERS, toggleCalmLayer } from '@/lib/motion-layers'
-import { GUIDED_STEPS } from '@/lib/guided-steps'
+import { guidedSteps, type GuidedStep } from '@/lib/guided-steps'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
 import { MotionLayerControls } from '@/components/agent-visualizer/motion-layer-controls'
 import { GuidedTourCard } from '@/components/agent-visualizer/guided-tour-card'
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { PermissionRequests } from '@/components/agent-visualizer/permission-requests'
+import { loadLocale } from '@/lib/messages'
+
+/** The demo tour in English, written once its table is loaded (#662: no table is loaded at import) */
+let GUIDED_STEPS: readonly GuidedStep[] = []
+before(async () => { await loadLocale('en'); GUIDED_STEPS = guidedSteps('en') })
 
 const GOLDEN = new URL('./fixtures/button-pins.json', import.meta.url)
 const noop = () => {}

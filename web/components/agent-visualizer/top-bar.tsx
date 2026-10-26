@@ -6,6 +6,7 @@ import { COLORS, themed } from "@/lib/colors"
 import type { UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
+import { chromeRenderProbe } from "@/lib/row-sync"
 import { observeTopbarHeight, viewCountsText, topBarContextText, unattributedRestText, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { sessionStatusHelp } from "@/lib/card-text"
@@ -145,7 +146,7 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Bold + the 2 px bar under the button (boxShadow below) are the non-colour cues of the active state (WCAG 1.4.1).
       // Never also a text underline: it drew a second stroke next to the bar, and one per wrapped line on Sessions
-      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-[11px] ${active ? 'font-bold' : ''} ${FOCUS_RING} ${className}`}
+      className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center ${wrap ? 'flex-wrap justify-start text-left gap-y-0.5' : 'justify-center'} text-2xs ${active ? 'font-bold' : ''} ${FOCUS_RING} ${className}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -329,6 +330,7 @@ export const TopBar = memo(function TopBar({
   attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
   quota = null, selectedRuntime, showQuota = true,
 }: TopBarProps) {
+  chromeRenderProbe.onRender?.('TopBar')
   const { locale } = useLocale()
   const t = (key: MessageKey, params?: Readonly<Record<string, string | number>>) => translate(locale, key, params)
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
@@ -598,7 +600,7 @@ export const TopBar = memo(function TopBar({
     <header
       ref={rootRef}
       lang={locale}
-      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-0.5 rounded-md font-mono text-[11px]"
+      className="absolute top-3 left-3 right-3 flex flex-nowrap items-center gap-x-2 max-md:gap-x-0.5 rounded-md font-mono text-2xs"
       style={{ zIndex: openTooltips > 0 || moreOpen ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', color: COLORS.textMuted }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session). Capped at 320 px, it
@@ -672,7 +674,8 @@ export const TopBar = memo(function TopBar({
             color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
           }}
         >
-          <span aria-hidden="true">! </span>{attentionShort ? attention!.waiting + attention!.errors : attentionText}
+          {/* Under 1440 px the words are gone: the shape of the mark, not only the border colour, tells waiting (!) from an error (a cross), WCAG 1.4.1 */}
+          <span aria-hidden="true">{attentionShort ? `${attention!.waiting > 0 ? '!' : ''}${attention!.errors > 0 ? '✕' : ''}` : '!'} </span>{attentionShort ? attention!.waiting + attention!.errors : attentionText}
         </button>
       )}
 
@@ -830,7 +833,9 @@ export const TopBar = memo(function TopBar({
               {!commandsInBar && commandsButton(true)}
               <ToggleButton
                 id="topbar-mute"
-                active={!isMuted}
+                // Never drawn as active: its name flips (Mute / Unmute), so a bar for "sound on" would read "muted" under the name
+                // "Mute" and, without aria-pressed, would be a visible state a screen reader never gets (#613). The icon shows the state
+                active={false}
                 onClick={onToggleMute}
                 ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
                 title={isMuted ? t('topbar.unmute.title') : t('topbar.mute.title')}

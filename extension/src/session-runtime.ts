@@ -10,7 +10,7 @@
  */
 
 import * as vscode from 'vscode'
-import type { AgentEvent, SessionInfo } from './protocol'
+import type { AgentEvent, ExtensionToWebviewMessage, SessionInfo } from './protocol'
 import { VisualizerPanel } from './webview-provider'
 import { panelLoss } from './panel-loss'
 import { SESSION_ID_DISPLAY, STATUS_MESSAGE_DURATION_MS } from './constants'
@@ -61,6 +61,19 @@ export function startedSessionInfo(lifecycle: SessionLifecycleEvent, listed: Ses
     }
     : { startTime: now, lastActivityTime: now, startTimeWatched: true }
   return { id: lifecycle.sessionId, label: lifecycle.label, status: 'active', ...times, ...lifecycleTags(lifecycle) }
+}
+
+/** The session-updated message of a lifecycle event: label, team, and the place (cwd, project, branch) it knows. */
+export function updatedSessionMessage(lifecycle: SessionLifecycleEvent): Extract<ExtensionToWebviewMessage, { type: 'session-updated' }> {
+  const { teamName, memberName, cwd, projectId, projectName, branch } = lifecycleTags(lifecycle)
+  return {
+    type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label,
+    ...(teamName ? { teamName } : {}),
+    ...(memberName ? { memberName } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(projectId && projectName ? { projectId, projectName } : {}),
+    ...(branch ? { branch } : {}),
+  }
 }
 
 /** Interface every runtime's watcher implements. Uses portable typed-event
@@ -168,11 +181,7 @@ export function wireWatcherToPanel(
       const listed = watcher.getActiveSessions().find(s => s.id === lifecycle.sessionId)
       panel.postMessage({ type: 'session-started', session: startedSessionInfo(lifecycle, listed, Date.now()) })
     } else if (lifecycle.type === 'updated') {
-      panel.postMessage({
-        type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label,
-        ...(lifecycle.teamName ? { teamName: lifecycle.teamName } : {}),
-        ...(lifecycle.memberName ? { memberName: lifecycle.memberName } : {}),
-      })
+      panel.postMessage(updatedSessionMessage(lifecycle))
     } else {
       panel.postMessage({ type: 'session-ended', sessionId: lifecycle.sessionId })
     }

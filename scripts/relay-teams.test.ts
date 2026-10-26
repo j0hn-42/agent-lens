@@ -26,11 +26,20 @@ interface Snapshot { events: Ev[]; sessionList: Array<Record<string, unknown>> }
 
 function snapshot(port: number): Promise<Snapshot> {
   return new Promise((resolve, reject) => {
+    // Nothing ever written (join() always writes a relay-cursor, so this would be a relay fault): fail with a message after
+    // 8 s instead of hanging until the node:test timeout. Cleared once the first data arrives.
+    const cap = setTimeout(() => { req.destroy(); reject(new Error('snapshot: no data from /events within 8 s')) }, 8000)
     const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
       res.setEncoding('utf8')
       let buf = ''
-      res.on('data', (c: string) => { buf += c })
-      setTimeout(() => {
+      // The relay answers at once but writes nothing until the sessions found are attached (over several ticks, #651):
+      // the window opens on the first message, so a slow attach is never cut short by a fixed delay (#440)
+      let opened = false
+      res.on('data', (c: string) => {
+        buf += c
+        if (!opened) { opened = true; clearTimeout(cap); setTimeout(finish, 700) }
+      })
+      function finish() {
         req.destroy()
         const events: Ev[] = []
         let sessionList: Array<Record<string, unknown>> = []
@@ -42,9 +51,9 @@ function snapshot(port: number): Promise<Snapshot> {
           else if (msg.type === 'session-list') sessionList = msg.sessions
         }
         resolve({ events, sessionList })
-      }, 700)
+      }
     })
-    req.on('error', reject)
+    req.on('error', (e) => { clearTimeout(cap); reject(e) })
   })
 }
 

@@ -74,7 +74,7 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
   })
 
   // #613: the way a user gets there at 320 px (from More in the top bar, not the F key), then the repeats unfolded: the summary
-  // (« Lectures et appels répétés : … répétitions observées ») and its list are measured too
+  // (« Lectures et appels répétés : … cibles répétées observées ») and its list are measured too
   if (w === 320) test(`fr ${w}x${h}: Files & repeats opened from More, its summary unfolded, fits (#613)`, { timeout: 180_000 }, async () => {
     const page = await open(w, h)
     try {
@@ -124,7 +124,31 @@ for (const [w, h] of [[320, 568], [640, 512]] as Array<[number, number]>) {
     }
   })
 
-  test(`fr ${w}x${h}: the Timeline panel (header, legend, table view) fits (#373)`, { timeout: 180_000 }, async () => {
+  // #613: during the guided tour the filters line of the Sessions panel is the longest French text it can hold
+  // (« Liste : Actives seulement · Canevas : Masquer les inactifs suspendu pendant la visite »): it wraps, never leaves the window or is cut
+  test(`fr ${w}x${h}: the filters line of the Sessions panel, lengthened during the tour, fits (#613)`, { timeout: 180_000 }, async () => {
+    const page = await open(w, h, '?scenario=guided')
+    try {
+      await page.getByRole('dialog').waitFor()
+      const toggle = page.locator('#topbar-toggle-sessions')
+      if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click({ force: true })
+      const line = page.locator('[data-testid="sessions-filter-scope"]')
+      await line.waitFor()
+      await waitForStableLayout(page)
+      assert.match(await line.innerText(), /Canevas : Masquer les inactifs suspendu pendant la visite$/, 'the line says the filter is paused by the tour')
+      const m = await line.evaluate(el => {
+        const r = el.getBoundingClientRect()
+        return { left: r.left, right: r.right, scroll: el.scrollWidth, client: el.clientWidth, doc: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth }
+      })
+      assert.ok(m.left >= 0 && m.right <= m.vw, `the line is inside the window (${m.left}..${m.right} of ${m.vw})`)
+      assert.ok(m.scroll <= m.client, `the line is not cut (${m.scroll} > ${m.client})`)
+      assert.ok(m.doc <= m.vw, `no sideways scroll (${m.doc} > ${m.vw})`)
+    } finally {
+      await page.context().close()
+    }
+  })
+
+  test(`fr ${w}x${h}: the Timeline panel (header, legend, table view) fits (#373)`,{ timeout: 180_000 }, async () => {
     const page = await open(w, h)
     try {
       await page.locator('body').press('t')

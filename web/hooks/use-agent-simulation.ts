@@ -7,7 +7,7 @@ import {
   SimulationEvent,
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
-import { MOCK_SCENARIO } from '@/lib/mock-scenario'
+import { getMockScenario } from '@/lib/demo-scenario'
 import { contextWindowSize, contextWindowAssumed } from '@/lib/context-window'
 import { ANIM_SPEED, toolExpiryConfig, setToolExpiryS } from '@/lib/canvas-constants'
 import { readUiPrefs } from '@/hooks/use-ui-preferences'
@@ -24,12 +24,16 @@ import {
 import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } from './simulation/stamp-time'
 import { clearHistoryState } from './simulation/clear-history'
 import { computeNextFrame } from './simulation/animate'
+import { isSimulationIdle, idleFrame, simLoopStats } from './simulation/idle-gate'
+import { a11yRecorder, recordFrame } from '@/components/agent-visualizer/canvas/a11y-recorder'
 import { snapVisualState } from './simulation/snap-visual-state'
 import { carryFreshness } from './simulation/freshness'
 import { carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
 import { trackForeignAttention, type ForeignAttention } from '@/lib/attention'
 import { sameSessionProjects } from '@/lib/chrome-utils'
+
+const mockEndTime = (scenario: readonly SimulationEvent[]): number => scenario.length > 0 ? scenario[scenario.length - 1].time : 0
 
 const EMPTY_PROJECTS: ReadonlyMap<string, { projectId: string; projectName: string }> = new Map()
 
@@ -153,6 +157,20 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     }
   }, [])
 
+  /** Tool calls of the last state handed to the accessibility recorder (see the idle gate in animate) */
+  const recordedRef = useRef<SimulationState['toolCalls'] | null>(null)
+  /** Publish frameRef to React when it holds something the UI does not show yet, at most every UI_THROTTLE_MS */
+  const flushUi = useCallback((timestamp: number) => {
+    let uiRefresh = false
+    if (uiDirtyRef.current && (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS)) {
+      setState(frameRef.current)
+      lastUIUpdateRef.current = timestamp
+      uiDirtyRef.current = false
+      uiRefresh = true
+    }
+    publishCatchUp(uiRefresh)
+  }, [publishCatchUp])
+
   // ─── Animation loop ──────────────────────────────────────────────────────
   // Reads/writes frameRef directly. Only calls commitState when new events
   // are processed, so React only re-renders UI on structural data changes.
@@ -188,6 +206,27 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const speed = effectiveSpeed(prev.speed, reviewingRef.current)
     let newTime = prev.currentTime + deltaTime * speed
     let maxT = Math.max(prev.maxTimeReached, newTime)
+
+    // Idle gate (#660): nothing queued, due, moving, fading or expiring, layout at rest: the frame only advances the
+    // clock (no event batch, no computeNextFrame, no layout step). Anything received or due makes the frame run.
+    const layout = layoutRef.current
+    // Empty until the demo chunk is loaded (#662): the entries and the bridge load it before the demo runs
+    const scenario = getMockScenario()
+    if (isSimulationIdle(prev, newTime, {
+      queued: !!capturedEvents || catchUpProgress(catchUpRef.current) !== null,
+      layoutSettled: !layout || layout.isSettled(prev),
+      toolExpiryS: toolExpiryConfig.seconds,
+      mock: useMockData ? { length: scenario.length, endTime: mockEndTime(scenario), nextTime: scenario[prev.eventIndex]?.time } : undefined,
+    })) {
+      // The accessibility mirror records what the last computed frame produced (computeNextFrame records its input)
+      if (recordedRef.current !== prev.toolCalls) { recordFrame(a11yRecorder, prev); recordedRef.current = prev.toolCalls }
+      frameRef.current = idleFrame(prev, newTime, maxT)
+      simLoopStats.skipped++
+      flushUi(timestamp)
+      animationRef.current = requestAnimationFrame(animateRef.current)
+      return
+    }
+    simLoopStats.computed++
     let newEventIndex = prev.eventIndex
 
     // Process events — thread state through each event
@@ -196,9 +235,9 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
     const ctx = makeContext()
     if (useMockData) {
-      while (newEventIndex < MOCK_SCENARIO.length && MOCK_SCENARIO[newEventIndex].time <= newTime) {
-        observedSessions.mark(MOCK_SCENARIO[newEventIndex].sessionId)
-        newEvents.push(MOCK_SCENARIO[newEventIndex])
+      while (newEventIndex < scenario.length && scenario[newEventIndex].time <= newTime) {
+        observedSessions.mark(scenario[newEventIndex].sessionId)
+        newEvents.push(scenario[newEventIndex])
         newEventIndex++
       }
       currentState = processEventBatch(newEvents, currentState, ctx).state
@@ -251,7 +290,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
         newLog = newLog.slice(dropped)
         currentState = { ...currentState, droppedEvents: currentState.droppedEvents + dropped }
       }
-      // In mock mode, eventIndex tracks position in MOCK_SCENARIO (not the log).
+      // In mock mode, eventIndex tracks position in the mock scenario (not the log).
       // In live mode, eventIndex tracks position in the event log.
       if (!useMockData) {
         newEventIndex = newLog.length
@@ -263,11 +302,12 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
     const result = computeNextFrame(prev, deltaTime, newTime, maxT, currentState, {
       useMockData,
-      mockScenarioLength: MOCK_SCENARIO.length,
-      mockScenarioEndTime: MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0,
+      mockScenarioLength: scenario.length,
+      mockScenarioEndTime: mockEndTime(scenario),
       speed,
       toolExpiryS: toolExpiryConfig.seconds,
     })
+    recordedRef.current = currentState.toolCalls
 
     // Write to frameRef (canvas reads this every frame)
     frameRef.current = result
@@ -279,18 +319,11 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // A commit the throttle skips is not lost: the flag is checked on every frame, so the React state catches up
     // with frameRef at most UI_THROTTLE_MS later even when no further event arrives
     if (newEvents.length > 0) uiDirtyRef.current = true
-    let uiRefresh = false
-    if (uiDirtyRef.current && (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS)) {
-      setState(frameRef.current)
-      lastUIUpdateRef.current = timestamp
-      uiDirtyRef.current = false
-      uiRefresh = true
-    }
-    publishCatchUp(uiRefresh)
+    flushUi(timestamp)
 
     animationRef.current = requestAnimationFrame(animateRef.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionFilter intentionally omitted; we read sessionFilterRef.current
-  }, [makeContext, publishCatchUp, useMockData, externalEvents, onExternalEventsConsumed])
+  }, [makeContext, publishCatchUp, flushUi, useMockData, externalEvents, onExternalEventsConsumed])
 
   animateRef.current = animate
 
@@ -347,10 +380,39 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     layoutRef.current?.pin(agentId, x, y)
   }, [])
 
+  // ─── Workspaces moved with the mouse ─────────────────────────────────────
+  // Paused, the animation loop does not step the layout: a loop of its own lets it settle after a move
+  const settleFrameRef = useRef(0)
+  const settleLayout = useCallback(() => {
+    if (frameRef.current.isPlaying || settleFrameRef.current) return
+    const step = () => {
+      settleFrameRef.current = 0
+      const layout = layoutRef.current
+      if (!layout || frameRef.current.isPlaying) return
+      frameRef.current = layout.stepState(frameRef.current)
+      if (layout.active) settleFrameRef.current = requestAnimationFrame(step)
+    }
+    settleFrameRef.current = requestAnimationFrame(step)
+  }, [])
+  useEffect(() => () => { if (settleFrameRef.current) cancelAnimationFrame(settleFrameRef.current) }, [])
+
+  /** Put the zone of a workspace with its centre at (x, y): its agents follow, the other workspaces step aside */
+  const moveWorkspace = useCallback((projectId: string, x: number, y: number) => {
+    layoutRef.current?.moveWorkspace(projectId, x, y)
+    settleLayout()
+  }, [settleLayout])
+  const workspaceCentre = useCallback((projectId: string) => layoutRef.current?.workspaceCentre(projectId), [])
+  /** Every workspace moved by hand goes back to its automatic place */
+  const resetWorkspaces = useCallback(() => {
+    layoutRef.current?.resetWorkspaces()
+    settleLayout()
+  }, [settleLayout])
+  const hasMovedWorkspaces = useCallback(() => (layoutRef.current?.placements.size ?? 0) > 0, [])
+
   /** Seek to a specific time — replays events from scratch up to targetTime */
   const seekToTime = useCallback((targetTime: number) => {
     const prev = frameRef.current
-    const events = useMockData ? MOCK_SCENARIO : prev.eventLog
+    const events = useMockData ? getMockScenario() : prev.eventLog
 
     let replayState = createEmptyState({
       speed: prev.speed,
@@ -424,6 +486,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     catchUp,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
+    moveWorkspace, workspaceCentre, resetWorkspaces, hasMovedWorkspaces,
     setLayoutKeepIds,
     saveSnapshot, restoreSnapshot,
   }

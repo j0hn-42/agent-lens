@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { COLORS, themed } from '@/lib/colors'
 import { ToolContentRenderer, ResultPillView } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
@@ -11,6 +11,7 @@ import { extraVars } from '@/lib/theme-tokens'
 import { currentThemeId } from '@/lib/theme-dom'
 import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
 import { useLocale } from '@/lib/locale'
+import { useThemeVersion } from '@/lib/theme'
 import { DATA_EN, t as tr } from '@/lib/panel-text'
 import type { Locale } from '@/lib/messages'
 
@@ -55,12 +56,21 @@ export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?:
 }
 
 /** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. `ansi` renders SGR colors (Bash output). */
-function TruncatedText({ text, limit, query, color, ansi, locale }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean; locale: Locale }) {
-  const [showAll, setShowAll] = useState(false)
+function TruncatedText({ text, limit, query, color, ansi, locale, expanded, onToggle }: {
+  text: string; limit: number; query?: string; color?: string; ansi?: boolean; locale: Locale
+  /** Controlled by the panel (#613): the windowing unmounts a row that scrolls away, and its own state would go with it */
+  expanded?: boolean; onToggle?: () => void
+}) {
+  const [localShowAll, setLocalShowAll] = useState(false)
+  const showAll = onToggle ? expanded === true : localShowAll
+  const toggle = onToggle ?? (() => setLocalShowAll(v => !v))
   // Truncation counts visible characters: escape sequences are parsed out before cutting
-  const segments = ansi ? parseAnsi(text) : null
-  const plain = segments ? segments.map(s => s.text).join('') : text
-  const t = truncateWithMarker(plain, limit)
+  // Parsed once per text (up to 4000 chars), not on every render of the row (#657)
+  const { segments, t } = useMemo(() => {
+    const segs = ansi ? parseAnsi(text) : null
+    const plain = segs ? segs.map(s => s.text).join('') : text
+    return { segments: segs, t: truncateWithMarker(plain, limit) }
+  }, [text, ansi, limit])
   return (
     <>
       <span {...DATA_EN}>
@@ -73,8 +83,8 @@ function TruncatedText({ text, limit, query, color, ansi, locale }: { text: stri
         <button
           type="button"
           aria-expanded={showAll}
-          onClick={() => setShowAll(v => !v)}
-          className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING_INSET}`}
+          onClick={toggle}
+          className={`block mt-0.5 min-h-6 px-1 rounded text-2xs font-mono underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? tr(locale, 'conv.showLess') : tr(locale, 'conv.showAll', { n: t.hidden })}
@@ -88,10 +98,14 @@ function TruncatedText({ text, limit, query, color, ansi, locale }: { text: stri
  * Tool activity rows of the Conversation panel (tool_call / tool_result). Conversation text, thinking and
  * agent-to-agent rows are rendered by the panel's own row component.
  */
-export function TranscriptMessage({ message, searchQuery }: {
+export const TranscriptMessage = memo(function TranscriptMessage({ message, searchQuery, expanded, onToggleExpanded }: {
   message: ConversationMessage
   searchQuery?: string
+  /** The result is shown in full, and the toggle: kept by the panel across the unmounting of a windowed row (#613) */
+  expanded?: boolean
+  onToggleExpanded?: (messageId: string) => void
 }) {
+  useThemeVersion() // memoized row: repaint on a theme switch (COLORS is mutated in place)
   const { locale } = useLocale()
   switch (message.type) {
     case 'tool_call':
@@ -104,9 +118,9 @@ export function TranscriptMessage({ message, searchQuery }: {
           }}
         >
           <div className="flex items-center gap-1.5 mb-1">
-            <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.userLabel }}><GearIcon size={11} /></span>
+            <span aria-hidden="true" className="text-2xs" style={{ color: COLORS.userLabel }}><GearIcon size={11} /></span>
             <span className="sr-only">{tr(locale, 'conv.tool.callSr')}</span>
-            <span {...DATA_EN} className="text-[11px] font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
+            <span {...DATA_EN} className="text-2xs font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
               <HighlightText text={message.toolName || tr(locale, 'conv.tool.fallbackName')} query={searchQuery} />
             </span>
           </div>
@@ -141,14 +155,15 @@ export function TranscriptMessage({ message, searchQuery }: {
           }}
         >
           <div className="flex items-center gap-1.5 mb-0.5">
-            <span aria-hidden="true" className="text-[11px]">{isBash ? '$' : <CheckIcon size={11} />}</span>
+            <span aria-hidden="true" className="text-2xs">{isBash ? '$' : <CheckIcon size={11} />}</span>
             <span className="sr-only">{tr(locale, 'conv.tool.resultSr')}</span>
             {message.toolName && (
-              <span {...DATA_EN} className="text-[11px]">{message.toolName}</span>
+              <span {...DATA_EN} className="text-2xs">{message.toolName}</span>
             )}
           </div>
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
-            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} locale={locale} />
+            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} locale={locale}
+              expanded={expanded} onToggle={onToggleExpanded ? () => onToggleExpanded(message.id) : undefined} />
           </div>
           {!message.isError && <ResultPillView pill={message.resultPill} locale={locale} />}
         </div>
@@ -162,4 +177,4 @@ export function TranscriptMessage({ message, searchQuery }: {
         </div>
       )
   }
-}
+})

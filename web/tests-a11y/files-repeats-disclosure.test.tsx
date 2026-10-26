@@ -60,7 +60,7 @@ test('the repeats are a native disclosure, folded while files are listed, with t
   assert.ok(details, 'a details element')
   assert.equal(details.open, false, 'folded: the file list comes first')
   const summary = summaryOf(container)
-  assert.equal(summary.textContent, 'Repeated reads and calls: 5 repeats observed')
+  assert.equal(summary.textContent, 'Repeated reads and calls: 5 repeated targets observed')
   // 2.5.3: the summary has no aria-label, its name is its visible text
   assert.equal(summary.getAttribute('aria-label'), null)
   // The section stays reachable by headings (1.3.1): an h3 outside the summary names it
@@ -123,23 +123,23 @@ test('the summary draws the focus ring of the repo and a 24 px target', () => {
 
 test('the count is the number of findings, the list shows 20 and counts the rest', () => {
   const { container } = panel(repeats(25), 1)
-  assert.equal(summaryOf(container).textContent, 'Repeated reads and calls: 25 repeats observed')
+  assert.equal(summaryOf(container).textContent, 'Repeated reads and calls: 25 repeated targets observed')
   const details = container.querySelector('details')!
   assert.equal(details.querySelectorAll('li').length, 20)
   assert.match(details.textContent ?? '', /5 more not shown/)
 })
 
 test('under loss the summary keeps the qualifiers of the list: "at least", "incomplete", calls not compared', () => {
-  assert.equal(summaryOf(panel(repeats(2), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: at least 2 repeats observed')
+  assert.equal(summaryOf(panel(repeats(2), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: at least 2 repeated targets observed')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(2, { limitReached: true }), 1).container).textContent, 'Repeated reads and calls: at least 2 repeats observed')
+  assert.equal(summaryOf(panel(repeats(2, { limitReached: true }), 1).container).textContent, 'Repeated reads and calls: at least 2 repeated targets observed')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: no repeat observed (incomplete)')
+  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Repeated reads and calls: no repeated target observed (incomplete)')
   cleanup()
-  assert.equal(summaryOf(panel(repeats(0, { uncompared: 2 }), 1).container).textContent, 'Repeated reads and calls: no repeat observed, 2 calls not compared')
+  assert.equal(summaryOf(panel(repeats(0, { uncompared: 2 }), 1).container).textContent, 'Repeated reads and calls: no repeated target observed, 2 calls not compared')
   cleanup()
   act(() => setLocaleChoice('fr'))
-  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Lectures et appels répétés : aucune répétition observée (incomplet)')
+  assert.equal(summaryOf(panel(repeats(0), 1, { replayLost: 3 }).container).textContent, 'Lectures et appels répétés : aucune cible répétée observée (incomplet)')
 })
 
 test('axe finds nothing, folded and unfolded, in both languages', async () => {

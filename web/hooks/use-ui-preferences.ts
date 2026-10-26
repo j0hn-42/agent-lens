@@ -17,6 +17,7 @@
  * the View menu of the canvas controls (use-canvas-preferences) and the sound (use-audio-effects) are stored here; their
  * former keys are migrated on load. Speed is deliberately not persisted.
  */
+import { useStableObject } from '@/hooks/use-stable-object'
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import {
   DEFAULT_UI_PREFS,
@@ -100,5 +101,5 @@ export function useUiPreferences(store: PrefsStore = getDefaultStore()): UseUiPr
   )
   const resetPrefs = useCallback(() => store.reset(), [store])
   const getPrefs = useCallback(() => store.getSnapshot(), [store])
-  return { prefs, getPrefs, setPref, resetPrefs }
+  return useStableObject({ prefs, getPrefs, setPref, resetPrefs })
 }

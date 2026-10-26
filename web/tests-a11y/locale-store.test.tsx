@@ -1,7 +1,8 @@
 // #247: locale store. The choice is "auto" (browser language) or an explicit locale, kept in this browser only.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { getLocale, getLocaleChoice, setLocaleChoice, subscribeLocale } from '@/lib/locale'
+import { renderHook, act } from '@testing-library/react'
+import { getLocale, getLocaleChoice, setLocaleChoice, subscribeLocale, useLocale } from '@/lib/locale'
 import { LOCALE_STORAGE_KEY } from '@/lib/messages'
 
 function browserLanguages(langs: string[] | null) {
@@ -73,4 +74,45 @@ test('blocked storage: the choice still holds for this page, nothing throws', ()
   } finally {
     Object.assign(proto, { setItem, removeItem, getItem })
   }
+})
+
+test('useLocale re-renders with the new language when the choice changes (#613)', () => {
+  const { result } = renderHook(() => useLocale())
+  assert.equal(result.current.locale, 'en')
+  act(() => { result.current.setChoice('fr') })
+  assert.equal(result.current.locale, 'fr')
+  assert.equal(result.current.choice, 'fr')
+  act(() => { result.current.setChoice('en') })
+  assert.equal(result.current.locale, 'en')
+})
+
+// #613: the choice shown by the language select is the language the interface is in. When the table of the chosen
+// language does not load, the choice goes back to the previous one (and to the storage), instead of showing "Français"
+// over an English interface.
+test('a language whose table does not load: the choice goes back to the previous one', async () => {
+  setLocaleChoice('en')
+  const seen: string[] = []
+  const off = subscribeLocale(() => seen.push(getLocaleChoice()))
+  const failing = (l: string) => (l === 'fr' ? Promise.reject(new Error('chunk 404')) : Promise.resolve())
+  setLocaleChoice('fr', failing)
+  assert.equal(getLocaleChoice(), 'fr', 'the choice shows at once while the table loads')
+  await new Promise(res => setTimeout(res, 0))
+  off()
+  assert.equal(getLocaleChoice(), 'en', 'the select shows the language the interface stays in')
+  assert.equal(window.localStorage.getItem(LOCALE_STORAGE_KEY), 'en', 'and the storage does not keep the failed choice')
+  assert.deepEqual(seen, ['fr', 'en'])
+})
+
+test('a language that loads keeps the choice, and the failure of an older choice leaves a newer one alone', async () => {
+  setLocaleChoice('en')
+  let fail: (e: Error) => void = () => {}
+  const slowFailing = (l: string) => (l === 'fr' ? new Promise<void>((_, rej) => { fail = rej }) : Promise.resolve())
+  setLocaleChoice('fr', slowFailing)
+  setLocaleChoice('auto', () => Promise.resolve())
+  fail(new Error('late 404'))
+  await new Promise(res => setTimeout(res, 0))
+  assert.equal(getLocaleChoice(), 'auto')
+  setLocaleChoice('fr', () => Promise.resolve())
+  await new Promise(res => setTimeout(res, 0))
+  assert.equal(getLocaleChoice(), 'fr')
 })

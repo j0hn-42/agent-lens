@@ -6,12 +6,13 @@
  * Everything they touch comes through `SessionHandlerCtx`, so they run without React.
  */
 import type { MutableRefObject } from 'react'
-import { ALL_SESSIONS_ID, pickAutoSelectSession, resumeSession } from './bridge-types'
+import { ALL_SESSIONS_ID, pickAutoSelectSession, resumeSession, sanitizeSessionInfo, type SessionUpdate } from './bridge-types'
 import { pruneReplayStamps } from '../hooks/simulation/session-visibility'
 import type { createTeamTracker } from '../hooks/simulation/team-info'
 import type { SessionModelTracker } from './session-model'
 import type { SessionBuffers } from './session-buffers'
 import { clearSessionBuffers } from './session-buffers'
+import { clearAllBufferCounts, type AllBufferCounts } from './all-buffer-counts'
 import type { SimulationEvent } from './agent-types'
 import type { BridgeNotice, SessionInfo } from './vscode-bridge'
 
@@ -26,6 +27,7 @@ export interface SessionHandlerCtx {
   sessionBuffersRef: Ref<SessionBuffers>
   allEventsRef: Ref<SimulationEvent[]>
   allBaseRef: Ref<number>
+  allCountsRef: Ref<AllBufferCounts>
   lastEventAtRef: Ref<Map<string, number>>
   modelTrackerRef: Ref<Pick<SessionModelTracker, 'clear'>>
   teamTrackerRef: Ref<Pick<ReturnType<typeof createTeamTracker>, 'clear'>>
@@ -33,7 +35,6 @@ export interface SessionHandlerCtx {
   setSessionModels: (models: ReadonlyMap<string, string>) => void
   refreshTeamView: () => void
   setSessionsWithActivity: (update: (prev: Set<string>) => Set<string>) => void
-  bumpEventVersion: () => void
   pushNotice: (kind: BridgeNotice['kind'], message: string) => void
   now: () => number
 }
@@ -41,7 +42,7 @@ export interface SessionHandlerCtx {
 type Handlers = {
   list: (ctx: SessionHandlerCtx, data: SessionInfo[]) => void
   started: (ctx: SessionHandlerCtx, data: SessionInfo) => void
-  updated: (ctx: SessionHandlerCtx, data: { sessionId: string; label: string }) => void
+  updated: (ctx: SessionHandlerCtx, data: SessionUpdate) => void
   ended: (ctx: SessionHandlerCtx, data: string) => void
   reset: (ctx: SessionHandlerCtx, data: string) => void
 }
@@ -89,8 +90,11 @@ export const SESSION_HANDLERS: Handlers = {
     }
   },
 
-  updated(ctx, { sessionId, label }) {
-    ctx.updateSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, label } : s)))
+  updated(ctx, { sessionId, label, projectId, projectName, ...place }) {
+    // A place learnt late (the transcript head had no cwd) completes the session; sanitized as on a start. A project
+    // comes whole: half of one never mixes with the project already known
+    const project = projectId && projectName ? { projectId, projectName } : {}
+    ctx.updateSessions(prev => prev.map(s => (s.id === sessionId ? sanitizeSessionInfo({ ...s, ...place, ...project, label }) : s)))
   },
 
   ended(ctx, sessionId) {
@@ -111,11 +115,11 @@ export const SESSION_HANDLERS: Handlers = {
     ctx.setSessionModels(new Map())
     ctx.allEventsRef.current = []
     ctx.allBaseRef.current = 0
+    clearAllBufferCounts(ctx.allCountsRef.current)
     ctx.lastEventAtRef.current.clear()
     ctx.teamTrackerRef.current.clear()
     ctx.refreshTeamView()
     ctx.setSessionsWithActivity(() => new Set())
     ctx.dismissedSessionsRef.current.clear()
-    ctx.bumpEventVersion()
   },
 }

@@ -14,7 +14,8 @@ Why the canvas stays quiet when nothing moves, what it skips, and how to measure
 - **Viewport culling.** The agent, tool card, edge and particle passes skip what lies outside the visible area plus a margin (96 screen px, and a per-element extent for labels, glows and trails). Zoomed on one cluster of a large fleet, the other clusters cost nothing.
 - Nothing is drawn from an invented state: a skipped frame leaves the last drawn frame on screen, and the fingerprint covers what moves.
 
-Not covered: the simulation loop (`use-agent-simulation.ts`) still ticks every frame while playing.
+- **Idle simulation (#660).** The simulation loop (`use-agent-simulation.ts`) also skips the frames with nothing to do: no event received, queued or due, no particle, no agent, edge, card or discovery fading or moving, no bubble or tool call reaching its expiry, layout at rest. Such a frame only advances the clock; anything received or due makes the next frame run in full, so an event is never delayed.
+  - The age of an agent (detail card, stats box) is read from the clock where it is shown, to the second, instead of being written into every agent at every frame: an agent at rest keeps its identity, and so do the particle and discovery arrays when nothing moves.
 
 ## Measuring with ?perf
 
@@ -61,3 +62,88 @@ Real draw passes (agents, tool cards, edges, particles) on a recording context, 
 | zoomed on 1 cluster (zoom 0.9) | on | 943 | 0.41 |
 
 Zoomed in, culling removes 90% of the paint calls (each of them, in a real browser, may carry a `shadowBlur` or a gradient). In the overview everything is visible, so nothing is skipped and nothing is lost.
+
+### Simulation loop at rest (`perf-sim-loop.ts`)
+
+The `?perf` panel times the draw loop only; the simulation loop is measured by a script that runs one live frame of `useAgentSimulation` (event batch, `computeNextFrame`, layout step, or the idle gate) on a settled scene: agents faded in and laid out, spawned at fractional times like real sessions, no particle, no bubble, no tool card. 510 frames (8.5 s at 60 fps), mean of 3 runs, Node on the same machine.
+
+```bash
+pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts             # with the idle gate
+pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-sim-loop.ts --no-gate   # every frame computed
+```
+
+| loop | agents | frames computed | frames that copy the agents Map | JS per frame (µs) |
+|---|---|---|---|---|
+| before #660 | 200 | 510 | 510 | 47 |
+| before #660 | 10 | 510 | 510 | 7 |
+| #660, no gate | 200 | 510 | 0 | 28 |
+| #660, idle gate | 200 | 0 | 0 | 9 |
+| #660, idle gate | 10 | 0 | 0 | 1.6 |
+
+Before, the age written at every frame copied every live agent (about 12,000 objects a second with 200 agents) and handed the draw loop a new agents Map each time, so its caches keyed on it never hit. Now the Map is kept at rest and the frame does not run at all.
+
+Scope of the gain: it holds for a scene drawn as is. With "Hide inactive" on or a collapsed branch, the scene builder (`sceneAgents`) hands the draw loop a new agents Map each frame, so `repeatCacheRef` (keyed on that Map) still misses and re-derives the repeat marks at every frame. Only `edgeLookupCacheRef` (keyed on the particles and edges, which the scene builder does not copy) keeps hitting. The figures above were measured without either option.
+
+### A hovered node under load, Chrome trace (`perf-chrome-profile.ts`, #661)
+
+A real Chromium trace (CDP `Tracing`, `devtools.timeline` and `disabled-by-default-devtools.timeline` categories) of 150 active agents while the pointer stays on a node and its tooltip is shown, 5 s per scene, before and after #679 (shadow sprite, cached scanline gradient, bubble buttons written on change, tooltip size from a `ResizeObserver`). A forced style recalculation or layout is one that runs inside a JavaScript task (the "Forced reflow" of the DevTools Performance panel). Headless Chromium draws the 2D canvas in software, which suggests that the main thread's `Commit` includes playing the recorded draw calls back. That is a hypothesis: no trace event is specific to the canvas, so the `Commit` column is a proxy for the canvas raster, not a measure of it.
+
+```bash
+# Two builds already served (next start), profiled in alternation; PROFILE_OUT keeps the traces and screenshots
+PROFILE_TARGETS=before=http://127.0.0.1:3100,after=http://127.0.0.1:3300 PROFILE_RUNS=5 \
+  pnpm --dir web exec node --import tsx tests-a11y/e2e/perf-chrome-profile.ts
+```
+
+Medians of 5 runs, viewport 1280x800, "before" is the parent of the #679 merge (`b01b5aa8`), "after" is `develop` at `e5667d38`:
+
+| scene | build | DPR | forced style recalc / frame | forced Layout / frame | Commit (ms / frame, proxy for the canvas raster) | rAF callback (ms) |
+|---|---|---|---|---|---|---|
+| overview | before | 1 | 0.47 | 0.00 | 3.62 | 11.32 |
+| overview | after | 1 | 0.02 | 0.00 | 3.49 | 11.23 |
+| overview | before | 2 | 0.48 | 0.00 | 10.40 | 15.21 |
+| overview | after | 2 | 0.11 | 0.00 | 10.52 | 15.05 |
+| zoomed | before | 1 | 0.46 | 0.00 | 7.01 | 8.79 |
+| zoomed | after | 1 | 0.02 | 0.00 | 6.81 | 8.46 |
+| zoomed | before | 2 | 0.46 | 0.00 | 15.84 | 15.50 |
+| zoomed | after | 2 | 0.04 | 0.00 | 15.63 | 15.58 |
+
+Forced Layout: the median is 0.00 per frame, which is a rounded median, not an absence. Over the runs, 3 forced Layout events for "before" (2 at the tooltip's `offsetWidth` in `positionTooltip`, 1 at the control bar) against 10 for "after" (9 at the `getBoundingClientRect` of the control bar, 1 in the pointer handler), almost all from runs where the hover did not hold. Apart from the tooltip, the control-bar source of "after" (44 style recalculations, 9 Layouts) is above its level before the merge and was not examined. The medians above include the runs where the tooltip was not seen during the trace (two are known: `develop` zoomed DPR 1 run 0 with the tooltip never seen, and `before` overview DPR 1 run 2 at 0.22 of the checks); `perf-chrome-profile.ts` now leaves such runs (shown for under 90% of the checks) out of the medians and of the sources and prints how many.
+
+The forced style recalculation read by the tooltip (`offsetWidth` after the style writes of the frame, about one frame in two while hovering, 1,839 events over 4,478 frames) is gone; what remains comes from the `?perf` panel's own `ctx.font`, the pointer handler's `getBoundingClientRect` and the control bar height. The canvas raster and the frame times are equal within 4%: in software rendering the depth shadow was not the main raster cost, so this trace shows no raster gain, and no regression. The main thread is busy about 990 ms per second in every row (software canvas, 150 animated agents), so the frame rate is bound by the machine, not by these changes.
+
+## Memory of the event buffers (#659)
+
+The page keeps the events it received so it can rebuild a session when you switch to it, and the **All** view in arrival order: one buffer per session (at most 50 sessions, 5000 events each, like the relay) and one All buffer (50,000 events). Counts alone did not bound memory, so both are also capped in **estimated bytes** (the length of each event's JSON, computed once per event; the two buffers share the same event objects):
+
+- the session buffers together: **64 MiB**. Past it, the least recently written sessions are freed first (never the selected one, nor the one being written), as with the 50-session cap; if those two alone still pass it, they lose their oldest events, lifecycle events last. Their count is kept: positions stay absolute and an export says how many earlier events were dropped ([Session export](session-export.md));
+- the All buffer: **32 MiB**, trimmed from the oldest in one batch past 10% over the cap, like its count cap. Every dropped event is added to its base counter.
+
+The simulation of the selected session keeps its own log (5000 events at most, `MAX_EVENT_LOG`); it is not one of these buffers.
+
+### In a real browser (`heap-measure.ts`)
+
+```bash
+unshare -rn sh -c 'ip link set lo up; pnpm --dir web exec node --import tsx tests-a11y/e2e/heap-measure.ts'
+HEAP_PROFILE=worst ...                       # every text field at the normalizer cap (4096)
+HEAP_SNAPSHOT=/some/dir ...                  # also writes a .heapsnapshot per step there
+```
+
+Headless Chromium, demo app in a frame fed by its parent like a VS Code webview. 50 sessions of 5200 events each (260,000 events, past every count cap), posted with `postMessage` so no string is shared between two events. The JS heap of the page is read after a forced GC: before the feed, with the buffers full, and after a `reset` (which empties them). Profile **real**: the caps of the extension's parser (`ARGS_MAX` 80, `RESULT_MAX` 200, `MESSAGE_MAX` 2000, `EDIT_CONTENT_MAX` 500), 1239 JSON characters per event on average. Profile **worst**: every text field at 4096, 6965 characters per event.
+
+| buffers | profile | JS heap before (MiB) | buffers full (MiB) | after reset (MiB) |
+|---|---|---|---|---|
+| counts only (before) | real | 15.3 | 340.4 | 25.8 |
+| counts only (before) | worst | 15.3 | 1729.5 | 63.5 |
+| with the byte caps | real | 15.3 | 91.9 | 27.9 |
+| with the byte caps | worst | 15.3 | 108.9 | 64.9 |
+
+With counts only, the 250,000 buffered events held 315 MiB for the real profile (1.3 KiB per event, close to its JSON length) and 1.7 GiB for the worst. With the byte caps the heap stays between 92 and 109 MiB whatever the payloads. What stays after the reset is mostly the selected session's simulation (its event log and Timeline blocks), read in a heap snapshot of the worst profile (5 sessions).
+
+Cost of buffering, `scripts/bench/session-buffers.mts` (`node --import tsx scripts/bench/session-buffers.mts`; `appendSessionEvent` alone, 260,000 events over 50 sessions, median of 7 rounds, Node 24 on a 13th Gen Intel Core i7-13700K, the All buffer not included; new event objects each round because the JSON length is computed once per object): 7.2 µs per event for the real profile and 15.2 µs for the worst one, with the 64 MiB cap in force (it frees whole sessions as the feed goes past it); 2.3 µs per event for the real profile when only the count caps apply. The figures are for that machine; run the script to get yours.
+
+### What a freed session shows (#613)
+
+The 64 MiB cap frees whole sessions, the least recently written first, well before the 50-session cap does: with the real profile (about 1.2 KiB per event) about 54,000 events fit across all the session buffers, that is about 10 full sessions (2 in the worst profile), against 250,000 events before the byte cap. A background session is therefore freed much more often than with the counts alone. What the page then does:
+
+- coming back to a session whose view was cached, when a trim dropped events after the cached count (the buffer keeps the lifecycle events at its head, so this is seen as soon as the dropped events reach the count minus those kept), the view does not resume from the cache (it would skip the events in between without saying so): it restarts and replays what the buffer still holds, lifecycle events included. When the buffer was freed instead, it holds no lifecycle event and a restart would empty the canvas: the cached view is kept and resumes with the events the buffer holds, the ones freed in between are not drawn, and the [Graph truncated](reading-the-ui/relay-and-losses.md#sessions-the-page-freed-from-its-own-memory) notice gives their exact number (the session's base counter minus the cached count). A freed session that then received an `agent_spawn` looks like a trim and restarts with only the agents it knows since;
+- a freed session that receives new events starts a new buffer at its old total, without its earlier events, lifecycle ones included (`agent_spawn`, `team_info`). Opened without a cached view, it replays tool calls of an agent whose creation it never saw: the canvas does not draw those calls (the agent does not exist there), and the same notice says how many older events the page no longer has (its base counter). A [session export](session-export.md) of a session that was freed and has not been written since holds no event.

@@ -3,7 +3,7 @@
 import { useLocale } from '@/lib/locale'
 import { translate, type Locale } from '@/lib/messages'
 import { DATA_EN } from '@/lib/panel-text'
-import { stateLabelText, stateGlyphText, arrowKindText, arrowLabelText, timelineLabelText, earlierMessagesText, blockLabelParts, type LabelPart } from '@/lib/timeline-text'
+import { stateLabelText, stateGlyphText, arrowKindText, arrowLabelText, timelineLabelText, earlierMessagesText, olderBlocksText, totalDroppedBlocks, blockLabelParts, type LabelPart } from '@/lib/timeline-text'
 import { panelName } from '@/lib/command-palette'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
@@ -23,6 +23,7 @@ import {
   capMessageRows,
   orderEntriesBySequence,
   orderEntriesByStart,
+  visibleRowRange,
   type SwimlaneArrow,
   type TimelineStateKey,
 } from '@/lib/timeline-rows'
@@ -32,6 +33,7 @@ import { PairFilterChip } from './pair-filter-chip'
 import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete } from '@/lib/pair-filter'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { withHexAlpha } from '@/lib/color-alpha'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -92,7 +94,7 @@ function legendSwatchBackground(state: TimelineStateKey, color: string): string 
     case 'horizontal': return `repeating-linear-gradient(0deg, ${line} 0 1px, transparent 1px 3px)`
     case 'cross': return `repeating-linear-gradient(45deg, ${line} 0 1px, transparent 1px 3px), repeating-linear-gradient(-45deg, ${line} 0 1px, transparent 1px 3px)`
     case 'dots': return `radial-gradient(${line} 1px, transparent 1.2px) 0 0 / 4px 4px`
-    default: return `${line}66`
+    default: return `${withHexAlpha(line, '66')}`
   }
 }
 
@@ -140,6 +142,8 @@ function drawTimeline(
   arrows: readonly SwimlaneArrow[] = [],
   hoveredArrowId?: string,
   locale: Locale = 'en',
+  /** Rows to draw (#659): the canvas keeps its full height, the rows out of the scroll viewport are skipped. */
+  rowRange?: { first: number; last: number },
 ) {
   ctx.clearRect(0, 0, width * dpr, height * dpr)
   ctx.save()
@@ -171,7 +175,9 @@ function drawTimeline(
   }
 
   // ── Agent rows ──
-  for (let i = 0; i < entries.length; i++) {
+  const firstRow = rowRange ? Math.max(0, rowRange.first) : 0
+  const lastRow = rowRange ? Math.min(entries.length - 1, rowRange.last) : entries.length - 1
+  for (let i = firstRow; i <= lastRow; i++) {
     const entry = entries[i]
     const y = HEADER_HEIGHT + i * ROW_HEIGHT
 
@@ -290,6 +296,8 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   const [hoveredName, setHoveredName] = useState<string | undefined>()
   const [sequence, setSequence] = useState(false)
   const [activeArrowId, setActiveArrowId] = useState<string | undefined>()
+  // Rows in view (#659): only they are drawn; updated on scroll, and only when the range changes
+  const [rowRange, setRowRange] = useState({ first: 0, last: 20 })
   const tableId = useId()
   const messagesTableId = useId()
 
@@ -315,13 +323,27 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   }), [arrows, locale])
   const cappedButtons = useMemo(() => capMessageRows(messageRows), [messageRows])
   const activeArrow = arrows.find(a => a.id === activeArrowId)
-  const ariaLabel = timelineLabelText(locale, sortedEntries, currentTime)
+  const rangeLabel = timelineLabelText(locale, sortedEntries, currentTime)
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
+  const droppedBlocks = useMemo(() => totalDroppedBlocks(sortedEntries), [sortedEntries])
+  // The name of the chart and the caption of its table say the older blocks they do not list (#613), not only the counter below
+  const ariaLabel = droppedBlocks > 0 ? `${rangeLabel}. ${olderBlocksText(locale, droppedBlocks)}` : rangeLabel
+
 
   // Bottom dock: centred above the control bar, narrowed by the chat / link / card beside it
   const dock = useDockPanel('timeline', visible)
   const dockRect = dock.rect
+
+  const updateRowRange = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const next = visibleRowRange(el.scrollTop, el.clientHeight || 300, sortedEntries.length, HEADER_HEIGHT, ROW_HEIGHT)
+    setRowRange(prev => (prev.first === next.first && prev.last === next.last ? prev : next))
+  }
+  // Scroll, then a change in the number of rows (clientHeight is read there, not at render)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- updateRowRange only reads refs and sortedEntries.length
+  useEffect(() => { if (visible) updateRowRange() }, [visible, sortedEntries.length, dockRect?.h])
 
   // Focus moves into the panel on open and returns to the opener on close.
   // Escape is owned by the global LIFO handler (use-keyboard-shortcuts); no local listener.
@@ -350,9 +372,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     canvas.style.width = `${width}px`
     canvas.style.height = `${canvasHeight}px`
 
-    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId, locale)
+    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId, locale, rowRange)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- redraw on every prop change (component only re-renders on data/time updates)
-  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w, locale])
+  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w, locale, rowRange])
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -394,7 +416,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 onClick={() => setSequence(v => !v)}
                 aria-pressed={sequence}
                 title={translate(locale, 'tl.sequence.title')}
-                className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+                className={`min-h-6 min-w-6 px-2 rounded-sm text-2xs font-mono ${FOCUS_RING}`}
                 style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
               >
                 {translate(locale, 'tl.sequence')}
@@ -405,7 +427,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               onClick={() => setTableView(v => !v)}
               aria-pressed={tableView}
               aria-controls={tableId}
-              className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+              className={`min-h-6 min-w-6 px-2 rounded-sm text-2xs font-mono ${FOCUS_RING}`}
               style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
             >
               {translate(locale, 'tl.table')}
@@ -413,7 +435,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </div>
           }
         >
-          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
+          <span lang={locale} className="text-2xs font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
             {translate(locale, 'panel.heading.timeline')}
           </span>
         </PanelHeader>
@@ -425,6 +447,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           aria-label={translate(locale, 'tl.scroll')}
           className={`min-h-0 overflow-auto ${FOCUS_RING}`}
           style={{ maxHeight: 300 }}
+          onScroll={updateRowRange}
         >
           {/* The image role sits on a wrapper: the canvas keeps its pointer handlers (hover names) without
               being turned into a non-interactive element. The table view is the full text alternative. */}
@@ -448,7 +471,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             className="w-full text-xs font-mono border-collapse"
             style={tableView ? { color: COLORS.textPrimary } : undefined}
           >
-            <caption className="sr-only">{ariaLabel}</caption>
+            <caption className="sr-only">{tableView ? ariaLabel : rangeLabel}</caption>
             <thead>
               <tr style={{ color: COLORS.textMutedOpaque }}>
                 <th scope="col" className="text-left px-2 py-1 font-normal">{translate(locale, 'tl.col.agent')}</th>
@@ -523,19 +546,19 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                   onMouseLeave={() => setActiveArrowId(undefined)}
                   onFocus={() => setActiveArrowId(r.id)}
                   onBlur={() => setActiveArrowId(undefined)}
-                  className={`min-h-6 px-1.5 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+                  className={`min-h-6 px-1.5 rounded-sm text-2xs font-mono ${FOCUS_RING}`}
                   style={{ color: COLORS.textMutedOpaque, border: `1px solid ${COLORS.holoBorder06}` }}
                 >
                   {r.start} {r.label}
                 </button>
               ))}
               {cappedButtons.hidden > 0 && (
-                <span className="text-[11px] font-mono self-center" style={{ color: COLORS.textMutedOpaque }}>
+                <span className="text-2xs font-mono self-center" style={{ color: COLORS.textMutedOpaque }}>
                   {earlierMessagesText(locale, cappedButtons.hidden)}
                 </span>
               )}
             </div>
-            <div role="status" className="text-[11px] font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
+            <div role="status" className="text-2xs font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
               {activeArrow && (
                 <>
                   {arrowText(activeArrow)}{': '}
@@ -543,6 +566,14 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 </>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Blocks dropped to keep the timeline bounded (#659): counted, never lost silently */}
+        {droppedBlocks > 0 && (
+          // aria-hidden: the name of the chart and the caption of its table already say it; read here too it would be said twice (#613)
+          <div aria-hidden="true" className="px-3 py-1 text-2xs font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMutedOpaque }}>
+            {olderBlocksText(locale, droppedBlocks)}
           </div>
         )}
 
@@ -555,7 +586,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 aria-hidden="true"
                 style={{ background: legendSwatchBackground(item.state, item.color), border: `1px solid ${item.color}` }}
               />
-              <span className="text-[11px] font-mono" style={{ color: COLORS.textMutedOpaque }}>
+              <span className="text-2xs font-mono" style={{ color: COLORS.textMutedOpaque }}>
                 {stateLabelText(locale, item.state)}
               </span>
             </div>

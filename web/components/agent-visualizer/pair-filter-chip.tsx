@@ -93,7 +93,7 @@ export function PairFilterChip({ pair, nameOf, count, onClear, locale = 'en' }: 
           role="group"
           lang={locale}
           aria-label={tr(locale, 'pair.group', { label: pairSpokenText(locale, pair, nameOf) })}
-          className="inline-flex items-center gap-0.5 rounded-full pl-2 text-[11px] font-mono max-w-full"
+          className="inline-flex items-center gap-0.5 rounded-full pl-2 text-2xs font-mono max-w-full"
           style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
         >
           <span className="truncate" title={pairSpokenText(locale, pair, nameOf)}>{pairChipLabelText(pair, nameOf)}</span>

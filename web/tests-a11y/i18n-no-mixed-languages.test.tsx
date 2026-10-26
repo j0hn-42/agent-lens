@@ -1005,7 +1005,7 @@ for (const locale of LOCALES) {
   test(`the playback bar (live, offline, demo, review, confirmation, truncated history) speaks only ${locale}`, () => {
     setLocaleChoice(locale)
     const strings: string[] = []
-    const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, onResumeLive: noop, onEnterReview: noop }
+    const common = { isPlaying: false, speed: 1, currentTime: 75, totalDuration: 3725, onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onSeek: noop, timelineEvents: [], eventCount: 3, droppedEvents: 250, lostMarkers: 7, onResumeLive: noop, onEnterReview: noop }
     const toolbarLang = (view: ReturnType<typeof render>) => assert.equal(langOf(view.getByRole('toolbar')), locale, `the bar declares lang=${locale}`)
     for (const live of [{ connectionStatus: 'watching' }, { connectionStatus: 'connected' }, { connectionStatus: 'disconnected' }, { connectionStatus: 'connecting' }, { isDemo: true }] as const) {
       const view = render(<ControlBar {...common} {...live} />)
@@ -1277,7 +1277,7 @@ for (const locale of LOCALES) {
     assert.equal(langOf(button), locale)
     assert.equal(button.querySelector('[lang="en"][data-i18n-exempt]')?.textContent, 'orchestrator', 'the agent name in the button is data, lang="en"')
     strings.push(...surfaceStrings(view.container))
-    fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.unread.one', { n: 1 }) }))
+    fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.unread.one', { n: 1 }) + ' ' + MESSAGES[locale]['conv.picker.unreadSuffix'] }))
     strings.push(...surfaceStrings(view.container))
     fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['conv.picker.unreadOnly'] }))
     fireEvent.click(view.getByRole('button', { name: translate(locale, 'conv.picker.group.done', { n: 6 }) }))

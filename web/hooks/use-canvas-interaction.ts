@@ -22,6 +22,10 @@ interface InteractionCallbacks {
   onClusterClick?: (clusterKey: string) => void
   /** The badge of a collapsed branch was clicked, or Left / Right asked to fold / unfold it */
   onToggleBranch?: (agentId: string) => void
+  /** A workspace zone is dragged by its header: put its centre at (x, y), world coordinates */
+  onWorkspaceDrag?: (projectId: string, x: number, y: number) => void
+  /** Centre of a workspace zone as laid out now (where its drag starts from) */
+  getWorkspaceCentre?: (projectId: string) => { x: number; y: number } | undefined
 }
 
 interface InteractionOptions {
@@ -73,8 +77,14 @@ export function useCanvasInteraction({
   const [isDragging, setIsDragging] = useState(false)
   /** True while the pointer is over something clickable (drives the `pointer` cursor) */
   const [overInteractive, setOverInteractive] = useState(false)
+  /** True while the pointer is over a workspace header (drives the `move` cursor) */
+  const [overMovable, setOverMovable] = useState(false)
   const isDraggingRef = useRef(false)
-  const dragTargetRef = useRef<{ type: 'canvas' | 'agent'; id?: string; startX: number; startY: number; originX: number; originY: number } | null>(null)
+  const dragTargetRef = useRef<{
+    type: 'canvas' | 'agent' | 'workspace'; id?: string; startX: number; startY: number; originX: number; originY: number
+    /** Workspace drag: world point grabbed and centre of the zone at the press */
+    grab?: { x: number; y: number }; centre?: { x: number; y: number }
+  } | null>(null)
   isDraggingRef.current = isDragging
 
   // Floaty agent drag
@@ -110,6 +120,7 @@ export function useCanvasInteraction({
     if (key !== lastHoverKeyRef.current) {
       lastHoverKeyRef.current = key
       setOverInteractive(target !== null)
+      setOverMovable(target?.type === 'workspace')
       onHoverTargetChange?.(target)
     }
   }, [drawPropsRef, onHoverTargetChange])
@@ -141,13 +152,19 @@ export function useCanvasInteraction({
     const hit = hitTest(e.clientX, e.clientY)
     panVelocityRef.current = { vx: 0, vy: 0, active: false }
     setIsDragging(true)
+    const centre = hit?.type === 'workspace' ? drawPropsRef.current.getWorkspaceCentre?.(hit.id) : undefined
     if (hit?.type === 'agent') {
       dragTargetRef.current = { type: 'agent', id: hit.id, startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY }
+    } else if (hit?.type === 'workspace' && centre) {
+      dragTargetRef.current = {
+        type: 'workspace', id: hit.id, startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY,
+        grab: screenToCanvas(e.clientX, e.clientY), centre,
+      }
     } else {
       dragTargetRef.current = { type: 'canvas', startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY }
       lastPanPosRef.current = { x: e.clientX, y: e.clientY, time: performance.now() }
     }
-  }, [hitTest, panVelocityRef])
+  }, [hitTest, panVelocityRef, drawPropsRef, screenToCanvas])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (pointersRef.current.has(e.pointerId)) {
@@ -191,9 +208,16 @@ export function useCanvasInteraction({
           const pos = screenToCanvas(e.clientX, e.clientY)
           dragLerpRef.current = { targetX: pos.x, targetY: pos.y, agentId: dragTarget.id }
         }
+      } else if (dragTarget.type === 'workspace' && dragTarget.id && dragTarget.grab && dragTarget.centre) {
+        // The zone follows the pointer as grabbed (no lerp: the layout carries its agents at once)
+        const screenDist = Math.abs(e.clientX - dragTarget.originX) + Math.abs(e.clientY - dragTarget.originY)
+        if (screenDist > ANIM.dragThresholdPx) {
+          const pos = screenToCanvas(e.clientX, e.clientY)
+          drawPropsRef.current.onWorkspaceDrag?.(dragTarget.id, dragTarget.centre.x + pos.x - dragTarget.grab.x, dragTarget.centre.y + pos.y - dragTarget.grab.y)
+        }
       }
     }
-  }, [screenToCanvas, hitTest, updateHover, mainCanvasRef, zoomBy, panBy, panVelocityRef])
+  }, [screenToCanvas, hitTest, updateHover, mainCanvasRef, zoomBy, panBy, panVelocityRef, drawPropsRef])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     const wasPinching = pinchRef.current !== null || gestureConsumedRef.current
@@ -399,6 +423,7 @@ export function useCanvasInteraction({
   return {
     isDragging,
     overInteractive,
+    overMovable,
     dragLerpRef,
     handlers: {
       onPointerDown: handlePointerDown,

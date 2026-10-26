@@ -3,7 +3,7 @@ import type { Particle, Edge, DepthParticle, TeamSummary } from '@/lib/agent-typ
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import {
-  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold,
+  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, AGENT_DRAW, expiryHold,
 } from '@/lib/canvas-constants'
 import { BloomRenderer } from '@/components/agent-visualizer/bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from '@/components/agent-visualizer/background-layer'
@@ -16,7 +16,7 @@ import {
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom, discoveryCardScale, frameLevel,
-  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
+  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, workspaceHeaderRect, workspaceHeaderHits, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
@@ -29,7 +29,7 @@ import { drawBranchBadges } from '@/components/agent-visualizer/canvas/draw-bran
 import type { NavNode } from '@/components/agent-visualizer/canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, type KeyedEdgeBubble } from '@/components/agent-visualizer/canvas/edge-bubble-set'
 import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
-import { MOBILE_QUERY, TOUCH_TARGET_PX } from '@/lib/mobile-view'
+import { isMobileViewport, TOUCH_TARGET_PX } from '@/lib/mobile-view'
 import { createHaloEaser } from '@/components/agent-visualizer/canvas/halo-geometry'
 import { planKey, toolCardRects } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
@@ -285,6 +285,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.theme = theme
       opts.reducedMotion = reducedMotion
       opts.zoom = transform.scale
+      opts.dpr = dpr
       const lod = lodForZoom(transform.scale, lodRef.current)
       lodRef.current = lod
       opts.lod = lod
@@ -297,6 +298,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
       opts.replayLost = deps.drawPropsRef.current.replayLost
+      opts.simTime = deps.simTimeRef.current
       opts.maskText = deps.presentationRef.current.mask
       // Loop / repeat badges (#377): re-derived only when the verdicts, the ledger or the drawn agents change
       {
@@ -324,6 +326,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       haloEaserRef.current.apply(clusters, deltaTime, reducedMotion)
       deps.clustersRef.current = clusters
       const workspaceZones = computeWorkspaceZones(clusters)
+      // The header chips are the grip of the zones: hit-tested as drawn (same rect as drawWorkspaceZones)
+      workspaceHeaderHits.rects = new Map(workspaceZones.map(z => [z.projectId, workspaceHeaderRect(z, transform.scale)]))
       const hoverTarget = deps.hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
       const edgeBubbles: KeyedEdgeBubble[] = []
@@ -339,11 +343,15 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       const cappedEdgeBubbles = capEdgeBubbles(edgeBubbles)
       const heldBubbleKeys = new Set<string>()
       for (const b of cappedEdgeBubbles) if (deps.heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
+      const labelMeasure = (t: string) => {
+        ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
+        return measureTextCached(ctx, t)
+      }
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
           agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys,
           // Below 768 px the bubble zones are touch targets of 44 px (#514)
-          touchTargetPx: typeof window !== 'undefined' && window.matchMedia?.(MOBILE_QUERY).matches ? TOUCH_TARGET_PX : 0,
+          touchTargetPx: isMobileViewport() ? TOUCH_TARGET_PX : 0,
           transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod,
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
@@ -353,6 +361,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
           toolCards: toolCardRects(toolCalls.values(), toolCardSize),
           // Halo titles move off the workspace headers and the collapsed Conversation pill (#378)
           workspaceZones, covers: deps.getCovers(), replayLost: opts.replayLost,
+          // Labels wrap where the drawn labels wrap: the line count of the context bar comes from this plan (#613)
+          measureLabel: labelMeasure,
         })
         : EMPTY_PLAN
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)

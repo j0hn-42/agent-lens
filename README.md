@@ -1,226 +1,113 @@
 # Agent Lens
 
-> Agent Lens is based on [Agent Flow](https://github.com/patoles/agent-flow) by Simon Patole (Apache License 2.0). See [Origin and credits](#origin-and-credits).
+[![CI](https://img.shields.io/github/actions/workflow/status/j0hn-42/agent-lens/ci.yml?branch=main&label=CI)](https://github.com/j0hn-42/agent-lens/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Version](https://img.shields.io/github/package-json/v/j0hn-42/agent-lens?filename=extension%2Fpackage.json&branch=main&label=version)](extension/CHANGELOG.md)
 
-Real-time visualization of Claude Code, Codex, GitHub Copilot, Pi, Gemini CLI and OpenCode agent orchestration. Watch your agents think, branch, and coordinate as they work. 
+**A live canvas of your coding agents.** See what Claude Code, Codex, GitHub Copilot, Pi, Gemini CLI and OpenCode think, which tools they call and how they hand work to each other, as it happens.
+
+*English · [Français](README.fr.md)*
+
+![Agent Lens following a Claude Code session: an orchestrator reads the code, then dispatches two sub-agents that work in parallel](docs/media/hero.gif)
+
+[Watch the tour video](docs/media/tour.mp4) · [Try it without a session](#quick-start): `pnpm run dev:demo`
+
+> Agent Lens is based on [Agent Flow](https://github.com/patoles/agent-flow) by Simon Patole (Apache License 2.0). See [Origin and credits](#origin-and-credits).
 
 ## Why Agent Lens?
 
-Agent Lens started from Agent Flow, a visualizer created by Simon Patole because debugging agent behavior was painful. We took the project over and push it further: accessibility, a single view of all agents across sessions, and readable agent-to-agent communication.
+An agent session is a black box: you see the final result, not the journey. Agent Lens shows the journey, so you can trace the tool calls that led to a failure, spot slow or repeated work, understand how sub-agents coordinate, and learn how your prompts get executed. It reads what the agents leave on your machine and shows only what it can prove: an unknown state reads "Not observed", a partial total reads "at least X".
 
-Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Agent Lens makes the invisible visible:
+![The same events as a flat log and in Agent Lens](docs/media/before-after.png)
 
-- **Understand agent behavior** — See how Claude breaks down problems, which tools it reaches for, and how subagents coordinate
-- **Debug tool call chains** — When something goes wrong, trace the exact sequence of decisions and tool calls that led there
-- **See where time is spent** — Identify slow tool calls, unnecessary branching, or redundant work at a glance
-- **Learn by watching** — Build intuition for how to write better prompts by observing how Claude interprets and executes them
-
-## Features
-
-- **Live agent visualization**: Watch agent execution as an interactive node graph with real-time tool calls, branching, and return flows
-- **Claude Code + Codex + GitHub Copilot + Pi + Gemini CLI + OpenCode**: Auto-detects sessions from all runtimes concurrently and shows them side-by-side, or restrict to one via the `agentVisualizer.runtime` setting
-- **Claude Code hooks**: Lightweight HTTP hook server receives events directly from Claude Code for zero-latency streaming
-- **Copilot session tailing**: Reads local `~/.copilot/session-state/<id>/events.jsonl` (respects `COPILOT_HOME`), matched to the workspace through `workspace.yaml`, and surfaces messages, tool calls and sub-agent activity. Cloud-hosted Copilot agent sessions are not covered
-- **OpenCode session reading**: Reads OpenCode's SQLite database (`<data>/opencode.db` for the latest, beta and prod channels (`opencode-<channel>.db` for any other channel), `<data>` being `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`; `OPENCODE_DB` overrides it: an absolute path is used as is, a relative one is resolved under `<data>`), read-only and without any hook, and surfaces prompts, replies, reasoning and tool calls. Only sessions with rows in the last 10 minutes are followed (25 at most, the most recent first), and history older than that is not replayed. Linux (macOS not verified) for now (see [Reading the UI](docs/reading-the-ui/runtimes.md#opencode-sessions))
-- **Gemini CLI session tailing**: Reads `~/.gemini/tmp/<project>/chats/session-<timestamp>-<id>.jsonl` (respects `GEMINI_CLI_HOME`), matched to the workspace through the `projectHash` of the first record (the sha256 of the project root), and surfaces prompts, replies, thoughts and tool calls. Sub-agent chat files are not read, so no sub-agent is drawn; tokens and cost are not read yet (see [Reading the UI](docs/reading-the-ui/runtimes.md#gemini-cli-sessions))
-- **Pi session tailing**: Reads `~/.pi/agent/sessions/--<path>--/<timestamp>_<id>.jsonl` (respects `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`), matched to the workspace through the `cwd` of the session header, and surfaces prompts, replies, thinking, tool calls and compactions. Pi has no sub-agents; tokens and cost are not read yet (see [Reading the UI](docs/reading-the-ui/runtimes.md#pi-sessions))
-- **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
-- **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree), sorted by recent activity, renamable (F2) and prefixed by folder when several folders are open
-- **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
-- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [Reading the UI](docs/reading-the-ui/views.md)), and the conversation (one panel for messages, tool calls and per-agent views)
-- **Repeated reads and calls**: the Files & repeats panel lists, in a section folded behind a counted summary, files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui/repeated-reads.md))
-- **Delegation report**: the inspector of an agent lists each of its sub-agents with its tokens, the files it was seen to read, the duration the runtime reported and the start of its returned report; unknown values say so (see [Reading the UI](docs/reading-the-ui/delegation-report.md#delegation-report))
-- **System panel**: CPU, memory, swap, disk and load of the machine that runs the relay, with a 2-minute history and no invented value (see [docs/system-stats.md](docs/system-stats.md))
-- **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
-- **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo
-- **Comms**: message links between agents, with the latest message on the link and a panel to read the exchange
-- **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand, and the session's capabilities (instruction files, skills grouped by plugin, MCP servers) as its transcript recorded them. Standalone relay only (`pnpm run dev` / app), not in the VS Code extension, where the Context button says so; the issue and PR links of the panel are relay-only too
-- **Nine dark themes**: Catppuccin Macchiato (default) with Mocha and Frappé, Midnight (calm indigo), Graphite (neutral), Neon (the original cyan look), Ember (warm, low blue light), Anthropic (warm neutrals and orange, inspired by the public Anthropic colours, not an official theme) and High contrast (pure black, white text, yellow accent, for low vision), chosen with the **Theme** selector in **Settings** (the gear button in the top bar; the theme applies to the interface and to the agent state colours on the canvas; the rest of the canvas and the page background keep the neon colours). See [Reading the UI](docs/reading-the-ui/themes.md#themes)
-- **Subscription quota gauges**: two small gauges in the top bar show how much of the Claude Code 5-hour and weekly quota is left, as Claude Code reports it, with the reset time on hover or focus and `quota: unknown for now` when it cannot be proven. The data comes from Claude Code's status line, which Agent Lens wraps only if you run `node scripts/setup.js --statusline` (opt-in, undone with `--restore-statusline`). Nothing is shown before any quota has been received, nor for a Copilot or OpenCode session (see [Reading the UI](docs/reading-the-ui/cost-and-usage.md#subscription-quota-gauges))
-- **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui/honest-values.md)
-- **Operator control (VS Code, off by default)**: an optional `PermissionRequest` hook and a decision channel let the panel answer Claude Code permission requests. Fails closed (no answer means Claude Code asks as usual), one decision per request, journalled in a 0600 file without the tool input. See [docs/operator-control.md](docs/operator-control.md)
-- **Session export and HTML replay**: save a session as one offline HTML file with a keyboard scrubber, secrets redacted before writing (best effort). See [docs/session-export.md](docs/session-export.md)
-- **Headless use**: `ps`, `tail` and `statusline` commands, a one-line `/statusline` endpoint for tmux or zellij, and webhooks on live agent events (explicit destinations, fixed body, bounded). See [docs/headless.md](docs/headless.md)
-- **Tray icon (driver and Go protocol module only, no native binary yet)**: an optional Node driver for a system tray icon (open the UI, tracked sessions or "unknown", copy the local URL, quit); the app works the same without it. See [docs/tray.md](docs/tray.md)
-- **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md)). Standalone relay only (`pnpm run dev` / app), not in the VS Code extension
-- **MCP server `agent-lens`**: register it in `.mcp.json` and Claude reads, as read-only MCP tools, the observed sessions and agent states and the PR / issue links of a session's project; a failure is an error, never an empty list (see [docs/mcp-server.md](docs/mcp-server.md))
-- **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
-
-## Getting Started
-
-### Run from source (no VS Code required)
+## Quick start
 
 ```bash
 git clone https://github.com/j0hn-42/agent-lens.git
 cd agent-lens
-pnpm i
-pnpm run setup      # configure Claude Code hooks (one-time)
-pnpm run dev        # start the web app + event relay
+pnpm i && pnpm run setup && pnpm run dev
 ```
 
-Open http://localhost:3000 and start a Claude Code session in another terminal — events will stream to the browser in real-time.
+Open http://localhost:3000 and start a Claude Code, Codex or other agent session in another terminal: events stream to the browser as they happen. No session at hand? `pnpm run dev:demo` plays a tour of every feature on mock data.
 
-### Standalone app (built from source)
+Requires [Node.js](https://nodejs.org/) 20+, [pnpm](https://pnpm.io/) and the CLI of at least one runtime above.
 
-There is no `agent-lens-app` package on npm to run with `npx`. Build the app from the checkout and run it with Node:
+## What you see
+
+- **A live canvas**: agents, sub-agents and their tool calls as an interactive graph, with branching and return flows. Click anything to inspect it.
+- **Every session at once**: the Fleet (All) view puts every watched session on one canvas, grouped by project, next to a Sessions panel that lists them as a tree.
+- **Timeline, Files and Conversation**: the full execution timeline, which files agents touched or edited together, and one conversation for messages and tool calls.
+- **Honest values**: nothing is shown that cannot be proven; what is guessed or partial says so ([what each label means](docs/reading-the-ui/honest-values.md)). The views are explained in [Reading the UI](docs/reading-the-ui.md).
+- **Replay and demo**: export a session as one offline HTML file with a keyboard scrubber; a guided tour runs on mock data.
+- **Nine dark themes and WCAG 2.1 AA**: chosen in **Settings**; accessibility is checked in CI.
+
+<table>
+  <tr>
+    <td><a href="docs/media/fleet.png"><img src="docs/media/fleet.png" alt="The Fleet view: a team, a workflow and a Codex session grouped on one canvas"></a></td>
+    <td><a href="docs/media/comms.png"><img src="docs/media/comms.png" alt="The Conversation panel showing the messages two teammates exchange"></a></td>
+    <td><a href="docs/media/cost.png"><img src="docs/media/cost.png" alt="The Cost panel: costs per agent marked estimated, with an unattributed line"></a></td>
+  </tr>
+  <tr>
+    <td align="center">Fleet view</td>
+    <td align="center">Comms between agents</td>
+    <td align="center">Cost, with its limits</td>
+  </tr>
+</table>
+
+More, with every limit stated, in [Features](docs/features.md): workflows and teams, repeated reads, delegation report, Context panel, quota gauges, headless commands, an MCP server and more.
+
+## Runtimes
+
+Agent Lens watches all of them at once and tags each session with its runtime.
+
+| Runtime | Reads | Known limits |
+| --- | --- | --- |
+| Claude Code | hooks, plus transcripts in `~/.claude/projects/` | |
+| Codex | rollouts in `~/.codex/sessions/` | |
+| GitHub Copilot | `~/.copilot/session-state/` | local sessions only, not cloud-hosted ones |
+| Pi | `~/.pi/agent/sessions/` | no sub-agents; tokens and cost not read yet |
+| Gemini CLI | `~/.gemini/tmp/` | no sub-agents drawn; tokens and cost not read yet |
+| OpenCode | its SQLite database, read-only | Linux only so far; sessions of the last 10 minutes |
+
+Cursor is not supported yet. See the [roadmap](docs/roadmap.md) for what is delivered, partial or blocked.
+
+## Install
+
+**From source**: the three commands of the [quick start](#quick-start), or `pnpm run build:app` then `node app/dist/app.js` for the standalone app (serves the UI and the relay, opens the browser; `--port <n>`, `--no-open`, `--all-workspaces`).
+
+**VS Code extension**: build the `.vsix` from source and install it. Works with VS Code 1.85+, [Cursor](https://cursor.sh/) and [Windsurf](https://windsurf.com/).
 
 ```bash
-pnpm i
-pnpm run build:app            # writes app/dist/app.js and app/dist/webview/
-node app/dist/app.js          # serves the UI and the relay, then opens the browser
-```
-
-Options: `--port <n>` (default 3001, `0` = ephemeral port), `--no-open` (do not open the browser), `--all-workspaces` (discover the Claude sessions of every workspace from the start). Run `node app/dist/app.js --help` for the full list.
-
-### VS Code Extension
-
-Build the `.vsix` from source and install it:
-
-```bash
-pnpm i
-npm install -g @vscode/vsce                   # once: the `package` script calls the `vsce` command
-pnpm --filter agent-lens run package          # builds the webview and the extension, writes extension/agent-lens-<version>.vsix
+pnpm --filter agent-lens run package
 code --install-extension extension/agent-lens-<version>.vsix
 ```
 
-Use `cursor` or `windsurf` instead of `code` for those editors (or **Extensions: Install from VSIX...** in the Command Palette). It works with any VS Code-compatible IDE 1.85 or newer, including [Cursor](https://cursor.sh/) and [Windsurf](https://windsurf.com/).
+Then run **Agent Lens: Open Agent Lens** from the Command Palette. The full steps, the choice of runtime, the scope of the scanned sessions and the settings are in [Install and configure](docs/install.md) and the [reference](docs/reference.md). Something does not show up? See the [FAQ](docs/faq.md).
 
-Then:
+## Who it is for
 
-1. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
-2. Start a Claude Code, Codex, Copilot, Pi, Gemini CLI or OpenCode session in your workspace. Agent Lens will auto-detect it
+**For** people who run coding agents and want to see what they did: why a session went wrong, where time and tokens went, which files were read again and again.
 
-Agent Lens automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Lens: Configure Claude Code Hooks** from the Command Palette.
-
-### Runtime selection
-
-By default Agent Lens watches Claude Code (`~/.claude/projects/`), Codex (`~/.codex/sessions/`) local GitHub Copilot (`~/.copilot/session-state/`) Pi (`~/.pi/agent/sessions/`), Gemini CLI (`~/.gemini/tmp/`) and OpenCode (`~/.local/share/opencode/opencode.db`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `node app/dist/app.js`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
-
-To restrict to one runtime:
-
-- **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` / `"copilot"` / `"pi"` / `"gemini"` / `"opencode"` in your settings
-- **`pnpm run dev` and `node app/dist/app.js`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex`, `copilot`, `pi`, `gemini` or `opencode` (defaults to watching all)
-
-For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`; for Pi, `PI_CODING_AGENT_DIR` (sessions under `<dir>/sessions`) or `PI_CODING_AGENT_SESSION_DIR` (session files directly in it), the variables Pi itself reads; for Gemini CLI, `GEMINI_CLI_HOME` (sessions under `<dir>/.gemini/tmp`), the variable Gemini CLI itself reads.
-
-### Scope: this workspace, a project, or all workspaces
-
-By default the relay only discovers the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and the standalone app (`node app/dist/app.js`) the top bar has a **Session scope** selector (a native select, keyboard operable): **This workspace**, **All workspaces**, or **Project: <name>** (one of the projects in the list). The choice is applied to the running relay, with no restart, and remembered in the browser; the line next to the selector always says what is really scanned ("Scanning this workspace only (name)"; nothing is written on all workspaces), taken from the relay's own `GET /status`, and an empty list on a single workspace says so and how to widen it.
-
-- `--all-workspaces` (or `AGENT_LENS_ALL_WORKSPACES=1`) now only gives the **initial** scope; the selector changes it afterwards.
-- The discovery ceilings stay in force in every scope (200 project folders, 500 transcripts per folder, 256 MB per transcript, 25 watched sessions) and an overflow is shown next to the selector, never silent.
-- A project choice narrows the Sessions and agents list and the **All** view of the canvas to that project; it does not change what the relay scans.
-- Codex, Copilot, Pi, Gemini CLI and OpenCode sessions are matched to the workspace by their own watchers and are not affected by the scope. The VS Code extension has no selector: it reads the sessions of its own workspace.
-
-See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guards.
-
-### Event sources and the local server
-
-Hooks and JSONL transcripts are reconciled (no duplicate events), and the local server is loopback-only and hardened (`AGENT_LENS_PORT=0` or `--port 0` picks an ephemeral port). See [docs/relay-sources.md](docs/relay-sources.md).
-
-Sessions of a cloud agent leave nothing on this machine. Fetch their JSONL transcript and import it with `node app/dist/app.js --import <file-or-folder>` (or `AGENT_LENS_IMPORT`): it is read once, listed as *imported - not live*, and never shown as running. See [Imported transcripts](docs/relay-sources.md#imported-transcripts-294).
-
-### JSONL Event Log
-
-You can also point Agent Lens at a JSONL event log file:
-
-1. Set `agentVisualizer.eventLogPath` in your VS Code settings to the path of a `.jsonl` file
-2. Agent Lens will tail the file and visualize events as they arrive
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `Agent Lens: Open Agent Lens` | Open the visualizer panel |
-| `Agent Lens: Open Agent Lens to Side` | Open in a side editor column |
-| `Agent Lens: Connect to Running Agent` | Manually connect to an agent session |
-| `Agent Lens: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
-| `Agent Lens: Install the Permission Hook (operator control)` | Install the optional PermissionRequest hook of the [operator control](docs/operator-control.md) |
-| `Agent Lens: Remove the Permission Hook (operator control)` | Remove that hook; the observation hooks stay |
-
-## Keyboard Shortcut
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Agent Lens |
-
-Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, panels, sessions (direct jump) and agents, all from the keyboard. `?` lists every shortcut. See [Reading the UI](docs/reading-the-ui/command-palette.md).
-
-## Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (all), `"claude"`, `"codex"`, `"copilot"`, `"pi"`, `"gemini"`, or `"opencode"` |
-| `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
-| `agentVisualizer.eventLogPath` | `""` | Path to a JSONL event log file to watch |
-| `agentVisualizer.allowControl` | `false` | Let the panel answer Claude Code permission requests; see [operator control](docs/operator-control.md). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
-| `agentVisualizer.autoOpen` | `false` | Auto-open when an agent session starts |
-
-## Requirements
-
-- [Node.js](https://nodejs.org/) 20+ (LTS recommended)
-- [pnpm](https://pnpm.io/)
-- Claude Code CLI
-- For the VS Code extension: a VSCode-compatible IDE 1.85+ (e.g. [VS Code](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), [Windsurf](https://windsurf.com/))
-
-## Development
-
-```bash
-pnpm i              # install dependencies for all packages
-pnpm run setup      # configure Claude Code hooks (one-time)
-pnpm run dev        # start dev server + event relay
-```
-
-`pnpm run dev` starts both the Next.js dev server and an event relay that receives Claude Code events and streams them to the browser via SSE.
-
-Other scripts:
-
-| Script | Description |
-|--------|-------------|
-| `pnpm run dev:demo` | Start with the demo tour: every feature on mock data (script: [docs/demo.md](docs/demo.md)) |
-| `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
-| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)). On a real session, **Tour this session** (beside **Legend**) explains only the symbols on screen ([Reading the UI](docs/reading-the-ui/legend-and-tour.md)) |
-| `pnpm run dev:relay` | Run the event relay server standalone |
-| `pnpm run mcp` | Run the read-only `agent-lens` MCP server on stdio (started by Claude Code from `.mcp.json`, see [docs/mcp-server.md](docs/mcp-server.md)) |
-| `pnpm run dev:extension` | Watch-build the extension |
-| `pnpm run build:all` | Production build (webview + extension) |
-| `pnpm run build:web` | Build the Next.js web app |
-| `pnpm run build:extension` | Build the extension |
-| `pnpm run build:webview` | Build the webview assets |
-| `pnpm run gen:themes` | Regenerate `web/app/themes.css` after editing the theme tokens (`web/lib/theme-tokens.json`) |
-| `pnpm --filter agent-lens run package` | Build the extension and package it as a `.vsix` (runs `vsce package`; needs `@vscode/vsce` installed globally) |
-
-Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTING.md](CONTRIBUTING.md).
+**Not for**: a hosted service (it runs on your machine and sends no telemetry), an agent framework, or a billing tool (costs are estimates from the tokens a runtime reports, and say so). It observes. Two opt-in features, off by default, can act: [operator control](docs/operator-control.md) in VS Code and [launching an agent](docs/launch-security.md).
 
 ## Documentation
 
+- [Features](docs/features.md): each feature, with its limits
+- [Install and configure](docs/install.md) and [Reference](docs/reference.md): commands, settings, scripts
+- [FAQ and troubleshooting](docs/faq.md)
 - [Reading the UI](docs/reading-the-ui.md): views, and what "Not observed", "at least", "estimated" and "unattributed" mean
 - [Node inspector](docs/node-inspector.md): model, cost attribution, issue and PR links
 - [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
-- [Remote access](docs/remote-access.md): a named tunnel with `--allow-host` and `--token-file`, pairing a device, what the startup refuses, and what is still to come
+- [Remote access](docs/remote-access.md): a named tunnel with `--allow-host` and `--token-file`
 - [Roadmap](docs/roadmap.md): which runtimes are delivered, partial or blocked, and what remains for remote access, mobile and the tray icon
-- [Launching an agent](docs/launch-security.md): the opt-in `--allow-launch` route, its token, guards, caps and journal
-- [Sharing state](docs/state-share.md): snapshots and the `observations` action
-- [MCP server](docs/mcp-server.md): give Claude the observations as MCP tools, and how to register it in `.mcp.json`
-- [Session export](docs/session-export.md): the standalone HTML replay, what it contains and how secrets are redacted
+- [Launching an agent](docs/launch-security.md): the opt-in `--allow-launch` route
+- [Sharing state](docs/state-share.md) and the [MCP server](docs/mcp-server.md): give Claude the observations
+- [Headless use](docs/headless.md): `ps`, `tail`, `statusline` and webhooks
+- [Session export](docs/session-export.md): the standalone HTML replay
 - [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
 
-## Releasing
-
-1. Bump `version` in `extension/package.json` and `app/package.json` (they must match) and add a `## <version>` entry at the top of `extension/CHANGELOG.md`. Every user-visible change (feature, fix, behaviour change) gets a line there, with its issue number, in the same PR that introduces it or at the latest when bumping.
-2. `node scripts/release-check.js` verifies the two versions and the CHANGELOG entry (it also runs in CI).
-3. Push a tag `vX.Y.Z` matching the version. The `Release` workflow builds the webview and extension, packages `agent-lens.vsix` as a workflow artifact and attaches it to a GitHub Release. It can also be run by hand (`workflow_dispatch`, never on `develop`) to get the `.vsix` artifact only. Nothing is published to the Marketplace or Open VSX and no secret is used.
-
-## Accessibility testing
-
-Three layers run in CI (see `.github/workflows/ci.yml`):
-
-- **Lint** — `pnpm --dir web run lint:a11y` runs `eslint-plugin-jsx-a11y` (strict preset, inline disables ignored; one commented per-file exception lets the graph surface of `canvas.tsx` keep its focusable `role="img"`) and compares the result with `web/tests-a11y/lint-baseline.json`, one entry per file and rule with a violation count and the issue that fixes it. It fails on any new violation and on any listed violation that was fixed. After fixing code, run `pnpm --dir web run lint:a11y -- --write` and review the diff; the baseline should only shrink.
-- **jsdom + axe-core** — `pnpm run test:a11y` renders the key components (top bar, control bar in live and review mode, sessions panel, Conversation, file attention, popups, context menu, shortcuts dialog, timeline canvas and table view) and runs axe-core on them. Keyboard wiring tests render the real components and dispatch real key events (scrubber arrows, Space on a button, Escape, context-menu arrows). Known axe violations live in `web/tests-a11y/known-violations.json` with an issue number; the test fails on a new violation and when a listed one disappears, with a message saying which entry to remove.
-- **Browser (Playwright + `@axe-core/playwright`)** — `pnpm --dir web run test:e2e` starts the demo app itself on a free port (and stops it at the end; set `E2E_BASE_URL` to use a server that is already running instead) for what jsdom cannot see: serious/critical axe violations including color contrast on the initial page, each panel, review mode, the shortcuts dialog, the context menu (right click) and the tool detail popup (opened from the graph outline button that mirrors a canvas click); the context menu keys (Shift+F10, ContextMenu, ArrowDown/Up, Home, End, Escape, Tab) with focus return, and Escape on the tool popup; no clipped containers, horizontal scroll or off-screen controls at 320 px and 640 px (400 % and 200 % zoom; only the elements tracked in issue #23 are tolerated, any other clipped control fails), measured only after the layout is stable (bounding boxes unchanged over two animation frames and a quiet period) and with the Files and Conversation panels open; the canvas redraws markedly less (pixel diff between two frames, against a no-preference baseline) and no infinite CSS animation runs under `prefers-reduced-motion: reduce`; no invisible control in the Tab order; Space, Escape and scrubber keys on the real page. Install the browser once with `pnpm --dir web exec playwright install chromium`. The server log is written to `web/test-results/demo-server-<file>.log`, one per e2e file (the shared `demo-server.log` only when no entry file is known). Browser-level findings use the `e2e:*` scenarios of `known-violations.json`.
-
-Color contrast of the design tokens is also checked without a browser by `scripts/contrast.test.ts` (part of `pnpm test`).
+Contributing (branches, labels, accessibility checks, releases): see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Origin and credits
 

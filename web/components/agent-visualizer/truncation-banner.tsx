@@ -20,6 +20,11 @@ export interface TruncationBannerProps {
   stats: NormalizationStats
   /** Events the relay could not replay when the page connected (lower bound, see lib/event-loss); 0 or invalid = none. */
   replayLost?: number
+  /**
+   * Events of the view the page freed from its own memory before handing them to it (#613, from useSessionViewSwap:
+   * the buffers' counters, exact); 0 or invalid = none.
+   */
+  memoryDropped?: number
   /** The user dismissed the banner for this session. */
   onDismiss: () => void
   /** DOM id of a stable element that receives the focus when the banner is dismissed (the banner unmounts with its own button) */
@@ -43,7 +48,7 @@ export interface TruncationBannerProps {
 const LOSS_REASONS: ReadonlyArray<keyof NormalizationStats> = ['ignoredEvents', 'malformed', 'droppedByCap', 'missedUpdates']
 const ADJUSTMENT_REASONS: ReadonlyArray<keyof NormalizationStats> = ['clampedFields', 'duplicateEvents']
 
-/** A replay loss as the banner reads it: a positive safe integer, 0 otherwise */
+/** A replay loss (or a count of events freed from memory) as the banner reads it: a positive safe integer, 0 otherwise */
 const replayCount = (n: number | undefined) => (n !== undefined && Number.isSafeInteger(n) && n > 0 ? n : 0)
 
 /** Singular form for one (French: also zero), plural otherwise. */
@@ -51,8 +56,8 @@ function form(locale: Locale, n: number): 'one' | 'other' {
   return (locale === 'fr' ? n < 2 : n === 1) ? 'one' : 'other'
 }
 
-/** "N events ignored, M nodes dropped[, at least K updates not read]" and the replay loss, in the interface language. */
-function headline(locale: Locale, stats: NormalizationStats, truncated: boolean, lost: number): string {
+/** "N events ignored, M nodes dropped[, at least K updates not read]", the replay loss and the events freed from memory. */
+function headline(locale: Locale, stats: NormalizationStats, truncated: boolean, lost: number, memory: number): string {
   const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
   const { events, nodes } = truncationHeadline(stats)
   const missed = stats.missedUpdates
@@ -69,6 +74,10 @@ function headline(locale: Locale, stats: NormalizationStats, truncated: boolean,
     const replay = t(`truncation.replay.${form(locale, lost)}`, { n: lost })
     text += truncated ? `; ${replay}` : t('truncation.incomplete', { lost: replay })
   }
+  if (memory > 0) {
+    const freed = t(`truncation.memory.${form(locale, memory)}`, { n: memory })
+    text += text ? `; ${freed}` : t('truncation.incomplete', { lost: freed })
+  }
   return text
 }
 
@@ -77,7 +86,7 @@ function headline(locale: Locale, stats: NormalizationStats, truncated: boolean,
  * state is carried by words and a symbol, never by color alone. Details are a native disclosure
  * button; dismissal is reported to the parent, which owns the per-session memory.
  */
-export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocusId, initialOpen = false, takeFocus = false, onFocusTaken }: TruncationBannerProps) {
+export function TruncationBanner({ stats, replayLost = 0, memoryDropped = 0, onDismiss, returnFocusId, initialOpen = false, takeFocus = false, onFocusTaken }: TruncationBannerProps) {
   const [open, setOpen] = useState(initialOpen)
   const detailsId = useId()
   const lossesId = useId()
@@ -85,6 +94,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
   const toggleRef = useRef<HTMLButtonElement>(null)
   const { locale } = useLocale()
   const lost = replayCount(replayLost)
+  const memory = replayCount(memoryDropped)
   const truncated = truncationTotal(stats) > 0
   // Reopened from the indicator: the focus follows the user to the notice they asked for, once
   useEffect(() => {
@@ -105,7 +115,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
       document.getElementById(id)?.focus({ preventScroll: true })
     }
   }, [])
-  if (!truncated && lost === 0) return null
+  if (!truncated && lost === 0 && memory === 0) return null
   const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
 
   return (
@@ -121,7 +131,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
       <div className="flex items-center gap-3">
         <span className="min-w-0 break-words">
           <span aria-hidden="true">⚠ </span>
-          {headline(locale, stats, truncated, lost)}
+          {headline(locale, stats, truncated, lost, memory)}
         </span>
         <button
           ref={toggleRef}
@@ -153,6 +163,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
           <p id={lossesId} className="m-0 font-bold">{t('truncation.losses')}</p>
           <ul aria-labelledby={lossesId} className="list-none m-0 p-0">
             {lost > 0 && <li>{t('truncation.reason', { label: t('truncation.reason.replayLost'), n: lost })}</li>}
+            {memory > 0 && <li>{t('truncation.reason', { label: t('truncation.reason.memoryDropped'), n: memory })}</li>}
             {LOSS_REASONS.map(key => (
               <li key={key}>{t('truncation.reason', { label: t(`truncation.reason.${key}`), n: stats[key] })}</li>
             ))}
@@ -172,7 +183,7 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocus
 }
 
 /** The indicator's text: "at least N events not replayed" and/or the normalizer's "N events ignored, M nodes dropped". */
-function indicatorText(locale: Locale, stats: NormalizationStats, lost: number): string {
+function indicatorText(locale: Locale, stats: NormalizationStats, lost: number, memory: number): string {
   const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
   const parts: string[] = []
   if (lost > 0) parts.push(t(`truncation.indicator.replay.${form(locale, lost)}`, { n: lost }))
@@ -182,6 +193,7 @@ function indicatorText(locale: Locale, stats: NormalizationStats, lost: number):
     if (stats.missedUpdates > 0) cut += `, ${t(`truncation.missed.${form(locale, stats.missedUpdates)}`, { n: stats.missedUpdates })}`
     parts.push(cut)
   }
+  if (memory > 0) parts.push(t(`truncation.memory.${form(locale, memory)}`, { n: memory }))
   return parts.join('; ')
 }
 
@@ -190,20 +202,23 @@ function indicatorText(locale: Locale, stats: NormalizationStats, lost: number):
  * so nothing is hidden without the loss staying visible. Same numbers and the same "at least" as the banner; a native
  * button reopens the banner with its details. Nothing when nothing was lost (adjustments alone are no loss).
  */
-export function TruncationIndicator({ stats, replayLost = 0, onShow }: { stats: NormalizationStats; replayLost?: number; onShow: () => void }) {
+export function TruncationIndicator({ stats, replayLost = 0, memoryDropped = 0, onShow }: {
+  stats: NormalizationStats; replayLost?: number; memoryDropped?: number; onShow: () => void
+}) {
   const { locale } = useLocale()
   const lost = replayCount(replayLost)
-  if (lost === 0 && truncationTotal(stats) === 0) return null
+  const memory = replayCount(memoryDropped)
+  if (lost === 0 && memory === 0 && truncationTotal(stats) === 0) return null
   return (
     <p
       data-testid="truncation-indicator"
       lang={locale}
-      className="m-0 px-2 pb-1.5 flex flex-wrap items-center gap-x-2 text-[11px]"
+      className="m-0 px-2 pb-1.5 flex flex-wrap items-center gap-x-2 text-2xs"
       style={{ color: COLORS.textPrimary }}
     >
       <span className="min-w-0 break-words">
         <span aria-hidden="true">⚠ </span>
-        {indicatorText(locale, stats, lost)}
+        {indicatorText(locale, stats, lost, memory)}
       </span>
       <button
         type="button"

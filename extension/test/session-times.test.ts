@@ -24,7 +24,7 @@ function tmpTranscript(writtenAt: number): { dir: string; file: string } {
   return { dir, file }
 }
 
-test('attach keeps the last activity at the mtime: reading the history is not activity', () => {
+test('attach keeps the last activity at the mtime: reading the history is not activity', async () => {
   const writtenAt = Date.now() - 9 * 60_000
   const { dir, file } = tmpTranscript(writtenAt)
   const sessions = new Map<string, WatchedSession>()
@@ -34,7 +34,7 @@ test('attach keeps the last activity at the mtime: reading the history is not ac
   const session = pipeline.newSession(SESSION, file, { lastActivityTime: writtenAt, recordedStartTime: writtenAt - 3600_000 })
   sessions.set(SESSION, session)
   try {
-    pipeline.attach(session)
+    await pipeline.attach(session)
     assert.equal(session.lastActivityTime, writtenAt, 'not the attach time')
     // New content is activity
     pipeline.resetInactivityTimer(SESSION)

@@ -155,13 +155,38 @@ function placeItems(items: Array<{ key: string; radius: number }>): ClusterAncho
 }
 
 /**
+ * Workspaces the user moved by hand: projectId -> centre of its zone (world). In the order they were moved, the last
+ * one moved last: it keeps its place when two are put on each other.
+ */
+export type WorkspacePlacements = ReadonlyMap<string, { x: number; y: number }>
+
+/** Free place nearest to `want` for a disc of `radius`: `want` itself when free, else the first free point on rings around it. */
+function freeSpot(placed: ClusterAnchor[], want: { x: number; y: number }, radius: number): { x: number; y: number } {
+  if (!overlaps(placed, want.x, want.y, radius)) return want
+  const step = Math.max(radius / 4, CLUSTER_LAYOUT.gap)
+  for (let ring = 1; ring <= 400; ring++) {
+    const d = ring * step
+    const n = Math.max(8, Math.ceil((2 * Math.PI * d) / step))
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (i / n) * 2 * Math.PI
+      const x = want.x + Math.cos(a) * d
+      const y = want.y + Math.sin(a) * d
+      if (!overlaps(placed, x, y, radius)) return { x, y }
+    }
+  }
+  return want
+}
+
+/**
  * Several projects on screen: each project is laid out on its own, then wrapped in the box of its zone (the
  * discs plus the zone padding). The boxes are placed as discs that enclose them, so two zones never intersect.
  * A cluster without project is a block of its own and sits outside every zone.
+ * A workspace in `placements` is centred where the user put it (the last one moved first); every other block keeps
+ * its slot unless a moved one covers it, and then takes the free place nearest to that slot.
  */
-function blockAnchors(unique: ClusterInput[]): ClusterAnchor[] {
+function blockAnchors(unique: ClusterInput[], placements?: WorkspacePlacements): { anchors: ClusterAnchor[]; centres: Map<string, { x: number; y: number }> } {
   const sizeOf = new Map(unique.map(c => [c.key, c.size]))
-  const blocks: Array<{ key: string; radius: number; members: ClusterAnchor[]; dx: number; dy: number }> = []
+  const blocks: Array<{ key: string; projectId?: string; radius: number; members: ClusterAnchor[]; dx: number; dy: number }> = []
   const byProject = new Map<string, ClusterInput[]>()
   for (const c of unique) if (c.projectId) byProject.set(c.projectId, [...(byProject.get(c.projectId) ?? []), c])
   const emitted = new Set<string>()
@@ -178,23 +203,43 @@ function blockAnchors(unique: ClusterInput[]): ClusterAnchor[] {
     const y0 = Math.min(...members.map(m => m.y - m.radius)) - WORKSPACE_ZONE.padTop
     const y1 = Math.max(...members.map(m => m.y + m.radius)) + WORKSPACE_ZONE.padSide
     const dx = (x0 + x1) / 2, dy = (y0 + y1) / 2
-    blocks.push({ key: `project:${c.projectId}`, radius: Math.hypot(x1 - x0, y1 - y0) / 2, members, dx, dy })
+    blocks.push({ key: `project:${c.projectId}`, projectId: c.projectId, radius: Math.hypot(x1 - x0, y1 - y0) / 2, members, dx, dy })
   }
-  const centres = new Map(placeItems(blocks.map(b => ({ key: b.key, radius: b.radius }))).map(a => [a.key, a]))
-  const out: ClusterAnchor[] = []
+  const slots = new Map(placeItems(blocks.map(b => ({ key: b.key, radius: b.radius }))).map(a => [a.key, a]))
+  const blockOf = new Map(blocks.filter(b => b.projectId !== undefined).map(b => [b.projectId!, b]))
+  const moved = placements ? Array.from(placements.keys()).filter(p => blockOf.has(p)).reverse() : []
+  const order = [...moved.map(p => blockOf.get(p)!), ...blocks.filter(b => !b.projectId || !placements?.has(b.projectId))]
+  const at = new Map<string, { x: number; y: number }>()
+  const taken: ClusterAnchor[] = []
+  for (const b of order) {
+    const want = (b.projectId !== undefined ? placements?.get(b.projectId) : undefined) ?? slots.get(b.key)!
+    const spot = moved.length === 0 ? want : freeSpot(taken, want, b.radius)
+    at.set(b.key, spot)
+    taken.push({ key: b.key, x: spot.x, y: spot.y, radius: b.radius })
+  }
+  const anchors: ClusterAnchor[] = []
+  const centres = new Map<string, { x: number; y: number }>()
   for (const b of blocks) {
-    const at = centres.get(b.key)!
-    for (const m of b.members) out.push({ key: m.key, radius: m.radius, x: at.x + m.x - b.dx, y: at.y + m.y - b.dy })
+    const c = at.get(b.key)!
+    if (b.projectId !== undefined) centres.set(b.projectId, { x: c.x, y: c.y })
+    for (const m of b.members) anchors.push({ key: m.key, radius: m.radius, x: c.x + m.x - b.dx, y: c.y + m.y - b.dy })
   }
-  return out
+  return { anchors, centres }
 }
 
 /**
  * Anchor of every cluster, in the order given (first appearance, a project's clusters together). One cluster is centred on
- * (0,0). Discs (anchor, radius) never overlap. With several projects each one gets its own block (see {@link blockAnchors}).
- * Pure and deterministic.
+ * (0,0). Discs (anchor, radius) never overlap. With several projects each one gets its own block (see {@link blockAnchors}),
+ * and a workspace the user moved sits where it was put. Pure and deterministic.
  */
-export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Map<string, ClusterAnchor> {
+export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>, placements?: WorkspacePlacements): Map<string, ClusterAnchor> {
+  const out = new Map<string, ClusterAnchor>()
+  for (const a of layoutClusters(clusters, placements).anchors) out.set(a.key, a)
+  return out
+}
+
+/** Anchors, and the centre of every workspace zone (projectId -> world point): empty with fewer than two projects (no zone). */
+function layoutClusters(clusters: ReadonlyArray<ClusterInput>, placements?: WorkspacePlacements): { anchors: ClusterAnchor[]; centres: Map<string, { x: number; y: number }> } {
   const seen = new Set<string>()
   const unique: ClusterInput[] = []
   for (const c of clusters) {
@@ -204,12 +249,9 @@ export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Ma
   }
   const grouped = groupByProject(unique)
   const several = new Set(grouped.map(c => c.projectId).filter(Boolean)).size >= 2
-  const list = several
-    ? blockAnchors(grouped)
-    : placeItems(grouped.map(c => ({ key: c.key, radius: clusterRadius(c.size) })))
-  const out = new Map<string, ClusterAnchor>()
-  for (const a of list) out.set(a.key, a)
-  return out
+  return several
+    ? blockAnchors(grouped, placements)
+    : { anchors: placeItems(grouped.map(c => ({ key: c.key, radius: clusterRadius(c.size) }))), centres: new Map() }
 }
 
 /** Clusters of the agents (first appearance order = Map insertion order) with their member counts. */
@@ -367,6 +409,8 @@ export interface ClusterNodeInfo {
   pull?: { x: number; y: number }
   radius: number
   role: 'lead' | 'member' | 'archived'
+  /** Workspace the cluster provably belongs to (see {@link clustersOf}) */
+  projectId?: string
 }
 
 /**
@@ -379,9 +423,14 @@ export function layoutInfo(
   teams?: ReadonlyMap<string, TeamSummary>,
   projects?: SessionProjects,
   hideInactive = false,
-): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
+  /** Workspaces moved by hand (see {@link computeClusterAnchors}) */
+  placements?: WorkspacePlacements,
+): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor>; centres: Map<string, { x: number; y: number }> } {
   const agents = visibleAgents(allAgents as Map<string, Agent>, hideInactive)
-  const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
+  const clusters = clustersOf(agents.values(), teams, projects)
+  const projectOf = new Map(clusters.filter(c => c.projectId).map(c => [c.key, c.projectId!]))
+  const laid = layoutClusters(clusters, placements)
+  const anchors = new Map(laid.anchors.map(a => [a.key, a]))
   const leads = new Map<string, string>()
   for (const a of agents.values()) {
     const key = keyOf(a, teams)
@@ -409,9 +458,10 @@ export function layoutInfo(
     if (!anchor) continue
     const role = leads.get(key) === a.id ? 'lead' : a.archived ? 'archived' : 'member'
     const pull = role === 'member' && a.phase && a.teamKind === 'workflow' ? phaseCentres.get(key)?.get(a.phase) : undefined
-    info.set(a.id, { key, anchor: { x: anchor.x, y: anchor.y }, radius: anchor.radius, role, ...(pull ? { pull } : {}) })
+    const projectId = projectOf.get(key)
+    info.set(a.id, { key, anchor: { x: anchor.x, y: anchor.y }, radius: anchor.radius, role, ...(pull ? { pull } : {}), ...(projectId ? { projectId } : {}) })
   }
-  return { info, anchors }
+  return { info, anchors, centres: laid.centres }
 }
 
 interface PosNode { id: string; x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null }

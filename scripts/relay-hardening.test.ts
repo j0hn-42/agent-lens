@@ -9,6 +9,7 @@ import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import { waitAttached } from './relay-test-helpers'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -44,6 +45,7 @@ let probeCalls = 0
 let transcript = ''
 let live: { req: http.ClientRequest; text: () => string }
 let sentinelCount = 0
+let restoreStat = () => {}
 const open: http.ClientRequest[] = []
 
 function getRaw(urlPath: string, headers: http.OutgoingHttpHeaders = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
@@ -105,6 +107,20 @@ describe('relay: hardening and source reconciliation', () => {
     fs.writeFileSync(transcript,
       line({ type: 'user', cwd: realWs, timestamp: new Date().toISOString(), message: { role: 'user', content: 'Run the build' } }))
 
+    // A slow disk at start (#440): the attach reads the transcript as history from its turn on, over several
+    // ticks (#651). The first stat of the transcript is held 300 ms, so the tests below always run while it
+    // could still be under way, as they did under load, instead of only when the machine is slow.
+    const realStat = fs.promises.stat
+    let heldStats = 0
+    Object.defineProperty(fs.promises, 'stat', {
+      configurable: true, writable: true,
+      value: async (...args: Parameters<typeof realStat>) => {
+        if (String(args[0]) === transcript && heldStats++ === 0) await sleep(300)
+        return realStat(...args)
+      },
+    })
+    restoreStat = () => Object.defineProperty(fs.promises, 'stat', { configurable: true, writable: true, value: realStat })
+
     relay = await createRelay({
       workspace: ws, runtime: 'claude',
       hooksProbe: async () => { probeCalls++; await sleep(600); return true },
@@ -122,10 +138,14 @@ describe('relay: hardening and source reconciliation', () => {
     port = await listenLoopback(server, 0)
     // One long-lived client of the session: the live broadcasts, in the order the relay emits them
     live = await connectSSE(`/events?session=${SESSION}`)
+    // The SSE response starts before the attach ends. A line appended before the attach was asked is history: prescanned,
+    // never emitted as a call. The tests write live lines, so they start once the transcript is followed (#440).
+    assert.ok(await waitAttached(relay, 1), 'precondition: the transcript is attached')
   })
 
   after(() => {
     for (const r of open) r.destroy()
+    restoreStat()
     relay.dispose()
     server.close()
     fs.rmSync(fakeHome, { recursive: true, force: true })

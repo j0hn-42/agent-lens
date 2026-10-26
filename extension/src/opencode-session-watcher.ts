@@ -228,7 +228,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     }
   }
 
-  start(): void {
+  start(options: { ownTimer?: boolean } = {}): void {
     this.started = true
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
@@ -236,7 +236,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     }
     this.resetCursors()
     this.scanNow()
-    this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
+    // The relay drives the scans itself, through its shared ticker, and only while a client is connected (#654)
+    if (options.ownTimer !== false) this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
   }
 
   /**
@@ -397,13 +398,13 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     for (const m of poll.messages) {
       const s = this.sessionFor(m.session_id)
       if (!s) continue
-      s.lastActivityTime = this.now()
+      this.noteActivity(s, m.time_updated)
       try { s.parser.processMessage(m, s.state) } catch (err) { log.debug('Parser threw on message:', err) }
     }
     for (const p of poll.parts) {
       const s = this.sessionFor(p.session_id)
       if (!s) continue
-      s.lastActivityTime = this.now()
+      this.noteActivity(s, p.time_updated)
       try { s.parser.processPart(p, s.state) } catch (err) { log.debug('Parser threw on part:', err) }
     }
   }
@@ -497,11 +498,20 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       return
     }
     if (attached) {
-      attached.lastActivityTime = this.now()
+      this.noteActivity(attached, row.time_updated)
       this.processSession(attached, row)
     } else if (this.isRecent(row)) {
       this.attach(row)
     }
+  }
+
+  /**
+   * Activity is dated by the row, never by the moment it was read (#654): after a gap with no client the poll
+   * delivers a backlog, and a row hours old must not make its session look active now.
+   */
+  private noteActivity(s: WatchedOpenCodeSession, rowTime: number): void {
+    const t = Math.min(this.now(), Number.isFinite(rowTime) ? rowTime : this.now())
+    if (t > s.lastActivityTime) s.lastActivityTime = t
   }
 
   private processSession(s: WatchedOpenCodeSession, row: OpenCodeSessionRead): void {
@@ -626,6 +636,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   /** Release sessions silent for more than ACTIVE_SESSION_AGE_S. New rows reattach them. */
+  /** Release pass alone, for a caller that owns the clock: a session silent past ACTIVE_SESSION_AGE_S is retired without a scan (#654). */
+  releaseIdle(): void { this.releaseEndedSessions() }
+
   private releaseEndedSessions(): void {
     const now = this.now()
     for (const [id, s] of this.sessions) {

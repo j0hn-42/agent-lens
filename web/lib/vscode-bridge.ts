@@ -10,10 +10,10 @@ export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './
 import { parseEventLoss, acceptEventLoss, type EventLoss } from './event-loss'
 export { ALL_SESSIONS_ID } from './bridge-types'
 export type { PermissionRequestMessage, PermissionDecision } from './bridge-types'
-import type { AgentEvent, SessionInfo, ConnectionStatus, PermissionRequestMessage, PermissionDecision } from './bridge-types'
+import type { AgentEvent, SessionInfo, SessionUpdate, ConnectionStatus, PermissionRequestMessage, PermissionDecision } from './bridge-types'
 import {
   isAgentEvent, isSessionInfo, isConnectionStatus, sanitizeSessionInfo,
-  parsePermissionRequest, parsePermissionClosed, parsePermissionResult,
+  parsePermissionRequest, parseSessionUpdate, parsePermissionClosed, parsePermissionResult,
 } from './bridge-types'
 
 /** Operator decisions (#240): what the extension says about waiting PermissionRequests, validated */
@@ -31,7 +31,7 @@ type ConfigCallback = (config: Partial<{ mode: string; autoPlay: boolean; showMo
 type RelayScopeCallback = (allWorkspaces: boolean) => void
 /** What the extension says the page lacks (#592), validated; null after a reset */
 type EventLossCallback = (loss: EventLoss | null) => void
-type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | { sessionId: string; label: string }) => void
+type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | SessionUpdate) => void
 
 class VSCodeBridge {
   private _isVSCode = false
@@ -86,16 +86,20 @@ class VSCodeBridge {
         }
         break
 
-      case 'agent-event-batch':
+      case 'agent-event-batch': {
+        // `live: true` (VS Code panel, #656): the events of one 16 ms window, each delivered as sent. Any other batch is
+        // history, never live traffic: the relay's replay on (re)connect, or a transcript history it read while the
+        // page was connected (#652)
+        const live = data.live === true
         for (const event of Array.isArray(data.events) ? data.events : []) {
           if (!isAgentEvent(event)) continue
-          // A batch is only ever the history the relay replays on (re)connect, never live traffic
-          const replayed = { ...event, replayed: true }
+          const delivered = live ? event : { ...event, replayed: true }
           for (const cb of this.eventListeners) {
-            cb(replayed)
+            cb(delivered)
           }
         }
         break
+      }
 
       case 'connection-status':
         if (!isConnectionStatus(data.status)) break
@@ -163,12 +167,14 @@ class VSCodeBridge {
         for (const cb of this.relayScopeListeners) cb(data.allWorkspaces)
         break
 
-      case 'session-updated':
-        if (typeof data.sessionId !== 'string' || typeof data.label !== 'string') break
+      case 'session-updated': {
+        const update = parseSessionUpdate(data)
+        if (!update) break
         for (const cb of this.sessionListeners) {
-          cb('updated', { sessionId: data.sessionId, label: data.label })
+          cb('updated', update)
         }
         break
+      }
 
       // Operator decisions (#240): only the extension sends these, never the relay (VS Code only)
       case 'permission-request': {

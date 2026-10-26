@@ -227,17 +227,21 @@ export function syncBubbleButtons(root: HTMLElement, specs: readonly BubbleButto
       st.buttons.set(spec.key, b)
     }
     if (b.getAttribute('aria-label') !== spec.label) b.setAttribute('aria-label', spec.label)
-    b.dataset.collapsed = spec.collapsed ? 'true' : 'false'
-    const w = Math.max(MIN_BUBBLE_TARGET_PX, Math.round(spec.w))
-    const h = Math.max(MIN_BUBBLE_TARGET_PX, Math.round(spec.h))
-    b.style.width = `${w}px`
-    b.style.height = `${h}px`
-    b.style.transform = `translate(${Math.round(spec.x)}px, ${Math.round(spec.y)}px)`
-    b.style.opacity = ''
-    b.style.pointerEvents = 'auto'
-    delete b.dataset.unplaced
-    b.removeAttribute('aria-hidden')
-    b.tabIndex = 0
+    // Only what changed is written (#661): a style or attribute written with the value it holds still dirties the
+    // layout, and the tooltip reads its size right after in the same frame (forced reflow)
+    const collapsed = spec.collapsed ? 'true' : 'false'
+    if (b.dataset.collapsed !== collapsed) b.dataset.collapsed = collapsed
+    const w = `${Math.max(MIN_BUBBLE_TARGET_PX, Math.round(spec.w))}px`
+    const h = `${Math.max(MIN_BUBBLE_TARGET_PX, Math.round(spec.h))}px`
+    const transform = `translate(${Math.round(spec.x)}px, ${Math.round(spec.y)}px)`
+    if (b.style.width !== w) b.style.width = w
+    if (b.style.height !== h) b.style.height = h
+    if (b.style.transform !== transform) b.style.transform = transform
+    if (b.style.opacity !== '') b.style.opacity = ''
+    if (b.style.pointerEvents !== 'auto') b.style.pointerEvents = 'auto'
+    if (b.dataset.unplaced !== undefined) delete b.dataset.unplaced
+    if (b.hasAttribute('aria-hidden')) b.removeAttribute('aria-hidden')
+    if (b.tabIndex !== 0) b.tabIndex = 0
   }
   const active = doc.activeElement
   let holdChanged = false
@@ -245,11 +249,12 @@ export function syncBubbleButtons(root: HTMLElement, specs: readonly BubbleButto
     if (seen.has(key)) continue
     if (b === active) {
       // Keep focus: leave the button in place, invisible and inert, until the bubble is placed again
-      b.style.opacity = '0'
-      b.style.pointerEvents = 'none'
-      b.tabIndex = -1
-      b.setAttribute('aria-hidden', 'true')
-      b.dataset.unplaced = 'true'
+      // Only what changed is written, as for a placed button (#613): this runs every frame while the focus stays there
+      if (b.style.opacity !== '0') b.style.opacity = '0'
+      if (b.style.pointerEvents !== 'none') b.style.pointerEvents = 'none'
+      if (b.tabIndex !== -1) b.tabIndex = -1
+      if (b.getAttribute('aria-hidden') !== 'true') b.setAttribute('aria-hidden', 'true')
+      if (b.dataset.unplaced !== 'true') b.dataset.unplaced = 'true'
       if (st.hovered === key) { st.hovered = null; holdChanged = true }
       continue
     }

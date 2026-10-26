@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { SESSION_HANDLERS, type SessionHandlerCtx } from '../web/lib/bridge-session-handlers'
 import { createSessionBuffers, appendSessionEvent, sessionEventCount } from '../web/lib/session-buffers'
+import { createAllBufferCounts, countAllArrival } from '../web/lib/all-buffer-counts'
 import { createTeamTracker } from '../web/hooks/simulation/team-info'
 import { SessionModelTracker } from '../web/lib/session-model'
 import type { SessionInfo } from '../web/lib/vscode-bridge'
@@ -12,7 +13,7 @@ const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo =>
 
 /** A context made of plain values: the handlers only read and write through it */
 function makeCtx(initial: SessionInfo[] = [], selected: string | null = null) {
-  const calls = { notices: [] as string[], selectedSet: [] as (string | null)[], eventVersion: 0, models: 0, teamViews: 0, activity: [] as Set<string>[] }
+  const calls = { notices: [] as string[], selectedSet: [] as (string | null)[], models: 0, teamViews: 0, activity: [] as Set<string>[] }
   const ctx: SessionHandlerCtx & { sessions: SessionInfo[] } = {
     sessions: initial,
     updateSessions: update => { ctx.sessions = update(ctx.sessions) },
@@ -23,6 +24,7 @@ function makeCtx(initial: SessionInfo[] = [], selected: string | null = null) {
     sessionBuffersRef: { current: createSessionBuffers() },
     allEventsRef: { current: [] as SimulationEvent[] },
     allBaseRef: { current: 0 },
+    allCountsRef: { current: createAllBufferCounts() },
     lastEventAtRef: { current: new Map<string, number>() },
     modelTrackerRef: { current: new SessionModelTracker() },
     teamTrackerRef: { current: createTeamTracker() },
@@ -30,7 +32,6 @@ function makeCtx(initial: SessionInfo[] = [], selected: string | null = null) {
     setSessionModels: () => { calls.models++ },
     refreshTeamView: () => { calls.teamViews++ },
     setSessionsWithActivity: update => { calls.activity.push(update(new Set())) },
-    bumpEventVersion: () => { calls.eventVersion++ },
     pushNotice: (_kind, message) => { calls.notices.push(message) },
     now: () => 1000,
   }
@@ -90,11 +91,31 @@ test('updated and ended change only the named session', () => {
   assert.equal(ctx.sessions[1].status, 'completed')
 })
 
+test('updated: a project learnt after the start is merged, so the session joins its workspace', () => {
+  const { ctx } = makeCtx([session('a'), session('b', { projectId: 'p0', projectName: 'old' })])
+  SESSION_HANDLERS.updated(ctx, { sessionId: 'a', label: 'a', cwd: '/w/repo', projectId: 'p1', projectName: 'repo', branch: 'feat/x' })
+  const a = ctx.sessions[0]
+  assert.equal(a.projectId, 'p1')
+  assert.equal(a.projectName, 'repo')
+  assert.equal(a.cwd, '/w/repo')
+  assert.equal(a.branch, 'feat/x')
+  // A label-only update keeps the place already known
+  SESSION_HANDLERS.updated(ctx, { sessionId: 'b', label: 'renamed' })
+  assert.equal(ctx.sessions[1].projectId, 'p0')
+  // Half a project is dropped, and an imported session keeps its own group
+  SESSION_HANDLERS.updated(ctx, { sessionId: 'b', label: 'b', projectId: 'p9' })
+  assert.equal(ctx.sessions[1].projectId, 'p0')
+  const imported = makeCtx([session('i', { imported: true, projectId: 'imported', projectName: 'Imported' })]).ctx
+  SESSION_HANDLERS.updated(imported, { sessionId: 'i', label: 'i', projectId: 'p1', projectName: 'repo' })
+  assert.notEqual(imported.sessions[0].projectId, 'p1')
+})
+
 test('reset: clears every buffer and selection, and says so unless it is a plain panel reopen', () => {
   const { ctx, calls } = makeCtx([session('a')], 'a')
   appendSessionEvent(ctx.sessionBuffersRef.current, 'a', { time: 1, type: 'x', payload: {}, sessionId: 'a' } as unknown as SimulationEvent, 'a')
   ctx.allEventsRef.current.push({} as SimulationEvent)
   ctx.allBaseRef.current = 5
+  countAllArrival(ctx.allCountsRef.current, 'a')
   ctx.lastEventAtRef.current.set('a', 1)
   ctx.dismissedSessionsRef.current.set('z', session('z'))
   SESSION_HANDLERS.reset(ctx, 'scope-changed')
@@ -103,6 +124,7 @@ test('reset: clears every buffer and selection, and says so unless it is a plain
   assert.equal(sessionEventCount(ctx.sessionBuffersRef.current, 'a'), 0)
   assert.equal(ctx.allEventsRef.current.length, 0)
   assert.equal(ctx.allBaseRef.current, 0)
+  assert.equal(ctx.allCountsRef.current.arrived.size, 0, 'the per-session counts of the All buffer go with it (#613)')
   assert.equal(ctx.lastEventAtRef.current.size, 0)
   assert.equal(ctx.dismissedSessionsRef.current.size, 0)
   assert.deepEqual(calls.notices, ['Scope changed: the session view was reloaded'])

@@ -16,11 +16,12 @@ import { hasContextPercentFor, contextPercentColor, contextAlertLevel } from './
 import { statsLabel, contextBarText, contextRingText } from './loss-labels'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
-import { getAgentGlowSprite, measureTextCached } from './render-cache'
+import { getAgentGlowSprite, getCachedLinearGradient, getPaintedSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
   isTeammate, isOrchestrator, orchestratorInfo, ellipsize, drawnStatusText, type OrchestratorInfo,
 } from './team-style'
+import { withHexAlpha } from '../../../lib/color-alpha'
 
 let _claudeSparkPath: Path2D | null = null
 export function getClaudeSparkPath() {
@@ -29,6 +30,9 @@ export function getClaudeSparkPath() {
 }
 
 let _openaiLogoPath: Path2D | null = null
+/** Margin on each side of the token line inside its plate under the context bar (#613) */
+const TOKEN_PLATE_SIDE_PAD = 4
+
 function getOpenAILogoPath() {
   if (!_openaiLogoPath) _openaiLogoPath = new Path2D(OPENAI_LOGO_D)
   return _openaiLogoPath
@@ -181,19 +185,26 @@ export function drawContextComposition(
   const barX = agent.x - barWidth / 2
   const barY = agent.y + radius + CONTEXT_BAR.yOffset + yShift
 
+  // The token line is measured once: its plate is as wide as the text it doubles (#613), never narrower than the bar
+  const tokenText = showLabel ? contextBarText(agent, replayLost) : ''
+  let plateWidth = barWidth + 4
+  if (showLabel) {
+    ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
+    plateWidth = Math.max(plateWidth, Math.ceil(measureTextCached(ctx, tokenText)) + TOKEN_PLATE_SIDE_PAD * 2)
+  }
+
   // Background
   ctx.fillStyle = scene.cardBgDark
   ctx.beginPath()
-  ctx.roundRect(barX - 2, barY - 2, barWidth + 4, barHeight + (showLabel ? CONTEXT_BAR.labelBoxExtra : 4), CONTEXT_BAR.borderRadius)
+  ctx.roundRect(agent.x - plateWidth / 2, barY - 2, plateWidth, barHeight + (showLabel ? CONTEXT_BAR.labelBoxExtra : 4), CONTEXT_BAR.borderRadius)
   ctx.fill()
 
   // Label (hidden at low zoom by the level-of-detail rule)
   if (showLabel) {
     ctx.fillStyle = sceneColor(theme, 'text', scene.textMuted)
-    ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(contextBarText(agent, replayLost), agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+    ctx.fillText(tokenText, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
   }
 
   // Segments
@@ -301,16 +312,33 @@ export function drawContextRing(
   }
 }
 
-function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette) {
-  ctx.save()
-  ctx.shadowColor = scene.depthShadow
-  ctx.shadowBlur = AGENT_DRAW.shadowBlur
-  ctx.shadowOffsetX = AGENT_DRAW.shadowOffsetX
-  ctx.shadowOffsetY = AGENT_DRAW.shadowOffsetY
-  drawHexagon(ctx, agent.x, agent.y, r * 0.9)
-  ctx.fillStyle = scene.cardBgFaintOverlay
-  ctx.fill()
-  ctx.restore()
+/**
+ * Depth shadow as a pre-rendered sprite (#661): a shadowBlur per agent per frame is the costliest raster of the
+ * canvas at 100+ agents. shadowBlur and its offsets are in screen px (they do not follow the transform), so the
+ * sprite is painted with blur and offsets divided by the device scale (zoom x devicePixelRatio, since the sprite
+ * is drawn through the canvas transform, which includes the dpr), held in half-octave steps: the shadow keeps its
+ * on-screen size within ~20 % on a 1x and on a 2x display, and the sprite is reused while the scale moves inside a step. Only called from the
+ * detail zoom (LOD.detailMinZoom), which bounds the sprite: it would grow as 1/zoom without that gate.
+ */
+function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, scene: ScenePalette, zoom: number, dpr: number) {
+  const deviceScale = zoom * (dpr > 0 ? dpr : 1)
+  const step = 2 ** (Math.round(Math.log2(deviceScale > 0 ? deviceScale : 1) * 2) / 2)
+  const rq = Math.max(1, Math.round(r * 2) / 2)
+  const blur = AGENT_DRAW.shadowBlur / step
+  const ox = AGENT_DRAW.shadowOffsetX / step
+  const oy = AGENT_DRAW.shadowOffsetY / step
+  const half = rq + blur + Math.max(Math.abs(ox), Math.abs(oy)) + 2
+  const sprite = getPaintedSprite(`ds|${scene.depthShadow}|${scene.cardBgFaintOverlay}|${rq}|${step}`, half, (c, cx, cy) => {
+    c.shadowColor = scene.depthShadow
+    c.shadowBlur = blur
+    c.shadowOffsetX = ox
+    c.shadowOffsetY = oy
+    drawHexagon(c, cx, cy, rq * 0.9)
+    c.fillStyle = scene.cardBgFaintOverlay
+    c.fill()
+  })
+  const h = sprite.width / 2
+  ctx.drawImage(sprite, agent.x - h, agent.y - h)
 }
 
 function drawAgentGlow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isHovered: boolean, isSelected: boolean, isWaiting: boolean, theme: ThemeId | undefined) {
@@ -339,13 +367,15 @@ function drawScanline(ctx: CanvasRenderingContext2D, agent: Agent, r: number, co
   ctx.save()
   drawHexagon(ctx, agent.x, agent.y, r)
   ctx.clip()
-  const scanGrad = ctx.createLinearGradient(agent.x, scanY - AGENT_DRAW.scanlineHalfH, agent.x, scanY + AGENT_DRAW.scanlineHalfH)
+  // Gradient cached by colour and alpha, built around the origin; the context moves to the scan line (#661)
   const scanAlpha = isHovered ? '35' : '20'
-  scanGrad.addColorStop(0, color + '00')
-  scanGrad.addColorStop(0.5, color + scanAlpha)
-  scanGrad.addColorStop(1, color + '00')
+  const halfH = AGENT_DRAW.scanlineHalfH
+  const scanGrad = getCachedLinearGradient(ctx, `scan|${color}|${scanAlpha}|${halfH}`, -halfH, halfH, [
+    [0, withHexAlpha(color, '00')], [0.5, color + scanAlpha], [1, withHexAlpha(color, '00')],
+  ])
+  ctx.translate(agent.x, scanY)
   ctx.fillStyle = scanGrad
-  ctx.fillRect(agent.x - r, scanY - AGENT_DRAW.scanlineHalfH, r * 2, AGENT_DRAW.scanlineWidth)
+  ctx.fillRect(-r, -halfH, r * 2, AGENT_DRAW.scanlineWidth)
   ctx.restore()
 }
 
@@ -544,6 +574,12 @@ function maskedOrchestrator(info: OrchestratorInfo | null, masked: boolean | und
   return info && masked ? { ...info, groupName: maskText(info.groupName) } : info
 }
 
+/** Placement of an agent label; a masked name can wrap differently, so the plan's line count is not trusted then */
+function labelPlacementOf(plan: DrawOpts['plan'], id: string, zoom: number, masked: boolean): ResolvedPlacement {
+  const place = resolvePlacement(plan, planKey.label(id), zoom)
+  return masked && place.extraLines !== undefined ? { ...place, extraLines: undefined } : place
+}
+
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
   orch: OrchestratorInfo | null, place: ResolvedPlacement,
@@ -555,17 +591,22 @@ function drawAgentLabel(
   scale = 1,
   /** Theme of the scene (#381); absent = the neon scene */
   theme?: ThemeId,
+  /** Radius the label wraps its text by: the node's own, not the breathing one, as the overlay plan sizes it (#613) */
+  layoutR = r,
 ): { extraLines: number; dx: number; dy: number; scale: number; visible: boolean } {
   const scene = scenePalette(theme)
   const ink = (c: string) => sceneColor(theme, 'text', c)
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
-  const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
+  // A label the overlay plan hides keeps its line count (the context bar moves with it) and nothing else (#661):
+  // the plan sized that count already, so the label is not laid out again (#613)
+  if (!place.visible && place.extraLines !== undefined) return { extraLines: place.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
+  const layout = layoutAgentLabel(agent, layoutR, measure, showSession, orch)
+  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
   // The status line is drawnStatusText, the function the agent rows of the Sessions panel quote (#502): a teammate's
   // activity, or "last known state: Working" for a stale node, whose state is no longer proven (that longer line is cut to fit)
   const status = drawnStatusText(agent, now)
   layout.statusLine = stale ? ellipsize(status, FRESHNESS_DRAW.labelMaxWidth, measure) : status
-  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
 
   ctx.save()
   ctx.translate(place.dx, place.dy)
@@ -785,14 +826,14 @@ export function hasContextPercent(agent: Agent): boolean {
   return hasContextPercentFor(agent)
 }
 
-function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined, replayLost?: ReadonlyMap<string, number>) {
+function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined, replayLost: ReadonlyMap<string, number> | undefined, simTime: number) {
   const scene = scenePalette(theme)
   const sy = agent.y - r - statsTop
   // Held at LOD.minTextPx on screen: the stack above the node (stats, cost) is enlarged as a whole around the
   // top of the node, so the box and the pill keep their order without overlapping, as the overlay plan reserves them
   scaleAbout(ctx, agent.x, agent.y - r, textScale)
   // A tool count that is a lower bound says so (#366): the box widens to hold it, the plan reserves the same width
-  const { text, width: boxW } = statsLabel(agent, replayLost)
+  const { text, width: boxW } = statsLabel(agent, replayLost, simTime)
   ctx.fillStyle = scene.cardBgDark
   ctx.beginPath()
   ctx.roundRect(agent.x - boxW / 2, sy, boxW, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
@@ -851,7 +892,8 @@ export function drawAgents(
     const nodeAlpha = stale ? baseAlpha * FRESHNESS_DRAW.staleAlpha : baseAlpha
     ctx.globalAlpha = nodeAlpha
 
-    drawDepthShadow(ctx, agent, r, scene)
+    // Under the detail zoom the shadow is not drawn: its sprite grows as 1/zoom (966 px at the minimum zoom, #661)
+    if (lod.details) drawDepthShadow(ctx, agent, r, scene, opts.zoom, opts.dpr ?? 1)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting, sceneTheme)
     if (!reducedMotion && live) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion, sceneTheme)
@@ -873,8 +915,8 @@ export function drawAgents(
     const labelDrawn = lod.labels
       ? drawAgentLabel(
         ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
-        maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
-        now, stale, labelScale, sceneTheme,
+        maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), labelPlacementOf(opts.plan, id, opts.zoom, !!opts.maskText),
+        now, stale, labelScale, sceneTheme, radius * agentDrawScale(agent),
       )
       : { extraLines: 0, dx: 0, dy: 0, scale: 1, visible: false }
     ctx.globalAlpha = nodeAlpha
@@ -906,7 +948,7 @@ export function drawAgents(
       if (layout.statsTop != null && place.visible) {
         ctx.save()
         ctx.translate(place.dx, place.dy)
-        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom), sceneTheme, opts.replayLost)
+        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom), sceneTheme, opts.replayLost, opts.simTime ?? 0)
         ctx.restore()
       }
     }

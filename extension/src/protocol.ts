@@ -212,7 +212,9 @@ export type ExtensionToWebviewMessage =
   | { type: 'connection-status'; status: ConnectionStatus; source: string }
   /** `seq` (relay only, #366): the number of the event for this relay process, see `relay-cursor` */
   | { type: 'agent-event'; event: AgentEvent; seq?: number }
-  | { type: 'agent-event-batch'; events: AgentEvent[] }
+  /** `live` (VS Code panel only, #656): the events of one 16 ms window, sent together (event-coalescer.ts); each keeps
+   *  its own `replayed`. Without it a batch is history (relay replay): the page marks every event `replayed`. */
+  | { type: 'agent-event-batch'; events: AgentEvent[]; live?: true }
   | { type: 'reset'; reason: string }
   /** Sent by the relay once per /events connection, before the replay (#366). `evicted`: per session, events the
    *  relay can no longer replay (buffer or replay cap), totals since the relay started: REPLACE the previous value,
@@ -234,7 +236,9 @@ export type ExtensionToWebviewMessage =
   | { type: 'session-list'; sessions: SessionInfo[] }
   | { type: 'session-started'; session: SessionInfo }
   | { type: 'session-ended'; sessionId: string }
-  | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string }
+  /** A label, team or place learnt after the start; `cwd`, `projectId`/`projectName` (both or none) and `branch` when the
+   *  transcript gave them late (its head held no cwd when the session was found) */
+  | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string; cwd?: string; projectId?: string; projectName?: string; branch?: string }
   /** Operator control (#240), sent only to a panel that sent `permission-surface` ready: a PermissionRequest waits for a decision */
   | { type: 'permission-request'; request: PermissionRequestMessage }
   /** The request ended: `sent` = the decision was handed to Claude Code (not proof it was applied); the others had no decision */
@@ -464,6 +468,8 @@ export interface PendingToolCall {
 
 export interface SubagentState {
   watcher: import('fs').FSWatcher | null
+  /** fs.watch failed (ENOSPC/EMFILE): the watch is not tried again at every read, the poll reads the file */
+  watchFailed?: boolean
   fileSize: number
   /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
   fileTail: string
@@ -473,6 +479,8 @@ export interface SubagentState {
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
   spawnEmitted: boolean
+  /** When the file was last written as far as we know (mtime at start, then the last read with new bytes): idle subagents lose their watcher (#654) */
+  lastWriteMs?: number
   /** Its dispatch was read from the history at attach and shows no end: its spawn is still owed (#446) */
   catchUpSpawn?: boolean
   /** agent_id parsed from the transcript file name (agent-<id>.jsonl) */

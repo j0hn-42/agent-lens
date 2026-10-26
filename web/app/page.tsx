@@ -1,5 +1,5 @@
-import { AgentVisualizer } from "@/components/agent-visualizer"
+import { VisualizerClient } from "./visualizer-client"
 
 export default function Page() {
-  return <AgentVisualizer />
+  return <VisualizerClient />
 }

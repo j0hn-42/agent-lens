@@ -39,29 +39,29 @@ export function ResumeSection({ session, onOpenTerminal }: { session: ResumableS
 
   return (
     <section aria-labelledby={titleId} className="mb-2">
-      <h3 id={titleId} className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{t('resume.heading')}</h3>
+      <h3 id={titleId} className="m-0 text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{t('resume.heading')}</h3>
       {result.ok ? (
         <>
           <div className="flex items-start gap-1 py-1">
             <code
               {...DATA_EN}
-              className="min-w-0 flex-1 whitespace-pre-wrap break-all text-[11px] font-mono rounded p-1"
+              className="min-w-0 flex-1 whitespace-pre-wrap break-all text-2xs font-mono rounded p-1"
               style={{ background: COLORS.holoBg05, color: COLORS.assistantText }}
             >{result.command}</code>
             <button
               type="button"
               onClick={() => { void copy() }}
               aria-label={t('resume.copy.aria')}
-              className={`shrink-0 text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+              className={`shrink-0 text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted }}
             >
               {t('resume.copy')}
             </button>
           </div>
-          <p className="text-[11px] font-mono m-0" style={{ color: COLORS.textMuted }}>{t('resume.help')}</p>
+          <p className="text-2xs font-mono m-0" style={{ color: COLORS.textMuted }}>{t('resume.help')}</p>
         </>
       ) : (
-        <p className="text-[11px] font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{resumeUnavailableText(locale, result.reason)}</p>
+        <p className="text-2xs font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{resumeUnavailableText(locale, result.reason)}</p>
       )}
       {canOpenTerminal && (
         <div className="py-1">
@@ -69,14 +69,14 @@ export function ResumeSection({ session, onOpenTerminal }: { session: ResumableS
             type="button"
             onClick={openTerminal}
             aria-label={t('resume.terminal.aria')}
-            className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
+            className={`text-2xs font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
             style={{ color: COLORS.textMuted }}
           >
             {t('resume.terminal')}
           </button>
         </div>
       )}
-      <p role="status" data-testid="resume-copy-feedback" className={`m-0 text-[11px] font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
+      <p role="status" data-testid="resume-copy-feedback" className={`m-0 text-2xs font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
     </section>
   )
 }

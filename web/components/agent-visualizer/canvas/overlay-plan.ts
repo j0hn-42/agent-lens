@@ -47,6 +47,8 @@ export interface AgentLabelBlock {
   /** One-line form "name · status", with the context bar still hanging under it */
   compactW: number
   compactH: number
+  /** Lines under the standard name + state lines (the context bar hangs below them) */
+  extraLines: number
 }
 
 /**
@@ -92,6 +94,7 @@ export function agentLabelBlock(
     h,
     compactW: Math.max(measure(compactText), barW, tokenW) + LABEL_PAD * 2,
     compactH: barShown ? h : AGENT_DRAW.stateLabelGap,
+    extraLines: layout.extraLines,
   }
 }
 
@@ -152,6 +155,11 @@ export interface OverlayPlanInput {
   covers?: Iterable<Rect>
   /** Events the relay could not replay, per session id (#366): the qualified stats text and cost pill are wider, the plan reserves what is drawn */
   replayLost?: ReadonlyMap<string, number>
+  /**
+   * Width of a text at the agent label font, as the canvas measures it. The label blocks (and so the line count the
+   * context bar hangs under) then wrap where the drawn label wraps; without it, 0.6 em per character (#613).
+   */
+  measureLabel?: (text: string) => number
 }
 
 /**
@@ -249,6 +257,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
 
   const requests: PlacementRequest[] = []
   const obstacles: Obstacle[] = []
+  const labelLines = new Map<string, number>()
   let visibleAgents = 0
 
   const visible: Agent[] = []
@@ -325,7 +334,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     let labelRight: number | undefined
     // Agent label: full block, or one line "name · status" when the room is short
     if (input.lod.labels) {
-      const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
+      const measure = input.measureLabel ?? ((text: string) => estimateTextWidth(text, LABEL_FONT))
       const block = agentLabelBlock(a, r, measure, {
         showSession: input.showSessionLabels && secondaryAllowed, orchestrator: orchestratorInfo(a, input.teams), details: input.lod.details,
         replayLost: input.replayLost,
@@ -336,6 +345,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const full = toScreen(t, a.x - (block.w * k) / 2, top, block.w * k, block.h * k)
       const compact = toScreen(t, a.x - (block.compactW * k) / 2, top, block.compactW * k, block.compactH * k)
       labelRight = full.x + full.w
+      labelLines.set(planKey.label(id), block.extraLines)
       requests.push({
         id: planKey.label(id),
         priority: overlayPriority(PRIORITY.agentLabel, flags),
@@ -361,7 +371,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const top = a.y - r
       if (showStatsBox && layout.statsTop != null) {
         const k = textHoldScale(STATS_OVERLAY.fontSize, s)
-        const w = statsLabel(a, input.replayLost).width * k
+        const w = statsLabel(a, input.replayLost, input.simTime).width * k
         const h = STATS_OVERLAY.boxHeight * k
         requests.push({
           id: planKey.stats(id),
@@ -454,6 +464,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
 
   const placements = placeRects(requests, { bounds: { x: 0, y: 0, w: vp.w, h: vp.h }, obstacles })
   const plan = new Map<string, Placement>()
+  extraLinesOf.set(plan, labelLines)
   const hits: OverlayHits = { clusterLabels: new Map(), edgeBubbles: new Map(), edgeBubbleRects: new Map(), collapsedBubbles: new Map() }
   for (const p of placements) {
     plan.set(p.id, p)
@@ -492,7 +503,15 @@ export function worldOffset(p: Placement | undefined, scale: number): { dx: numb
   return { dx: p.dx / scale, dy: p.dy / scale }
 }
 
+/**
+ * Lines each label block holds under its name and state lines, per plan (#613). The plan already measured them
+ * to size the block, so a label it hides does not have to be laid out again by the draw code to move the context bar.
+ */
+const extraLinesOf = new WeakMap<OverlayPlan, ReadonlyMap<string, number>>()
+
 export interface ResolvedPlacement {
+  /** Extra lines of the label block as the plan sized it; absent without a plan or for a key it did not size */
+  extraLines?: number
   /** Draw it at all */
   visible: boolean
   /** Draw the compact form (count chip, one-line label) */
@@ -509,7 +528,8 @@ export interface ResolvedPlacement {
 export function resolvePlacement(plan: OverlayPlan | undefined, key: string, scale: number): ResolvedPlacement {
   if (!plan) return { visible: true, collapsed: false, dx: 0, dy: 0 }
   const p = plan.get(key)
-  if (!p || p.hidden) return { visible: false, collapsed: false, dx: 0, dy: 0 }
+  const extraLines = extraLinesOf.get(plan)?.get(key)
+  if (!p || p.hidden) return { visible: false, collapsed: false, dx: 0, dy: 0, extraLines }
   const o = worldOffset(p, scale)
-  return { visible: true, collapsed: p.collapsed, dx: o.dx, dy: o.dy }
+  return { visible: true, collapsed: p.collapsed, dx: o.dx, dy: o.dy, extraLines }
 }

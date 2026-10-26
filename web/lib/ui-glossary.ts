@@ -1,6 +1,6 @@
 import type { PanelId } from './panel-layout'
-import { FILE_TIMELINE_MAX_STEPS } from './file-timeline'
-import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
+// Leaves only (#662): the message catalog reads this file, a locale table chunk carries no code
+import { FILE_TIMELINE_MAX_STEPS, GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './list-limits'
 
 // Fixed UI vocabulary (issue #32). Every panel title, aria-label, tooltip and empty state takes its words
 // from here, so one thing never has two names. Pure data: no React and no path-alias imports (node:test).

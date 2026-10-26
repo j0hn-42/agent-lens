@@ -148,14 +148,15 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
     }
   }
 
-  start(): void {
+  start(options: { ownTimer?: boolean } = {}): void {
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
       catch { this.workspacePath = this.workspace }
     }
 
     this.scanForSessions()
-    this.scanInterval = setInterval(() => this.scanForSessions(), SCAN_INTERVAL_MS)
+    // The relay drives the scans itself, through its shared ticker, and only while a client is connected (#654)
+    if (options.ownTimer !== false) this.scanInterval = setInterval(() => this.scanForSessions(), SCAN_INTERVAL_MS)
 
     // A new session is a new directory under the root.
     const root = sessionStateRoot()
@@ -221,6 +222,9 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
 
   /** Detach sessions ended for more than ACTIVE_SESSION_AGE_S (watcher, timers, parser freed).
    *  The scan reattaches them if their log resumes. */
+  /** Release pass alone, for a caller that owns the clock: a session silent past ACTIVE_SESSION_AGE_S is retired without a scan (#654). */
+  releaseIdle(): void { this.releaseEndedSessions() }
+
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
@@ -335,6 +339,9 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
       catch (err) { log.debug('Parser threw on line:', err) }
     }
   }
+
+  /** One discovery pass, for a caller that owns the timer (start with ownTimer: false, #654). */
+  scan(): void { this.scanForSessions() }
 
   dispose(): void {
     if (this.scanInterval) { clearInterval(this.scanInterval) }

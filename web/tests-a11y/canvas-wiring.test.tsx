@@ -144,7 +144,9 @@ test('a mouse click on the badge of a collapsed branch toggles it (onToggleBranc
   const mid = branchSim().agents.get('mid')!
   const r = badgeRect(mid, badgeSizeText({ kind: 'count', text: '+2' }))
   // The camera transform is read back from the last frame: the first translate/scale after its setTransform
-  const frameStart = calls.map(c => c.name).lastIndexOf('setTransform')
+  // (the bloom resets the transform to identity at the end of the frame, #647: look for the one before the last translate)
+  const names = calls.map(c => c.name)
+  const frameStart = names.lastIndexOf('setTransform', names.lastIndexOf('translate'))
   const t = calls.slice(frameStart).findIndex(c => c.name === 'translate')
   const cam = { x: calls[frameStart + t].args[0] as number, y: calls[frameStart + t].args[1] as number, scale: calls[frameStart + t + 1].args[0] as number }
   assert.equal(calls[frameStart + t + 1].name, 'scale', 'the camera transform is a translate followed by a scale')

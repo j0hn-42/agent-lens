@@ -183,6 +183,113 @@ export function* readLinesChunked(
   }
 }
 
+/** Plus long moment qu'une lecture d'historique garde l'event loop avant de la rendre (#651). */
+export const PRESCAN_SLICE_MS = 10
+
+/** Le rattachement a été abandonné pendant une pause : la session n'est plus suivie (#651). */
+export class AttachCancelled extends Error {
+  constructor() {
+    super('attach cancelled')
+    this.name = 'AttachCancelled'
+  }
+}
+
+/**
+ * Découpage coopératif d'une longue lecture d'historique (#651). `due()` est vrai une fois PRESCAN_SLICE_MS
+ * écoulées depuis la dernière pause ; `pause()` rend l'event loop (setImmediate : timers, E/S, hooks et SSE
+ * passent) puis lève AttachCancelled si `cancelled()` est devenu vrai entre-temps.
+ */
+export class TimeSlice {
+  private started = performance.now()
+  /** Pauses faites (diagnostic et tests) */
+  pauses = 0
+
+  constructor(
+    private readonly cancelled: () => boolean = () => false,
+    private readonly budgetMs = PRESCAN_SLICE_MS,
+  ) {}
+
+  due(): boolean { return performance.now() - this.started >= this.budgetMs }
+
+  async pause(): Promise<void> {
+    await new Promise<void>(resolve => setImmediate(resolve))
+    this.pauses++
+    this.started = performance.now()
+    if (this.cancelled()) throw new AttachCancelled()
+  }
+}
+
+/**
+ * Variante asynchrone de readLinesChunked (#651) : mêmes bornes (les `size` premiers octets, par blocs de
+ * `chunkBytes`, sans le fragment après le dernier saut de ligne) et même placement de `tracked` à la fin, mais
+ * lue par l'API promises et rendue bloc par bloc (un tableau de lignes par bloc lu).
+ */
+export async function* readLineBatches(
+  filePath: string,
+  size: number,
+  chunkBytes = PRESCAN_CHUNK_BYTES,
+  tracked?: TailedFile,
+  /**
+   * Longest unfinished line kept between two blocks. Past it the line is dropped up to its next line break (and its
+   * tail is not kept): the carry never grows by Buffer.concat copies of a line read whole in memory (#613).
+   * Unbounded when absent.
+   */
+  maxLineBytes?: number,
+  /** Called once for each line dropped for exceeding maxLineBytes: the caller knows what it read is partial. */
+  onDropped?: () => void,
+): AsyncGenerator<string[]> {
+  const fh = await fs.promises.open(filePath, 'r')
+  let offset = 0
+  let carry: Buffer = Buffer.alloc(0)
+  let skipping = false
+  // Where the dropped line started and how many bytes of it were seen: logged (never its content) when it ends
+  let droppedAt = 0
+  let droppedBytes = 0
+  const logDropped = () => watchLog.debug(`Line dropped past ${maxLineBytes} bytes: offset ${droppedAt}, ${droppedBytes} bytes`)
+  try {
+    while (offset < size) {
+      const len = Math.min(chunkBytes, size - offset)
+      const buf = Buffer.alloc(len)
+      const { bytesRead: n } = await fh.read(buf, 0, len, offset)
+      if (n <= 0) break
+      offset += n
+      let block = buf.subarray(0, n)
+      if (skipping) {
+        // The rest of a dropped line: nothing is kept until its line break
+        const nl = block.indexOf(0x0a)
+        if (nl < 0) { droppedBytes += block.length; continue }
+        droppedBytes += nl
+        logDropped()
+        block = block.subarray(nl + 1)
+        skipping = false
+      }
+      let data = carry.length ? Buffer.concat([carry, block]) : block
+      const cut = data.lastIndexOf(0x0a)
+      const rest = cut < 0 ? data : data.subarray(cut + 1)
+      if (maxLineBytes !== undefined && rest.length > maxLineBytes) {
+        carry = Buffer.alloc(0)
+        skipping = true
+        droppedAt = offset - rest.length
+        droppedBytes = rest.length
+        onDropped?.()
+      } else {
+        carry = Buffer.from(rest)
+      }
+      if (cut < 0) continue
+      data = data.subarray(0, cut)
+      yield data.toString('utf-8').split(/\r?\n/)
+    }
+  } finally {
+    await fh.close()
+  }
+  // Unfinished at the end of the file: the rest, written later, is read live as a fragment (the normalizer counts it malformed)
+  if (skipping) logDropped()
+  if (tracked) {
+    tracked.fileSize = offset
+    tracked.fileTail = carry.toString('latin1')
+  }
+}
+
 /** Case-fold a path string for comparison on Windows, where the filesystem is
  *  case-insensitive and tools disagree on drive-letter case (VS Code reports
  *  `c:\...`, Claude Code and most shells report `C:\...`). Identity elsewhere. */

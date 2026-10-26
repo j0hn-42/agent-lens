@@ -94,3 +94,74 @@ test('a connection that got no cursor sends none; a newer cursor (relay restarte
   await tick(BACKOFF_BASE_MS)
   assert.equal(FakeES.last.url, 'http://relay/events?session=s1&since=ffffffffffffffff.2')
 })
+
+// #653: what the client does at a reconnection decides whether the relay may replay only what was missed.
+test('a reconnection keeps what was delivered: nothing tells the app to empty its graph, the cursor is sent back (#653)', async () => {
+  start()
+  FakeES.last.open()
+  FakeES.last.send({ type: 'relay-cursor', instance: INSTANCE, seq: 10 })
+  const ev = { time: 1, type: 'message', sessionId: 's' }
+  FakeES.last.send({ type: 'agent-event', event: ev, seq: 11 })
+  const before = messages.length
+  FakeES.last.fail()
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.last.url, `http://relay/events?since=${INSTANCE}.11`)
+  FakeES.last.open()
+  FakeES.last.send({ type: 'agent-event', event: { time: 2, type: 'message', sessionId: 's' }, seq: 12 })
+  const types = messages.map(m => (m as { type?: string }).type)
+  assert.equal(messages.length, before + 1, 'only the new event reaches the app; the earlier ones stay delivered')
+  assert.ok(!types.includes('reset'), 'no reset message')
+  // A replayed copy of an event already delivered is still dropped (a relay of an older version replays everything)
+  FakeES.last.send({ type: 'agent-event', event: ev })
+  assert.equal(messages.length, before + 1, 'a replayed duplicate is dropped')
+})
+
+// #613: the graph of the app after a reconnection is what proves the behaviour, not the absence of a message.
+// The messages go through the real bridge (web/lib/vscode-bridge.ts) and the real reducer of the simulation
+// (processEvent), the way the page consumes them. Not covered: the `reset` handling of the page hook.
+test('the simulation graph keeps every agent across a reconnection, whether the relay honours since or replays everything (#613)', async () => {
+  const g = globalThis as { window?: unknown }
+  const hadWindow = 'window' in g
+  const { toSimulationEvent } = await import('../web/lib/bridge-types')
+  const { processEvent } = await import('../web/hooks/simulation/process-event')
+  const { createEmptyState } = await import('../web/hooks/simulation/types')
+  g.window = { addEventListener: () => {}, removeEventListener: () => {} }
+  try {
+    const { vscodeBridge } = await import('../web/lib/vscode-bridge')
+    assert.ok(vscodeBridge, 'the bridge exists')
+    const ctx = { syncForceSimulation: () => {}, findToolSlot: () => ({ x: 0, y: 0 }), getContextWindowSize: () => 200_000, blockIdCounter: { current: 0 }, skipForceSync: true }
+    let state = createEmptyState()
+    const off = vscodeBridge.onEvent(e => { state = processEvent(toSimulationEvent(e), state, ctx) })
+    const names = () => Array.from(state.agents.values()).map(a => a.name).sort()
+    const spawn = (n: number) => ({ time: n, type: 'agent_spawn', sessionId: 's', payload: n === 1 ? { name: 'orchestrator', isMain: true } : { name: `worker-${n}`, parent: 'orchestrator' } })
+    const live = (n: number) => ({ type: 'agent-event', event: spawn(n), seq: 10 + n })
+    try {
+      const src = createReconnectingSource({
+        url: 'http://relay/events', statusUrl: 'http://relay/status', loadToken: createLoadToken(),
+        onMessage: d => vscodeBridge.dispatch(d), onStatus: () => {},
+        createEventSource: u => new FakeES(u), fetchStatus: async () => ({ ok: true }), random: () => 0,
+      })
+      FakeES.last.open()
+      FakeES.last.send({ type: 'relay-cursor', instance: INSTANCE, seq: 10 })
+      for (const n of [1, 2, 3]) FakeES.last.send(live(n))
+      assert.deepEqual(names(), ['orchestrator', 'worker-2', 'worker-3'], 'precondition: the graph holds the live agents')
+      FakeES.last.fail()
+      await tick(BACKOFF_BASE_MS)
+      assert.equal(FakeES.last.url, `http://relay/events?since=${INSTANCE}.13`, 'precondition: the cursor is sent back')
+      // A relay that honours since: only what is numbered after it
+      FakeES.last.open()
+      FakeES.last.send({ type: 'agent-event-batch', events: [spawn(4)] })
+      assert.deepEqual(names(), ['orchestrator', 'worker-2', 'worker-3', 'worker-4'], 'the graph kept its agents and gained the missing one')
+      // A relay that ignores since (older, other instance) replays everything: copies are not added a second time
+      FakeES.last.fail()
+      await tick(BACKOFF_BASE_MS)
+      FakeES.last.open()
+      FakeES.last.send({ type: 'agent-event-batch', events: [1, 2, 3, 4, 5].map(spawn) })
+      assert.deepEqual(names(), ['orchestrator', 'worker-2', 'worker-3', 'worker-4', 'worker-5'], 'each agent once, plus the new one')
+      assert.equal(state.agents.size, 5)
+      src.close()
+    } finally { off() }
+  } finally {
+    if (!hadWindow) delete g.window
+  }
+})

@@ -10,6 +10,8 @@ export interface DrawOpts {
   reducedMotion: boolean
   /** Current camera zoom (1 = 100%), used for level of detail. */
   zoom: number
+  /** Device pixel ratio of the canvas (absent = 1): sprites painted with a blur divide it by zoom x dpr to keep their screen size. */
+  dpr?: number
   /** Level of detail of this frame, with hysteresis (see lodForZoom); absent = derived from `zoom` */
   lod?: LevelOfDetail
   /** The cost overlay is active (affects the stacked overlay layout above agents). */
@@ -36,6 +38,8 @@ export interface DrawOpts {
   theme?: ThemeId
   /** Events the relay could not replay, per session id (#366): an agent of such a session draws its tool count and cost as lower bounds */
   replayLost?: ReadonlyMap<string, number>
+  /** Simulation time of the frame (the one the overlay plan reserves for): the age in the stats box is read from it (#660). Absent = 0 (the age reads 0:00) */
+  simTime?: number
   /** Loop / repeat mark per agent id (#377, lib/repeat-marks): a badge on the node. Absent = no badge */
   repeatMarks?: ReadonlyMap<string, { kind: 'loop' | 'repeated' }>
 }

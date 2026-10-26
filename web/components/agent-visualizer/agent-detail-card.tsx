@@ -43,6 +43,7 @@ interface AgentDetailCardProps {
     tokensMax: number
     tokensMaxAssumed?: boolean
     toolCalls: number
+    /** Age on the simulation clock, read by the caller when it renders (agentAge, #383 / #660) */
     timeAlive: number
     currentTool?: string
     kind?: 'main' | 'subagent' | 'teammate'
@@ -196,7 +197,7 @@ export function AgentDetailCard({
                   <span
                     data-testid="model-badge"
                     data-kind={badge.kind}
-                    className="rounded px-1 text-[11px]"
+                    className="rounded px-1 text-2xs"
                     style={{ border: `1px solid ${COLORS.glassBorder}`, color: badge.kind === 'mismatch' ? COLORS.toolIndicatorText : COLORS.textMuted }}
                   >
                     {C.modelBadgeText(locale, badge.kind)}

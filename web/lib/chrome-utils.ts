@@ -288,6 +288,13 @@ export function formatTruncatedHistory(droppedEvents: number, locale: Locale = '
   return translate(locale, `bar.truncated.${rule}` as MessageKey, { n: droppedEvents })
 }
 
+/** Sentence for the scrubber markers that are not drawn (cut before they were seen, or over the marker cap), or null. */
+export function formatMarkersLost(lost: number, locale: Locale = 'en'): string | null {
+  if (!(lost > 0)) return null
+  const rule = new Intl.PluralRules(locale).select(lost) === 'one' ? 'one' : 'other'
+  return translate(locale, `bar.markersLost.${rule}` as MessageKey, { n: lost })
+}
+
 /** "... 12 older messages dropped" line at the top of a conversation, or null when nothing was dropped. */
 export function formatDroppedMessages(dropped: number): string | null {
   return dropped > 0 ? `... ${pluralize(dropped, 'older message')} dropped` : null
@@ -408,6 +415,8 @@ export type ModeNote = 'on' | 'off'
 export function buildAnnouncement(opts: {
   connection: ConnectionDisplay
   sessionLabel: string | null
+  /** The label is interface text (the "All sessions" or team heading, #613), not a session name: it stays in the language of the region. Decided by the caller, never by comparing strings. */
+  sessionLabelIsInterface?: boolean
   isReviewing: boolean
   isEmpty: boolean
   /** Listed sessions with no received event (issue #52): their activity is unknown */
@@ -436,13 +445,30 @@ const CONNECTION_STATE_KEY: Readonly<Record<string, MessageKey>> = {
  * uses the words of the top bar, the review instruction names the button with the catalog text the bar shows (WCAG
  * 3.3.2). The session name is data and is said as it is.
  */
-export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): { text: string; lang: Locale }[] {
+export interface AnnouncementPart {
+  text: string
+  lang: Locale
+  /** The same text cut where a piece of data sits in another language (a session name declares lang="en", #613) */
+  segments?: { text: string; lang: string }[]
+}
+
+export function buildAnnouncementParts(opts: Parameters<typeof buildAnnouncement>[0]): AnnouncementPart[] {
   const locale = opts.locale ?? 'en'
-  const t = (key: MessageKey, params?: Record<string, string | number>) => ({ text: translate(locale, key, params), lang: locale })
+  const t = (key: MessageKey, params?: Record<string, string | number>): AnnouncementPart => ({ text: translate(locale, key, params), lang: locale })
   const stateKey = CONNECTION_STATE_KEY[opts.connection.label]
   const state = (stateKey ? translate(locale, stateKey) : opts.connection.label).toLocaleLowerCase(locale)
-  const parts: { text: string; lang: Locale }[] = [t('announce.connection', { state })]
-  if (opts.sessionLabel) parts.push(t('announce.session', { name: opts.sessionLabel }))
+  const parts: AnnouncementPart[] = [t('announce.connection', { state })]
+  if (opts.sessionLabel) {
+    // A session name is data: the convention is lang="en" for data, so the French voice does not read it.
+    // The "All sessions" and team labels are interface text (#613): the caller says so, a session named alike stays data.
+    const isInterfaceText = opts.sessionLabelIsInterface === true
+    const MARK = '\u0000'
+    const [before, after = ''] = translate(locale, 'announce.session', { name: MARK }).split(MARK)
+    parts.push({
+      ...t('announce.session', { name: opts.sessionLabel }),
+      segments: [{ text: before, lang: locale }, { text: opts.sessionLabel, lang: isInterfaceText ? locale : 'en' }, ...(after ? [{ text: after, lang: locale }] : [])],
+    })
+  }
   parts.push(opts.isReviewing ? t('announce.reviewMode', { button: translate(locale, 'bar.resumeLive') }) : t('announce.liveMode'))
   if (opts.isEmpty) parts.push(t('announce.waiting'))
   const unobserved = opts.unobservedSessions

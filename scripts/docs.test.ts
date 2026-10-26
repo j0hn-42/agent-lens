@@ -63,7 +63,7 @@ function relativeLinks(file: string): string[] {
 }
 
 // The reading guide is checked file by file (its index and each domain file), each link from its own folder (#612)
-for (const file of ['README.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles(), 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
+for (const file of ['README.md', 'README.fr.md', 'docs/features.md', 'docs/install.md', 'docs/reference.md', 'docs/faq.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles(), 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -184,9 +184,14 @@ test('a link to the reading guide that names a section in bold or in quotes poin
 
 test('README documents the fork views and links the docs (#129)', () => {
   const readme = read('README.md')
-  for (const word of ['Fleet', 'All', 'Workflow', 'Comms', 'Context', 'Reading the UI']) {
+  for (const word of ['Fleet', 'All', 'Reading the UI']) {
     assert.ok(readme.includes(word), `README should mention ${word}`)
   }
+  // The detail of the views moved from the README to docs/features.md (README rewrite)
+  for (const word of ['Fleet', 'Workflow', 'Comms', 'Context']) {
+    assert.ok(read('docs/features.md').includes(word), `docs/features.md should mention ${word}`)
+  }
+  assert.ok(readme.includes('(docs/features.md)'), 'README should link docs/features.md')
   for (const doc of ['docs/node-inspector.md', 'docs/relay-sources.md', 'docs/state-share.md', 'docs/reading-the-ui.md', 'docs/headless.md']) {
     assert.ok(readme.includes(`(${doc})`), `README should link ${doc}`)
   }
@@ -216,7 +221,7 @@ test('README gives a reproducible extension install, with compatibility (#134)',
   assert.match(readme, /1\.85/)
   for (const ide of ['Cursor', 'Windsurf']) assert.ok(readme.includes(ide))
   assert.ok(!/not published/i.test(readme), 'no unproven claim about marketplace publication')
-  assert.match(readme, /\| `pnpm --filter agent-lens run package` \|/, 'package script is in the scripts table')
+  assert.match(read('docs/reference.md'), /\| `pnpm --filter agent-lens run package` \|/, 'package script is in the scripts table')
   assert.equal(JSON.parse(read('extension/package.json')).scripts.package, 'vsce package')
 })
 
@@ -310,7 +315,7 @@ test('the reading guide explains repeated reads and calls, with their limits (#2
   for (const term of ['no edit seen', 'not compared', 'Grep', 'lower bound', 'Bash', 'not reported']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
   }
-  assert.ok(read('README.md').toLowerCase().includes('repeated reads'), 'README mentions the feature')
+  assert.ok(read('docs/features.md').toLowerCase().includes('repeated reads'), 'the features page mentions the feature')
 })
 
 test('the reading guide explains the capabilities of a session and their proof (#242)', () => {
@@ -319,7 +324,7 @@ test('the reading guide explains the capabilities of a session and their proof (
   for (const term of ['skill_listing', 'mcp_instructions_delta', 'Skill', 'sub-agents', 'Partial', 'Not provided by this relay', 'could not be read', 'not what is installed']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
   }
-  assert.ok(read('README.md').includes('capabilities'), 'README mentions the capabilities view')
+  assert.ok(read('docs/features.md').includes('capabilities'), 'the features page mentions the capabilities view')
 })
 
 test('the remote access guards and the pairing are documented, with their read-only surface (#241, #517)', () => {
@@ -524,7 +529,8 @@ test('the tray doc says what is shipped, what is not, and what the menu never sh
   for (const needle of ['not part of this repository yet', 'unknown', 'at least', 'SIGTERM', 'SIGKILL', 'No shell', '1024 bytes', 'Windows', 'Orca', '/statusline', '--tray-bin', '--attach']) {
     assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle}`)
   }
-  assert.ok(read('README.md').includes('(docs/tray.md)'), 'README should link docs/tray.md')
+  // The tray icon is not shipped yet: the README no longer lists it, the roadmap says where it stands
+  assert.ok(read('docs/roadmap.md').includes('(tray.md'), 'the roadmap should link docs/tray.md')
   // #513: the stop channel that replaces SIGTERM, and what is not proven on Windows
   for (const needle of ['--ipc-stop', '{"v":1,"type":"stop"}', 'no route', 'not tested on Windows']) {
     assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle} (#513)`)
@@ -640,4 +646,58 @@ test('relay-sources documents how Cursor hook payloads are ignored, with the doc
   for (const term of ['https://cursor.com/docs/hooks', 'https://cursor.com/docs/reference/third-party-hooks', '`cursor_version`', 'getForeignHookStats', 'step 0', 'not real captures']) {
     assert.ok(doc.includes(term), `docs/relay-sources.md should mention "${term}"`)
   }
+})
+
+test('CONTRIBUTING documents the shared Button and its variants (#508)', () => {
+  const c = read('CONTRIBUTING.md')
+  const src = read('web/components/ui/button.tsx')
+  assert.ok(c.includes('## Shared Button in the web UI'), 'has its section')
+  assert.ok(c.includes('web/components/ui/button.tsx'), 'names the component file')
+  const variants = src.match(/export type ButtonVariant = ([^\n]+)/)?.[1].match(/'(\w+)'/g)?.map(v => v.replace(/'/g, '')) ?? []
+  assert.ok(variants.length >= 4, 'the component declares its variants')
+  for (const v of variants) assert.ok(c.includes(`\`${v}\``), `CONTRIBUTING documents the variant ${v}`)
+  for (const file of ['web/tests-a11y/button-pins.test.tsx', 'web/tests-a11y/button-theme.test.tsx'])
+    assert.ok(c.includes(file) && fs.existsSync(path.join(root, file)), `CONTRIBUTING cites ${file}`)
+})
+
+test('CONTRIBUTING states the 44 px mobile target only for the Button variants that carry TOUCH_TARGET (#508 review)', () => {
+  const c = read('CONTRIBUTING.md')
+  const src = read('web/components/ui/button.tsx')
+  const block = src.match(/const BASE_CLASS[^\n]*\{\n([\s\S]*?)\n\}/)?.[1] ?? ''
+  const entries = [...block.matchAll(/^ {2}(\w+):([\s\S]*?)(?=^ {2}\w+:|$(?![\s\S]))/gm)]
+  assert.ok(entries.length >= 4, 'BASE_CLASS entries are found')
+  const line = c.split('\n').find(l => l.includes('Mobile target')) ?? ''
+  assert.ok(line, 'CONTRIBUTING has a "Mobile target" line')
+  const yes = line.split(';')[0]
+  for (const [, name, body] of entries) {
+    if (body.includes('TOUCH_TARGET')) assert.ok(yes.includes(`\`${name}\``), `${name} has TOUCH_TARGET: listed as 44 px`)
+    else assert.ok(!yes.includes(`\`${name}\``) && line.includes(`\`${name}\` stays at 24 px`), `${name} lacks TOUCH_TARGET: named as the 24 px exception`)
+  }
+})
+
+test('CONTRIBUTING guarantees of the shared Button are the ones button.tsx carries, variant by variant (#613)', () => {
+  const c = read('CONTRIBUTING.md')
+  const src = read('web/components/ui/button.tsx')
+  const block = src.match(/const BASE_CLASS[^\n]*\{\n([\s\S]*?)\n\}/)?.[1] ?? ''
+  const entries = [...block.matchAll(/^ {2}(\w+):([\s\S]*?)(?=^ {2}\w+:|$(?![\s\S]))/gm)]
+  assert.ok(entries.length >= 4, 'BASE_CLASS entries are found')
+  // "24 px minimum target" and "theme focus ring": every variant's class carries them
+  assert.match(c, /24 px minimum target/)
+  assert.match(c, /focus ring \(`FOCUS_RING`\)/)
+  for (const [, name, body] of entries) {
+    assert.ok(body.includes('min-h-6') && body.includes('min-w-6'), `${name} carries the 24 px minimum target`)
+    assert.ok(body.includes('FOCUS_RING'), `${name} carries the focus ring`)
+  }
+  // "renders type=button"
+  assert.match(c, /renders `type="button"`/)
+  assert.ok(/<button[^>]*type="button"/.test(src), 'Button renders type="button"')
+  // "colours from COLORS": only the variants whose baseStyle reads COLORS; the sentence names them and says bar draws its own
+  const style = src.match(/function baseStyle[\s\S]*?\n\}\n/)?.[0] ?? ''
+  // A case counts only when its own return (after any fallthrough labels) reads COLORS: the match stops at that return
+  const withColors = entries.map(([, n]) => n).filter(n => new RegExp(`case '${n}':(?:\\s*case '\\w+':)*\\s*return[^\\n]*COLORS`).test(style))
+  assert.deepStrictEqual([...withColors].sort(), ['control', 'decision', 'tour'])
+  const line = c.split('\n').find(l => l.includes('colours from `COLORS`')) ?? ''
+  assert.ok(line, 'CONTRIBUTING states where the colours come from')
+  for (const n of withColors) assert.ok(line.includes(`\`${n}\``), `the colours sentence names ${n}`)
+  assert.ok(line.includes('`bar`') && /through `style`/.test(line), 'and says bar draws its own through style')
 })

@@ -14,7 +14,7 @@ import { ClaudeSessionPipeline, listedStartTimes } from '../extension/src/claude
 import { safeWatch, readLinesChunked, runGuarded, newestSessionMtime } from '../extension/src/fs-utils'
 import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { filterOrchestratorCompletion } from '../extension/src/orchestrator-completion'
-import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
+import { TeamWatcher, completeSessionHeader, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
@@ -24,7 +24,7 @@ import { OpenCodeSessionWatcher } from '../extension/src/opencode-session-watche
 import { lifecycleTags } from '../extension/src/session-runtime'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
-  SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
+  SCAN_INTERVAL_MS, RUNTIME_RELEASE_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_REMOTE_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES, RELAY_MAX_IMPORTED_SESSIONS,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS, RELAY_SSE_RATE_BURST, RELAY_SSE_RATE_PER_S,
@@ -32,7 +32,7 @@ import {
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
   RELAY_SCOPE_RATE_BURST, RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
-  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S,
+  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S, RELAY_REPLAY_BATCH_SIZE, RELAY_MAX_PACED_BACKLOG_BYTES, WATCH_SCAN_DEBOUNCE_MS,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -55,6 +55,7 @@ import type { LaunchView } from '../extension/src/protocol'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
+import { createProjectWatchScan } from './project-watch-scan'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import { nodeIo, sampleSystem, type CpuCounters } from './system-stats'
 import type { TelemetryClient } from './telemetry'
@@ -155,6 +156,12 @@ function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): b
 // ─── SSE client management ──────────────────────────────────────────────────
 
 const sseClients = new Set<http.ServerResponse>()
+/** SSE clients accepted and waiting for the attaches in progress to end before they join (#651): they count toward the cap */
+let pendingSseClients = 0
+/** Of those, the ones that came through an allowed tunnel Host (#241): they count toward the remote cap too */
+let pendingRemoteSseClients = 0
+/** The same waiting clients, to close them when the relay is disposed: they must not join a dead relay (#613) */
+const waitingSseClients = new Set<http.ServerResponse>()
 /** Clients that came through an allowed tunnel Host (#241): counted among sseClients, capped separately. */
 const remoteSseClients = new WeakSet<http.ServerResponse>()
 
@@ -168,28 +175,66 @@ function remoteSseCount(): number {
 function dropClient(res: http.ServerResponse) {
   sseClients.delete(res)
   clientSessionFilter.delete(res)
-  replayHeld.delete(res)
+  outboxes.delete(res)
   try { res.destroy() } catch { /* already closed */ }
 }
 
 /**
- * Live messages held for a client whose initial replay is still being written (issue #203). The replay
- * waits for 'drain' between batches, so live events arriving meanwhile are queued and sent after it,
- * in order, instead of overtaking older replayed events. Bounded: a client that cannot absorb the
- * replay before the held backlog exceeds the slow-client limit is dropped.
+ * Messages written at the pace of a client's socket: its connect replay (issue #203), then the histories read while
+ * it is connected (#652). Each one waits for 'drain' before the next, so live messages broadcast meanwhile are queued
+ * behind them and sent after, in order, instead of overtaking older replayed events. Bounded: a client whose held live
+ * messages exceed the slow-client limit is dropped, and so is one whose paced backlog exceeds
+ * RELAY_MAX_PACED_BACKLOG_BYTES (it never reads).
  */
-const replayHeld = new WeakMap<http.ServerResponse, { payloads: string[]; bytes: number }>()
+interface Outbox { items: Array<{ payload: string; live: boolean }>; next: number; liveBytes: number; pacedBytes: number }
+const outboxes = new WeakMap<http.ServerResponse, Outbox>()
 
-/** Live write path (broadcasts): held during the client's replay, otherwise written with the slow-client check. */
+/** Live write path (broadcasts): queued behind the client's paced messages, otherwise written with the slow-client check. */
 function writeLive(res: http.ServerResponse, payload: string) {
-  const held = replayHeld.get(res)
-  if (!held) return writeToClient(res, payload)
-  held.payloads.push(payload)
-  held.bytes += payload.length
-  if (isBackedUp(held.bytes)) {
+  const box = outboxes.get(res)
+  if (!box) return writeToClient(res, payload)
+  box.items.push({ payload, live: true })
+  box.liveBytes += payload.length
+  if (isBackedUp(box.liveBytes)) {
     log('[sse] Dropping client: live backlog overflowed during replay')
     dropClient(res)
   }
+}
+
+/** Queue messages written as the client drains (see Outbox); the first ones are written now when nothing is queued. */
+function writePaced(res: http.ServerResponse, payloads: readonly string[]) {
+  if (payloads.length === 0) return
+  let box = outboxes.get(res)
+  const idle = box === undefined
+  if (!box) { box = { items: [], next: 0, liveBytes: 0, pacedBytes: 0 }; outboxes.set(res, box) }
+  for (const payload of payloads) { box.items.push({ payload, live: false }); box.pacedBytes += payload.length }
+  if (isBackedUp(box.pacedBytes, RELAY_MAX_PACED_BACKLOG_BYTES)) {
+    log('[sse] Dropping client: paced backlog overflowed')
+    dropClient(res)
+    return
+  }
+  if (idle) void pumpOutbox(res, box)
+}
+
+async function pumpOutbox(res: http.ServerResponse, box: Outbox) {
+  while (box.next < box.items.length) {
+    if (res.destroyed || outboxes.get(res) !== box) return
+    const item = box.items[box.next]
+    box.items[box.next++] = { payload: '', live: item.live }
+    if (item.live) box.liveBytes -= item.payload.length
+    else box.pacedBytes -= item.payload.length
+    writeToClient(res, item.payload)
+    if (res.writableNeedDrain && !res.destroyed) {
+      await new Promise<void>(resolve => {
+        const done = () => { res.off('drain', done); res.off('close', done); resolve() }
+        res.once('drain', done)
+        res.once('close', done)
+      })
+    }
+    // Written ones are let go of in bulk (amortised), not one shift per message
+    if (box.next > 1024 && box.next * 2 > box.items.length) { box.items.splice(0, box.next); box.next = 0 }
+  }
+  if (outboxes.get(res) === box) outboxes.delete(res)
 }
 
 /** Write one SSE message; drops the client when it is gone or too slow (res.writableLength backlog). */
@@ -212,6 +257,8 @@ function sendSSE(res: http.ServerResponse, data: unknown) {
 const clientSessionFilter = new WeakMap<http.ServerResponse, string>()
 
 function broadcast(data: string, sessionId?: string) {
+  // A history read before this message reaches the clients before it (#652)
+  flushHistory()
   for (const res of [...sseClients]) {
     const only = clientSessionFilter.get(res)
     if (only && sessionId && only !== sessionId) continue
@@ -221,6 +268,7 @@ function broadcast(data: string, sessionId?: string) {
 
 /** Local clients only: what a launch is doing is not for a tunnel Host (#241 keeps /launch off the remote surface). */
 function broadcastLocal(data: string) {
+  flushHistory()
   for (const res of [...sseClients]) if (!remoteSseClients.has(res)) writeLive(res, data)
 }
 
@@ -240,7 +288,77 @@ let eventSeq = 0
 const eventSeqs = new WeakMap<AgentEvent, number>()
 const evictionLog = createEvictionLog()
 const seqsOf = (events: readonly AgentEvent[]) => events.map(e => eventSeqs.get(e) ?? 0)
-const logBufferEviction = (sessionId: string, events: readonly AgentEvent[]) => logEvicted(evictionLog, sessionId, seqsOf(events))
+const logBufferEviction = (sessionId: string, events: readonly AgentEvent[]) => {
+  logEvicted(evictionLog, sessionId, seqsOf(events))
+  // Evicted before it was sent: no connected client got it (#652)
+  for (const e of events) if (historyPendingSet.has(e)) historyUnsent.set(sessionId, Math.min((historyUnsent.get(sessionId) ?? 0) + 1, Number.MAX_SAFE_INTEGER))
+}
+/**
+ * History read from transcripts (#652): the replayed events a history load delivered, not sent yet. They go to the
+ * clients once the load's synchronous run is over (or before anything broadcast after it), the buffer cap applied
+ * first: the ones still in the buffer, in `agent-event-batch` messages per session, written at each client's pace.
+ */
+const historyPending = new Map<string, AgentEvent[]>()
+const historyPendingSet = new Set<AgentEvent>()
+/** Of those, per session, the events the buffer let go of before they were sent: lost for every connected client */
+const historyUnsent = new Map<string, number>()
+let historyFlushQueued = false
+/** The loss figure each client was last given (event-loss), to which what it never received is added (#652) */
+const clientLoss = new WeakMap<http.ServerResponse, { evicted: Record<string, number>; otherEvents: number }>()
+
+function queueHistory(sessionId: string, event: AgentEvent) {
+  let list = historyPending.get(sessionId)
+  if (!list) { list = []; historyPending.set(sessionId, list) }
+  list.push(event)
+  historyPendingSet.add(event)
+  if (historyFlushQueued) return
+  historyFlushQueued = true
+  queueMicrotask(flushHistory)
+}
+
+/** Send the pending history (see historyPending): batches, then what the cap let go of (event-loss), then a cursor. */
+function flushHistory() {
+  historyFlushQueued = false
+  if (historyPending.size === 0 && historyUnsent.size === 0) return
+  const pending = [...historyPending]
+  const unsent = [...historyUnsent]
+  historyPending.clear()
+  historyPendingSet.clear()
+  historyUnsent.clear()
+  const batches = new Map<string, string[]>()
+  for (const [sid, events] of pending) {
+    const buf = eventBuffer.get(sid)
+    if (!buf) continue
+    // An activity replaced in place or a superseded reading is not sent, nor lost (see appendBounded)
+    const kept = new Set(buf)
+    const out = events.filter(e => kept.has(e))
+    const list: string[] = []
+    for (let i = 0; i < out.length; i += RELAY_REPLAY_BATCH_SIZE) {
+      list.push(JSON.stringify({ type: 'agent-event-batch', events: out.slice(i, i + RELAY_REPLAY_BATCH_SIZE) }))
+    }
+    if (list.length > 0) batches.set(sid, list)
+  }
+  // Every event numbered up to here is now sent (above or before) or counted lost (below)
+  const cursor = JSON.stringify({ type: 'relay-cursor', instance: relayInstance, seq: eventSeq })
+  for (const res of [...sseClients]) {
+    const only = clientSessionFilter.get(res)
+    const items: string[] = []
+    for (const [sid, list] of batches) if (!only || only === sid) items.push(...list)
+    const gap: Record<string, number> = {}
+    for (const [sid, n] of unsent) if (n > 0 && (!only || only === sid)) gap[sid] = n
+    if (Object.keys(gap).length > 0) {
+      // The figure of a first connection (replaced by the page) and the gap of a reconnected one (added by it)
+      const figure = clientLoss.get(res) ?? { evicted: {}, otherEvents: 0 }
+      const evicted = { ...figure.evicted }
+      for (const [sid, n] of Object.entries(gap)) evicted[sid] = Math.min((evicted[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER)
+      clientLoss.set(res, { evicted, otherEvents: figure.otherEvents })
+      items.push(JSON.stringify({ type: 'event-loss', evicted, ...(figure.otherEvents > 0 ? { otherEvents: figure.otherEvents } : {}), gap }))
+    }
+    if (items.length === 0) continue
+    items.push(cursor)
+    writePaced(res, items)
+  }
+}
 /** Agent states for /observations: fed on every event, not subject to the replay buffer's eviction */
 const agentTracker = new AgentStateTracker()
 
@@ -266,6 +384,11 @@ function deliverEvent(delivered: AgentEvent) {
   const sid = event.sessionId?.slice(0, SESSION_ID_DISPLAY) || '?'
   log(`[event] ${event.type} (session ${sid})`)
 
+  // History (#652): sent in batches once the load is over, after the buffer cap; live events one by one, after it.
+  // The history read before a live event goes out before it, with a cursor taken BEFORE this event is numbered: its
+  // agent-event is queued after that cursor, so a page resuming from the cursor still gets it (or counts it lost).
+  const live = !(event.sessionId && event.replayed === true)
+  if (live) flushHistory()
   const seq = ++eventSeq
   eventSeqs.set(event, seq)
   if (event.sessionId) {
@@ -274,10 +397,12 @@ function deliverEvent(delivered: AgentEvent) {
     agentTracker.ingest(event)
   }
 
-  broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
+  if (!live) queueHistory(event.sessionId!, event)
+  else broadcast(JSON.stringify({ type: 'agent-event', event, seq }), event.sessionId)
 
-  // Webhooks: a replayed history or an imported session is not something that just happened
-  if (webhooks && historyDepth === 0 && !event.imported && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
+  // Webhooks: a replayed history or an imported session is not something that just happened. During a Claude attach
+  // (#651) only the history copies are `replayed`: a hook pushed meanwhile for that session is live and notified
+  if (webhooks && historyDepth === 0 && !event.imported && !event.replayed && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
 }
 
 /** Untrusted text shown as a session tag: single line, no controls, capped. */
@@ -374,9 +499,12 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
   } else if (type === 'updated') {
     const tags = teamWatcher?.getSessionTags(sessionId)
+    // The place of a watched session (an imported one is never matched to a local project, see toSessionInfo)
+    const cwd = importedSessions.has(sessionId) ? '' : tagText(sessionCwd.get(sessionId))
     broadcast(JSON.stringify({
       type: 'session-updated', sessionId, label,
       ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+      ...(cwd ? { cwd, ...projectTags(sessionCwd.get(sessionId)), ...branchTag(sessionBranch.get(sessionId)) } : {}),
     }), sessionId)
   }
 }
@@ -400,11 +528,19 @@ const pipeline = new ClaudeSessionPipeline({
   submit: (event) => broadcastEvent(event),
   fireLifecycle: broadcastSessionLifecycle,
   withHistory,
+  // A history read over several ticks (a Claude attach, #651) holds only its session's events; its transcript
+  // copies come out marked `replayed`, which keeps them away from the webhooks (deliverEvent)
+  withSessionHistory: (sessionId, load) => reconciler.withSessionHistory(sessionId, load),
   // An imported transcript is not live: no activity is inferred from reading it, and no end either
   isLive: (sessionId) => !importedSessions.has(sessionId),
   // An exception here would reach uncaughtException and stop the relay for every client (#206)
   guard: (fn, sessionId) => runGuarded(fn, (err) => detachSessionOnError(sessionId, err)),
   maxFileBytes: () => maxSessionFileBytes,
+  // A session found before its first entry with a cwd: its project is learnt now and the clients told
+  onTranscriptLines: (sessionId, lines) => {
+    const session = sessions.get(sessionId)
+    if (session && completeSessionHeader(sessionId, lines, sessionCwd, sessionBranch)) broadcastSessionLifecycle('updated', sessionId, session.label)
+  },
   // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
   // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
   onOversize: (sessionId) => {
@@ -526,7 +662,12 @@ function trackSession(sessionId: string, filePath: string) {
   sessions.set(sessionId, session)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
   if (header.branch) sessionBranch.set(sessionId, header.branch)
-  pipeline.attach(session)
+  // Queued and read over several ticks (#651): the relay keeps answering hooks, SSE and /status meanwhile.
+  // A transcript that cannot be read is no longer watched, as when the attach was synchronous.
+  pipeline.attach(session).catch((e) => {
+    if (sessions.get(sessionId) === session) dropSession(sessionId)
+    log('[session] Failed to watch', sessionId, e)
+  })
 }
 
 // ─── Session scanner ────────────────────────────────────────────────────────
@@ -626,7 +767,7 @@ function scanTranscripts(workspace: string, allWorkspaces = false) {
   }
   // All workspaces: every real (non-symlink) project dir directly under ~/.claude/projects, the first RELAY_MAX_PROJECT_DIRS by name
   const dirReport = { truncated: false }
-  const dirsToScan = listProjectDirs(CLAUDE_DIR, match, RELAY_MAX_PROJECT_DIRS, dirReport)
+  const dirsToScan = listProjectDirs(CLAUDE_DIR, match, RELAY_MAX_PROJECT_DIRS, dirReport, coldScan)
   projectDirsCapped = dirReport.truncated
 
   coldScan.cycle++
@@ -721,8 +862,8 @@ export interface Relay {
   readonly remotePairing: RemotePairing | null
   /** Clean up all resources */
   dispose: () => void
-  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
+  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers, an attach in progress */
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; runtimeScanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; runtimeScanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number; attaching: boolean }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
@@ -946,7 +1087,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // comments from the page, so the beat is a data frame the web client reads as proof of life and discards.
   const heartbeatTicker = new SharedTicker(() => {
     // A client still receiving its replay gets data anyway, and a held beat would only arrive late
-    for (const res of [...sseClients]) if (!replayHeld.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
+    for (const res of [...sseClients]) if (!outboxes.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
   }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
   // System panel (#357): one shared sampler for the LOCAL clients; nothing runs without one, and nothing
   // machine-related goes through broadcast() (a tunnel Host never receives it, #241).
@@ -961,6 +1102,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const statusCoalescer = new KeyedCoalescer<StatusSnapshot>()
   let statusComputations = 0
   let projectDirWatcher: fs.FSWatcher | null = null
+  let projectWatchScan: ReturnType<typeof createProjectWatchScan> | null = null
 
   if (wantClaude) {
     hookServer = new HookServer()
@@ -1000,7 +1142,16 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       scanCoalescer.run('scan', () => scanTranscripts(workspace, allWorkspaces))
         .catch(e => log('[scan] Failed:', e))
     }
-    wakeScan = scanNow
+    // A tracked transcript never scans; an unknown one scans at once, then at most every WATCH_SCAN_DEBOUNCE_MS (#650).
+    // The wake-up of a cold transcript shares that debounce: a long session over maxSessionFileBytes is put back to
+    // sleep by each scan and woken by its next write, so it scanned on every write (#613).
+    // Cost that remains: such a session still causes up to 1000 / WATCH_SCAN_DEBOUNCE_MS = 4 full scans per second for as
+    // long as it writes, with no SSE client (the tick alone is 1 per second). Inside the workspace folder
+    // projectDirWatcher already sent that untracked file through the same debounce, so the gain is for project folders
+    // outside the workspace. Not waking a file already counted in skippedSessions.sizeLimit whose size has not dropped
+    // under the cap would remove it; that is left to the owner (it changes when such a file is looked at again).
+    projectWatchScan = createProjectWatchScan({ scan: () => scanNow?.(), isTracked: id => sessions.has(id) })
+    wakeScan = () => projectWatchScan?.request()
     scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
 
     // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
@@ -1024,7 +1175,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         onSessionTags,
       },
     })
-    teamWatcher.start()
+    // Its first pass reads the sessions found at start once they are attached (queued, over several ticks, #651),
+    // as when they were attached synchronously before it: a team is first reported with its whole roster
+    const startTeams = () => teamWatcher?.start()
+    const startupAttaches = pipeline.whenAttached()
+    if (startupAttaches) void startupAttaches.then(startTeams)
+    else startTeams()
 
     const resolved = (() => { try { return fs.realpathSync(workspace) } catch { return workspace } })()
     const projectDir = encodeProjectDirName(resolved).length > PROJECT_DIR_NAME_MAX
@@ -1032,9 +1188,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       : path.join(CLAUDE_DIR, encodeProjectDirName(resolved))
     if (projectDir && fs.existsSync(projectDir)) {
       try {
-        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => {
-          if (filename?.endsWith('.jsonl')) scanNow?.()
-        })
+        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => projectWatchScan?.onEvent(filename))
       } catch {}
     }
   }
@@ -1052,7 +1206,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     codexWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    codexWatcher.start()
+    codexWatcher.start({ ownTimer: false })
   }
 
   // ─── Copilot runtime ──────────────────────────────────────────────────────
@@ -1066,7 +1220,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     copilotWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    copilotWatcher.start()
+    copilotWatcher.start({ ownTimer: false })
   }
 
   // ─── Pi runtime ───────────────────────────────────────────────────────────
@@ -1080,7 +1234,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     piWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    piWatcher.start()
+    piWatcher.start({ ownTimer: false })
   }
 
   // ─── Gemini CLI runtime ───────────────────────────────────────────────────
@@ -1093,7 +1247,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     geminiWatcher.onSessionLifecycle((lifecycle) => {
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    geminiWatcher.start()
+    geminiWatcher.start({ ownTimer: false })
   }
 
   // ─── OpenCode runtime ─────────────────────────────────────────────────────
@@ -1107,8 +1261,44 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Runtime and cwd ride on session-started: a session started while the page is open gets its badge (#420)
       broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
-    openCodeWatcher.start()
+    openCodeWatcher.start({ ownTimer: false })
   }
+
+  // The discovery scans of the other runtimes run on one shared interval, like the Claude scan: started by the
+  // first SSE client, stopped by the last (#654). It is a second SharedTicker next to scanTicker, not
+  // scanTicker.acquire(): scanTicker only exists when the Claude runtime is on (and its tick is the Claude scan), while
+  // these scans exist whenever another runtime does. In 'auto' mode a client therefore holds two one-second
+  // intervals, the Claude scan and this one. Without a client the Codex, Copilot, Pi and Gemini fs.watch still react; OpenCode (no fs.watch) is read at the next connection.
+  let runtimeScanRuns = 0
+  let lastRuntimeScanAt = 0
+  const scanOtherRuntimes = () => {
+    runtimeScanRuns++
+    lastRuntimeScanAt = Date.now()
+    for (const scan of [
+      () => codexWatcher?.scan(), () => copilotWatcher?.scan(), () => piWatcher?.scan(),
+      () => geminiWatcher?.scan(), () => openCodeWatcher?.scanNow(),
+    ]) {
+      try { scan() } catch (e) { log('[scan] Runtime scan failed:', e) }
+    }
+  }
+  // The scan of a connection (before the client joins, so what it finds reaches it through the list and the replay)
+  // is skipped when one ran less than WATCH_SCAN_DEBOUNCE_MS ago: a burst of reconnections costs one scan of the five
+  // runtimes (statSync of Copilot included), not one each. What appeared in that window comes at the next tick.
+  const scanRuntimesOnConnect = () => {
+    if (Date.now() - lastRuntimeScanAt < WATCH_SCAN_DEBOUNCE_MS) return
+    scanOtherRuntimes()
+  }
+  // Release is not discovery: a session silent past ACTIVE_SESSION_AGE_S is retired (fs.watch, poll timer) even
+  // with nobody connected, on a slow timer and before /status counts (#654)
+  const releaseOtherRuntimes = () => {
+    for (const w of [codexWatcher, copilotWatcher, piWatcher, geminiWatcher, openCodeWatcher]) {
+      try { w?.releaseIdle() } catch (e) { log('[scan] Runtime release failed:', e) }
+    }
+  }
+  const runtimeScanTicker = new SharedTicker(scanOtherRuntimes, SCAN_INTERVAL_MS)
+  const hasOtherRuntimes = !!(codexWatcher || copilotWatcher || piWatcher || geminiWatcher || openCodeWatcher)
+  const runtimeReleaseTimer = hasOtherRuntimes ? setInterval(releaseOtherRuntimes, RUNTIME_RELEASE_INTERVAL_MS) : null
+  runtimeReleaseTimer?.unref()
 
   const telemetry = options.telemetry
   const sessionStart = Date.now()
@@ -1218,6 +1408,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       statusComputations++
       const hooksConfigured = wantClaude ? await hooksProbe(workspace) : false
       const disable1MContext = wantClaude ? isDisable1MContext() : false
+      releaseOtherRuntimes()
       let sessionCount = 0
       for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
@@ -1348,7 +1539,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Invalid session parameter')
         return
       }
-      if (sseClients.size >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
+      if (sseClients.size + pendingSseClients >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() + pendingRemoteSseClients >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
         res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '5' })
         res.end('Too many clients')
         return
@@ -1367,140 +1558,173 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
       // session list and the replay below, and not a second time as a live broadcast (issue #53).
       scanNow?.()
-      sseClients.add(res)
-      log(`[sse] Client connected (${sseClients.size} total)`)
-      // First client starts the shared scan timer; the last one leaving stops it
-      const releaseTicker = scanTicker?.acquire()
-      const releaseSystem = hostClass !== 'allowed' ? systemTicker.acquire() : undefined
-      const releaseHeartbeat = heartbeatTicker.acquire()
+      if (hasOtherRuntimes) scanRuntimesOnConnect()
+      const join = () => {
+        // The history that scan read goes to the clients already there; this one gets it in its replay (#652)
+        flushHistory()
+        sseClients.add(res)
+        log(`[sse] Client connected (${sseClients.size} total)`)
+        // First client starts the shared scan timer; the last one leaving stops it
+        const releaseTicker = scanTicker?.acquire()
+        const releaseRuntimeScans = hasOtherRuntimes ? runtimeScanTicker.acquire() : undefined
+        const releaseSystem = hostClass !== 'allowed' ? systemTicker.acquire() : undefined
+        const releaseHeartbeat = heartbeatTicker.acquire()
 
-      // Clean up on every way a connection can end; idempotent.
-      let closed = false
-      const onGone = () => {
-        if (closed) return
-        closed = true
-        releaseTicker?.()
-        if (releaseSystem) {
-          releaseSystem()
-          // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
-          if (!systemTicker.active) cpuCounters = null
-        }
-        releaseHeartbeat()
-        sseClients.delete(res)
-        clientSessionFilter.delete(res)
-        replayHeld.delete(res)
-        log(`[sse] Client disconnected (${sseClients.size} total)`)
-      }
-      req.on('close', onGone)
-      res.on('close', onGone)
-      res.on('error', onGone)
-
-      // Send current session list (Claude + Codex)
-      let sessionList: SessionInfo[] = []
-      for (const session of sessions.values()) {
-        if (!session.sessionDetected) continue
-        sessionList.push(toSessionInfo(session))
-      }
-      if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
-      if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
-      if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
-      if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
-      if (openCodeWatcher) sessionList.push(...openCodeWatcher.getActiveSessions())
-      // Indexed sessions complete the list; a session that is also watched live keeps its live entry
-      const indexed = readIndex()
-      if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
-      if (sessionList.length > 0) {
-        sendSSE(res, { type: 'session-list', sessions: sessionList })
-      }
-
-      // Local clients learn the launches in progress (a tunnel Host never does)
-      if (launchSnapshot && hostClass !== 'allowed') {
-        const launches = launchSnapshot()
-        if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
-      }
-
-      // Local clients get the last subscription quota (#467); a tunnel Host never does
-      const quota = quotaStore.current()
-      if (quota && hostClass !== 'allowed') sendSSE(res, { type: 'quota', quota: { ...quota } })
-
-      // Replay buffered events: only the requested session with ?session=<id>,
-      // otherwise every session's buffer (most recent active session last).
-      const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
-        const aActive = a.status === 'active' ? 1 : 0
-        const bActive = b.status === 'active' ? 1 : 0
-        if (aActive !== bActive) return bActive - aActive
-        return b.lastActivityTime - a.lastActivityTime
-      })
-      // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
-      const replayDropped = new Map<string, number>()
-      // A client back from a cut link (#366): what it last received from THIS relay process, else nothing is counted
-      const since = parseSinceParam(req.url)
-      const sinceSeq = since && since.instance === relayInstance && since.seq <= eventSeq ? since.seq : null
-      // Served all the same; a client that keeps sending an unusable cursor shows up in the log (never its value)
-      if (sinceSeq === null && /[?&]since=/.test(req.url ?? '')) log('[sse] since ignored: malformed, repeated, ahead or from another relay instance')
-      const gap: Record<string, number> = {}
-      const addGap = (sid: string, n: number) => { if (n > 0) gap[sid] = Math.min((gap[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER) }
-      const replay = capReplayBatches(
-        buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped,
-        sinceSeq === null ? undefined : events => {
-          for (const e of events) if (typeof e.sessionId === 'string' && (eventSeqs.get(e) ?? 0) > sinceSeq) addGap(e.sessionId, 1)
-        },
-      )
-      if (sinceSeq !== null) {
-        for (const sid of evictionLog.bySession.keys()) if (!sessionParam || sid === sessionParam) addGap(sid, evictedAfter(evictionLog, sid, sinceSeq))
-      }
-      // Tell the client how many events of each session this replay cannot give back (#366), before the replay
-      // itself. Totals since the relay started, not per client: the client replaces its value on each connect.
-      const loss: Record<string, number> = {}
-      for (const [sid, n] of evictedCounts.bySession) if (n > 0 && (!sessionParam || sid === sessionParam)) loss[sid] = n
-      for (const [sid, n] of replayDropped) loss[sid] = (loss[sid] ?? 0) + n
-      const otherEvents = sessionParam ? 0 : evictedCounts.other
-      const hasGap = Object.keys(gap).length > 0
-      if (Object.keys(loss).length > 0 || otherEvents > 0 || hasGap) {
-        sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}), ...(hasGap ? { gap } : {}) })
-      }
-      // Every buffered event numbered up to here is in the replay below or counted above (a first connection: evicted;
-      // a reconnection: gap). Events of no session are never buffered nor counted. Sent once the replay is written
-      // (below): a client cut during its replay gets no cursor and comes back with its previous one, so the events it
-      // missed are still numbered after its `since`.
-      const cursor = { type: 'relay-cursor', instance: relayInstance, seq: eventSeq }
-      // The replay can exceed the slow-client backlog limit in one go (issue #203), so wait for the
-      // socket to drain between batches instead of dropping a healthy client mid-replay. Live messages
-      // arriving meanwhile are held (writeLive) and flushed after the replay, keeping arrival order.
-      const held = { payloads: [] as string[], bytes: 0 }
-      replayHeld.set(res, held)
-      void (async () => {
-        for (const batch of replay) {
-          if (res.destroyed || closed || !replayHeld.has(res)) return
-          sendSSE(res, batch)
-          if (res.writableNeedDrain && !res.destroyed) {
-            await new Promise<void>(resolve => {
-              const done = () => { res.off('drain', done); res.off('close', done); resolve() }
-              res.once('drain', done)
-              res.once('close', done)
-            })
+        // Clean up on every way a connection can end; idempotent.
+        let closed = false
+        const onGone = () => {
+          if (closed) return
+          closed = true
+          releaseTicker?.()
+          releaseRuntimeScans?.()
+          if (releaseSystem) {
+            releaseSystem()
+            // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
+            if (!systemTicker.active) cpuCounters = null
           }
+          releaseHeartbeat()
+          sseClients.delete(res)
+          clientSessionFilter.delete(res)
+          outboxes.delete(res)
+          log(`[sse] Client disconnected (${sseClients.size} total)`)
         }
-        if (res.destroyed || closed || !replayHeld.has(res)) return
-        replayHeld.delete(res)
-        // The whole replay is written: the client may resume from here. The held live events are numbered after it
-        sendSSE(res, cursor)
-        // Back on the live path: from here the slow-client limit applies to every write
-        for (const payload of held.payloads) writeToClient(res, payload)
-      })()
+        req.on('close', onGone)
+        res.on('close', onGone)
+        res.on('error', onGone)
+
+        // Send current session list (Claude + Codex)
+        let sessionList: SessionInfo[] = []
+        for (const session of sessions.values()) {
+          if (!session.sessionDetected) continue
+          sessionList.push(toSessionInfo(session))
+        }
+        if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
+        if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
+        if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
+        if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
+        if (openCodeWatcher) sessionList.push(...openCodeWatcher.getActiveSessions())
+        // Indexed sessions complete the list; a session that is also watched live keeps its live entry
+        const indexed = readIndex()
+        if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
+        if (sessionList.length > 0) {
+          sendSSE(res, { type: 'session-list', sessions: sessionList })
+        }
+
+        // Local clients learn the launches in progress (a tunnel Host never does)
+        if (launchSnapshot && hostClass !== 'allowed') {
+          const launches = launchSnapshot()
+          if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
+        }
+
+        // Local clients get the last subscription quota (#467); a tunnel Host never does
+        const quota = quotaStore.current()
+        if (quota && hostClass !== 'allowed') sendSSE(res, { type: 'quota', quota: { ...quota } })
+
+        // Replay buffered events: only the requested session with ?session=<id>,
+        // otherwise every session's buffer (most recent active session last).
+        const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
+          const aActive = a.status === 'active' ? 1 : 0
+          const bActive = b.status === 'active' ? 1 : 0
+          if (aActive !== bActive) return bActive - aActive
+          return b.lastActivityTime - a.lastActivityTime
+        })
+        // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
+        const replayDropped = new Map<string, number>()
+        // A client back from a cut link (#366): what it last received from THIS relay process, else nothing is counted
+        const since = parseSinceParam(req.url)
+        const sinceSeq = since && since.instance === relayInstance && since.seq <= eventSeq ? since.seq : null
+        // Served all the same; a client that keeps sending an unusable cursor shows up in the log (never its value)
+        if (sinceSeq === null && /[?&]since=/.test(req.url ?? '')) log('[sse] since ignored: malformed, repeated, ahead or from another relay instance')
+        const gap: Record<string, number> = {}
+        const addGap = (sid: string, n: number) => { if (n > 0) gap[sid] = Math.min((gap[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER) }
+        // The client keeps its graph across a reconnection (reconnect.ts): it already has what is numbered up to `since`
+        // (#653). Nothing is lost by leaving it out; what the cap or the buffer cannot give back is still counted below.
+        let buffers: ReadonlyMap<string, readonly AgentEvent[]> = eventBuffer
+        if (sinceSeq !== null) {
+          // With ?session=, only that buffer is read (the replay keeps nothing else): not the 50,000 events of all sessions
+          const after = new Map<string, readonly AgentEvent[]>()
+          const sources: Iterable<[string, readonly AgentEvent[]]> = sessionParam
+            ? (eventBuffer.has(sessionParam) ? [[sessionParam, eventBuffer.get(sessionParam)!]] : [])
+            : eventBuffer
+          for (const [sid, events] of sources) after.set(sid, events.filter(e => (eventSeqs.get(e) ?? 0) > sinceSeq))
+          buffers = after
+        }
+        const replay = capReplayBatches(
+          buildReplayBatches(buffers, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped,
+          sinceSeq === null ? undefined : events => {
+            for (const e of events) if (typeof e.sessionId === 'string' && (eventSeqs.get(e) ?? 0) > sinceSeq) addGap(e.sessionId, 1)
+          },
+        )
+        if (sinceSeq !== null) {
+          for (const sid of evictionLog.bySession.keys()) if (!sessionParam || sid === sessionParam) addGap(sid, evictedAfter(evictionLog, sid, sinceSeq))
+        }
+        // Tell the client how many events of each session this replay cannot give back (#366), before the replay
+        // itself. Totals since the relay started, not per client: the client replaces its value on each connect.
+        const loss: Record<string, number> = {}
+        for (const [sid, n] of evictedCounts.bySession) if (n > 0 && (!sessionParam || sid === sessionParam)) loss[sid] = n
+        for (const [sid, n] of replayDropped) loss[sid] = (loss[sid] ?? 0) + n
+        const otherEvents = sessionParam ? 0 : evictedCounts.other
+        const hasGap = Object.keys(gap).length > 0
+        clientLoss.set(res, { evicted: { ...loss }, otherEvents })
+        if (Object.keys(loss).length > 0 || otherEvents > 0 || hasGap) {
+          sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}), ...(hasGap ? { gap } : {}) })
+        }
+        // Every buffered event numbered up to here is in the replay below or counted above (a first connection: evicted;
+        // a reconnection: gap). Events of no session are never buffered nor counted. Sent once the replay is written
+        // (below): a client cut during its replay gets no cursor and comes back with its previous one, so the events it
+        // missed are still numbered after its `since`.
+        const cursor = { type: 'relay-cursor', instance: relayInstance, seq: eventSeq }
+        // The replay can exceed the slow-client backlog limit in one go (issue #203), so it is written as the socket
+        // drains instead of dropping a healthy client mid-replay. Live messages arriving meanwhile wait behind it
+        // (writeLive), keeping arrival order. The cursor follows the whole replay: the client may resume from there.
+        writePaced(res, [...replay.map(batch => JSON.stringify(batch)), JSON.stringify(cursor)])
+      }
+      // The sessions that scan (or the start) found are attached over several ticks (#651): the client joins once
+      // their attach ended, so they reach it once, through the list and the replay, as when attaching was synchronous.
+      // The event loop is free meanwhile; a client gone before that never joins.
+      const attaching = pipeline.whenAttached()
+      if (!attaching) { join(); return }
+      // Its slot is held from now: in the SSE cap and, through a tunnel, in the remote cap. Freed when it joins
+      // (it is then in sseClients) or when it leaves before, so a client that reconnects in a loop holds one slot only
+      const remote = hostClass === 'allowed'
+      pendingSseClients++
+      if (remote) pendingRemoteSseClients++
+      let waiting = true
+      waitingSseClients.add(res)
+      const release = () => {
+        if (!waiting) return
+        waiting = false
+        waitingSseClients.delete(res)
+        pendingSseClients--
+        if (remote) pendingRemoteSseClients--
+        req.off('close', release)
+        res.off('close', release)
+      }
+      req.once('close', release)
+      res.once('close', release)
+      void attaching.then(() => {
+        const left = !waiting
+        release()
+        if (left || res.destroyed || relayDisposed) { clientSessionFilter.delete(res); return }
+        join()
+      })
     },
 
     debugState: () => ({
       sseClients: sseClients.size,
       remoteSseClients: remoteSseCount(),
       scanTimerActive: scanTicker?.active ?? false,
+      runtimeScanTimerActive: runtimeScanTicker.active,
       systemTimerActive: systemTicker.active,
       heartbeatTimerActive: heartbeatTicker.active,
       scanRuns: scanCoalescer.runs,
+      runtimeScanRuns,
       statusRuns: statusComputations,
       dedupSessions: reconciler.rememberedSessions,
       watchedSessions: sessions.size - importedSessions.size,
       wakeWatchers: projectDirWakeWatchers.size + subagentWakeWatchers.size,
+      // A Claude attach queued or running (#651)
+      attaching: pipeline.whenAttached() !== null,
     }),
 
     webhookStats: () => webhooks?.stats() ?? null,
@@ -1539,6 +1763,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
+        projectWatchScan?.dispose()
         for (const w of [...projectDirWakeWatchers.values(), ...[...subagentWakeWatchers.values()].map(s => s.w)]) { try { w.close() } catch {} }
         projectDirWakeWatchers.clear(); subagentWakeWatchers.clear(); wakeScan = null
         for (const session of sessions.values()) {
@@ -1546,14 +1771,20 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
           if (session.pollTimer) clearInterval(session.pollTimer)
         }
       }
+      runtimeScanTicker.stop()
+      if (runtimeReleaseTimer) clearInterval(runtimeReleaseTimer)
       codexWatcher?.dispose()
       copilotWatcher?.dispose()
       piWatcher?.dispose()
       geminiWatcher?.dispose()
       openCodeWatcher?.dispose()
       for (const client of [...sseClients]) dropClient(client)
+      for (const client of [...waitingSseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) dropSession(id)
       eventBuffer.clear()
+      historyPending.clear()
+      historyPendingSet.clear()
+      historyUnsent.clear()
       evictedCounts.bySession.clear()
       evictedCounts.other = 0
       evictionLog.bySession.clear()

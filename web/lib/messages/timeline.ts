@@ -2,7 +2,7 @@
 // Keys: tl.*. Add a key here with its two languages, fr and en; web/lib/messages.ts assembles the domains.
 
 import { EXPIRED_LABEL_SUFFIX } from '../ui-glossary'
-import { TIMELINE_STATE_LABELS } from '../timeline-rows'
+import { TIMELINE_STATE_LABELS } from '../timeline-state-labels'
 
 export const fr = {
   // #373: panneau Chronologie (timeline-text.ts). Les durées (1:05) sont des chiffres et restent telles que dessinées.
@@ -43,6 +43,8 @@ export const fr = {
   'tl.kind.return': 'Retour',
   'tl.kind.returnError': 'Retour (erreur)',
   'tl.kind.message': 'Message',
+  'tl.olderBlocks.one': '{n} bloc plus ancien non affiché',
+  'tl.olderBlocks.other': '{n} blocs plus anciens non affichés',
   'tl.earlier.one': '+{n} message antérieur, voir la vue en tableau',
   'tl.earlier.other': '+{n} messages antérieurs, voir la vue en tableau',
   'tl.block.thinking': 'Réflexion…',
@@ -94,6 +96,8 @@ export const en: Record<keyof typeof fr, string> = {
   'tl.kind.return': 'Return',
   'tl.kind.returnError': 'Return (error)',
   'tl.kind.message': 'Message',
+  'tl.olderBlocks.one': '{n} older block not shown',
+  'tl.olderBlocks.other': '{n} older blocks not shown',
   'tl.earlier.one': '+{n} earlier message, see Table view',
   'tl.earlier.other': '+{n} earlier messages, see Table view',
   'tl.block.thinking': 'Thinking...',

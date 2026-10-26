@@ -52,13 +52,18 @@ function connectSSE(): Promise<{ text: () => string }> {
   })
 }
 
-/** Live messages only (agent-event), in arrival order: the connect replay batches are left out. */
+/**
+ * Events received, in arrival order: one by one (agent-event) and in batches (agent-event-batch), which is how a
+ * history read while the client is connected reaches it (#652). The tests connect before the session is found, so
+ * their own connect replay holds nothing of it.
+ */
 function liveEvents(text: string): Ev[] {
   const out: Ev[] = []
   for (const block of text.split('\n\n')) {
     if (!block.startsWith('data: ')) continue
     const msg = JSON.parse(block.slice(6))
     if (msg.type === 'agent-event') out.push(msg.event)
+    else if (msg.type === 'agent-event-batch') out.push(...msg.events)
   }
   return out
 }

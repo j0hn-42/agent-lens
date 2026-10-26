@@ -120,9 +120,13 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
   useEffect(() => { onOpenChangeRef.current?.(open) }, [open])
   useEffect(() => () => onOpenChangeRef.current?.(false), [])
   // The active option (on opening: the current choice, even one picked on the canvas) is brought into the list's view
+  // Also when its group changes with no change of option: live, the agent of the active option finishes and its option
+  // moves to the Finished group (#613). Not on every shift of the list (a new agent above it), which would pull the
+  // list back to the option while the reader looks elsewhere in it.
+  const activeGroup = shownGroups.find(g => active !== undefined && g.ids.includes(active))?.kind ?? ''
   useEffect(() => {
     if (open && activeDomId) document.getElementById(activeDomId)?.scrollIntoView?.({ block: 'nearest' })
-  }, [open, activeDomId])
+  }, [open, activeDomId, activeGroup])
   // A click outside closes the list (focus stays where the click put it)
   useEffect(() => {
     if (!open) return
@@ -266,11 +270,13 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
             aria-haspopup="listbox"
             aria-expanded={open && unreadOnly}
             onClick={() => (open && unreadOnly ? close(false) : openList(true))}
-            className={`shrink-0 inline-flex items-center gap-1 px-2 ${ROW} rounded-full text-[11px] font-mono font-semibold ${FOCUS_RING_INSET}`}
+            className={`shrink-0 inline-flex items-center gap-1 px-2 ${ROW} rounded-full text-2xs font-mono font-semibold ${FOCUS_RING_INSET}`}
             style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
           >
             <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: COLORS.unreadDot }} />
             {pluralCountText(locale, 'conv.picker.unread', unreadIds.length)}
+            {/* The visible text is the accessible name: without this, a reader says "12 agents unread" and loses "with messages" */}
+            {' '}<span className="sr-only">{t('conv.picker.unreadSuffix')}</span>
           </button>
         )}
         {children}
@@ -305,7 +311,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
                 type="button"
                 aria-pressed={unreadOnly}
                 onClick={() => { setUnreadOnly(v => !v); setActiveId(null) }}
-                className={`shrink-0 px-2 ${ROW} rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                className={`shrink-0 px-2 ${ROW} rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
                 style={{ background: unreadOnly ? COLORS.toggleActive : 'transparent', color: unreadOnly ? COLORS.assistantText : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
               >
                 {t('conv.picker.unreadOnly')}
@@ -317,7 +323,7 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
                 aria-expanded={doneOpen}
                 aria-controls={doneOpen ? doneGroupId : undefined}
                 onClick={() => setDoneOpen(v => !v)}
-                className={`shrink-0 inline-flex items-center gap-1 px-2 ${ROW} rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                className={`shrink-0 inline-flex items-center gap-1 px-2 ${ROW} rounded text-2xs font-mono ${FOCUS_RING_INSET}`}
                 style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
               >
                 <ChevronIcon direction={doneOpen ? 'up' : 'down'} size={10} />
@@ -339,17 +345,17 @@ export function AgentPicker({ ids, agents, teams, activeKey, unread, messageCoun
             {showAll && optionRow('all')}
             {shownGroups.map(g => (
               <div key={g.key} id={g.kind === 'done' ? doneGroupId : undefined} role="group" aria-label={groupLabel(locale, g)} className="mt-1">
-                <div aria-hidden="true" className="px-2 pt-0.5 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
+                <div aria-hidden="true" className="px-2 pt-0.5 text-2xs font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
                   {groupLabel(locale, g)}
                 </div>
                 {g.ids.map(optionRow)}
               </div>
             ))}
             {flat.length === 0 && (
-              <p className="m-0 px-2 py-2 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('conv.picker.none')}</p>
+              <p className="m-0 px-2 py-2 text-2xs font-mono" style={{ color: COLORS.textMuted }}>{t('conv.picker.none')}</p>
             )}
           </div>
-          <div className="px-2 py-1 text-[11px] font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMuted }}>
+          <div className="px-2 py-1 text-2xs font-mono" style={{ borderTop: `1px solid ${COLORS.holoBorder06}`, color: COLORS.textMuted }}>
             <p role="status" className="m-0">{pluralCountText(locale, 'conv.picker.count', shownAgents, { total: ids.length })}</p>
             <p id={hintId} className="m-0 max-md:hidden">{t('conv.picker.hint')}</p>
           </div>
