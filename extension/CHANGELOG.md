@@ -8,7 +8,7 @@ The entries keep their original wording. Where they name a command, variable or 
 
 | Old name | Current name |
 | --- | --- |
-| `npx agent-flow-app` (package `agent-flow-app`) | `npx agent-lens-app` (package `agent-lens-app`) |
+| `npx agent-flow-app` (package `agent-flow-app`) | `npx agent-lens` (package `agent-lens`) |
 | `AGENT_FLOW_TELEMETRY` | `AGENT_LENS_TELEMETRY` (telemetry itself was removed, nothing is sent) |
 | `AGENT_FLOW_RUNTIME` | `AGENT_LENS_RUNTIME` |
 | `~/.agent-flow/` (state and `telemetry/events.jsonl`) | not written any more; no telemetry state exists (`AGENT_LENS_TELEMETRY` only keeps it off) |
@@ -34,6 +34,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 - GitHub Copilot runtime (#169): local Copilot CLI and app sessions (`~/.copilot/session-state/<id>/events.jsonl`, respects `COPILOT_HOME`) join Claude Code and Codex in the same session list and graph. Sessions are matched to the workspace through the `cwd` / `git_root` of `workspace.yaml`; messages, reasoning, tool calls and results, and sub-agent start/stop are shown. A sub-agent is spawned only from `subagent.started`, and a tool call is attributed to it only when its `parentToolCallId` says so (no invented nesting). `agentVisualizer.runtime` and `AGENT_LENS_RUNTIME` accept `copilot`; the session filter, badge, legend and observations know the new runtime. Cloud-hosted Copilot agent sessions are out of scope.
 - Pi runtime (#238): Pi coding agent sessions (`~/.pi/agent/sessions/--<path>--/<timestamp>_<id>.jsonl`, respects `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`) join the session list and graph, matched to the workspace through the `cwd` of the session header. Prompts, replies, readable thinking, tool calls paired with their results, compactions and the `/name` label are shown; the model is the one each answer names. Session format versions 1 to 3 only: an unknown version is neither listed nor read. No sub-agent is ever drawn (Pi documents none); tokens and cost are not read yet. `agentVisualizer.runtime` and `AGENT_LENS_RUNTIME` accept `pi`; the session filter, badge, legend (pi letter) and observations know the new runtime.
 - Gemini CLI runtime (#238): Gemini CLI sessions (`~/.gemini/tmp/<project>/chats/session-<timestamp>-<id>.jsonl`, respects `GEMINI_CLI_HOME`) join the session list and graph, matched to the workspace through the `projectHash` of the first record (sha256 of the project root) rather than the directory name. Prompts, replies, thoughts, tool calls paired with their end and the saved summary as label are shown; the model is the one each reply names; `$set`, `$patch` and `$rewindTo` records are handled and unknown records ignored. Sub-agent files are not read, so no sub-agent is drawn; tokens and cost are not read yet. `agentVisualizer.runtime` and `AGENT_LENS_RUNTIME` accept `gemini`; the session filter, badge, legend (star) and observations know the new runtime.
+- npm package: the standalone app is published as `agent-lens`, so `npx agent-lens` runs it without cloning the repository (it sets up the Claude Code hooks and serves the UI on port 3001). The package ships `dist/`, `LICENSE`, `NOTICE` and `README.md`; a `Publish to npm` workflow, started by hand and gated on an `NPM_TOKEN` secret, can publish it
 - Demo: `pnpm run dev:demo` now plays a guided tour of every feature (three sessions, an Agent Team, a Workflow, a Codex session, Comms, models, honest values), with a presenter script in `docs/demo.md`; the previous demo stays available as `pnpm run dev:demo:classic`
 
 ## 0.9.1
@@ -50,7 +51,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 - **Codex session discovery fixes** — addresses reports of Codex sessions not appearing
   - Windows: workspace/cwd matching is now case-insensitive on win32 (VS Code reports `c:\...`, Codex writes `C:\...` — sessions never matched)
   - Large `session_meta`: the first-line reader now grows up to 1MB instead of a fixed 64KB — newer Codex versions embed full base instructions and AGENTS.md content, which silently broke cwd extraction and skipped the session
-  - Silent cwd mismatch: when recent Codex sessions exist but none ran in the current workspace, a warning now says so (the most common cause: launching `npx agent-flow-app` (now: `npx agent-lens-app`) from a different directory than the Codex session). Warnings are visible without `--verbose`
+  - Silent cwd mismatch: when recent Codex sessions exist but none ran in the current workspace, a warning now says so (the most common cause: launching `npx agent-flow-app` (now: `npx agent-lens`) from a different directory than the Codex session). Warnings are visible without `--verbose`
 - Fix: assistant messages in Codex sessions were labeled "CLAUDE" in the transcript panels and canvas bubbles — the label now follows the session runtime ("CODEX") (#49)
 
 ## 0.8.1
@@ -59,13 +60,13 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
   - What's sent: session count, duration, event count, OS/arch, Agent Flow version, distinct Claude/Codex model IDs observed during each session, which runtimes were watched (`claude`, `codex`, or `claude,codex`), and error class names on crashes
   - What's NEVER sent: prompts, tool calls, tool responses, file paths, repo names, user name/email/hostname, environment variables, error messages or stack traces
   - Turn off: `export AGENT_FLOW_TELEMETRY=false` (now: `AGENT_LENS_TELEMETRY`, and there is no telemetry any more) or `export DO_NOT_TRACK=1`. Disabled installs write nothing to disk — no `~/.agent-flow/` state file (now: nothing is written), no telemetry dir
-  - Only the published `npx agent-flow-app` binary (now: `agent-lens-app`) emits. `pnpm run dev` stays silent so contributor iterations don't land in the data
+  - Only the published `npx agent-flow-app` binary (now: `agent-lens`) emits. `pnpm run dev` stays silent so contributor iterations don't land in the data
   - Inspect the exact payload locally: `cat ~/.agent-flow/telemetry/events.jsonl`
 - Remove `@vercel/analytics` — conflicts with the first-party-only commitment in the privacy doc
 
 ## 0.8.0
 
-- **Codex runtime support** — available in all three entry points: VS Code extension, `pnpm run dev`, and `npx agent-flow-app` (now: `npx agent-lens-app`). Agent Flow now watches Codex rollouts at `~/.codex/sessions/**/rollout-*.jsonl` alongside Claude Code sessions
+- **Codex runtime support** — available in all three entry points: VS Code extension, `pnpm run dev`, and `npx agent-flow-app` (now: `npx agent-lens`). Agent Flow now watches Codex rollouts at `~/.codex/sessions/**/rollout-*.jsonl` alongside Claude Code sessions
   - New `agentVisualizer.runtime` setting (VS Code only): `"auto"` (default, watches both), `"claude"`, or `"codex"`
   - `AGENT_FLOW_RUNTIME` environment variable (now: `AGENT_LENS_RUNTIME`) (`claude` / `codex` / `auto`) gives the same opt-out in `pnpm run dev` and `npx agent-flow-app`
   - Respects `CODEX_HOME` for non-default installs
@@ -94,7 +95,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 
 ## 0.6.1
 
-- npx support — `npx agent-flow-app` (now: `npx agent-lens-app`) starts the visualizer without cloning the repo
+- npx support — `npx agent-flow-app` (now: `npx agent-lens`) starts the visualizer without cloning the repo
 - Internal refactor: shared relay module and build config
 
 ## 0.6.0
