@@ -101,6 +101,13 @@ async function main(): Promise<void> {
     await page.getByRole('button', { name: 'Cost' }).click()
     await page.waitForTimeout(900)
     await shot('cost.png')
+    await page.getByRole('button', { name: 'Cost' }).click()
+    // Files & repeats: the file two agents edited (conflict), the file and the Glob read again, the command that looped
+    await at(64)
+    await page.getByRole('button', { name: /Files & repeats/ }).first().click()
+    await page.getByText(/^Repeated reads and calls: \d+ repeated targets? observed/).click()
+    await page.waitForTimeout(900)
+    await shot('repeats.png')
     await at(VIDEO_SECONDS)
 
     const videoPath = await page.video()!.path()
