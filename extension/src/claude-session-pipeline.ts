@@ -10,7 +10,7 @@ import { scanSubagentsDir, scanSubagentsDirAtAttach, readSubagentNewLines, markT
 /**
  * Tracking of one Claude Code session transcript: attach (history catch-up), live reads, activity and end,
  * context_update. Single implementation shared by the extension (SessionWatcher, VS Code) and the relay
- * (scripts/relay.ts, `pnpm dev` / `npx agent-lens-app`), which only differ by what they plug in through
+ * (scripts/relay.ts, `pnpm dev` / `npx agent-lens`), which only differ by what they plug in through
  * {@link ClaudeSessionHost}. No `vscode` import: the relay loads this module outside VS Code (#218).
  */
 export interface ClaudeSessionHost {

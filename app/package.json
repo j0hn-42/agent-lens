@@ -1,13 +1,22 @@
 {
-  "name": "agent-lens-app",
+  "name": "agent-lens",
   "version": "0.10.0",
   "description": "Real-time visualization of AI agent orchestration — standalone web app",
   "bin": {
     "agent-lens": "dist/app.js"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
   ],
+  "scripts": {
+    "prepublishOnly": "node build.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "Apache-2.0",
   "engines": {
     "node": ">=20"
@@ -15,6 +24,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/j0hn-42/agent-lens"
+  },
+  "homepage": "https://github.com/j0hn-42/agent-lens#readme",
+  "bugs": {
+    "url": "https://github.com/j0hn-42/agent-lens/issues"
   },
   "keywords": [
     "agent",
