@@ -1,6 +1,6 @@
 # Démo guidée d'Agent Lens
 
-Une démo d'environ 85 secondes qui montre toutes les fonctionnalités sans lancer de vraie session. Les données sont fictives : le scénario est dans `web/lib/tour-scenario.ts`.
+Une démo d'environ 85 secondes (le dernier événement est à 1:24) qui montre toutes les fonctionnalités sans lancer de vraie session. Les données sont fictives : le scénario est dans `web/lib/tour-scenario.ts`.
 
 ```bash
 pnpm i
@@ -21,7 +21,7 @@ On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en 
 
 | Session | Runtime | Projet | Contenu |
 | --- | --- | --- | --- |
-| `payments-api · refactor` | Claude Code | `payments-api` | actes 1, 2, 4 |
+| `payments-api · refactor` | Claude Code | `payments-api` | actes 1, 1b, 2, 3b, 3c, 3d, 4 |
 | `payments-api · release` | Claude Code | `payments-api` (un autre worktree) | acte 3 |
 | `docs-site · Codex` | Codex | `docs-site` | acte 5 |
 
@@ -35,8 +35,12 @@ Les deux sessions Claude partagent un projet : la vue **All** les regroupe sous 
 | 0:06 – 0:15 | **Sous-agents en parallèle** | `explore-agent` et `research-agent` sont dépêchés ensemble puis rendent leur résumé. | `explore-agent` a demandé `opus` et a reçu `sonnet` : la pastille lit **requested != actual**, c'est le cas honnête. Montrez les arêtes parent-enfant. |
 | 0:15 – 0:23 | **Outil MCP et permission** | L'appel `mcp__stripe__…` a son propre style (cyan, badge de serveur). Puis l'`orchestrator` attend une permission avant `npm install`. | Dites : « l'état *waiting for permission* est visible, pas deviné ». Repérez le bloc *Permission* dans **Timeline**. |
 | 0:24 – 0:38 | **Erreur et reprise** | `test-runner` (modèle `haiku` demandé, obtenu et détecté) lance les tests, échoue, ajoute un setup, relance et passe. | L'appel en échec est marqué en erreur dans le graphe et dans **Conversation**. Ouvrez **Files** : la carte d'attention des fichiers touchés. Ouvrez **Cost** : coût par agent. |
+| 0:10 – 0:12 | **1b. Lectures répétées** | Pendant que les sous-agents travaillent, l'`orchestrator` relit `payment.ts` (lu à 0:03) et relance le même `Glob`, sans rien avoir édité entre les deux. | Un double chevron (») apparaît sur son nœud. Ouvrez **Files** (*Files & repeats*, touche F) : *Repeated reads and calls* compte les cibles répétées ; dépliez-le : « read again 1 time, no edit seen in between » et « same Glob run again 1 time », avec les jetons **des répétitions seulement** (3,5k et 500), jamais ceux du premier appel. Dites : « un fait, pas un verdict : une répétition peut être voulue ». |
 | 0:39 | **Fin de tour** | L'`orchestrator` passe en *idle* : il attend le prompt suivant, il ne travaille plus. | Dites : « un agent qui a fini son tour n'est pas compté comme actif ». |
 | 0:40 – 0:49 | **2. Agent Team et Comms** | `api-dev` et `qa-dev` forment l'équipe `payments-squad` (halo en tirets). Ils s'échangent des messages. | Cliquez le lien entre `api-dev` et `qa-dev` : le panneau de lien lit l'échange. Le badge est le nombre de messages. Montrez les couleurs de coéquipiers et l'état working / idle / done. |
+| 0:42 | **3b. Conflit de fichiers** | `api-dev` édite `payment.ts`, que l'`orchestrator` avait déjà édité à 0:23 : deux agents ont écrit le même fichier (chemin absolu, deux éditions observées réussies). | Un trait rouge à losange relie les deux agents. Dans **Files**, la section *1 conflict* est en tête, et la ligne du fichier porte le mot « conflict ». Dites : « ce n'est pas deux écritures simultanées : deux agents ont écrit le même fichier ». |
+| 0:50 – 1:00 | **3c. Boucle et compaction** | L'`orchestrator` confie le lint à `lint-fixer`, qui lance trois fois la même commande `pnpm lint --filter payments`, trois échecs identiques : 3 est exactement le seuil. Les journaux remplissent son contexte (183 000 jetons sur 200 000), puis le runtime le compacte (0:58). | Cliquez `lint-fixer` : la section **Health** dit *Loop observed* avec la preuve, et le badge ⟳ est sur son nœud. Dans **Conversation**, la ligne **COMPACTED** donne le déclencheur (*automatic*) et la taille avant (*reported by the runtime*), sans coût : « Cost not reported ». La jauge de contexte retombe à 21 000. Dans **Files**, la même commande figure aussi comme répétition (124k jetons). |
+| 1:00 – 1:02 | **3d. Rapport de délégation** | L'`orchestrator` a dépêché quatre sous-agents (`explore-agent`, `research-agent`, `test-runner`, `lint-fixer`), tous rentrés. | Cliquez l'`orchestrator` (il termine à 1:02 : s'il est masqué par **Hide inactive**, désactivez-le) et descendez à la fin de l'inspecteur : **Delegation report**, une entrée par sous-agent avec ses **Tokens**, ses **Files read** (`explore-agent`: 2 fichiers ; `research-agent`: *none observed*, pas « 0 files »), sa **Duration** (*measured* pour les trois premiers, *recorded* pour `lint-fixer`, dont la durée vient de son avis de fin) et le début du rapport rendu. |
 | 0:14 – 1:24 | **3. Workflow à phases** | La session `release` exécute un Workflow : phases **Plan** puis **Build**. | Les membres apparaissent avant l'annonce des phases : le graphe se réorganise. Quand **Plan** est terminé (0:19), ses agents quittent l'écran avec **Hide inactive**. |
 | 1:15 et 0:52 | **4. Valeurs honnêtes** | Un `WebFetch` lancé à 0:15 dont on ne reçoit jamais la fin, un coût rapporté pour un agent inconnu (0:52), un coéquipier annoncé qui n'a rien produit (0:52). | À 1:15 (une minute après son départ, avec le réglage ci-dessus), l'appel sans fin se lit **end not observed**, jamais « réussi ». Le coût inconnu apparaît dans **Cost** comme **unattributed**, hors des agents. Le coéquipier se lit **Not observed yet**. Les totaux partiels de la barre du haut disent **at least** et **estimated**. |
 | 0:30 – 1:08 | **5. Une session Codex** | `codex` met à jour des pages de documentation. Ses chiffres de jetons viennent du runtime, avec l'effort de raisonnement (`high`). | Dites : « Claude Code et Codex côte à côte, étiquetés par runtime ». Montrez la fenêtre de contexte de 272 000 jetons. |
@@ -55,7 +59,7 @@ Ces fonctionnalités demandent un vrai relais et ne se voient qu'avec `pnpm run 
 
 ## Modifier le scénario
 
-`web/lib/tour-scenario.ts` écrit les événements acte par acte. Le test `scripts/tour-scenario.test.ts` garantit que le tableau reste trié par temps (le lecteur le consomme dans l'ordre), que chaque type d'événement est joué, que chaque session déclarée est utilisée, et que le tour contient bien un agent Codex, un modèle demandé différent du modèle réel, un effort, une équipe, un workflow avec phases, un lien Comms avec messages, un coût non attribué et un appel en erreur.
+`web/lib/tour-scenario.ts` écrit les événements acte par acte. Le test `scripts/tour-scenario.test.ts` garantit que le tableau reste trié par temps (le lecteur le consomme dans l'ordre), que chaque type d'événement est joué, que chaque session déclarée est utilisée, et que le tour contient bien un agent Codex, un modèle demandé différent du modèle réel, un effort, une équipe, un workflow avec phases, un lien Comms avec messages, un coût non attribué et un appel en erreur. Il rejoue aussi le tour et vérifie l'état obtenu (pas seulement la présence d'événements) pour les lectures répétées avec leur coût, le conflit de fichiers, le rapport de délégation (durée mesurée ou enregistrée, jetons, fichiers lus), la compaction de contexte et la boucle (exactement le seuil de 3 appels identiques, et aucun autre agent en boucle). Le tour dure moins de 100 secondes.
 
 ## Visite guidée
 
