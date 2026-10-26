@@ -1,5 +1,9 @@
 ## Repeated reads and calls
 
+![The Files & repeats panel of the demo tour with the Repeated reads and calls section open: a command run again right after itself, a file read again and a Glob run again, each with the tokens of the repeats only, then the one file two agents edited, listed as a conflict](../media/repeats.png)
+
+The picture is the demo tour (`pnpm run dev:demo`) at 1:06; its data is mock data.
+
 The **Files & repeats** panel (*Fichiers et répétitions* in French, key F; [#518](https://github.com/j0hn-42/agent-lens/issues/518)) opens with a "Repeated reads and calls" section, computed from the tool events already received (nothing is read from disk). It reports facts, not verdicts: a repeat may be intended.
 
 The section is a disclosure (Enter or Space on its summary opens or folds it; screen readers hear its state). It is folded when the panel opens with at least one file listed, so the file list starts near the top of the panel, and open when no file is listed; afterwards it stays as you left it until the panel is closed. Its summary keeps the count while it is folded, counted on the same list as the rows (the 20 drawn plus the ones counted as "more"), with the same qualifiers:
