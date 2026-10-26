@@ -23,7 +23,7 @@ An agent session is a black box: you see the final result, not the journey. Agen
 ## Quick start
 
 ```bash
-npx agent-lens
+npx @j0hn/agent-lens
 ```
 
 It serves the app and opens http://localhost:3001, and sets up the Claude Code hooks for you. Start a Claude Code, Codex or other agent session in another terminal: events stream to the browser as they happen. No clone needed.
@@ -79,7 +79,7 @@ Cursor is not supported yet. See the [roadmap](docs/roadmap.md) for what is deli
 
 ## Install
 
-**With npx**: `npx agent-lens` runs the standalone app (serves the UI and the relay, opens the browser; `--port <n>`, `--no-open`, `--all-workspaces`). **From source**: the commands of the [quick start](#quick-start), or `pnpm run build:app` then `node app/dist/app.js` for the same app.
+**With npx**: `npx @j0hn/agent-lens` runs the standalone app (serves the UI and the relay, opens the browser; `--port <n>`, `--no-open`, `--all-workspaces`). **From source**: the commands of the [quick start](#quick-start), or `pnpm run build:app` then `node app/dist/app.js` for the same app.
 
 **VS Code extension**: build the `.vsix` from source and install it. Works with VS Code 1.85+, [Cursor](https://cursor.sh/) and [Windsurf](https://windsurf.com/).
 

@@ -8,7 +8,7 @@ The entries keep their original wording. Where they name a command, variable or 
 
 | Old name | Current name |
 | --- | --- |
-| `npx agent-flow-app` (package `agent-flow-app`) | `npx agent-lens` (package `agent-lens`) |
+| `npx agent-flow-app` (package `agent-flow-app`) | `npx @j0hn/agent-lens` (package `@j0hn/agent-lens`) |
 | `AGENT_FLOW_TELEMETRY` | `AGENT_LENS_TELEMETRY` (telemetry itself was removed, nothing is sent) |
 | `AGENT_FLOW_RUNTIME` | `AGENT_LENS_RUNTIME` |
 | `~/.agent-flow/` (state and `telemetry/events.jsonl`) | not written any more; no telemetry state exists (`AGENT_LENS_TELEMETRY` only keeps it off) |
@@ -17,7 +17,7 @@ The `agentVisualizer.*` settings, the extension publisher and the legacy hook ma
 
 ## 1.0.0
 
-- npm package: the standalone app is published as `agent-lens`, so `npx agent-lens` runs it without cloning the repository (it sets up the Claude Code hooks and serves the UI on port 3001). The package ships `dist/`, `LICENSE`, `NOTICE` and `README.md`. A `Publish to npm` workflow, started by hand and gated on an `NPM_TOKEN` secret, can publish it. OpenCode sessions need Node 22.13 or later (`node:sqlite`), which the docs now say next to the command (#715)
+- npm package: the standalone app is published as `@j0hn/agent-lens`, so `npx @j0hn/agent-lens` runs it without cloning the repository (it sets up the Claude Code hooks and serves the UI on port 3001). The package ships `dist/`, `LICENSE`, `NOTICE` and `README.md`. A `Publish to npm` workflow, started by hand and gated on an `NPM_TOKEN` secret, can publish it. OpenCode sessions need Node 22.13 or later (`node:sqlite`), which the docs now say next to the command (#715)
 - Documentation: the README is a short presentation with a hero GIF, a quick start, a runtime table and a French version (`README.fr.md`); the detail moved to `docs/features.md`, `docs/install.md`, `docs/reference.md` and a new `docs/faq.md`. The GIF, the tour video and the captures in `docs/media/` are generated from the demo by `pnpm run capture:media` (#711)
 - Demo: the tour now also shows repeated reads and calls, a file conflict between two agents, the delegation report with durations, a context compaction and a tool call that loops (#713)
 
@@ -56,7 +56,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 - **Codex session discovery fixes** — addresses reports of Codex sessions not appearing
   - Windows: workspace/cwd matching is now case-insensitive on win32 (VS Code reports `c:\...`, Codex writes `C:\...` — sessions never matched)
   - Large `session_meta`: the first-line reader now grows up to 1MB instead of a fixed 64KB — newer Codex versions embed full base instructions and AGENTS.md content, which silently broke cwd extraction and skipped the session
-  - Silent cwd mismatch: when recent Codex sessions exist but none ran in the current workspace, a warning now says so (the most common cause: launching `npx agent-flow-app` (now: `npx agent-lens`) from a different directory than the Codex session). Warnings are visible without `--verbose`
+  - Silent cwd mismatch: when recent Codex sessions exist but none ran in the current workspace, a warning now says so (the most common cause: launching `npx agent-flow-app` (now: `npx @j0hn/agent-lens`) from a different directory than the Codex session). Warnings are visible without `--verbose`
 - Fix: assistant messages in Codex sessions were labeled "CLAUDE" in the transcript panels and canvas bubbles — the label now follows the session runtime ("CODEX") (#49)
 
 ## 0.8.1
@@ -65,13 +65,13 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
   - What's sent: session count, duration, event count, OS/arch, Agent Flow version, distinct Claude/Codex model IDs observed during each session, which runtimes were watched (`claude`, `codex`, or `claude,codex`), and error class names on crashes
   - What's NEVER sent: prompts, tool calls, tool responses, file paths, repo names, user name/email/hostname, environment variables, error messages or stack traces
   - Turn off: `export AGENT_FLOW_TELEMETRY=false` (now: `AGENT_LENS_TELEMETRY`, and there is no telemetry any more) or `export DO_NOT_TRACK=1`. Disabled installs write nothing to disk — no `~/.agent-flow/` state file (now: nothing is written), no telemetry dir
-  - Only the published `npx agent-flow-app` binary (now: `agent-lens`) emits. `pnpm run dev` stays silent so contributor iterations don't land in the data
+  - Only the published `npx agent-flow-app` binary (now: `@j0hn/agent-lens`) emits. `pnpm run dev` stays silent so contributor iterations don't land in the data
   - Inspect the exact payload locally: `cat ~/.agent-flow/telemetry/events.jsonl`
 - Remove `@vercel/analytics` — conflicts with the first-party-only commitment in the privacy doc
 
 ## 0.8.0
 
-- **Codex runtime support** — available in all three entry points: VS Code extension, `pnpm run dev`, and `npx agent-flow-app` (now: `npx agent-lens`). Agent Flow now watches Codex rollouts at `~/.codex/sessions/**/rollout-*.jsonl` alongside Claude Code sessions
+- **Codex runtime support** — available in all three entry points: VS Code extension, `pnpm run dev`, and `npx agent-flow-app` (now: `npx @j0hn/agent-lens`). Agent Flow now watches Codex rollouts at `~/.codex/sessions/**/rollout-*.jsonl` alongside Claude Code sessions
   - New `agentVisualizer.runtime` setting (VS Code only): `"auto"` (default, watches both), `"claude"`, or `"codex"`
   - `AGENT_FLOW_RUNTIME` environment variable (now: `AGENT_LENS_RUNTIME`) (`claude` / `codex` / `auto`) gives the same opt-out in `pnpm run dev` and `npx agent-flow-app`
   - Respects `CODEX_HOME` for non-default installs
@@ -100,7 +100,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 
 ## 0.6.1
 
-- npx support — `npx agent-flow-app` (now: `npx agent-lens`) starts the visualizer without cloning the repo
+- npx support — `npx agent-flow-app` (now: `npx @j0hn/agent-lens`) starts the visualizer without cloning the repo
 - Internal refactor: shared relay module and build config
 
 ## 0.6.0

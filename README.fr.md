@@ -25,7 +25,7 @@ Une session d'agent est une boîte noire : on voit le résultat final, pas le pa
 ## Démarrage rapide
 
 ```bash
-npx agent-lens
+npx @j0hn/agent-lens
 ```
 
 Il sert l'application, ouvre http://localhost:3001 et configure les hooks de Claude Code pour vous. Lancez une session Claude Code, Codex ou autre dans un autre terminal : les événements arrivent dans le navigateur au fil de l'eau. Pas besoin de cloner.
@@ -81,7 +81,7 @@ Cursor n'est pas encore supporté. La [feuille de route](docs/roadmap.md) dit ce
 
 ## Installation
 
-**Avec npx** : `npx agent-lens` lance l'application autonome (sert l'interface et le relais, ouvre le navigateur ; `--port <n>`, `--no-open`, `--all-workspaces`). **Depuis les sources** : les commandes du [démarrage rapide](#démarrage-rapide), ou `pnpm run build:app` puis `node app/dist/app.js` pour la même application.
+**Avec npx** : `npx @j0hn/agent-lens` lance l'application autonome (sert l'interface et le relais, ouvre le navigateur ; `--port <n>`, `--no-open`, `--all-workspaces`). **Depuis les sources** : les commandes du [démarrage rapide](#démarrage-rapide), ou `pnpm run build:app` puis `node app/dist/app.js` pour la même application.
 
 **Extension VS Code** : construisez le `.vsix` depuis les sources et installez-le. Fonctionne avec VS Code 1.85+, [Cursor](https://cursor.sh/) et [Windsurf](https://windsurf.com/).
 

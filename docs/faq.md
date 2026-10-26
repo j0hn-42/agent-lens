@@ -15,8 +15,8 @@ Each answer comes from what the code and the other pages of this documentation s
 
 Check these in order:
 
-1. **The relay is running.** `npx agent-lens` (standalone app), `pnpm run dev` (web app and relay) or `node app/dist/app.js` (the standalone app built from source). The VS Code extension runs its own.
-2. **The Claude Code hooks are configured.** The standalone app (`npx agent-lens`) sets them up at start; from source, run `pnpm run setup` once. Either way it writes the hooks in `settings.json` of your Claude config folder (`CLAUDE_CONFIG_DIR`, or `~/.claude`). The extension configures them the first time you open the panel, and **Agent Lens: Configure Claude Code Hooks** redoes it. A `settings.json` that cannot be parsed is never modified.
+1. **The relay is running.** `npx @j0hn/agent-lens` (standalone app), `pnpm run dev` (web app and relay) or `node app/dist/app.js` (the standalone app built from source). The VS Code extension runs its own.
+2. **The Claude Code hooks are configured.** The standalone app (`npx @j0hn/agent-lens`) sets them up at start; from source, run `pnpm run setup` once. Either way it writes the hooks in `settings.json` of your Claude config folder (`CLAUDE_CONFIG_DIR`, or `~/.claude`). The extension configures them the first time you open the panel, and **Agent Lens: Configure Claude Code Hooks** redoes it. A `settings.json` that cannot be parsed is never modified.
 3. **The scope.** By default the relay discovers only the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and the standalone app, the **Session scope** selector in the top bar widens it to a project or to all workspaces, with no restart; the line next to it says what is really scanned. See [Scope](install.md#scope-this-workspace-a-project-or-all-workspaces).
 4. **The runtime.** If `AGENT_LENS_RUNTIME` (or `agentVisualizer.runtime`) is set to one runtime, the others are not watched. See [Runtime selection](install.md#runtime-selection).
 

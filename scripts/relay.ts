@@ -874,7 +874,7 @@ export interface RelayOptions {
   telemetry?: TelemetryClient
   /** Which runtimes to watch. Defaults to AGENT_LENS_RUNTIME env var, or 'auto'.
    *  Mirrors the extension's `agentVisualizer.runtime` setting so users of the
-   *  dev relay and `npx agent-lens` have a way to opt out of one runtime. */
+   *  dev relay and `npx @j0hn/agent-lens` have a way to opt out of one runtime. */
   runtime?: RelayRuntimeMode
   /** Also discover Claude sessions from other workspaces (every project dir under
    *  ~/.claude/projects). Defaults to the AGENT_LENS_ALL_WORKSPACES env var (1/true).
