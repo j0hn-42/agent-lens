@@ -1,0 +1,69 @@
+name: Publish to npm
+
+# Publie l'application autonome (app/) sur npm sous le nom « @j0hn/agent-lens », pour `npx @j0hn/agent-lens`. Démarré à la main
+# seulement (workflow_dispatch) : aucun tag ni push ne publie. Il lit un seul secret, NPM_TOKEN (un jeton
+# d'automatisation npm, ajouté par le propriétaire du dépôt) ; sans lui le job s'arrête avec un message, il ne publie
+# rien en silence. Jamais sur develop. La version publiée est celle de app/package.json, que release-check garde
+# égale à celle de l'extension. Rien n'est publié sur le Marketplace ni sur Open VSX.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Premier job, avant les 6 minutes de CI : sans jeton on le sait tout de suite.
+  token:
+    if: github.ref != 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop when the npm token is missing
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::The NPM_TOKEN secret is not set: nothing was published. Add an npm automation token as the repository secret NPM_TOKEN, then run this workflow again."
+            exit 1
+          fi
+
+  # Mêmes contrôles que la CI : pas de publication depuis un code rouge.
+  ci:
+    needs: token
+    if: github.ref != 'refs/heads/develop'
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    if: github.ref != 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # La provenance npm signe l'origine du paquet avec le jeton OIDC de ce job.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check versions and CHANGELOG
+        run: node scripts/release-check.js
+
+      - name: Build the app
+        run: pnpm run build:app
+
+      - name: Publish
+        working-directory: app
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -13,6 +13,9 @@ const PAYMENTS = 'tour-payments'
 const RELEASE = 'tour-release'
 const DOCS = 'tour-docs'
 
+/** Files of the payments session carry absolute paths: a file conflict only compares absolute ones (a relative path may name two files). */
+const ROOT = '/work/payments-api'
+
 /** The three sessions, dated from `now` and not from a fixed instant: a fixed one reads "1062 d ago" and "1062d 22h" of
  *  runtime. Called when the demo seeds its sessions in the browser (after mount), never at module load: a module
  *  evaluated on the server, or long before the page is used, would date them from the wrong instant. */
@@ -53,7 +56,7 @@ p(2.0, 'message', { agent: 'orchestrator', content: 'I will analyze the codebase
 tool(p, 3.0, 0.3, 'orchestrator', 'Glob', 'src/**/*.ts', { result: '47 files matched', tokenCost: 500, tokenSource: 'reported' }, { pattern: 'src/**/*.ts' })
 tool(p, 3.5, 0.3, 'orchestrator', 'Read', 'src/services/payment.ts', {
   result: 'payment.ts — 234 lines, legacy processor with direct Stripe v2 calls', tokenCost: 3500, tokenSource: 'reported',
-}, { file_path: 'src/services/payment.ts' })
+}, { file_path: `${ROOT}/src/services/payment.ts` })
 tool(p, 4.0, 0.3, 'orchestrator', 'Grep', '"stripe|paypal|payment" --type ts', {
   result: '28 matches in 9 files — concentrated in services/ and routes/', tokenCost: 700, tokenSource: 'reported',
 }, { pattern: 'stripe|paypal|payment', type: 'ts' })
@@ -79,18 +82,28 @@ p(6.8, 'context_update', { agent: 'explore-agent', tokens: 1800, breakdown: brea
 p(6.8, 'context_update', { agent: 'research-agent', tokens: 1800, breakdown: breakdown(1400, 400, 0, 0, 0) })
 tool(p, 7.5, 0.3, 'explore-agent', 'Read', 'src/models/payment.model.ts', {
   result: 'Prisma schema: Payment { id, amount, currency, status, provider, customerId }', tokenCost: 1200, tokenSource: 'reported',
-}, { file_path: 'src/models/payment.model.ts' })
+}, { file_path: `${ROOT}/src/models/payment.model.ts` })
 tool(p, 8.0, 0.3, 'explore-agent', 'Grep', '"catch|error|throw" src/services/', {
   result: '15 matches — minimal error handling, no retry logic', tokenCost: 500, tokenSource: 'reported',
 }, { pattern: 'catch|error|throw', path: 'src/services/' })
+tool(p, 8.4, 0.3, 'explore-agent', 'Read', 'prisma/schema.prisma', {
+  result: 'schema.prisma — 3 models: Payment, Customer, WebhookEvent', tokenCost: 900, tokenSource: 'reported',
+}, { file_path: `${ROOT}/prisma/schema.prisma` })
 p(8.5, 'context_update', { agent: 'explore-agent', tokens: 6500, breakdown: breakdown(1400, 400, 2500, 2200, 0) })
-p(9.0, 'subagent_return', { child: 'explore-agent', parent: 'orchestrator', toolUseId: 'toolu_tour_explore', summary: 'Legacy Stripe v2 calls, Prisma Payment model, weak error handling, no webhooks' })
+p(9.0, 'subagent_return', { child: 'explore-agent', parent: 'orchestrator', toolUseId: 'toolu_tour_explore', summary: 'Legacy Stripe v2 calls, Prisma Payment model, weak error handling, no webhooks', durationS: 2.8 })
 p(9.0, 'agent_complete', { name: 'explore-agent' })
 tool(p, 7.5, 2.5, 'research-agent', 'WebSearch', 'Stripe PaymentIntents Node.js TypeScript 2026', { result: '12 results — PaymentIntents is the recommended API', tokenCost: 2500, tokenSource: 'estimated' }, { query: 'Stripe PaymentIntents Node.js TypeScript 2026' })
 tool(p, 10.2, 3.0, 'research-agent', 'WebFetch', 'stripe.com/docs/payments/accept-a-payment', { result: 'PaymentIntents flow: create intent, confirm client-side, handle webhooks', tokenCost: 4000, tokenSource: 'estimated' }, { url: 'https://stripe.com/docs/payments/accept-a-payment' })
 p(13.5, 'context_update', { agent: 'research-agent', tokens: 12000, breakdown: breakdown(1400, 400, 8500, 1700, 0) })
-p(14.0, 'subagent_return', { child: 'research-agent', parent: 'orchestrator', toolUseId: 'toolu_tour_research', summary: 'Stripe PaymentIntents + webhooks, PayPal Orders API v2, both have Node.js SDKs' })
+p(14.0, 'subagent_return', { child: 'research-agent', parent: 'orchestrator', toolUseId: 'toolu_tour_research', summary: 'Stripe PaymentIntents + webhooks, PayPal Orders API v2, both have Node.js SDKs', durationS: 7.8 })
 p(14.0, 'agent_complete', { name: 'research-agent' })
+// While the sub-agents work, the orchestrator reads the same file again and runs the same Glob again, with no edit in
+// between: Files & repeats lists both, with the tokens of the repeat only (the first call is not waste)
+p(10.6, 'message', { agent: 'orchestrator', role: 'thinking', content: 'While they work, check the payment service and the file list once more.' })
+tool(p, 11.0, 0.3, 'orchestrator', 'Read', 'src/services/payment.ts', {
+  result: 'payment.ts — 234 lines, legacy processor with direct Stripe v2 calls', tokenCost: 3500, tokenSource: 'reported',
+}, { file_path: `${ROOT}/src/services/payment.ts` })
+tool(p, 11.5, 0.3, 'orchestrator', 'Glob', 'src/**/*.ts', { result: '47 files matched', tokenCost: 500, tokenSource: 'reported' }, { pattern: 'src/**/*.ts' })
 p(14.3, 'context_update', { agent: 'orchestrator', tokens: 25000, breakdown: breakdown(1500, 700, 6500, 6300, 10000) })
 
 // An MCP tool (cyan style, server badge) and a permission prompt before an install
@@ -100,20 +113,21 @@ p(17.0, 'permission_requested', { agent: 'orchestrator' })
 tool(p, 19.0, 3.0, 'orchestrator', 'Bash', 'npm install stripe @paypal/checkout-server-sdk', { result: 'added 23 packages in 4.2s', tokenCost: 300, tokenSource: 'reported' }, { command: 'npm install stripe @paypal/checkout-server-sdk', description: 'Install Stripe and PayPal SDKs' })
 tool(p, 22.3, 0.3, 'orchestrator', 'Write', 'src/services/payment-gateway.ts', {
   result: 'Created payment-gateway.ts — 112 lines, strategy pattern with retry logic', tokenCost: 300, tokenSource: 'reported',
-}, { file_path: 'src/services/payment-gateway.ts' })
-tool(p, 22.8, 0.3, 'orchestrator', 'Edit', 'src/services/payment.ts', { result: 'Refactored payment.ts — now goes through PaymentGateway', tokenCost: 350, tokenSource: 'reported' }, { file_path: 'src/services/payment.ts', old_string: 'const stripe = require("stripe")(KEY)', new_string: 'import { PaymentGateway } from "./payment-gateway"' })
+}, { file_path: `${ROOT}/src/services/payment-gateway.ts` })
+tool(p, 22.8, 0.3, 'orchestrator', 'Edit', 'src/services/payment.ts', { result: 'Refactored payment.ts — now goes through PaymentGateway', tokenCost: 350, tokenSource: 'reported' }, { file_path: `${ROOT}/src/services/payment.ts`, old_string: 'const stripe = require("stripe")(KEY)', new_string: 'import { PaymentGateway } from "./payment-gateway"' })
 
 // A test-runner sub-agent: a failing run, a fix, a green run
 p(24.0, 'subagent_dispatch', { parent: 'orchestrator', child: 'test-runner', toolUseId: 'toolu_tour_test', task: 'Write and run integration tests for the adapters and webhooks' })
 p(24.3, 'agent_spawn', { name: 'test-runner', parent: 'orchestrator', toolUseId: 'toolu_tour_test', task: 'Write and run payment integration tests', subagentType: 'test', requestedModel: 'haiku' })
 p(24.5, 'model_detected', { agent: 'test-runner', model: 'claude-haiku-5-5' })
-tool(p, 25.5, 0.3, 'test-runner', 'Write', 'src/__tests__/stripe-adapter.test.ts', { result: 'Created stripe-adapter.test.ts — 8 test cases', tokenCost: 350, tokenSource: 'reported' }, { file_path: 'src/__tests__/stripe-adapter.test.ts' })
+tool(p, 24.8, 0.4, 'test-runner', 'Read', 'src/services/payment-gateway.ts', { result: 'payment-gateway.ts — 112 lines, GatewayAdapter interface', tokenCost: 700, tokenSource: 'reported' }, { file_path: `${ROOT}/src/services/payment-gateway.ts` })
+tool(p, 25.5, 0.3, 'test-runner', 'Write', 'src/__tests__/stripe-adapter.test.ts', { result: 'Created stripe-adapter.test.ts — 8 test cases', tokenCost: 350, tokenSource: 'reported' }, { file_path: `${ROOT}/src/__tests__/stripe-adapter.test.ts` })
 tool(p, 26.5, 4.0, 'test-runner', 'Bash', 'npm test -- --coverage', { result: 'FAIL: StripeAdapter > should handle API errors\nError: STRIPE_SECRET_KEY is not defined\n\n6 passed, 3 failed', tokenCost: 400, tokenSource: 'reported', isError: true, errorMessage: 'STRIPE_SECRET_KEY is not defined' }, { command: 'npm test -- --coverage' })
 p(31.0, 'message', { agent: 'test-runner', role: 'thinking', content: 'The failing tests initialize the real Stripe SDK. A setup file must stub STRIPE_SECRET_KEY before any import.' })
-tool(p, 32.0, 0.3, 'test-runner', 'Write', 'src/__tests__/setup.ts', { result: 'Created test setup with mock env vars', tokenCost: 180, tokenSource: 'reported' }, { file_path: 'src/__tests__/setup.ts' })
+tool(p, 32.0, 0.3, 'test-runner', 'Write', 'src/__tests__/setup.ts', { result: 'Created test setup with mock env vars', tokenCost: 180, tokenSource: 'reported' }, { file_path: `${ROOT}/src/__tests__/setup.ts` })
 tool(p, 33.0, 4.0, 'test-runner', 'Bash', 'npm test -- --coverage', { result: 'Test Suites: 3 passed\nTests: 18 passed\nCoverage: 91.3% stmts', tokenCost: 400, tokenSource: 'reported' }, { command: 'npm test -- --coverage' })
 p(37.3, 'context_update', { agent: 'test-runner', tokens: 8500, breakdown: breakdown(1400, 600, 3500, 3000, 0) })
-p(37.5, 'subagent_return', { child: 'test-runner', parent: 'orchestrator', toolUseId: 'toolu_tour_test', summary: '18 tests passing with 91% coverage' })
+p(37.5, 'subagent_return', { child: 'test-runner', parent: 'orchestrator', toolUseId: 'toolu_tour_test', summary: '18 tests passing with 91% coverage', durationS: 13.5 })
 p(37.5, 'agent_complete', { name: 'test-runner' })
 p(38.0, 'context_update', { agent: 'orchestrator', tokens: 48000, breakdown: breakdown(1500, 700, 12500, 16800, 16500) })
 p(38.5, 'message', { agent: 'orchestrator', content: 'Tests pass. The payment gateway is in place; next, a small team takes the webhooks.' })
@@ -128,7 +142,11 @@ p(40.2, 'agent_spawn', { name: 'api-dev', parent: 'orchestrator', kind: 'teammat
 p(40.4, 'agent_spawn', { name: 'qa-dev', parent: 'orchestrator', kind: 'teammate', teamName: 'payments-squad', color: '#f9c74f', agentType: 'qa', task: 'Verify the webhooks end to end', model: 'claude-sonnet-5-5', modelSource: 'configured' })
 p(40.6, 'agent_link', { from: 'orchestrator', to: 'api-dev', kind: 'spawn', content: 'Take the Stripe webhooks: signature check + payment_intent.* events.' })
 p(40.8, 'agent_link', { from: 'orchestrator', to: 'qa-dev', kind: 'spawn', content: 'Once api-dev is done, replay a tampered payload and a valid one.' })
-tool(p, 41.5, 0.4, 'api-dev', 'Write', 'src/webhooks/stripe-webhook.ts', { result: 'Created stripe-webhook.ts — 67 lines', tokenCost: 200, tokenSource: 'reported' }, { file_path: 'src/webhooks/stripe-webhook.ts' })
+tool(p, 41.5, 0.4, 'api-dev', 'Write', 'src/webhooks/stripe-webhook.ts', { result: 'Created stripe-webhook.ts — 67 lines', tokenCost: 200, tokenSource: 'reported' }, { file_path: `${ROOT}/src/webhooks/stripe-webhook.ts` })
+// api-dev wires its handler into the file the orchestrator refactored: two agents, one file, both edits succeeded
+tool(p, 42.2, 0.4, 'api-dev', 'Edit', 'src/services/payment.ts', { result: 'Exported handleStripeWebhook from payment.ts', tokenCost: 240, tokenSource: 'reported' }, {
+  file_path: `${ROOT}/src/services/payment.ts`, old_string: 'import { PaymentGateway } from "./payment-gateway"', new_string: 'import { PaymentGateway } from "./payment-gateway"\nexport { handleStripeWebhook } from "../webhooks/stripe-webhook"',
+})
 p(43.0, 'message_sent', { from: 'api-dev', to: 'qa-dev', kind: 'teammate', content: 'Webhook handler is in. It rejects bad signatures with SIGNATURE_MISMATCH.' })
 p(43.1, 'agent_activity', { name: 'api-dev', activity: 'idle' })
 p(43.2, 'agent_activity', { name: 'qa-dev', activity: 'working' })
@@ -168,9 +186,30 @@ tool(r, 20.5, 4.0, 'build-b', 'Bash', 'pnpm pack', { result: 'agent-lens-1.0.0.t
 p(52.0, 'tool_call_end', { agent: 'ghost-agent', tool: 'Read', result: 'usage reported for an agent that was never announced', tokenCost: 1800, tokenSource: 'reported' })
 p(52.5, 'agent_spawn', { name: 'silent-agent', parent: 'orchestrator', kind: 'teammate', teamName: 'payments-squad', agentType: 'docs', task: 'Announced, nothing observed yet' })
 
+// ── Act 4b · A loop and a compaction: a sub-agent re-runs the same failing command, its context fills, then is compacted ──
+// Exactly REPEAT_THRESHOLD (3) identical calls in a row, each failing: that is the whole proof of the loop, nothing is forced.
+// The three logs weigh 176k tokens, so the context reaches 183k of 200k; the runtime then compacts it (auto, size before reported).
+p(49.8, 'message', { agent: 'orchestrator', content: 'Lint still fails on the payments package. Handing it to a sub-agent.' })
+p(50.0, 'subagent_dispatch', { parent: 'orchestrator', child: 'lint-fixer', toolUseId: 'toolu_tour_lint', task: 'Make pnpm lint pass on the payments package' })
+p(50.3, 'agent_spawn', { name: 'lint-fixer', parent: 'orchestrator', toolUseId: 'toolu_tour_lint', task: 'Make pnpm lint pass on the payments package', subagentType: 'lint', model: 'claude-sonnet-5-5', modelSource: 'configured' })
+p(50.5, 'context_update', { agent: 'lint-fixer', tokens: 1800, breakdown: breakdown(1400, 400, 0, 0, 0) })
+const LINT_FAILURE = { result: 'ESLint: no configuration file found for packages/payments (log: 1,204 lines)', isError: true, errorMessage: 'ESLint: no configuration file found for packages/payments' }
+const LINT_CALL = { command: 'pnpm lint --filter payments' }
+tool(p, 51.0, 1.5, 'lint-fixer', 'Bash', 'pnpm lint --filter payments', { ...LINT_FAILURE, tokenCost: 52000, tokenSource: 'reported' }, LINT_CALL)
+p(52.6, 'context_update', { agent: 'lint-fixer', tokens: 55000, breakdown: breakdown(1400, 400, 52000, 1200, 0) })
+tool(p, 53.5, 1.5, 'lint-fixer', 'Bash', 'pnpm lint --filter payments', { ...LINT_FAILURE, tokenCost: 58000, tokenSource: 'reported' }, LINT_CALL)
+p(55.1, 'context_update', { agent: 'lint-fixer', tokens: 115000, breakdown: breakdown(1400, 400, 110000, 3200, 0) })
+tool(p, 56.0, 1.5, 'lint-fixer', 'Bash', 'pnpm lint --filter payments', { ...LINT_FAILURE, tokenCost: 66000, tokenSource: 'reported' }, LINT_CALL)
+p(57.6, 'context_update', { agent: 'lint-fixer', tokens: 183000, breakdown: breakdown(1400, 400, 176000, 5200, 0) })
+p(58.0, 'context_compacted', { agent: 'lint-fixer', trigger: 'auto', preTokens: 183000 })
+p(58.1, 'context_update', { agent: 'lint-fixer', tokens: 21000, breakdown: breakdown(1400, 19600, 0, 0, 0) })
+p(59.0, 'message', { agent: 'lint-fixer', role: 'thinking', content: 'The same ESLint error three times: a config is missing, retrying will not change it. Report back instead of a fourth run.' })
+p(60.0, 'subagent_return', { child: 'lint-fixer', parent: 'orchestrator', toolUseId: 'toolu_tour_lint', summary: 'Gave up after 3 identical failures: pnpm lint finds no ESLint config for packages/payments. A human has to choose which config it extends.', durationS: 9.7, durationSource: 'recorded' })
+p(60.0, 'agent_complete', { name: 'lint-fixer' })
+
 // ── Act 5 · Wrap-up of the first session ──
-p(56.0, 'message', { agent: 'orchestrator', content: 'Payment system refactored: Stripe and PayPal adapters behind one gateway, webhooks with signature checks, 18 passing tests.' })
-p(57.0, 'agent_complete', { name: 'orchestrator' })
+p(61.5, 'message', { agent: 'orchestrator', content: 'Payment system refactored: Stripe and PayPal adapters behind one gateway, webhooks with signature checks, 18 passing tests. Lint needs a config decision.' })
+p(62.5, 'agent_complete', { name: 'orchestrator' })
 r(60.0, 'message', { agent: 'release-lead', content: 'Release artifacts built.' })
 r(61.0, 'agent_activity', { name: 'build-a', activity: 'done' })
 r(61.2, 'agent_activity', { name: 'build-b', activity: 'done' })

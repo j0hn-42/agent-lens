@@ -33,7 +33,7 @@ A window cannot be smaller than what was used. When a reading is above the assum
 
 ![The Cost panel of the demo tour: a total that reads "at least", one line per agent marked estimated, and an Unattributed line](../media/cost.png)
 
-The picture is the demo tour (`pnpm run dev:demo`) at 1:01; its data is mock data.
+The picture is the demo tour (`pnpm run dev:demo`) at 1:02; its data is mock data.
 
 Every cost in Agent Lens is a **context cost estimate**, never a bill: the tokens an agent holds in its context now, priced at a blended rate for its model (75% of the input price plus 25% of the output price per million tokens; the Sonnet-class rate for an unknown model). Transcripts do not give what each call was charged, so this is the only figure that can be computed, and it is marked as such:
 

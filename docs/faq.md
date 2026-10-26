@@ -15,8 +15,8 @@ Each answer comes from what the code and the other pages of this documentation s
 
 Check these in order:
 
-1. **The relay is running.** `pnpm run dev` (web app and relay) or `node app/dist/app.js` (standalone app). The VS Code extension runs its own.
-2. **The Claude Code hooks are configured.** Run `pnpm run setup` once; it writes the hooks in `settings.json` of your Claude config folder (`CLAUDE_CONFIG_DIR`, or `~/.claude`). The extension configures them the first time you open the panel, and **Agent Lens: Configure Claude Code Hooks** redoes it. A `settings.json` that cannot be parsed is never modified.
+1. **The relay is running.** `npx @j0hn/agent-lens` (standalone app), `pnpm run dev` (web app and relay) or `node app/dist/app.js` (the standalone app built from source). The VS Code extension runs its own.
+2. **The Claude Code hooks are configured.** The standalone app (`npx @j0hn/agent-lens`) sets them up at start; from source, run `pnpm run setup` once. Either way it writes the hooks in `settings.json` of your Claude config folder (`CLAUDE_CONFIG_DIR`, or `~/.claude`). The extension configures them the first time you open the panel, and **Agent Lens: Configure Claude Code Hooks** redoes it. A `settings.json` that cannot be parsed is never modified.
 3. **The scope.** By default the relay discovers only the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and the standalone app, the **Session scope** selector in the top bar widens it to a project or to all workspaces, with no restart; the line next to it says what is really scanned. See [Scope](install.md#scope-this-workspace-a-project-or-all-workspaces).
 4. **The runtime.** If `AGENT_LENS_RUNTIME` (or `agentVisualizer.runtime`) is set to one runtime, the others are not watched. See [Runtime selection](install.md#runtime-selection).
 
@@ -28,7 +28,7 @@ Try `pnpm run dev:demo` to check that the app itself works: it plays a tour on m
 
 ## Agents or sessions disappear from the canvas
 
-**Hide inactive** is on by default. It hides agents whose turn is over, and, in the All view, sessions marked finished more than 10 minutes ago. When it hides everything, the canvas says "N finished agents hidden" with a **Show** button. Turn **Hide inactive** off (in **More**, or in **Settings**) to see everything again. See [Reading the UI](reading-the-ui/filters.md).
+**Hide inactive** is on by default. It hides agents whose turn is over, and, in the All view, sessions marked finished more than 10 minutes ago. When it hides everything, the canvas says "N finished agents hidden" with a **Show** button. Turn **Hide inactive** off to see everything again: the toggle is in the top bar's More menu and in the settings dialog. How it works is in [Reading the UI](reading-the-ui/filters.md).
 
 ## A session says "Not observed"
 
@@ -44,7 +44,7 @@ They need Claude Code's status line. Run `node scripts/setup.js --statusline` (o
 
 ## One runtime shows nothing
 
-- **OpenCode**: read from its SQLite database, on Linux only (macOS is not verified, Windows is not supported yet: set `OPENCODE_DB` to an absolute path). Only sessions with rows in the last 10 minutes are followed.
+- **OpenCode**: read from its SQLite database with `node:sqlite`, which needs Node 22.13 or later (the app says so when it is missing), on Linux only (macOS is not verified, Windows is not supported yet: set `OPENCODE_DB` to an absolute path). Only sessions with rows in the last 10 minutes are followed.
 - **Pi and Gemini CLI**: sessions show up, but tokens and cost are not read yet, and neither runtime shows sub-agents.
 - **Copilot**: only the local sessions; cloud-hosted Copilot agent sessions are not covered.
 - **Cursor**: not a supported runtime. Its hook payloads are recognised and ignored. See the [roadmap](roadmap.md).

@@ -8,6 +8,7 @@
 
 const { execSync } = require('child_process')
 const esbuild = require('esbuild')
+const fs = require('fs')
 const path = require('path')
 
 const ROOT = path.join(__dirname, '..')
@@ -17,14 +18,14 @@ const APP_PKG = require(path.join(APP_DIR, 'package.json'))
 console.log('Building Agent Lens app...\n')
 
 // 1. Build the webview UI
-console.log('[1/2] Building webview...')
+console.log('[1/3] Building webview...')
 execSync('npx vite build --config vite.config.app.ts', {
   cwd: path.join(ROOT, 'web'),
   stdio: 'inherit',
 })
 
 // 2. Bundle the app
-console.log('\n[2/2] Bundling app...')
+console.log('\n[2/3] Bundling app...')
 esbuild.buildSync({
   entryPoints: [path.join(APP_DIR, 'src', 'app.ts')],
   bundle: true,
@@ -43,5 +44,12 @@ esbuild.buildSync({
   sourcemap: false,
   logLevel: 'warning',
 })
+
+// 3. The files the npm package ships next to dist/ (the Apache license asks for LICENSE and NOTICE to travel with
+// the code). They are copies of the root files and are ignored by git: the root ones stay the source.
+console.log('\n[3/3] Copying LICENSE, NOTICE and README.md...')
+for (const file of ['LICENSE', 'NOTICE', 'README.md']) {
+  fs.copyFileSync(path.join(ROOT, file), path.join(APP_DIR, file))
+}
 
 console.log('\nDone! Package ready in app/dist/')

@@ -7,7 +7,7 @@ State of the work: the supervisor, the journal, the HTTP routes and the launch b
 ## Turn it on
 
 ```bash
-npx agent-lens-app --allow-launch --launch-repo j0hn-42/agent-lens
+npx @j0hn/agent-lens --allow-launch --launch-repo j0hn-42/agent-lens
 # or, with the dev relay: pnpm run dev:relay --allow-launch --launch-repo j0hn-42/agent-lens
 ```
 

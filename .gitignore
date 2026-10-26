@@ -11,6 +11,9 @@ extension/README.md
 scripts/.dev-relay.js
 scripts/.dev-relay.js.map
 app/dist/
+app/LICENSE
+app/NOTICE
+app/README.md
 next-env.d.ts
 *.tsbuildinfo
 

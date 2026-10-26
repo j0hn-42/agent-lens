@@ -23,14 +23,20 @@ An agent session is a black box: you see the final result, not the journey. Agen
 ## Quick start
 
 ```bash
-git clone https://github.com/j0hn-42/agent-lens.git
-cd agent-lens
-pnpm i && pnpm run setup && pnpm run dev
+npx @j0hn/agent-lens
 ```
 
-Open http://localhost:3000 and start a Claude Code, Codex or other agent session in another terminal: events stream to the browser as they happen. No session at hand? `pnpm run dev:demo` plays a tour of every feature on mock data.
+It serves the app and opens http://localhost:3001, and sets up the Claude Code hooks for you. Start a Claude Code, Codex or other agent session in another terminal: events stream to the browser as they happen. No clone needed.
 
-Requires [Node.js](https://nodejs.org/) 20+, [pnpm](https://pnpm.io/) and the CLI of at least one runtime above.
+To work on Agent Lens itself, or to try the demo tour (`pnpm run dev:demo` plays every feature on mock data), run it from source:
+
+```bash
+git clone https://github.com/j0hn-42/agent-lens.git
+cd agent-lens
+pnpm i && pnpm run setup && pnpm run dev    # http://localhost:3000
+```
+
+Requires [Node.js](https://nodejs.org/) 20+ (22.13+ to read OpenCode sessions) and the CLI of at least one runtime above; [pnpm](https://pnpm.io/) only to run from source.
 
 ## What you see
 
@@ -67,13 +73,13 @@ Agent Lens watches all of them at once and tags each session with its runtime.
 | GitHub Copilot | `~/.copilot/session-state/` | local sessions only, not cloud-hosted ones |
 | Pi | `~/.pi/agent/sessions/` | no sub-agents; tokens and cost not read yet |
 | Gemini CLI | `~/.gemini/tmp/` | no sub-agents drawn; tokens and cost not read yet |
-| OpenCode | its SQLite database, read-only | Linux only so far; sessions of the last 10 minutes |
+| OpenCode | its SQLite database, read-only | Linux only so far; needs Node 22.13+; sessions of the last 10 minutes |
 
 Cursor is not supported yet. See the [roadmap](docs/roadmap.md) for what is delivered, partial or blocked.
 
 ## Install
 
-**From source**: the three commands of the [quick start](#quick-start), or `pnpm run build:app` then `node app/dist/app.js` for the standalone app (serves the UI and the relay, opens the browser; `--port <n>`, `--no-open`, `--all-workspaces`).
+**With npx**: `npx @j0hn/agent-lens` runs the standalone app (serves the UI and the relay, opens the browser; `--port <n>`, `--no-open`, `--all-workspaces`). **From source**: the commands of the [quick start](#quick-start), or `pnpm run build:app` then `node app/dist/app.js` for the same app.
 
 **VS Code extension**: build the `.vsix` from source and install it. Works with VS Code 1.85+, [Cursor](https://cursor.sh/) and [Windsurf](https://windsurf.com/).
 

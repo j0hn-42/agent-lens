@@ -2,6 +2,7 @@
 
 The [README](../README.md) has the three-command start. This page covers every way to run Agent Lens, how to choose which runtimes it watches, and which sessions it scans. If something does not show up, start with the [FAQ](faq.md).
 
+- [Run with npx](#run-with-npx-no-clone)
 - [Run from source](#run-from-source-no-vs-code-required)
 - [Standalone app](#standalone-app-built-from-source)
 - [VS Code extension](#vs-code-extension)
@@ -10,7 +11,15 @@ The [README](../README.md) has the three-command start. This page covers every w
 - [Event sources and the local server](#event-sources-and-the-local-server)
 - [JSONL event log](#jsonl-event-log)
 
-Requirements: [Node.js](https://nodejs.org/) 20+ (LTS recommended), [pnpm](https://pnpm.io/), and the CLI of at least one watched runtime. For the VS Code extension: a VS Code-compatible IDE 1.85+.
+Requirements: [Node.js](https://nodejs.org/) 20+ (LTS recommended; OpenCode sessions need 22.13 or later, because the database is read with `node:sqlite`), the CLI of at least one watched runtime, and [pnpm](https://pnpm.io/) only to run from source. For the VS Code extension: a VS Code-compatible IDE 1.85+.
+
+## Run with npx (no clone)
+
+```bash
+npx @j0hn/agent-lens
+```
+
+This runs the standalone app from the npm package `@j0hn/agent-lens`: it sets up the Claude Code hooks, serves the UI and the relay on port 3001, and opens the browser. The options are those of the [standalone app](#standalone-app-built-from-source): `--port <n>`, `--no-open`, `--all-workspaces`, and `--help` for the full list. `npx @j0hn/agent-lens@<version>` pins a version. The name is scoped because npm refused the plain `agent-lens`, which it judged too close to an existing package; the command it installs is still `agent-lens`.
 
 ## Run from source (no VS Code required)
 
@@ -26,7 +35,7 @@ Open http://localhost:3000 and start a Claude Code session in another terminal: 
 
 ## Standalone app (built from source)
 
-There is no `agent-lens-app` package on npm to run with `npx`. Build the app from the checkout and run it with Node:
+This is the same app as `npx @j0hn/agent-lens`, built from the checkout; use it when you work on Agent Lens. Build it and run it with Node:
 
 ```bash
 pnpm i

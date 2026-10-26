@@ -25,14 +25,20 @@ Une session d'agent est une boîte noire : on voit le résultat final, pas le pa
 ## Démarrage rapide
 
 ```bash
-git clone https://github.com/j0hn-42/agent-lens.git
-cd agent-lens
-pnpm i && pnpm run setup && pnpm run dev
+npx @j0hn/agent-lens
 ```
 
-Ouvrez http://localhost:3000 et lancez une session Claude Code, Codex ou autre dans un autre terminal : les événements arrivent dans le navigateur au fil de l'eau. Pas de session sous la main ? `pnpm run dev:demo` joue un tour de toutes les fonctions sur des données fictives.
+Il sert l'application, ouvre http://localhost:3001 et configure les hooks de Claude Code pour vous. Lancez une session Claude Code, Codex ou autre dans un autre terminal : les événements arrivent dans le navigateur au fil de l'eau. Pas besoin de cloner.
 
-Prérequis : [Node.js](https://nodejs.org/) 20+, [pnpm](https://pnpm.io/) et le CLI d'au moins un des runtimes ci-dessus.
+Pour travailler sur Agent Lens lui-même, ou essayer le tour de démo (`pnpm run dev:demo` joue toutes les fonctions sur des données fictives), lancez-le depuis les sources :
+
+```bash
+git clone https://github.com/j0hn-42/agent-lens.git
+cd agent-lens
+pnpm i && pnpm run setup && pnpm run dev    # http://localhost:3000
+```
+
+Prérequis : [Node.js](https://nodejs.org/) 20+ (22.13+ pour lire les sessions OpenCode) et le CLI d'au moins un des runtimes ci-dessus ; [pnpm](https://pnpm.io/) seulement pour lancer depuis les sources.
 
 ## Ce que vous voyez
 
@@ -69,13 +75,13 @@ Agent Lens les suit tous en même temps et étiquette chaque session avec son ru
 | GitHub Copilot | `~/.copilot/session-state/` | sessions locales seulement, pas celles hébergées dans le cloud |
 | Pi | `~/.pi/agent/sessions/` | pas de sous-agents ; jetons et coût pas encore lus |
 | Gemini CLI | `~/.gemini/tmp/` | pas de sous-agents dessinés ; jetons et coût pas encore lus |
-| OpenCode | sa base SQLite, en lecture seule | Linux seulement pour l'instant ; sessions des 10 dernières minutes |
+| OpenCode | sa base SQLite, en lecture seule | Linux seulement pour l'instant ; demande Node 22.13+ ; sessions des 10 dernières minutes |
 
 Cursor n'est pas encore supporté. La [feuille de route](docs/roadmap.md) dit ce qui est livré, partiel ou bloqué.
 
 ## Installation
 
-**Depuis les sources** : les trois commandes du [démarrage rapide](#démarrage-rapide), ou `pnpm run build:app` puis `node app/dist/app.js` pour l'application autonome (sert l'interface et le relais, ouvre le navigateur ; `--port <n>`, `--no-open`, `--all-workspaces`).
+**Avec npx** : `npx @j0hn/agent-lens` lance l'application autonome (sert l'interface et le relais, ouvre le navigateur ; `--port <n>`, `--no-open`, `--all-workspaces`). **Depuis les sources** : les commandes du [démarrage rapide](#démarrage-rapide), ou `pnpm run build:app` puis `node app/dist/app.js` pour la même application.
 
 **Extension VS Code** : construisez le `.vsix` depuis les sources et installez-le. Fonctionne avec VS Code 1.85+, [Cursor](https://cursor.sh/) et [Windsurf](https://windsurf.com/).
 
