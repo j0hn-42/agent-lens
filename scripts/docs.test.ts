@@ -280,7 +280,7 @@ test('CHANGELOG annotates legacy names and maps old to new (#136)', () => {
   const log = read('extension/CHANGELOG.md')
   assert.match(log, /Old name/)
   for (const [oldName, newName] of [
-    ['npx agent-flow-app', 'npx agent-lens'],
+    ['npx agent-flow-app', 'npx @j0hn/agent-lens'],
     ['AGENT_FLOW_TELEMETRY', 'AGENT_LENS_TELEMETRY'],
     ['AGENT_FLOW_RUNTIME', 'AGENT_LENS_RUNTIME'],
     ['~/.agent-flow/', 'AGENT_LENS_TELEMETRY'],
@@ -428,7 +428,7 @@ test('the theme is documented in Settings, not in the top bar (#179)', () => {
 // #178: the docs only cite entry points that exist, and the repository URL and Node floor agree everywhere.
 test('the docs cite the npx command of the package named in app/package.json, never the former agent-lens-app (#178)', () => {
   const name: string = JSON.parse(read('app/package.json')).name
-  assert.equal(name, 'agent-lens')
+  assert.equal(name, '@j0hn/agent-lens')
   for (const file of ['README.md', 'README.fr.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/relay-sources.md', 'docs/launch-security.md', 'docs/install.md', 'docs/faq.md', 'CONTRIBUTING.md']) {
     assert.ok(!read(file).includes('npx agent-lens-app'), `${file} cites npx agent-lens-app, which was never the published name`)
   }

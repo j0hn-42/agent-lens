@@ -7,8 +7,8 @@ import path from 'node:path'
 const APP = path.resolve(__dirname, '..')
 const pkg = JSON.parse(fs.readFileSync(path.join(APP, 'package.json'), 'utf8'))
 
-test('the package is published as agent-lens and its only command is agent-lens, so `npx agent-lens` runs it', () => {
-  assert.equal(pkg.name, 'agent-lens')
+test('the package is published as @j0hn/agent-lens (npm refused agent-lens as too close to agentlens) and its only command is agent-lens, so `npx @j0hn/agent-lens` runs it', () => {
+  assert.equal(pkg.name, '@j0hn/agent-lens')
   assert.deepEqual(pkg.bin, { 'agent-lens': 'dist/app.js' })
 })
 

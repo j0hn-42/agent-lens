@@ -1,6 +1,6 @@
 name: Publish to npm
 
-# Publie l'application autonome (app/) sur npm sous le nom « agent-lens », pour `npx agent-lens`. Démarré à la main
+# Publie l'application autonome (app/) sur npm sous le nom « @j0hn/agent-lens », pour `npx @j0hn/agent-lens`. Démarré à la main
 # seulement (workflow_dispatch) : aucun tag ni push ne publie. Il lit un seul secret, NPM_TOKEN (un jeton
 # d'automatisation npm, ajouté par le propriétaire du dépôt) ; sans lui le job s'arrête avec un message, il ne publie
 # rien en silence. Jamais sur develop. La version publiée est celle de app/package.json, que release-check garde
