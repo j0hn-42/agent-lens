@@ -108,6 +108,26 @@ Two files act as guard rails. They record known violations; they are not a place
 - **The issue must be open.** An entry that cites a closed issue is a bug: a closed issue means the violation was declared fixed. `web/tests-a11y/open-baseline-issues.json` is the hand-maintained list of open issues the two baselines may cite (kept offline, so the tests need no network). Add the issue number there when you file the tracking issue, remove it when the issue is closed; `pnpm --dir web run test:a11y` and `lint:a11y` fail on any baseline entry whose issue is not listed. If the violation survives a closed issue, reopen it or file a new one.
 - A deliberate design choice is not a baseline entry. Scrollable regions that take `tabIndex={0}` (WCAG 2.1.1) are exempted by name in `web/eslint.config.mjs` (`region`, `group`, `log` roles and `<section>`); inline `eslint-disable` comments are disabled on purpose.
 
+## Accessibility testing
+
+Three layers run in CI (see `.github/workflows/ci.yml`):
+
+- **Lint**: `pnpm --dir web run lint:a11y` runs `eslint-plugin-jsx-a11y` (strict preset, inline disables ignored; one commented per-file exception lets the graph surface of `canvas.tsx` keep its focusable `role="img"`) and compares the result with `web/tests-a11y/lint-baseline.json`, one entry per file and rule with a violation count and the issue that fixes it. It fails on any new violation and on any listed violation that was fixed. After fixing code, run `pnpm --dir web run lint:a11y -- --write` and review the diff; the baseline should only shrink.
+- **jsdom + axe-core**: `pnpm run test:a11y` renders the key components (top bar, control bar in live and review mode, sessions panel, Conversation, file attention, popups, context menu, shortcuts dialog, timeline canvas and table view) and runs axe-core on them. Keyboard wiring tests render the real components and dispatch real key events (scrubber arrows, Space on a button, Escape, context-menu arrows). Known axe violations live in `web/tests-a11y/known-violations.json` with an issue number; the test fails on a new violation and when a listed one disappears, with a message saying which entry to remove.
+- **Browser (Playwright + `@axe-core/playwright`)**: `pnpm --dir web run test:e2e` starts the demo app itself on a free port (and stops it at the end; set `E2E_BASE_URL` to use a server that is already running instead) for what jsdom cannot see: serious/critical axe violations including color contrast on the initial page, each panel, review mode, the shortcuts dialog, the context menu (right click) and the tool detail popup (opened from the graph outline button that mirrors a canvas click); the context menu keys (Shift+F10, ContextMenu, ArrowDown/Up, Home, End, Escape, Tab) with focus return, and Escape on the tool popup; no clipped containers, horizontal scroll or off-screen controls at 320 px and 640 px (400 % and 200 % zoom; only the elements tracked in issue #23 are tolerated, any other clipped control fails), measured only after the layout is stable (bounding boxes unchanged over two animation frames and a quiet period) and with the Files and Conversation panels open; the canvas redraws markedly less (pixel diff between two frames, against a no-preference baseline) and no infinite CSS animation runs under `prefers-reduced-motion: reduce`; no invisible control in the Tab order; Space, Escape and scrubber keys on the real page. Install the browser once with `pnpm --dir web exec playwright install chromium`. The server log is written to `web/test-results/demo-server-<file>.log`, one per e2e file (the shared `demo-server.log` only when no entry file is known). Browser-level findings use the `e2e:*` scenarios of `known-violations.json`.
+
+Color contrast of the design tokens is also checked without a browser by `scripts/contrast.test.ts` (part of `pnpm test`).
+
+## Releasing
+
+1. Bump `version` in `extension/package.json` and `app/package.json` (they must match) and add a `## <version>` entry at the top of `extension/CHANGELOG.md`. Every user-visible change (feature, fix, behaviour change) gets a line there, with its issue number, in the same PR that introduces it or at the latest when bumping.
+2. `node scripts/release-check.js` verifies the two versions and the CHANGELOG entry (it also runs in CI).
+3. Push a tag `vX.Y.Z` matching the version. The `Release` workflow builds the webview and extension, packages `agent-lens.vsix` as a workflow artifact and attaches it to a GitHub Release. It can also be run by hand (`workflow_dispatch`, never on `develop`) to get the `.vsix` artifact only. Nothing is published to the Marketplace or Open VSX and no secret is used.
+
+## README media
+
+The GIF, the video and the captures of the README live in `docs/media/` and are generated from the demo tour, never taken by hand. After a change that alters what the demo shows, run `pnpm run capture:media` (needs Chromium and `ffmpeg`, about two minutes) and commit the result. The script is `web/scripts/capture-media.ts`.
+
 ## Design tokens in the web UI
 
 Four rules, enforced by `scripts/design-tokens.test.ts` (#509):

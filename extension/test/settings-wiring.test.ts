@@ -1,6 +1,6 @@
 /**
  * Every setting declared in package.json (contributes.configuration) must be read by the
- * extension, and README "Settings" must list exactly the same keys (#174).
+ * extension, and docs/reference.md "Settings" must list exactly the same keys (#174).
  */
 
 import { describe, it } from 'node:test'
@@ -36,8 +36,8 @@ describe('extension settings (#174)', () => {
     })
   }
 
-  it('README Settings table lists exactly the declared keys', () => {
-    const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8')
+  it('the Settings table of docs/reference.md lists exactly the declared keys', () => {
+    const readme = fs.readFileSync(path.join(repoRoot, 'docs', 'reference.md'), 'utf8')
     const section = readme.slice(readme.indexOf('## Settings'))
     const table = section.slice(0, section.indexOf('\n## ', 3) === -1 ? undefined : section.indexOf('\n## ', 3))
     const listed = [...table.matchAll(/^\|\s*`(agentVisualizer\.[A-Za-z]+)`/gm)].map(m => m[1])

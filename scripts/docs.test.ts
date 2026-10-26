@@ -63,7 +63,7 @@ function relativeLinks(file: string): string[] {
 }
 
 // The reading guide is checked file by file (its index and each domain file), each link from its own folder (#612)
-for (const file of ['README.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles(), 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
+for (const file of ['README.md', 'README.fr.md', 'docs/features.md', 'docs/install.md', 'docs/reference.md', 'docs/faq.md', 'CONTRIBUTING.md', READING_GUIDE_INDEX, ...readingGuideFiles(), 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -184,9 +184,14 @@ test('a link to the reading guide that names a section in bold or in quotes poin
 
 test('README documents the fork views and links the docs (#129)', () => {
   const readme = read('README.md')
-  for (const word of ['Fleet', 'All', 'Workflow', 'Comms', 'Context', 'Reading the UI']) {
+  for (const word of ['Fleet', 'All', 'Reading the UI']) {
     assert.ok(readme.includes(word), `README should mention ${word}`)
   }
+  // The detail of the views moved from the README to docs/features.md (README rewrite)
+  for (const word of ['Fleet', 'Workflow', 'Comms', 'Context']) {
+    assert.ok(read('docs/features.md').includes(word), `docs/features.md should mention ${word}`)
+  }
+  assert.ok(readme.includes('(docs/features.md)'), 'README should link docs/features.md')
   for (const doc of ['docs/node-inspector.md', 'docs/relay-sources.md', 'docs/state-share.md', 'docs/reading-the-ui.md', 'docs/headless.md']) {
     assert.ok(readme.includes(`(${doc})`), `README should link ${doc}`)
   }
@@ -216,7 +221,7 @@ test('README gives a reproducible extension install, with compatibility (#134)',
   assert.match(readme, /1\.85/)
   for (const ide of ['Cursor', 'Windsurf']) assert.ok(readme.includes(ide))
   assert.ok(!/not published/i.test(readme), 'no unproven claim about marketplace publication')
-  assert.match(readme, /\| `pnpm --filter agent-lens run package` \|/, 'package script is in the scripts table')
+  assert.match(read('docs/reference.md'), /\| `pnpm --filter agent-lens run package` \|/, 'package script is in the scripts table')
   assert.equal(JSON.parse(read('extension/package.json')).scripts.package, 'vsce package')
 })
 
@@ -310,7 +315,7 @@ test('the reading guide explains repeated reads and calls, with their limits (#2
   for (const term of ['no edit seen', 'not compared', 'Grep', 'lower bound', 'Bash', 'not reported']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
   }
-  assert.ok(read('README.md').toLowerCase().includes('repeated reads'), 'README mentions the feature')
+  assert.ok(read('docs/features.md').toLowerCase().includes('repeated reads'), 'the features page mentions the feature')
 })
 
 test('the reading guide explains the capabilities of a session and their proof (#242)', () => {
@@ -319,7 +324,7 @@ test('the reading guide explains the capabilities of a session and their proof (
   for (const term of ['skill_listing', 'mcp_instructions_delta', 'Skill', 'sub-agents', 'Partial', 'Not provided by this relay', 'could not be read', 'not what is installed']) {
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
   }
-  assert.ok(read('README.md').includes('capabilities'), 'README mentions the capabilities view')
+  assert.ok(read('docs/features.md').includes('capabilities'), 'the features page mentions the capabilities view')
 })
 
 test('the remote access guards and the pairing are documented, with their read-only surface (#241, #517)', () => {
@@ -524,7 +529,8 @@ test('the tray doc says what is shipped, what is not, and what the menu never sh
   for (const needle of ['not part of this repository yet', 'unknown', 'at least', 'SIGTERM', 'SIGKILL', 'No shell', '1024 bytes', 'Windows', 'Orca', '/statusline', '--tray-bin', '--attach']) {
     assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle}`)
   }
-  assert.ok(read('README.md').includes('(docs/tray.md)'), 'README should link docs/tray.md')
+  // The tray icon is not shipped yet: the README no longer lists it, the roadmap says where it stands
+  assert.ok(read('docs/roadmap.md').includes('(tray.md'), 'the roadmap should link docs/tray.md')
   // #513: the stop channel that replaces SIGTERM, and what is not proven on Windows
   for (const needle of ['--ipc-stop', '{"v":1,"type":"stop"}', 'no route', 'not tested on Windows']) {
     assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle} (#513)`)
