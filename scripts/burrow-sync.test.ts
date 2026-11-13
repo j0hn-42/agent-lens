@@ -247,3 +247,19 @@ test('delegation: an orchestrator in a dispatch call waits at the door post, its
   assert.equal(e.actors.find((a) => a.key === 'lead')?.said, 'waiting:undefined')
   assert.deepEqual(r.rows.map((x) => `${x.id}:${x.depth}:${x.delegating ?? 0}`), ['lead:0:1', 'sub:1:0'])
 })
+
+test('syncBurrow stays cheap with 300 agents, most of them beyond the cap', () => {
+  const { e, st } = setup()
+  const states = ['idle', 'thinking', 'tool_calling', 'complete'] as const
+  const list = Array.from({ length: 300 }, (_, i) => agent(`p${i}`, {
+    state: states[i % states.length], currentTool: i % 4 === 2 ? 'Edit' : undefined, parentId: i > 10 ? `p${i % 10}` : null,
+  }))
+  const map = new Map(list.map((a) => [a.id, a]))
+  for (let i = 0; i < 10; i++) syncList(e, st, map, opts)  // the first call places them, then warm up
+  const runs = 60
+  const t0 = performance.now()
+  for (let i = 0; i < runs; i++) syncList(e, st, map, { ...opts, now: opts.now + i * 250 })
+  const perCall = (performance.now() - t0) / runs
+  // about 0.2 ms here; a search of every animal for every agent (the engine's lookups, the cap) took ten times that
+  assert.ok(perCall < 2, `${perCall.toFixed(2)} ms per call`)
+})

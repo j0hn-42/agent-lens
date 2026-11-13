@@ -94,6 +94,9 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   const holdsPlace = (key: string): boolean => ids.has(key) && !wantedAway.has(key) && !engine.isGone(key)
   let drawn = engine.actors.filter((a) => holdsPlace(a.key)).length
   let hidden = 0
+  // newcomers come in decreasing claim and the animals they could replace only get fewer: once none is found for a
+  // claim, none will be for that claim or a lower one (with many agents beyond the cap, the search is not repeated)
+  let noVictimUpTo = -1
   const instant = opts.instant === true || !st.started
   for (const { a, p } of order) {
     if (!engine.has(a.id)) {
@@ -101,8 +104,10 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
       if (drawn >= max) {
         // a newcomer takes the place of a drawn animal that claims less (a finished one first, then an idle one); otherwise it is counted
         const me = rank({ a, p })
-        const victim = wanted.filter((w) => rank(w) < me && holdsPlace(w.a.id) && w.a.id !== opts.selectedId).sort((x, y) => rank(x) - rank(y))[0]
-        if (!victim) { hidden++; continue }
+        const victim = me <= noVictimUpTo
+          ? undefined
+          : wanted.filter((w) => rank(w) < me && holdsPlace(w.a.id) && w.a.id !== opts.selectedId).sort((x, y) => rank(x) - rank(y))[0]
+        if (!victim) { noVictimUpTo = Math.max(noVictimUpTo, me); hidden++; continue }
         engine.removeActor(victim.a.id); st.applied.delete(victim.a.id); drawn--
         wantedAway.add(victim.a.id)
       }
