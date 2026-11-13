@@ -26,6 +26,8 @@ const isPostKind = (room: BurrowRoomId): room is PostRoom => room === 'phone' ||
  */
 const POST_FACE: Record<PostKind, BurrowDir> = { phone: 'left', door: 'right', error: 'down' }
 const POST_POSE: Record<PostKind, string | null> = { phone: null, door: 'wave', error: null }
+/** Distances left of the front door of the posts beside it: between the office desks first, then in front of them */
+const DOOR_POST_DX = [30, 42, 76, 108, 54, 66, 90] as const
 /** Seconds an unavailable agent still waits in the lounge before it walks out through the front door */
 const HOME_AFTER_S = 4
 /** An agent on its way to a workshop or the door post moves this many times faster than a stroll */
@@ -170,13 +172,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
         ;(zoneCells[z] ??= []).push([gx, gy])
       }
     }
+    // a row level with the doormat, a step in front of the office desks: first the places nearest the door and between
+    // two desks (a waiter does not hide an agent working at a desk), then the places in front of the desks
     posts.door.length = 0
-    for (const dy of [6, 22]) {
-      for (let dx = 30; dx <= 102; dx += 12) {
-        const x = MAP.door.cx - dx
-        const y = MAP.door.front + dy
-        if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) posts.door.push({ x, y })
-      }
+    for (const dx of DOOR_POST_DX) {
+      const x = MAP.door.cx - dx
+      const y = MAP.door.front + 12
+      if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) posts.door.push({ x, y })
     }
     posts.phone.length = 0
     for (const p of BURROW_TELEPHONE.posts) if (pointOk(p.x, p.y) && !hidesTitle(p.x, p.y)) posts.phone.push({ x: p.x, y: p.y })

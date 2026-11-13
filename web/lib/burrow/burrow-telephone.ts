@@ -56,11 +56,11 @@ export const BURROW_TELEPHONE = {
    * (below the doormat, whose title an animal never hides)
    */
   posts: [
-    { x: 176, y: 147 },
-    { x: 190, y: 147 },
-    { x: 204, y: 147 },
-    { x: 183, y: 159 },
-    { x: 197, y: 159 },
+    { x: 177, y: 146 },
+    { x: 199, y: 146 },
+    { x: 188, y: 157 },
+    { x: 206, y: 157 },
+    { x: 177, y: 164 },
   ] as const,
   /** Floor kept for the callers: an idle animal does not stop there, so an animal at the telephone is a caller */
   reserved: [170, 142, 210, 166] as const,
