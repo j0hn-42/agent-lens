@@ -8,7 +8,7 @@ import type { AnnounceLevel } from '@/lib/ui-preferences'
 import { LiveAnnouncements } from './live-announcements'
 import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { BurrowAgentList } from './burrow-agent-list'
+import { BurrowAgentList, popupAnchor, type PopupAnchor } from './burrow-agent-list'
 import { BurrowLegend } from './burrow-legend'
 import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
@@ -39,8 +39,8 @@ export interface BurrowViewProps {
   onAgentHover: (agentId: string | null) => void
   /** Right click on an animal: the agent's context menu, at the pointer. Absent = the browser's own menu stays */
   onAgentContextMenu?: (agentId: string, at: { clientX: number; clientY: number }) => void
-  /** Opens a tool call (the graph's click on a tool card): a click on a tool bubble, Shift+Enter on the agent's list row */
-  onToolCallClick?: (toolCallId: string) => void
+  /** Opens a tool call (the graph's click on a tool card): a click on a tool bubble, Shift+Enter on the agent's list row; its popup at that bubble or row */
+  onToolCallClick?: (toolCallId: string, anchor: PopupAnchor) => void
   /** Verbosity of the live announcements, the same preference as the graph (#379) */
   announceLevel?: AnnounceLevel
   /** Links between agents, for the team announcements ("<from> sent a message to <to>"); the simulation's otherwise */
@@ -363,7 +363,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           const key = a.key
           el.addEventListener('pointerdown', (e) => { if (toolIds.has(key)) e.stopPropagation() })
           el.addEventListener('pointerup', (e) => { if (toolIds.has(key)) e.stopPropagation() })
-          el.addEventListener('click', () => { const id = toolIds.get(key); if (id) live.current.onToolCallClick?.(id) })
+          el.addEventListener('click', (e) => { const id = toolIds.get(key); if (id && e.currentTarget instanceof Element) live.current.onToolCallClick?.(id, popupAnchor(e.currentTarget)) })
         }
         if (el.textContent !== a.said) el.textContent = a.said
         // only a bubble that names a proven running call is clickable: the other bubbles stay transparent to the pointer

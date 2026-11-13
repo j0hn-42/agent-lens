@@ -4,11 +4,12 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React, { useState } from 'react'
-import { render, cleanup, fireEvent, screen, act } from '@testing-library/react'
+import { render, renderHook, cleanup, fireEvent, screen, act } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { BurrowView } from '@/components/agent-visualizer/burrow-view'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
+import { useSelectionState } from '@/hooks/use-selection-state'
 import type { Agent } from '@/lib/agent-types'
 import { clusterColor } from '@/components/agent-visualizer/canvas/cluster-model'
 /** Palette colour of a session, as the graph gives its halo */
@@ -276,9 +277,10 @@ test('a tool bubble that names a running call is clickable and opens it; a state
   )
   sim.current.toolCalls = new Map([['tc9', { id: 'tc9', agentId: 'alpha', toolName: 'Grep', state: 'running' }]]) as never
   const opened: string[] = []
+  const anchors: Array<{ x: number; y: number } | undefined> = []
   const picks: string[] = []
   const view = render(
-    <BurrowView simulationRef={sim as never} selectedAgentId={null} onAgentClick={(id) => picks.push(String(id))} onAgentHover={() => {}} onToolCallClick={(id) => opened.push(id)} />,
+    <BurrowView simulationRef={sim as never} selectedAgentId={null} onAgentClick={(id) => picks.push(String(id))} onAgentHover={() => {}} onToolCallClick={(id, at) => { opened.push(id); anchors.push(at) }} />,
   )
   for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
   await wait(100)
@@ -289,12 +291,26 @@ test('a tool bubble that names a running call is clickable and opens it; a state
   assert.equal(tool.style.cursor, 'pointer')
   assert.equal(tool.getAttribute('aria-hidden'), 'true', 'still a picture: the list row is its text')
   for (const b of bubbles) if (b !== tool) assert.equal(b.style.pointerEvents, 'none', 'a bubble without a running call is not clickable')
+  const rect = (left: number, top: number, width: number, height: number) => () => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} }) as DOMRect
+  tool.getBoundingClientRect = rect(100, 50, 40, 20)
   fireEvent.pointerDown(tool); fireEvent.pointerUp(tool); fireEvent.click(tool)
   assert.deepEqual(opened, ['tc9'])
+  assert.deepEqual(anchors[0], { x: 120, y: 70 }, 'the popup opens at the bubble (its bottom centre), not at the graph\'s tool card')
   assert.deepEqual(picks, [], 'the press on the bubble is not a pick on the floor')
   const row = view.container.querySelector<HTMLButtonElement>('button[data-burrow-row="alpha"]')!
+  row.getBoundingClientRect = rect(600, 300, 200, 24)
   fireEvent.keyDown(row, { key: 'Enter', shiftKey: true })
   assert.deepEqual(opened, ['tc9', 'tc9'], 'Shift+Enter on its row opens the same call')
+  assert.deepEqual(anchors[1], { x: 700, y: 324 }, 'from the row, the popup opens at the row')
+})
+
+test('a tool call opened with an anchor (the burrow) places its popup there, not at the graph\'s tool card', () => {
+  const call = { id: 'tc1', agentId: 'a', toolName: 'Read', state: 'running', x: 5000, y: 5000 }
+  const { result } = renderHook(() => useSelectionState({ agents: new Map(), toolCalls: new Map([['tc1', call]]) as never, discoveries: [] }))
+  act(() => { result.current.handleToolCallClick('tc1', { x: 120, y: 70 }) })
+  assert.deepEqual(result.current.selectedToolScreenPos, { x: 120, y: 70 })
+  act(() => { result.current.handleToolCallClick('tc1') })
+  assert.deepEqual(result.current.selectedToolScreenPos, { x: 5000, y: 5000 }, 'the graph keeps its own position')
 })
 
 /** Gives every element a client size (jsdom lays nothing out): the burrow's scene is then `w` x `h` */

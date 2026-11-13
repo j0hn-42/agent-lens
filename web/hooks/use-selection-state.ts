@@ -99,14 +99,15 @@ export function useSelectionState(deps: {
     }
   }, [agents, clearOtherSelections])
 
-  const handleToolCallClick = useCallback((toolCallId: string | null) => {
+  /** `anchor`: where the call was opened from when it is not the graph's tool card (the burrow's bubble or list row) */
+  const handleToolCallClick = useCallback((toolCallId: string | null, anchor?: ScreenPos) => {
     setSelectedToolCallId(toolCallId)
     if (toolCallId) {
       // Only cross-clear when making a positive selection
       clearOtherSelections('tool')
       const tool = toolCalls.get(toolCallId)
       if (tool) {
-        setSelectedToolScreenPos({ x: tool.x, y: tool.y })
+        setSelectedToolScreenPos(anchor ?? { x: tool.x, y: tool.y })
         // Snapshot data so popup persists after tool card fades
         setSelectedToolData({
           id: tool.id, toolName: tool.toolName, state: tool.state, args: tool.args,

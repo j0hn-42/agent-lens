@@ -20,6 +20,14 @@ const LIST_CLASS = [
 /** Portrait: always shown, filling the panel the view places under the stage, scrolled when the rows overflow it */
 const PANEL_CLASS = 'm-0 flex size-full list-none flex-col gap-1 overflow-y-auto p-0 text-2xs font-mono'
 
+export interface PopupAnchor { x: number; y: number }
+
+/** Where a popup opened from an element goes: under its bottom centre, in viewport pixels (the popup's own placement) */
+export function popupAnchor(el: Element): PopupAnchor {
+  const r = el.getBoundingClientRect()
+  return { x: r.left + r.width / 2, y: r.bottom }
+}
+
 /** The L shortcut: the focus goes to the list's tab stop (it appears, as when Tab reaches it); false when there is none */
 export function focusBurrowAgentList(): boolean {
   const target = document.querySelector<HTMLElement>('[data-burrow-agent-list] button[tabindex="0"]')
@@ -37,8 +45,8 @@ export interface BurrowAgentListProps {
   groupLabel: (sessionId: string) => string
   onAgentClick: (agentId: string) => void
   onAgentHover: (agentId: string | null) => void
-  /** Opens the tool call a row names (Shift+Enter on a row that carries a running call); absent = no such action */
-  onToolCallClick?: (toolCallId: string) => void
+  /** Opens the tool call a row names (Shift+Enter on a row that carries a running call), its popup at the row; absent = no such action */
+  onToolCallClick?: (toolCallId: string, anchor: PopupAnchor) => void
   /** Accessible description of that key, said after the row's name (the hint of the secondary action) */
   toolCallKeyHint?: string
   /** Portrait layout: the list is always shown and fills its panel; otherwise it is hidden until it takes the focus */
@@ -73,7 +81,7 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
     // the secondary action: a row that runs a tool opens that call (a plain Enter stays the click that selects the agent)
     if (e.key === 'Enter' && e.shiftKey && toolCallId && onToolCallClick) {
       e.preventDefault()
-      onToolCallClick(toolCallId)
+      onToolCallClick(toolCallId, popupAnchor(e.currentTarget))
       return
     }
     const buttons = Array.from(e.currentTarget.closest('[data-burrow-agent-list]')?.querySelectorAll<HTMLButtonElement>('button') ?? [])
