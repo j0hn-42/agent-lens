@@ -40,6 +40,11 @@ function roomOfTool(tool: string | undefined): BurrowWorkshopId {
   return 'lab'
 }
 
+/** Room of a named tool call (null when the name was not received): what the room of a received call flashes, and what is counted */
+export function burrowRoomOfTool(tool: string | undefined): BurrowWorkshopId | null {
+  return typeof tool === 'string' && tool !== '' ? roomOfTool(tool) : null
+}
+
 /** What the speech bubble says: the tool being run, or the observed state (the view turns it into a sentence) */
 export type BurrowBubble =
   | { kind: 'tool'; tool: string }

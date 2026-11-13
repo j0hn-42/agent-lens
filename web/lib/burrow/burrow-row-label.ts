@@ -7,6 +7,7 @@
 import type { MessageKey } from '../messages'
 import type { BurrowRoomId } from './burrow-types'
 import type { BurrowRow } from './burrow-sync'
+import { burrowRoomOfTool } from './burrow-model'
 
 type Translate = (key: MessageKey, params?: Readonly<Record<string, string | number>>) => string
 
@@ -15,9 +16,11 @@ function baseLabel(r: BurrowRow, t: Translate): string {
   const state = t(`state.${r.state}` as 'state.idle')
   if (r.stale) return t('burrow.agent.stale', { name: r.name, state })
   const room = t(`burrow.room.${r.room satisfies BurrowRoomId}` as 'burrow.room.lounge')
-  return r.tool
+  if (!r.tool) return t('burrow.agent', { name: r.name, state, room })
+  // the animal follows the room of most of its recent calls: when that is not the running tool's room, the row says so
+  return burrowRoomOfTool(r.tool) === r.room
     ? t('burrow.agent.tool', { name: r.name, state, room, tool: r.tool })
-    : t('burrow.agent', { name: r.name, state, room })
+    : t('burrow.agent.toolElsewhere', { name: r.name, state, room, tool: r.tool })
 }
 
 /** A sub-agent names its orchestrator (found in `rows`); an orchestrator says how many sub-agents it still waits for */

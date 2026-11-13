@@ -43,3 +43,13 @@ test('the team or workflow the ring stands for is named right after the state, i
   assert.match(burrowRowLabel(row({ team: { name: 'wave', kind: 'workflow' } }), [], tr('fr')), /, workflow wave$/)
   assert.doesNotMatch(burrowRowLabel(row(), [], tr('en')), /team|workflow/)
 })
+
+test('the room is where the animal stands (its recent calls), the tool the one running: a row never lets the room pass for the tool', () => {
+  // the same room as the tool: as before
+  assert.equal(burrowRowLabel(row({ state: 'tool_calling', room: 'library', tool: 'Read' }), [], tr('en')), 'alpha: Calling tool, Library, tool Read')
+  // another room: said plainly
+  assert.equal(burrowRowLabel(row({ state: 'tool_calling', room: 'library', tool: 'Edit' }), [], tr('en')),
+    'alpha: Calling tool, tool Edit, stands in the Library, the room of most of its recent calls')
+  assert.equal(burrowRowLabel(row({ state: 'tool_calling', room: 'library', tool: 'Edit' }), [], tr('fr')),
+    'alpha : Appel d’outil, outil Edit, se tient dans la pièce Bibliothèque, celle de la plupart de ses appels récents')
+})

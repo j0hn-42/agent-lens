@@ -8,7 +8,7 @@ import { visibleAgents } from '../inactive-agents'
 import { deriveFreshness } from '../../hooks/simulation/freshness'
 import type { SimulationState } from '../../hooks/simulation/types'
 import type { BurrowEngine } from './burrow-engine'
-import { placeAgent, pickAnimal, postureOf, type BurrowBubble, type BurrowPlacement } from './burrow-model'
+import { burrowRoomOfTool, placeAgent, pickAnimal, postureOf, type BurrowBubble, type BurrowPlacement } from './burrow-model'
 import type { BurrowPosture, BurrowRoomId } from './burrow-types'
 import { linksSignature, treeOrder } from './burrow-links'
 import type { HealthVerdict } from '../loop-detection'
@@ -85,8 +85,82 @@ export interface BurrowSyncState {
   started: boolean
   /** Room of the last tool each agent was seen running, and when (opts.now): held while it thinks between two calls */
   lastRoom: Map<string, { room: BurrowRoomId; at: number }>
+  /** Ids of the tool calls already seen; the first look only takes note of them (they have no time of reception) */
+  callsSeen: Set<string>
+  callsStarted: boolean
+  /** Named calls received per agent, with their room and when they were first seen (opts.now), within the window */
+  recent: Map<string, Array<{ id: string; room: BurrowRoomId; at: number }>>
+  /** Room the animal stands in while it works: the dominant room of its recent calls (see dominantRoom) */
+  dominant: Map<string, BurrowRoomId>
 }
-export const createBurrowSyncState = (): BurrowSyncState => ({ applied: new Map(), started: false, lastRoom: new Map() })
+export const createBurrowSyncState = (): BurrowSyncState => ({
+  applied: new Map(), started: false, lastRoom: new Map(), callsSeen: new Set(), callsStarted: false, recent: new Map(), dominant: new Map(),
+})
+
+/** The animal follows the room of most of its calls of this last stretch of time, not each call */
+const BURROW_CALL_WINDOW_MS = 10_000
+/** Calls by which another room must lead the room the animal stands in to take it over (a near tie never moves it) */
+const ROOM_LEAD = 2
+/** Rooms whose calls are counted: the work rooms. The telephone and the front door are waits and take priority */
+const WORK_ROOMS: ReadonlySet<BurrowRoomId> = new Set(['office', 'library', 'workshop', 'lab'])
+
+/** A tool call seen starting since the last sync: the view flashes an object of its room (nothing on the first look) */
+export interface ReceivedCall { id: string; agentId: string; room: BurrowRoomId }
+
+/**
+ * Takes note of the calls received since the last sync: each new named call joins its agent's recent calls (its time
+ * is when it was first seen), and a new call seen running is returned for the flash. The first look only takes note
+ * of what is there; a call first seen already finished (a replayed history) is counted for nothing and not flashed.
+ */
+function receiveCalls(st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number): ReceivedCall[] {
+  const out: ReceivedCall[] = []
+  if (toolCalls) {
+    for (const [id, c] of toolCalls) {
+      if (st.callsSeen.has(id)) continue
+      st.callsSeen.add(id)
+      const room = burrowRoomOfTool(c.toolName)
+      if (!st.callsStarted || room === null || c.state !== 'running') continue
+      out.push({ id, agentId: c.agentId, room })
+      if (WORK_ROOMS.has(room)) {
+        const list = st.recent.get(c.agentId)
+        if (list) list.push({ id, room, at: now })
+        else st.recent.set(c.agentId, [{ id, room, at: now }])
+      }
+    }
+    for (const id of st.callsSeen) if (!toolCalls.has(id)) st.callsSeen.delete(id)
+  }
+  for (const [agentId, list] of st.recent) {
+    const kept = list.filter((x) => now - x.at <= BURROW_CALL_WINDOW_MS)
+    if (kept.length) st.recent.set(agentId, kept)
+    else st.recent.delete(agentId)
+  }
+  st.callsStarted = true
+  return out
+}
+
+/**
+ * The work room the animal stands in: per room, the calls received for the agent in the window, and each call that
+ * still runs (it counts as long as it runs). It stays in its room until another room leads it by ROOM_LEAD calls, or
+ * its room has none left; a first call (or one after a rest) goes to the room with the most, the tool's own on a tie.
+ */
+function dominantRoom(p: BurrowPlacement, a: SyncAgent, st: BurrowSyncState, running: ReadonlyMap<string, ReadonlyArray<{ id: string; toolName: string }>>): BurrowPlacement {
+  const counts = new Map<BurrowRoomId, number>()
+  const add = (room: BurrowRoomId): void => { counts.set(room, (counts.get(room) ?? 0) + 1) }
+  const recent = st.recent.get(a.id) ?? []
+  for (const x of recent) add(x.room)
+  for (const c of running.get(a.id) ?? []) {
+    const room = burrowRoomOfTool(c.toolName)
+    if (room && WORK_ROOMS.has(room) && !recent.some((x) => x.id === c.id)) add(room)
+  }
+  if (!counts.get(p.room)) add(p.room)       // the tool it runs is observed, even when its call is not in the map
+  const n = (room: BurrowRoomId | undefined): number => (room ? counts.get(room) ?? 0 : 0)
+  let best: BurrowRoomId = p.room
+  for (const [room] of counts) if (n(room) > n(best)) best = room
+  const current = st.dominant.get(a.id)
+  const room = current && n(current) > 0 && n(best) < n(current) + ROOM_LEAD ? current : best
+  st.dominant.set(a.id, room)
+  return room === p.room ? p : { ...p, room }
+}
 
 /**
  * Between two tool calls an agent thinks for a moment: it stays in the room of its last tool for up to this long
@@ -139,6 +213,8 @@ export interface BurrowSyncOptions {
 
 export interface BurrowSyncResult {
   rows: BurrowRow[]
+  /** Tool calls seen starting since the last sync (none on the first): the view flashes their room */
+  received: ReceivedCall[]
   /** Agents that should be in the burrow but are not drawn because of the cap */
   hidden: number
   /** An animal was added, moved, sent out or given a bubble by this call: reduced motion draws again only then */
@@ -169,23 +245,31 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   let changed = false
   // 'Show: active' hides exactly what the graph hides (workflow members, parents and the selected agent stay)
   const shown = visibleAgents(agents as unknown as Map<string, Agent>, opts.hideInactive, [opts.selectedId])
+  const received = receiveCalls(st, opts.toolCalls, opts.now)
+  const running = runningCalls(opts.toolCalls)
   const wanted: Array<{ a: SyncAgent; p: BurrowPlacement; filtered: boolean; posture: BurrowPosture }> = []
   for (const a of agents.values()) {
     const filtered = !shown.has(a.id)
     const stale = deriveFreshness(a, opts.now) === 'stale'
+    let p: BurrowPlacement = { presence: 'away', room: 'lounge', bubble: null }
     // a filtered agent is not drawn: it walks out through the front door, and it is not listed (finished or not)
-    wanted.push({
-      a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : holdRoom(placeAgent(a, {
-        stale, silentOnly: silentOnly(a, opts.now), delegating: opts.delegations?.get(a.id),
-      }), a, stale, st, opts.now),
-      filtered, posture: postureOf(a.state, stale),
-    })
+    if (!filtered) {
+      p = placeAgent(a, { stale, silentOnly: silentOnly(a, opts.now), delegating: opts.delegations?.get(a.id) })
+      // at work (a named call in a work room, live): the room of most of its recent calls, not of each call
+      if (p.presence === 'in' && !stale && WORK_ROOMS.has(p.room)) p = dominantRoom(p, a, st, running)
+      p = holdRoom(p, a, stale, st, opts.now)
+    }
+    // the room is kept only while it works there, or thinks there for a moment: anything else decides afresh next time
+    if (!WORK_ROOMS.has(p.room) || p.presence !== 'in') st.dominant.delete(a.id)
+    wanted.push({ a, p, filtered, posture: postureOf(a.state, stale) })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
   // animals of agents that are gone from the data walk out for good
   for (const actor of engine.actors) if (!ids.has(actor.key)) { engine.removeActor(actor.key); st.applied.delete(actor.key); changed = true }
   for (const key of [...st.applied.keys()]) if (!engine.has(key) && !ids.has(key)) st.applied.delete(key)
   for (const key of [...st.lastRoom.keys()]) if (!ids.has(key)) st.lastRoom.delete(key)
+  for (const key of [...st.dominant.keys()]) if (!ids.has(key)) st.dominant.delete(key)
+  for (const key of [...st.recent.keys()]) if (!ids.has(key)) st.recent.delete(key)
 
   // already drawn first, then the busiest: the cap never takes an animal away from an agent that works
   const order = wanted.slice().sort((x, y) => Number(engine.has(y.a.id)) - Number(engine.has(x.a.id)) || rank(y) - rank(x))
@@ -237,7 +321,6 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   // the graph's own rule for its loop badge (a proven verdict with findings); the repeat ledger is not read here
   const marks = opts.health ? repeatMarks(opts.health, undefined, agents.keys()) : undefined
   // the rings tell apart the sessions and teams of the listed agents (a filtered one tells nothing apart)
-  const running = runningCalls(opts.toolCalls)
   const ringCtx = markerContext(wanted.filter((w) => !w.filtered && engine.has(w.a.id)).map((w) => w.a), opts.teams)
   for (const { a, p, filtered } of wanted) {
     if (filtered || !engine.has(a.id)) continue   // filtered: not listed; not drawn (cap): counted in `hidden`
@@ -260,5 +343,5 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   }
   // attention first (stable: the order among equals is kept); the tree then puts each sub-agent under its parent
   flat.sort((x, y) => attentionRank(x.state) - attentionRank(y.state))
-  return { rows: treeOrder(flat), hidden, changed }
+  return { rows: treeOrder(flat), hidden, changed, received }
 }
