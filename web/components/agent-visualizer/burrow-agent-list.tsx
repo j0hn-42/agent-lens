@@ -60,8 +60,8 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
   // the tab stop: the row last focused, else the selected one, else the first (a row that left the list is not kept)
   const stop = [activeId, selectedAgentId].find((id) => id !== null && ordered.some((r) => r.id === id)) ?? ordered[0]?.id
 
-  const onKeyDown = (e: KeyboardEvent<HTMLUListElement>) => {
-    const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button'))
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const buttons = Array.from(e.currentTarget.closest('[data-burrow-agent-list]')?.querySelectorAll<HTMLButtonElement>('button') ?? [])
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
     if (at < 0) return
     const next = e.key === 'ArrowDown' ? Math.min(at + 1, buttons.length - 1)
@@ -101,6 +101,7 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
         onClick={() => onAgentClick(r.id)}
         onFocus={() => { setActiveId(r.id); onAgentHover(r.id) }}
         onBlur={() => onAgentHover(null)}
+        onKeyDown={onKeyDown}
         className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING}`}
         style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
       >
@@ -110,7 +111,7 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
   )
 
   return (
-    <ul ref={listRef} data-burrow-agent-list aria-label={label} onKeyDown={onKeyDown} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
+    <ul ref={listRef} data-burrow-agent-list aria-label={label} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
       {/* one session: a flat list of agents; several: one labelled list per session, each in an item of its own */}
       {groups.length === 1 ? groups[0].rows.map(item) : groups.map((g) => (
         <li key={g.sessionId ?? ''}>
