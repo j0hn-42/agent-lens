@@ -4,10 +4,12 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
+import { burrowImageNames } from '../web/lib/burrow/burrow-assets'
 
 const WEB = resolve(__dirname, '..', 'web')
 const requireWeb = createRequire(join(WEB, 'package.json'))
@@ -87,5 +89,19 @@ for (const t of TARGETS) {
     } else {
       assert.ok(vscodeMessages.some((m) => (m as { type?: string }).type === 'ready'), 'the webview tells the host it is ready')
     }
+  })
+}
+
+for (const [i, t] of TARGETS.entries()) {
+  // The burrow's pictures are files beside index.js (the webview fetches them through its resource URI, the standalone
+  // app through /burrow/), not base64 strings that the IIFE, which cannot split a lazy chunk, would parse at startup.
+  test(`the ${t.name} build ships the burrow's PNGs in burrow/ and no picture as a data URI`, () => {
+    const names = burrowImageNames(BURROW_DATA)
+    const shipped = readdirSync(join(outDirs[i], 'burrow')).sort()
+    assert.deepEqual(shipped, names.map((n) => `${n}.png`).sort())
+    for (const n of names) {
+      assert.deepEqual(readFileSync(join(outDirs[i], 'burrow', `${n}.png`)), readFileSync(join(WEB, 'public', 'burrow', `${n}.png`)))
+    }
+    assert.doesNotMatch(bundles.get(t.name)!, /data:image\/png;base64/)
   })
 }

@@ -2,7 +2,11 @@ import { createRoot } from 'react-dom/client'
 import { AgentVisualizer } from './components/agent-visualizer'
 import { pairFromFragment } from './lib/remote-pairing'
 import { prepareBoot } from './lib/boot'
+import { setBurrowAssetBase } from './lib/burrow/burrow-assets'
 import './app/globals.css'
+
+// The burrow's pictures are files beside this script (burrow/), served by app/src/static.ts
+if (document.currentScript instanceof HTMLScriptElement) setBurrowAssetBase(document.currentScript.src)
 
 // Standalone CLI entry — no VS Code API, connects to relay via SSE
 const rootElement = document.getElementById('root')

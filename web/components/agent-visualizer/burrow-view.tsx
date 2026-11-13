@@ -17,6 +17,7 @@ import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type Burr
 import { createMailState, linksSignature, newMail, openDelegations, relativesOf, type MailKind } from '@/lib/burrow/burrow-links'
 import { isDoneAgent } from '@/lib/inactive-agents'
 import { BURROW_DATA } from '@/lib/burrow/burrow-data'
+import { burrowImageNames, burrowImageUrl } from '@/lib/burrow/burrow-assets'
 import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
@@ -71,11 +72,10 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-/** The pictures are a separate chunk: nothing of the burrow is loaded until the view is shown */
+/** The pictures are PNG files fetched when the view is first shown: nothing of them is loaded before */
 async function loadAssets(): Promise<Assets> {
-  const { BURROW_IMAGES } = await import('@/lib/burrow/burrow-images')
-  const names = Object.keys(BURROW_IMAGES)
-  const list = await Promise.all(names.map((n) => loadImage(BURROW_IMAGES[n])))
+  const names = burrowImageNames(BURROW_DATA)
+  const list = await Promise.all(names.map((n) => loadImage(burrowImageUrl(n))))
   const images: Record<string, HTMLImageElement> = {}
   names.forEach((n, i) => { images[n] = list[i] })
   return { images }

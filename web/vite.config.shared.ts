@@ -1,5 +1,6 @@
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { readdirSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import type { Plugin, UserConfig } from 'vite'
 
@@ -27,10 +28,28 @@ function oneCatalogInstance(): Plugin {
   }
 }
 
+/**
+ * The burrow view's pictures (public/burrow/*.png) are written to burrow/ beside index.js. They are not imported: in
+ * library mode Vite inlines every imported asset as a base64 data URI, whatever its size. The entries set the base
+ * the view fetches them from (lib/burrow/burrow-assets.ts), the webview's resource URI or the app's own origin.
+ */
+function burrowPictures(): Plugin {
+  const dir = resolve(__dirname, 'public', 'burrow')
+  return {
+    name: 'agent-lens-burrow-pictures',
+    generateBundle() {
+      for (const file of readdirSync(dir).filter((f) => f.endsWith('.png'))) {
+        this.emitFile({ type: 'asset', fileName: `burrow/${file}`, source: readFileSync(resolve(dir, file)) })
+      }
+    },
+  }
+}
+
 export function createBuildConfig(target: BuildTarget): UserConfig {
   return {
     plugins: [
       oneCatalogInstance(),
+      burrowPictures(),
       react(),
       tailwindcss(),
     ],

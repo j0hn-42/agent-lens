@@ -2,7 +2,11 @@ import { createRoot } from 'react-dom/client'
 import { AgentVisualizer } from './components/agent-visualizer'
 import { vscodeBridge } from './lib/vscode-bridge'
 import { prepareBoot } from './lib/boot'
+import { setBurrowAssetBase } from './lib/burrow/burrow-assets'
 import './app/globals.css'
+
+// The burrow's pictures are files beside this script (burrow/), under the webview's resource URI, not the document's
+if (document.currentScript instanceof HTMLScriptElement) setBurrowAssetBase(document.currentScript.src)
 
 // Production webview: use VS Code API for messaging
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
