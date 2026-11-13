@@ -8,8 +8,8 @@ import { visibleAgents } from '../inactive-agents'
 import { deriveFreshness } from '../../hooks/simulation/freshness'
 import type { SimulationState } from '../../hooks/simulation/types'
 import type { BurrowEngine } from './burrow-engine'
-import { placeAgent, pickAnimal, type BurrowBubble, type BurrowPlacement } from './burrow-model'
-import type { BurrowRoomId } from './burrow-types'
+import { placeAgent, pickAnimal, postureOf, type BurrowBubble, type BurrowPlacement } from './burrow-model'
+import type { BurrowPosture, BurrowRoomId } from './burrow-types'
 import { linksSignature, treeOrder } from './burrow-links'
 import type { HealthVerdict } from '../loop-detection'
 import { repeatMarks } from '../repeat-marks'
@@ -113,12 +113,15 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   let changed = false
   // 'Show: active' hides exactly what the graph hides (workflow members, parents and the selected agent stay)
   const shown = visibleAgents(agents as unknown as Map<string, Agent>, opts.hideInactive, [opts.selectedId])
-  const wanted: Array<{ a: SyncAgent; p: BurrowPlacement; filtered: boolean }> = []
+  const wanted: Array<{ a: SyncAgent; p: BurrowPlacement; filtered: boolean; posture: BurrowPosture }> = []
   for (const a of agents.values()) {
     const filtered = !shown.has(a.id)
     const stale = deriveFreshness(a, opts.now) === 'stale'
     // a filtered agent is not drawn: it walks out through the front door, and it is not listed (finished or not)
-    wanted.push({ a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : placeAgent(a, { stale, delegating: opts.delegations?.get(a.id) }), filtered })
+    wanted.push({
+      a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : placeAgent(a, { stale, delegating: opts.delegations?.get(a.id) }),
+      filtered, posture: postureOf(a.state, stale),
+    })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
   // animals of agents that are gone from the data walk out for good
@@ -137,7 +140,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   // claim, none will be for that claim or a lower one (with many agents beyond the cap, the search is not repeated)
   let noVictimUpTo = -1
   const instant = opts.instant === true || !st.started
-  for (const { a, p } of order) {
+  for (const { a, p, posture } of order) {
     if (!engine.has(a.id)) {
       if (p.presence === 'away') continue            // a filtered agent that was never drawn is not drawn now
       if (drawn >= max) {
@@ -157,11 +160,12 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
       st.applied.set(a.id, '')                       // forces the room and the bubble below
     }
     const bubble = p.bubble ? opts.bubbleText(p.bubble) : null
-    const sig = `${p.presence}|${p.room}|${bubble ?? ''}`
+    const sig = `${p.presence}|${p.room}|${posture}|${bubble ?? ''}`
     if (st.applied.get(a.id) === sig) continue
     st.applied.set(a.id, sig)
     changed = true
     engine.setAvailable(a.id, p.presence !== 'away')
+    engine.setPosture(a.id, posture)                // how it holds itself once in the lounge: the state, never at random
     engine.setResting(a.id, p.presence === 'finished')
     if (p.presence === 'in') {
       if (p.room === 'lounge') engine.release(a.id)

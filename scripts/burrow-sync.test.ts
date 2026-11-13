@@ -323,3 +323,45 @@ test('the rows carry their session, and among roots the ones needing attention c
   assert.equal(rows[0].sessionId, 's')
   assert.equal(rows[4].depth, 1)
 })
+
+test('the posture follows the state: thinking seated, waiting for a permission waving, in error or stale held still, never at random', () => {
+  const { e, st } = setup()
+  const think = agent('think', { state: 'thinking' })
+  const list = [think, agent('wait', { state: 'waiting_permission' }), agent('err', { state: 'error' }),
+    agent('old', { state: 'idle', lastEventAt: 1_000_000 - 10 * 60_000 })]
+  syncBurrow(e, st, list, opts)
+  run(e, 40)
+  const actor = (id: string) => e.actors.find((x) => x.key === id)!
+  const snap = (id: string) => { const a = actor(id); return { x: a.x, y: a.y, pose: a.pose, mode: a.mode } }
+  const before = list.map((a) => snap(a.id))
+  for (let i = 0; i < 6; i++) { run(e, 20); syncBurrow(e, st, list, opts) }
+  assert.deepEqual(list.map((a) => snap(a.id)), before, 'every posture is held as long as the state')
+  assert.equal(actor('think').mode, 'sit')
+  assert.ok(['sit', 'sitLeft'].includes(String(actor('think').pose)))
+  const wait = actor('wait')
+  assert.equal(wait.pose, wait.meta.poses.wave ? 'wave' : null)
+  assert.equal(actor('err').pose, null)
+  const old = actor('old')
+  assert.equal(old.pose, old.meta.poses.sleep ? 'sleep' : null)
+  assert.ok(BURROW_DATA.map.poi.some((p) => p.id.startsWith('fire') && p.x === old.x && p.y === old.y), 'by the fireside')
+
+  think.state = 'waiting_permission'
+  syncBurrow(e, st, list, opts)
+  run(e, 40)
+  assert.equal(actor('think').mode, 'idle', 'off its seat')
+  assert.equal(actor('think').pose, actor('think').meta.poses.wave ? 'wave' : null)
+})
+
+test('a stale idle agent that speaks again wakes up: the posture alone is a change the scene follows', () => {
+  const { e, st } = setup()
+  const a = agent('a', { state: 'idle', lastEventAt: 1_000_000 - 10 * 60_000 })
+  syncBurrow(e, st, [a], opts)
+  run(e, 40)
+  const actor = e.actors.find((x) => x.key === 'a')!
+  const { x, y } = actor
+  a.lastEventAt = 999_999
+  assert.equal(syncBurrow(e, st, [a], opts).changed, true)
+  run(e, 60)
+  assert.notEqual(actor.pose, 'sleep')
+  assert.notEqual(`${actor.x},${actor.y}`, `${x},${y}`, 'idle and live again, it strolls')
+})

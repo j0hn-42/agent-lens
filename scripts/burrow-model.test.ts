@@ -2,7 +2,7 @@
 // no random chatter, no task invented for an agent that is not running one.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { placeAgent, pickAnimal, BURROW_ROOM_ORDER } from '../web/lib/burrow/burrow-model'
+import { placeAgent, pickAnimal, postureOf, BURROW_ROOM_ORDER } from '../web/lib/burrow/burrow-model'
 import { BURROW_ANIMALS } from '../web/lib/burrow/burrow-types'
 
 const roomOfTool = (tool: string | undefined) => placeAgent({ ...base, state: 'tool_calling', currentTool: tool }).room
@@ -12,6 +12,16 @@ test('roomOfTool: edits in the office, reads and searches in the library, the sh
   for (const t of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']) assert.equal(roomOfTool(t), 'office', t)
   for (const t of ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'LS']) assert.equal(roomOfTool(t), 'library', t)
   for (const t of ['Bash', 'BashOutput', 'KillShell']) assert.equal(roomOfTool(t), 'workshop', t)
+})
+
+test('postureOf: the posture encodes the observed state, an idle agent alone strolls', () => {
+  assert.equal(postureOf('thinking', false), 'sit')
+  assert.equal(postureOf('waiting_permission', false), 'wave')
+  assert.equal(postureOf('error', false), 'still')
+  assert.equal(postureOf('idle', false), 'stroll')
+  assert.equal(postureOf('paused', false), 'still')
+  assert.equal(postureOf('tool_calling', false), 'still', 'a call whose tool is unknown claims no activity')
+  for (const s of ['idle', 'thinking', 'waiting_permission', 'error', 'tool_calling'] as const) assert.equal(postureOf(s, true), 'sleep', `stale ${s}`)
 })
 
 test('roomOfTool: a dispatch to a sub-agent is the post beside the front door', () => {

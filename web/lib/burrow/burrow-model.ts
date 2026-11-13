@@ -4,7 +4,7 @@
  */
 import type { Agent, AgentState } from '../agent-types'
 import { isDoneAgent } from '../inactive-agents'
-import { BURROW_ANIMALS, type BurrowAnimal, type BurrowRoomId, type BurrowWorkshopId } from './burrow-types'
+import { BURROW_ANIMALS, type BurrowAnimal, type BurrowPosture, type BurrowRoomId, type BurrowWorkshopId } from './burrow-types'
 
 export const BURROW_ROOM_ORDER: readonly BurrowRoomId[] = ['lounge', 'office', 'library', 'workshop', 'lab']
 
@@ -78,6 +78,20 @@ export function placeAgent(a: PlaceInput, opt: { stale?: boolean; delegating?: n
       return { presence: 'in', room: 'lounge', bubble: { kind: 'state', state: a.state } }
     default:
       return { presence: 'in', room: 'lounge', bubble: null }
+  }
+}
+
+/**
+ * Posture in the lounge for an observed state (burrow-types BurrowPosture). `stale`: the state is only the last one
+ * known, the animal dozes by the fire. Only an idle agent strolls; a state that is not idle claims no activity.
+ */
+export function postureOf(state: AgentState, stale: boolean): BurrowPosture {
+  if (stale) return 'sleep'
+  switch (state) {
+    case 'idle': return 'stroll'
+    case 'thinking': return 'sit'
+    case 'waiting_permission': return 'wave'
+    default: return 'still'
   }
 }
 
