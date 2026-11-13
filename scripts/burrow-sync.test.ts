@@ -109,6 +109,15 @@ test('attention states keep their bubble, a tool bubble ends by itself', () => {
   assert.equal(e.actors.find((a) => a.key === 't')?.said, null)
 })
 
+test('a state bubble lasts as long as the state, a tool bubble still ends by itself', () => {
+  const { e, st } = setup()
+  syncBurrow(e, st, [agent('th', { state: 'thinking' }), agent('pa', { state: 'paused' }), agent('t', { state: 'tool_calling', currentTool: 'Grep' })], opts)
+  run(e, 30)
+  assert.equal(e.actors.find((a) => a.key === 'th')?.said, 'state:thinking')
+  assert.equal(e.actors.find((a) => a.key === 'pa')?.said, 'state:paused')
+  assert.equal(e.actors.find((a) => a.key === 't')?.said, null)
+})
+
 test('beyond the cap the extra agents are counted, not drawn, and an animal already drawn is never dropped for them', () => {
   const { e, st } = setup()
   const many = Array.from({ length: BURROW_MAX_ANIMALS + 5 }, (_, i) => agent(`k${i}`))

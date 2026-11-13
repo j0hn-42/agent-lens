@@ -55,7 +55,8 @@ export interface BurrowSyncResult {
   changed: boolean
 }
 
-const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind === 'state' && (b.state === 'waiting_permission' || b.state === 'error')
+/** A state has no other proof on the floor than its bubble: it lasts as long as the state. A tool is proven by its room, so its bubble may end */
+const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind === 'state'
 /** Claim on a place of the cap: a working agent takes the place of a finished animal first, then of an idle one */
 const rank = (w: { a: SyncAgent; p: BurrowPlacement }): number => (w.p.presence === 'finished' ? 0 : w.a.state === 'idle' ? 1 : 2)
 
