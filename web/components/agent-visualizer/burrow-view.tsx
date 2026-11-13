@@ -5,7 +5,7 @@ import type { SimulationState } from '@/hooks/simulation/types'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { Z } from '@/lib/agent-types'
+import { BurrowAgentList } from './burrow-agent-list'
 import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { createBurrowRenderer, type BurrowRenderer } from '@/lib/burrow/burrow-render'
 import { BURROW_DATA } from '@/lib/burrow/burrow-data'
@@ -326,28 +326,16 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           {t('burrow.titles')}
         </button>
       </div>
-      {/* The keyboard and screen reader path: one button per agent, the same pick as a click on its animal */}
-      {rows.length > 0 && <ul
-        aria-label={t('burrow.list')}
-        className="absolute right-2 top-2 m-0 flex max-h-[60%] list-none flex-col gap-1 overflow-y-auto p-0 text-2xs font-mono sr-only focus-within:not-sr-only"
-        style={{ color: 'var(--lens-ink)', zIndex: Z.info }}
-      >
-        {rows.map((r) => (
-          <li key={r.id}>
-            <button
-              type="button"
-              aria-current={r.id === selectedAgentId ? 'true' : undefined}
-              onClick={() => onAgentClick(r.id)}
-              onFocus={() => onAgentHover(r.id)}
-              onBlur={() => onAgentHover(null)}
-              className={`w-full cursor-pointer rounded px-1.5 py-0.5 text-left ${FOCUS_RING}`}
-              style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
-            >
-              {rowLabel(r)}
-            </button>
-          </li>
-        ))}
-      </ul>}
+      {rows.length > 0 && (
+        <BurrowAgentList
+          label={t('burrow.list')}
+          rows={rows}
+          selectedAgentId={selectedAgentId}
+          rowLabel={rowLabel}
+          onAgentClick={(id) => onAgentClick(id)}
+          onAgentHover={onAgentHover}
+        />
+      )}
       <p className="sr-only">{t('burrow.rooms.help')} {t('burrow.hint')}</p>
     </div>
   )
