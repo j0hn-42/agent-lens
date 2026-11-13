@@ -178,9 +178,15 @@ test('under reduced motion the burrow requests no animation frame, also when an 
   for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
   assert.ok(view.container.querySelector('[data-burrow-agent-list]'), 'the scene follows the agents without frames')
   await wait(300)
+  const alphaRow = () => view.container.querySelector<HTMLButtonElement>('[data-burrow-agent-list] button[data-burrow-row="alpha"]')?.title ?? ''
+  const before = alphaRow()
+  assert.ok(before.length > 0, 'alpha has a row')
+  // no event index on this simulation: only the slow timer can pick the change up, and no click resyncs it here
   sim.current.agents.set('alpha', agent('alpha', 'tool_calling'))
-  fireEvent.click(screen.getAllByRole('button', { name: /alpha|beta/ })[0])
   await wait(600)
+  assert.notEqual(alphaRow(), before, `the row follows the change without frames (${alphaRow()})`)
+  fireEvent.click(screen.getAllByRole('button', { name: /alpha|beta/ })[0])
+  await wait(300)
   assert.equal(frames.count(), 0, 'no requestAnimationFrame under reduced motion')
 })
 
