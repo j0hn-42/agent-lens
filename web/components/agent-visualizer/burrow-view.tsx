@@ -10,6 +10,7 @@ import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList } from './burrow-agent-list'
 import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
+import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
 import { createMailState, linksSignature, newMail, openDelegations, relativesOf, type MailKind } from '@/lib/burrow/burrow-links'
 import { isDoneAgent } from '@/lib/inactive-agents'
@@ -104,6 +105,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const dirtyRef = useRef(true)
   /** The scene must follow the agents at the next frame, whatever syncDue says (selection, filter, motion setting) */
   const resyncRef = useRef(true)
+  /** Tells the frame loop something changed: under reduced motion it follows and draws soon instead of at its next slow tick */
+  const wakeRef = useRef<() => void>(() => {})
   const [assets, setAssets] = useState<Assets | null>(null)
   const [failed, setFailed] = useState(false)
   const [rows, setRows] = useState<BurrowRow[]>([])
@@ -115,10 +118,11 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   // live values for the frame loop (it never restarts for them)
   const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, t })
   live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, t }
-  // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting)
-  useEffect(() => { dirtyRef.current = true }, [selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles])
   // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places newcomers at once
   useEffect(() => { resyncRef.current = true }, [selectedAgentId, hideInactive, reduced])
+  // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting); a motion
+  // setting change also switches the loop between animation frames and the slow timer
+  useEffect(() => { dirtyRef.current = true; wakeRef.current() }, [selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles])
 
   useEffect(() => {
     let alive = true
@@ -164,9 +168,6 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let scale = 1
     let rowsSig = ''
     let hiddenShown = -1
-    let stopped = false
-    let raf = 0
-    let last = 0
 
     const resize = (): void => {
       const cw = container.clientWidth
@@ -179,6 +180,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       for (const el of bubbles.values()) styleBubble(el, Math.max(2.4, scale))
       for (const el of tags.values()) styleTag(el, Math.max(2.4, scale))
       dirtyRef.current = true
+      wakeRef.current()
     }
     // the backing store follows the device pixel ratio too (window moved to another screen, browser zoom)
     let K = 0
@@ -326,25 +328,31 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       placeOverlays()
     }
 
-    // reduced motion: no continuous animation. The scene is brought to its resting state when something changes, then drawn once.
-    let calmTimer = 0
+    // reduced motion: no continuous animation and no animation frame. A slow timer follows the agents; the scene is
+    // brought to its resting state when something changed, then drawn once.
     const settle = (): void => { engine.fastForward(40); draw() }
-    const frame = (ts: number): void => {
-      if (stopped) return
-      const dt = Math.min(0.1, Math.max(0, (ts - last) / 1000))
-      last = ts
-      follow()
-      backing()
-      if (live.current.reduced) {
-        if (dirtyRef.current && !calmTimer) calmTimer = window.setTimeout(() => { calmTimer = 0; dirtyRef.current = false; settle() }, 120)
-      } else {
+    const loop = createBurrowLoop({
+      host: {
+        requestFrame: (cb) => window.requestAnimationFrame(cb),
+        cancelFrame: (id) => window.cancelAnimationFrame(id),
+        setTimer: (cb, ms) => window.setTimeout(cb, ms),
+        clearTimer: (id) => window.clearTimeout(id),
+      },
+      reduced: () => live.current.reduced,
+      frame: (dt) => {
+        follow()
+        backing()
         dirtyRef.current = true
         engine.update(dt)
         draw()
-      }
-      raf = window.requestAnimationFrame(frame)
-    }
-    raf = window.requestAnimationFrame((ts) => { last = ts; raf = window.requestAnimationFrame(frame) })
+      },
+      calm: () => {
+        follow()
+        backing()
+        if (dirtyRef.current) { dirtyRef.current = false; settle() }
+      },
+    })
+    wakeRef.current = loop.wake
 
     const toScene = (e: PointerEvent): { x: number; y: number } => {
       const r = view.getBoundingClientRect()
@@ -381,9 +389,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     view.addEventListener('pointercancel', onCancel)
 
     return () => {
-      stopped = true
-      window.cancelAnimationFrame(raf)
-      window.clearTimeout(calmTimer)
+      loop.stop()
+      wakeRef.current = () => {}
       ro?.disconnect()
       view.removeEventListener('pointermove', onMove)
       view.removeEventListener('pointerleave', onLeave)
