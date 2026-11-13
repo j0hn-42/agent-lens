@@ -275,8 +275,8 @@ test('syncDue: the scene follows at once when the simulation changed, else at mo
 })
 
 test('simFingerprint changes with new events, a new or dropped agent and new link messages, not with the clock', () => {
-  const links = new Map([['l', { id: 'l', from: 'a', to: 'b', kind: 'spawn', messages: [], dropped: 0 }]]) as unknown as Parameters<typeof simFingerprint>[0]['links']
-  const base = { agents: new Map([['a', agent('a')]]), links, eventIndex: 3, eventLog: [1, 2, 3], droppedEvents: 0, currentTime: 1 } as unknown as Parameters<typeof simFingerprint>[0]
+  const links = new Map([['l', { id: 'l', from: 'a', to: 'b', kind: 'spawn', messages: [], dropped: 0 }]]) as unknown as NonNullable<Parameters<typeof simFingerprint>[0]>['links']
+  const base = { agents: new Map([['a', agent('a')]]), links, eventIndex: 3, eventLog: [1, 2, 3], droppedEvents: 0, currentTime: 1 } as unknown as NonNullable<Parameters<typeof simFingerprint>[0]>
   const f = simFingerprint(base)
   assert.equal(simFingerprint({ ...base, currentTime: 9 } as typeof base), f)
   assert.notEqual(simFingerprint({ ...base, eventIndex: 4 } as typeof base), f)
