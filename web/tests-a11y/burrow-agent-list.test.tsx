@@ -6,6 +6,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 
 import { BurrowAgentList } from '@/components/agent-visualizer/burrow-agent-list'
 import type { BurrowRow } from '@/lib/burrow/burrow-sync'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 
 afterEach(() => {
   cleanup()
@@ -154,4 +155,18 @@ test('Shift+Enter on a row that carries a running tool call opens it, and is the
   fireEvent.keyDown(b, { key: 'Enter', shiftKey: true })
   assert.deepEqual(opened, ['tc1'], 'a row without a running call does nothing')
   assert.deepEqual(picked, [])
+})
+
+test('the rows draw their focus ring inside: the list scrolls (overflow clips both axes), an outer ring would be cut', () => {
+  for (const panel of [false, true]) {
+    const view = render(
+      <BurrowAgentList label="Burrow agents" rows={[row('a', 'alpha'), row('b', 'beta')]} selectedAgentId={null} rowLabel={(r) => r.name}
+        groupLabel={(s) => `Session ${s}`} onAgentClick={() => {}} onAgentHover={() => {}} panel={panel} />,
+    )
+    for (const b of buttons()) {
+      for (const cls of FOCUS_RING_INSET.split(/\s+/).filter(Boolean)) assert.ok(b.classList.contains(cls), `${cls} (panel: ${panel})`)
+      assert.equal(b.classList.contains('focus-visible:outline-offset-2'), false)
+    }
+    view.unmount()
+  }
 })

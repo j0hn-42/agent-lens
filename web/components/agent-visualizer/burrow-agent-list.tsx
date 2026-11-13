@@ -1,7 +1,7 @@
 'use client'
 
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { FOCUS_RING } from '@/lib/focus-ring'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { Z } from '@/lib/agent-types'
 import type { BurrowRow } from '@/lib/burrow/burrow-sync'
 
@@ -118,7 +118,7 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
         onBlur={() => onAgentHover(null)}
         onKeyDown={(e) => onKeyDown(e, r.toolCallId)}
         {...(r.toolCallId && onToolCallClick ? { 'aria-keyshortcuts': 'Shift+Enter', 'aria-description': toolCallKeyHint } : {})}
-        className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING}`}
+        className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING_INSET}`}
         style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
       >
         {rowLabel(r)}
