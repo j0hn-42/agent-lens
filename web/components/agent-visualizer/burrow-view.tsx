@@ -360,9 +360,19 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         />
       </div>
       {(!assets || failed) && (
-        <p role="status" className="absolute m-0 text-xs font-mono" style={{ color: 'var(--lens-ink-muted)' }}>
-          {failed ? t('burrow.failed') : t('burrow.loading')}
-        </p>
+        <div className="absolute flex flex-col items-center gap-2 text-xs font-mono" style={{ color: 'var(--lens-ink-muted)' }}>
+          <p role="status" className="m-0">{failed ? t('burrow.failed') : t('burrow.loading')}</p>
+          {failed && (
+            <button
+              type="button"
+              onClick={() => setPref('sceneStyle', 'graph')}
+              className={`min-h-6 cursor-pointer rounded px-2 py-1 ${FOCUS_RING}`}
+              style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
+            >
+              {t('burrow.failed.back')}
+            </button>
+          )}
+        </div>
       )}
       <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-col items-start gap-1 text-2xs font-mono" style={{ color: 'var(--lens-ink-muted)' }}>
         {hidden > 0 && <p role="status" className="m-0">{t('burrow.hidden', { n: hidden, max: BURROW_MAX_ANIMALS })}</p>}
