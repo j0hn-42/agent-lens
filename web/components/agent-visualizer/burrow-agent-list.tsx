@@ -16,6 +16,13 @@ const LIST_CLASS = [
   'focus-within:h-auto focus-within:w-auto focus-within:overflow-y-auto focus-within:whitespace-normal focus-within:[clip-path:none]',
 ].join(' ')
 
+/** The L shortcut: the focus goes to the first button of the list (it appears, as when Tab reaches it); false when there is none */
+export function focusBurrowAgentList(): boolean {
+  const first = document.querySelector<HTMLElement>('[data-burrow-agent-list] button')
+  first?.focus()
+  return first !== null
+}
+
 export interface BurrowAgentListProps {
   label: string
   rows: BurrowRow[]
@@ -28,7 +35,7 @@ export interface BurrowAgentListProps {
 /** The keyboard and screen reader path: one button per agent, the same pick as a click on its animal */
 export function BurrowAgentList({ label, rows, selectedAgentId, rowLabel, onAgentClick, onAgentHover }: BurrowAgentListProps) {
   return (
-    <ul aria-label={label} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
+    <ul data-burrow-agent-list aria-label={label} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
       {rows.map((r) => (
         <li key={r.id} style={r.depth > 0 ? { paddingInlineStart: `${r.depth * 0.75}rem` } : undefined}>
           <button

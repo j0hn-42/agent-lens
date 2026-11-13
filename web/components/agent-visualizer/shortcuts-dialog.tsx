@@ -3,7 +3,7 @@
 import { useId, useRef } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { SHORTCUTS, SHORTCUT_GROUPS } from '@/lib/shortcuts'
+import { SHORTCUT_GROUPS, shortcutsForView } from '@/lib/shortcuts'
 import { shortcutDescription, shortcutGroupName, shortcutKeyCap } from '@/lib/shortcuts-text'
 import { useLocale } from '@/lib/locale'
 import { translate } from '@/lib/messages'
@@ -19,13 +19,15 @@ export interface ShortcutsDialogProps {
   singleKeyEnabled: boolean
   /** Persist the preference (the `updateSingleKeyShortcuts` callback from the visualizer) */
   onSingleKeyEnabledChange: (enabled: boolean) => void
+  /** The burrow is shown: the graph-only keys are not listed, and L goes to the burrow's agent list */
+  burrow?: boolean
 }
 
 /**
  * Modal "Keyboard shortcuts" dialog (opened with `?`). Focus is trapped while open,
  * Escape closes it and focus returns to the previously focused element.
  */
-export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEnabledChange }: ShortcutsDialogProps) {
+export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEnabledChange, burrow = false }: ShortcutsDialogProps) {
   const { locale } = useLocale()
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key)
   const ref = useRef<HTMLDivElement>(null)
@@ -38,6 +40,8 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
   const { onKeyDown } = useModalDialog({ open, dialogRef: ref, onClose: () => onCloseRef.current() })
 
   if (!open) return null
+  const listed = shortcutsForView(burrow)
+  const groups = SHORTCUT_GROUPS.filter(g => listed.some(s => s.group === g))
 
   return (
     // Scrim: presentational click screen (a click on it closes) and key boundary of the modal
@@ -67,15 +71,15 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
             <CloseButton onClick={onClose} label={t('common.close')} />
           </div>
 
-          {SHORTCUT_GROUPS.map(group => (
+          {groups.map(group => (
             <section key={group} aria-label={shortcutGroupName(group, locale)} className="mb-3">
               <h3 className="m-0 mb-1 text-2xs font-mono uppercase tracking-wider" style={{ color: COLORS.textMuted }}>
                 {shortcutGroupName(group, locale)}
               </h3>
               <ul className="m-0 list-none p-0">
-                {SHORTCUTS.filter(s => s.group === group).map(s => (
+                {listed.filter(s => s.group === group).map(s => (
                   <li key={s.key} className="flex items-center justify-between gap-3 py-0.5 text-xs font-mono">
-                    <span className="min-w-0" style={{ color: COLORS.textPrimary }}>{shortcutDescription(s, locale)}</span>
+                    <span className="min-w-0" style={{ color: COLORS.textPrimary }}>{burrow && s.key === 'l' ? t('shortcut.burrow.list') : shortcutDescription(s, locale)}</span>
                     <kbd
                       className="min-w-6 shrink-0 rounded px-1.5 py-0.5 text-center text-2xs"
                       style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}

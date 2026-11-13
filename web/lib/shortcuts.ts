@@ -54,6 +54,14 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: 'graph:menu', display: 'Menu / Shift+F10', description: 'Open the context menu of the focused node', group: 'Graph', singleKey: false, handles: ['ContextMenu', 'F10'], spoken: 'The context menu key or Shift F10' },
 ]
 
+/** Keys of the table, outside the Graph group, that only act on the node graph (Shift+F fit, G grid) */
+const GRAPH_ONLY_KEYS: ReadonlySet<string> = new Set(['F', 'g'])
+
+/** The entries the dialog lists for the view shown: the burrow leaves out the graph-only ones */
+export function shortcutsForView(burrow: boolean): readonly ShortcutDef[] {
+  return burrow ? SHORTCUTS.filter(s => s.group !== 'Graph' && !GRAPH_ONLY_KEYS.has(s.key)) : SHORTCUTS
+}
+
 export const SHORTCUT_GROUPS = ['Playback', 'Panels', 'View', 'Graph', 'General'] as const
 
 /** Screen-reader description of the graph keyboard navigation, generated from the same table as the help dialog. */

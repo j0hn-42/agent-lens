@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { SHORTCUTS, SHORTCUT_GROUPS, graphKeyboardHelp } from '../web/lib/shortcuts'
+import { SHORTCUTS, SHORTCUT_GROUPS, graphKeyboardHelp, shortcutsForView } from '../web/lib/shortcuts'
 import { keyToAction } from '../web/components/agent-visualizer/canvas/keyboard-nav'
 import { nextMenuIndex, clampMenuPosition } from '../web/lib/menu-nav'
 import { getStateLabel } from '../web/lib/state-labels'
@@ -81,4 +81,11 @@ test('the command palette shortcut is documented and is not a single-key shortcu
   assert.equal(entry.singleKey, false)
   assert.match(entry.display, /Ctrl\+K/)
   assert.match(entry.display, /Cmd\+K/)
+})
+
+test('in the burrow the dialog lists no graph-only key (zoom, fit, grid, graph navigation)', () => {
+  const keys = shortcutsForView(true).map(s => s.key)
+  for (const k of ['graph:zoom', 'graph:fit', 'graph:step', 'graph:pan', 'graph:open', 'graph:menu', 'F', 'g']) assert.ok(!keys.includes(k), k)
+  for (const k of ['l', ' ', '?', 'z']) assert.ok(keys.includes(k), k)
+  assert.equal(shortcutsForView(false).length, SHORTCUTS.length, 'the graph lists everything')
 })

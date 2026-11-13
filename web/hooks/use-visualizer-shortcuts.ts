@@ -21,18 +21,21 @@ interface ShortcutsInput {
   undoLast: () => boolean
   openSettings: () => void
   singleKeyEnabled: boolean
+  /** The burrow's own answer to L: moves the focus to its agent list and says whether it had one; absent in the graph */
+  focusAgentList?: () => boolean
 }
 
 /** Global keyboard shortcuts: what each key does in the visualizer */
 export function useVisualizerShortcuts(input: ShortcutsInput) {
-  const { panels, modes, clearSelection, togglePlayPause, zoomToFit, toggleMute, setSpeed, openShortcuts, openPalette, openSettings, undoLast, singleKeyEnabled } = input
+  const { panels, modes, clearSelection, togglePlayPause, zoomToFit, toggleMute, setSpeed, openShortcuts, openPalette, openSettings, undoLast, singleKeyEnabled, focusAgentList } = input
   const { setShowSessions, setShowTimeline, setShowHexGrid, setShowStats, setShowSystem, toggleExclusivePanel } = panels
   const { toggleFullscreen, closeTopPanelOrImmersiveOrPresentation } = modes
   const togglePresentation = modes.presentation.toggle
   const actions = useMemo(() => ({
     togglePlayPause,
     toggleFilePanel: () => toggleExclusivePanel('files'),
-    toggleSessionList: () => { setShowSessions(prev => !prev) },
+    // in the burrow L goes to the burrow's list; with no agent drawn there is no list, and it keeps toggling the Sessions panel
+    toggleSessionList: () => { if (!focusAgentList?.()) setShowSessions(prev => !prev) },
     toggleConversation: () => toggleExclusivePanel('conversation'),
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
@@ -53,7 +56,7 @@ export function useVisualizerShortcuts(input: ShortcutsInput) {
     openSettings,
     singleKeyEnabled,
   }), [openShortcuts, openPalette, openSettings, undoLast, togglePlayPause, clearSelection, setSpeed, toggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation,
-    toggleFullscreen, togglePresentation, singleKeyEnabled, zoomToFit, setShowSessions, setShowTimeline, setShowHexGrid, setShowStats, setShowSystem])
+    toggleFullscreen, togglePresentation, singleKeyEnabled, zoomToFit, setShowSessions, setShowTimeline, setShowHexGrid, setShowStats, setShowSystem, focusAgentList])
 
   useKeyboardShortcuts(actions)
 }

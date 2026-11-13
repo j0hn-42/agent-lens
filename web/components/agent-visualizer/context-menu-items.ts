@@ -16,11 +16,14 @@ export interface ContextMenuActions {
   arrangeWorkspaces?: (() => void) | null
   /** Agent menu only: open the right-clicked agent's detail card (#377) */
   showAgentDetails?: (() => void) | null
+  /** The burrow is shown: its agent menu keeps only what acts without a graph (no zoom to fit, no stats overlay) */
+  inBurrow?: boolean
 }
 
 /** Items of the menu, worded in `locale` (#586); English when omitted. */
 export function contextMenuItems(onAgent: boolean, a: ContextMenuActions, locale: Locale = 'en'): ComponentProps<typeof GlassContextMenu>['items'] {
   const t = (key: Parameters<typeof translate>[1]) => translate(locale, key)
+  if (onAgent && a.inBurrow) return a.showAgentDetails ? [{ icon: 'ℹ', label: t('menu.showDetails'), onClick: a.showAgentDetails }] : []
   if (onAgent) return [
     ...(a.showAgentDetails ? [{ icon: 'ℹ', label: t('menu.showDetails'), onClick: a.showAgentDetails }] : []),
     { icon: '🔍', label: t('menu.zoomFit'), onClick: a.zoomToFit },

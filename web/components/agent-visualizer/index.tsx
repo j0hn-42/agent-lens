@@ -8,6 +8,7 @@ import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
 import { AgentCanvas } from "./canvas"
 import { BurrowView } from "./burrow-view"
+import { focusBurrowAgentList } from "./burrow-agent-list"
 import { ControlBar } from "./control-bar"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
@@ -195,6 +196,7 @@ export function AgentVisualizer() {
   useVisualizerShortcuts({
     panels, modes, clearSelection: selection.clearAllSelections, togglePlayPause: handlePlayPause, zoomToFit, toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview, openShortcuts, openPalette, undoLast, openSettings, singleKeyEnabled: singleKeyShortcuts,
+    focusAgentList: prefs.sceneStyle === 'burrow' ? focusBurrowAgentList : undefined,
   })
 
   const agentsRef = useRef(agents)
@@ -231,7 +233,14 @@ export function AgentVisualizer() {
     reloadSessionEvents: !bridge.useMockData && bridge.selectedSessionId ? () => { handleReloadSessionEvents(); noteRebuilt() } : null,
     // Read when the menu opens (the open menu re-renders): a workspace moved by hand can be put back
     arrangeWorkspaces: hasMovedWorkspaces() ? resetWorkspaces : null,
+    inBurrow: prefs.sceneStyle === 'burrow',
   }
+
+  // A right click on an animal opens the graph's agent menu at the pointer (the burrow keeps its graph-free items)
+  const openBurrowAgentMenu = useCallback(
+    (agentId: string, at: { clientX: number; clientY: number }) => selection.handleContextMenu(at as React.MouseEvent, 'agent', agentId),
+    [selection],
+  )
 
   const sessionActions = useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef })
 
@@ -438,6 +447,7 @@ export function AgentVisualizer() {
           hideInactive={hideInactiveShown}
           onAgentClick={handleCanvasAgentClick}
           onAgentHover={selection.setHoveredAgentId}
+          onAgentContextMenu={openBurrowAgentMenu}
           announceLevel={prefs.announceLevel}
           links={links}
           focusTargetId="visualizer-main"
@@ -554,7 +564,7 @@ export function AgentVisualizer() {
           notifications: settingsNotifications,
         }}
         palette={{ open: showPalette, onClose: closePalette, items: paletteItems }}
-        shortcuts={{ open: showShortcuts, onClose: closeShortcuts, singleKeyEnabled: singleKeyShortcuts, onSingleKeyEnabledChange: updateSingleKeyShortcuts }}
+        shortcuts={{ burrow: prefs.sceneStyle === 'burrow', open: showShortcuts, onClose: closeShortcuts, singleKeyEnabled: singleKeyShortcuts, onSingleKeyEnabledChange: updateSingleKeyShortcuts }}
       />
     </div>
     </OpenFileProvider>

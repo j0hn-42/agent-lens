@@ -32,6 +32,8 @@ export interface BurrowViewProps {
   hideInactive?: boolean
   onAgentClick: (agentId: string | null, modifiers?: { shiftKey: boolean }) => void
   onAgentHover: (agentId: string | null) => void
+  /** Right click on an animal: the agent's context menu, at the pointer. Absent = the browser's own menu stays */
+  onAgentContextMenu?: (agentId: string, at: { clientX: number; clientY: number }) => void
   /** Verbosity of the live announcements, the same preference as the graph (#379) */
   announceLevel?: AnnounceLevel
   /** Links between agents, for the team announcements ("<from> sent a message to <to>"); the simulation's otherwise */
@@ -95,7 +97,7 @@ function styleTag(el: HTMLDivElement, u: number): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, announceLevel = 'all', links, focusTargetId }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, announceLevel = 'all', links, focusTargetId }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -126,8 +128,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const reduced = osReduced || prefs.freezeMotion
 
   // live values for the frame loop (it never restarts for them)
-  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, t })
-  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, t }
+  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t })
+  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t }
   // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places newcomers at once
   useEffect(() => { resyncRef.current = true }, [selectedAgentId, hideInactive, reduced])
   // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting); a motion
@@ -415,7 +417,18 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const key = engine.actorAt(p.x, p.y)?.key ?? null
       if (key === start.key) live.current.onAgentClick(key, { shiftKey: e.shiftKey })
     }
+    // a right click on an animal opens its agent menu; on the empty floor the browser's menu is left alone
+    const onMenu = (e: MouseEvent): void => {
+      const open = live.current.onAgentContextMenu
+      if (!open) return
+      const p = toScene(e as PointerEvent)
+      const key = engine.actorAt(p.x, p.y)?.key ?? null
+      if (!key) return
+      e.preventDefault()
+      open(key, { clientX: e.clientX, clientY: e.clientY })
+    }
     const onCancel = (): void => { pressed = null; onLeave() }
+    view.addEventListener('contextmenu', onMenu)
     view.addEventListener('pointermove', onMove)
     view.addEventListener('pointerleave', onLeave)
     view.addEventListener('pointerdown', onDown)
@@ -429,6 +442,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       refitRef.current = () => {}
       view.removeEventListener('pointermove', onMove)
       view.removeEventListener('pointerleave', onLeave)
+      view.removeEventListener('contextmenu', onMenu)
       view.removeEventListener('pointerup', onUp)
       view.removeEventListener('pointerdown', onDown)
       view.removeEventListener('pointercancel', onCancel)
