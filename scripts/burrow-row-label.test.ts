@@ -35,3 +35,11 @@ test('the notes go with the existing ones: tool, open delegations, the orchestra
   assert.equal(label, 'kid: Calling tool, Office, tool Edit, loop observed, at least 2 earlier events of its session were not replayed, sub-agent of boss')
   assert.equal(burrowRowLabel(row({ presence: 'finished', delegating: 1 }), [], tr('en')), 'alpha: finished, 1 sub-agent running')
 })
+
+test('the team or workflow the ring stands for is named right after the state, in both languages', () => {
+  assert.equal(burrowRowLabel(row({ team: { name: 'alpha-team', kind: 'team' }, loop: true }), [], tr('en')), 'alpha: Idle, Lounge, team alpha-team, loop observed')
+  assert.equal(burrowRowLabel(row({ team: { name: 'wave', kind: 'workflow' } }), [], tr('en')), 'alpha: Idle, Lounge, workflow wave')
+  assert.match(burrowRowLabel(row({ team: { name: 'alpha-team', kind: 'team' } }), [], tr('fr')), /, équipe alpha-team$/)
+  assert.match(burrowRowLabel(row({ team: { name: 'wave', kind: 'workflow' } }), [], tr('fr')), /, workflow wave$/)
+  assert.doesNotMatch(burrowRowLabel(row(), [], tr('en')), /team|workflow/)
+})

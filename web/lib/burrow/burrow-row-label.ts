@@ -23,6 +23,8 @@ function baseLabel(r: BurrowRow, t: Translate): string {
 /** A sub-agent names its orchestrator (found in `rows`); an orchestrator says how many sub-agents it still waits for */
 export function burrowRowLabel(r: BurrowRow, rows: readonly BurrowRow[], t: Translate): string {
   let label = baseLabel(r, t)
+  // the team or workflow the floor ring stands for (the ring itself is drawn in the canvas, not read)
+  if (r.team) label = t(r.team.kind === 'workflow' ? 'burrow.agent.workflow' : 'burrow.agent.team', { row: label, team: r.team.name })
   if (r.loop) label = t('burrow.agent.loop', { row: label })
   const lost = r.replayLost ?? 0
   if (lost > 0) label = lost === 1 ? t('burrow.agent.replayLost.one', { row: label }) : t('burrow.agent.replayLost.many', { row: label, n: lost })
