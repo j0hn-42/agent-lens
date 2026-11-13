@@ -64,7 +64,7 @@ export function BurrowLegend() {
             {LEGEND_ROOMS.map(room => (
               <div key={room}>
                 <dt className="inline font-bold">{t(`burrow.room.${room}`)}</dt>
-                <dd className="m-0 inline">{' : '}{tools(room)}</dd>
+                <dd className="m-0 inline">{t('burrow.legend.sep')}{tools(room)}</dd>
               </div>
             ))}
           </dl>

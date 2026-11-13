@@ -6,6 +6,7 @@ import { render, cleanup, fireEvent, screen } from '@testing-library/react'
 
 import { BurrowLegend } from '@/components/agent-visualizer/burrow-legend'
 import { BURROW_ROOM_TOOLS } from '@/lib/burrow/burrow-model'
+import { setLocaleChoice } from '@/lib/locale'
 
 afterEach(() => {
   cleanup()
@@ -30,6 +31,24 @@ test('the legend opens, lists the tools of the model for each room, and closes w
   }
   fireEvent.click(btn)
   assert.equal(screen.queryByRole('group'), null)
+})
+
+test('the room separator follows the language, and the lounge does not claim the animal runs no tool', () => {
+  setLocaleChoice('en')
+  try {
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    const text = screen.getByRole('group').textContent ?? ''
+    assert.ok(text.includes('Lounge: no known tool'), text)
+    assert.ok(!text.includes(' : '), text)
+    cleanup()
+    setLocaleChoice('fr')
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    assert.ok((screen.getByRole('group').textContent ?? '').includes('Salon : aucun outil connu'))
+  } finally {
+    setLocaleChoice('auto')
+  }
 })
 
 test('Escape on the button closes the legend and leaves the focus there', () => {
