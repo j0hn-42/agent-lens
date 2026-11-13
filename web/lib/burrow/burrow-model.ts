@@ -16,19 +16,24 @@ export const BURROW_ROOM_TOOLS = {
   workshop: ['Bash', 'BashOutput', 'KillShell'],
   /** Tools that hand a task to a sub-agent: the agent phones, the sub-agent walks in through the front door */
   phone: ['Agent', 'Task'],
+  /** Tools that wait for the user's answer: the agent stands with the ones waiting for a permission, beside the front door */
+  door: ['AskUserQuestion'],
 } as const
 const OFFICE_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.office)
 const LIBRARY_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.library)
 const WORKSHOP_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.workshop)
 const DISPATCH_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.phone)
+const USER_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.door)
 
 /**
- * Room of a tool call: edits, reads and searches, the shell; a dispatch to a sub-agent is the telephone;
+ * Room of a tool call: edits, reads and searches, the shell; a dispatch to a sub-agent is the telephone; a question to
+ * the user is the post beside the front door;
  * every other tool (MCP, unknown) is the laboratory
  */
 function roomOfTool(tool: string | undefined): BurrowWorkshopId {
   if (tool === undefined) return 'lab'
   if (DISPATCH_TOOLS.has(tool)) return 'phone'
+  if (USER_TOOLS.has(tool)) return 'door'
   if (OFFICE_TOOLS.has(tool)) return 'office'
   if (LIBRARY_TOOLS.has(tool)) return 'library'
   if (WORKSHOP_TOOLS.has(tool)) return 'workshop'
@@ -79,8 +84,9 @@ export function placeAgent(a: PlaceInput, opt: { stale?: boolean; silentOnly?: b
       if (tool && DISPATCH_TOOLS.has(tool) && waiting > 0) return { presence: 'in', room: 'phone', bubble: { kind: 'waiting', n: waiting } }
       return tool ? { presence: 'in', room: roomOfTool(tool), bubble: { kind: 'tool', tool } } : { presence: 'in', room: 'lounge', bubble: { kind: 'state', state: 'tool_calling' } }
     }
+    case 'waiting_permission':   // the only state that needs the user: the post beside the front door
+      return { presence: 'in', room: 'door', bubble: { kind: 'state', state: a.state } }
     case 'thinking':
-    case 'waiting_permission':
     case 'error':
     case 'paused':
       return { presence: 'in', room: 'lounge', bubble: { kind: 'state', state: a.state } }

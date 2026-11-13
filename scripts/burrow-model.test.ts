@@ -78,8 +78,16 @@ test('placeAgent: a live tool call that is only silent (a long command) keeps th
   assert.equal(placeAgent({ ...base, state: 'tool_calling', currentTool: undefined }, { stale: true, silentOnly: true }).room, 'lounge')
 })
 
-test('placeAgent: thinking, a permission wait, an error and a pause stay in the lounge and say so', () => {
-  for (const state of ['thinking', 'waiting_permission', 'error', 'paused'] as const) {
+test('placeAgent: waiting for the user (a permission, or an AskUserQuestion call) is the post beside the front door', () => {
+  assert.deepEqual(placeAgent({ ...base, state: 'waiting_permission' }), { presence: 'in', room: 'door', bubble: { kind: 'state', state: 'waiting_permission' } })
+  // the bubble still quotes the tool as received
+  assert.deepEqual(placeAgent({ ...base, state: 'tool_calling', currentTool: 'AskUserQuestion' }), { presence: 'in', room: 'door', bubble: { kind: 'tool', tool: 'AskUserQuestion' } })
+  // a stale permission wait proves nothing about now: lounge, last known state, as every stale agent
+  assert.equal(placeAgent({ ...base, state: 'waiting_permission' }, { stale: true }).room, 'lounge')
+})
+
+test('placeAgent: thinking, an error and a pause stay in the lounge and say so', () => {
+  for (const state of ['thinking', 'error', 'paused'] as const) {
     const p = placeAgent({ ...base, state })
     assert.equal(p.presence, 'in')
     assert.equal(p.room, 'lounge', state)

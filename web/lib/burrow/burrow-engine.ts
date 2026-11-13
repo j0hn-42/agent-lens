@@ -15,8 +15,12 @@ const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop',
 /** Places made of fixed posts rather than of a room's furniture: the telephone, beside the front door */
 type PostKind = 'phone' | 'door'
 const isPostKind = (room: BurrowRoomId): room is PostKind => room === 'phone' || room === 'door'
-/** Which way an animal at a post looks: callers face the telephone (on their left), the others the front door (on their right) */
+/**
+ * Which way an animal at a post looks: callers face the telephone (on their left); beside the front door an agent waits
+ * for the user, it faces the door (on its right) and waves when its drawing can
+ */
 const POST_FACE: Record<PostKind, BurrowDir> = { phone: 'left', door: 'right' }
+const POST_POSE: Record<PostKind, string | null> = { phone: null, door: 'wave' }
 /** Seconds an unavailable agent still waits in the lounge before it walks out through the front door */
 const HOME_AFTER_S = 4
 /** An agent on its way to a workshop or the door post moves this many times faster than a stroll */
@@ -341,7 +345,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       if (p) {
         a.x = p.x; a.y = p.y; a.dir = POST_FACE[room]; a.zone = LOUNGE
         a.job = { room }
-        a.plan = [{ t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE[room] }]
+        a.plan = [{ t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE[room], pose: postPose(a, room) }]
         begin(a)
         return
       }
@@ -451,11 +455,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   function goWork(a: Actor, room: BurrowWorkshopId): void {   // a free post in the room (failing that, a standing spot in it)
     if (isPostKind(room)) {                                   // at the telephone, or beside the front door: held until released
       const p = takePost(a, room)
-      if (p) { a.zone = LOUNGE; a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE[room] }]; return }
-      // every post taken: it stands still in the lounge, and looks again for a free post after a while
+      if (p) { a.zone = LOUNGE; a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE[room], pose: postPose(a, room) }]; return }
+      // every post taken: it stands still in the lounge (waiting for the user, it faces the door and waves there), and
+      // looks again for a free post after a while
       const c = standingSpot(a)
       a.zone = LOUNGE
-      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(4, 8), face: 'down' }]
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(4, 8), face: room === 'door' ? towardDoor(c) : 'down', pose: postPose(a, room) }]
       return
     }
     const free = freePois(a, room)
@@ -513,6 +518,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     return best
   }
   const poseIf = (a: Actor, pose: string): string | undefined => (a.meta.poses[pose] ? pose : undefined)
+  const postPose = (a: Actor, kind: PostKind): string | undefined => { const pose = POST_POSE[kind]; return pose ? poseIf(a, pose) : undefined }
+  const towardDoor = (c: Pt): BurrowDir => {
+    const dx = MAP.door.cx - c.x
+    const dy = MAP.door.front - c.y
+    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
+  }
   /** Where it stands in the lounge: where it is when that is a lounge spot that hides no title, else a lounge cell */
   function standingSpot(a: Actor): Pt {
     if (zoneOf(a.x, a.y) === LOUNGE && pointOk(a.x, a.y) && !hidesTitle(a.x, a.y) && !kept(a.x, a.y)) return { x: a.x, y: a.y }
@@ -539,10 +550,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     }
     const c = standingSpot(a)
     if (posture === 'wave') {                        // waiting for a permission: facing the front door, waving when it can
-      const dx = MAP.door.cx - c.x
-      const dy = MAP.door.front - c.y
-      const toDoor: BurrowDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
-      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: toDoor, pose: poseIf(a, 'wave') }]
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: towardDoor(c), pose: poseIf(a, 'wave') }]
       return
     }
     a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: 'down' }]

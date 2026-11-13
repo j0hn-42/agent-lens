@@ -106,6 +106,8 @@ function silentOnly(a: SyncAgent, now: number): boolean {
 /** The placement with the room of the last tool held while a thinking agent is between two calls (see ROOM_HOLD_MS) */
 function holdRoom(p: BurrowPlacement, a: SyncAgent, stale: boolean, st: BurrowSyncState, now: number): BurrowPlacement {
   if (p.presence !== 'in' || stale) { st.lastRoom.delete(a.id); return p }
+  // the post beside the front door is for an agent that waits for the user: never kept once it thinks again
+  if (p.room === 'door') { st.lastRoom.delete(a.id); return p }
   if (p.room !== 'lounge') { st.lastRoom.set(a.id, { room: p.room, at: now }); return p }
   const between = a.state === 'thinking' || (a.state === 'tool_calling' && !a.currentTool)
   const last = st.lastRoom.get(a.id)

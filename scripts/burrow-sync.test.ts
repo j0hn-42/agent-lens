@@ -112,6 +112,27 @@ test('attention states keep their bubble, a tool bubble ends by itself', () => {
   assert.equal(e.actors.find((a) => a.key === 't')?.said, null)
 })
 
+test('waiting for the user, a permission or an AskUserQuestion call, sends the agent to the post beside the front door; it never keeps it', () => {
+  const { e, st } = setup()
+  const p = agent('p', { state: 'tool_calling', currentTool: 'Edit' })
+  const q = agent('q', { state: 'tool_calling', currentTool: 'AskUserQuestion' })
+  syncBurrow(e, st, [p, q], opts)
+  assert.equal(e.jobOf('p'), 'office')
+  assert.equal(e.jobOf('q'), 'door')
+  assert.equal(e.actors.find((a) => a.key === 'q')?.said, 'AskUserQuestion')
+  p.state = 'waiting_permission'
+  const r = syncBurrow(e, st, [p, q], { ...opts, now: opts.now + 1000 })
+  assert.equal(e.jobOf('p'), 'door', 'a permission wait does not keep the room of the tool')
+  assert.equal(r.rows.find((x) => x.id === 'p')?.room, 'door')
+  run(e, 30)
+  assert.equal(e.actors.find((a) => a.key === 'p')?.said, 'state:waiting_permission')
+  // answered, it thinks: it leaves the door (only an agent that waits for the user stands there)
+  p.state = 'thinking'; q.state = 'thinking'; q.currentTool = undefined
+  syncBurrow(e, st, [p, q], { ...opts, now: opts.now + 2000 })
+  assert.equal(e.jobOf('p'), null)
+  assert.equal(e.jobOf('q'), null)
+})
+
 test('a state bubble lasts as long as the state, a tool bubble still ends by itself', () => {
   const { e, st } = setup()
   syncBurrow(e, st, [agent('th', { state: 'thinking' }), agent('pa', { state: 'paused' }), agent('t', { state: 'tool_calling', currentTool: 'Grep' })], opts)
@@ -456,5 +477,5 @@ test('between two tool calls a thinking agent stays in the room of its last tool
   syncBurrow(e, st, [a, b], { ...opts, now: t0 + 12_000 })
   b.state = 'waiting_permission'; b.currentTool = undefined
   syncBurrow(e, st, [a, b], { ...opts, now: t0 + 12_500 })
-  assert.equal(e.jobOf('b'), null)
+  assert.equal(e.jobOf('b'), 'door', 'not the office: the post of the agents that wait for the user')
 })

@@ -6,7 +6,7 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { BURROW_ROOM_TOOLS } from '@/lib/burrow/burrow-model'
 
 /** Rooms in the order of the legend; the tools of a room come from the model, so the legend cannot drift from the placement */
-const LEGEND_ROOMS = ['lounge', 'office', 'library', 'workshop', 'lab', 'phone'] as const
+const LEGEND_ROOMS = ['lounge', 'office', 'library', 'workshop', 'lab', 'phone', 'door'] as const
 
 /**
  * Burrow view: a toggle that opens a compact legend of the rooms and their tools. The button closes it, and so does
@@ -36,7 +36,8 @@ export function BurrowLegend() {
   }, [open])
 
   const tools = (room: (typeof LEGEND_ROOMS)[number]): string =>
-    room === 'lounge' ? t('burrow.legend.none') : room === 'lab' ? t('burrow.legend.other') : BURROW_ROOM_TOOLS[room].join(', ')
+    room === 'lounge' ? t('burrow.legend.none') : room === 'lab' ? t('burrow.legend.other')
+      : room === 'door' ? t('burrow.legend.door', { tools: BURROW_ROOM_TOOLS.door.join(', ') }) : BURROW_ROOM_TOOLS[room].join(', ')
 
   return (
     <>

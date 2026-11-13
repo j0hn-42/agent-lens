@@ -196,10 +196,32 @@ test('an agent sent to the door post stands beside the front door, facing it, of
     assert.ok(Math.hypot(x.x - door.cx, x.y - door.front) < 110, `${x.key} near the door`)
   }
   assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 10, 'two posts, not one')
+  // waiting for the user: it waves (both sprites have the pose)
+  for (const x of [a, b]) assert.equal(x.pose, 'wave', x.key)
   assert.equal(e.jobOf('a'), 'door')
   e.release('a')
   run(e, 40)
   assert.equal(e.jobOf('a'), null)
+})
+
+test('at the door post an animal whose drawing has no wave stands facing the front door; every post taken, one more waves in the lounge', () => {
+  const e = make(5)
+  const door = BURROW_DATA.map.door
+  e.addActor('sq', 'squirrel', { inside: true })
+  e.assign('sq', 'door')
+  run(e, 40)
+  const sq = e.actors.find((x) => x.key === 'sq')!
+  assert.equal(sq.pose, null)
+  assert.equal(sq.dir, 'right', 'the door is on its right')
+  assert.ok(sq.x < door.cx - 14 && Math.abs(sq.y - door.front) <= 30)
+  for (let i = 0; i < 20; i++) { e.addActor(`w${i}`, 'fox', { inside: true }); e.assign(`w${i}`, 'door') }
+  run(e, 40)
+  const near = (x: { x: number; y: number }) => x.x < door.cx - 14 && Math.abs(x.y - door.front) <= 30
+  const atPosts = e.actors.filter(near)
+  assert.equal(new Set(atPosts.map((x) => `${x.x},${x.y}`)).size, atPosts.length, 'one animal per post')
+  const others = e.actors.filter((x) => !near(x))
+  assert.ok(others.length > 0, 'more waiters than posts')
+  for (const x of others) { assert.equal(e.zoneOf(x.x, x.y), 'lounge', x.key); assert.equal(x.pose, 'wave', x.key) }
 })
 
 test('has, jobOf, isGone and isOutside follow the agents through add, remove, the walk out and a new arrival under the same key', () => {
