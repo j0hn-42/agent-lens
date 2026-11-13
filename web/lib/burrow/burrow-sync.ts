@@ -42,6 +42,10 @@ export function syncDue(last: { at: number; fingerprint: string } | null, now: n
 export type SyncAgent = Pick<Agent, 'id' | 'displayName' | 'state' | 'archived' | 'activity' | 'currentTool' | 'awaitingNextEvent' | 'kind'>
   & Pick<Agent, 'sessionId' | 'parentId'> & Partial<Pick<Agent, 'teamName' | 'teamKind' | 'clusterKey' | 'lastEventAt' | 'freshnessSource'>>
 
+/** List order: the agents that wait for the user or failed first, then the ones running a tool, then the rest */
+const attentionRank = (state: Agent['state']): number =>
+  state === 'waiting_permission' ? 0 : state === 'error' ? 1 : state === 'tool_calling' ? 2 : 3
+
 export interface BurrowRow {
   id: string
   name: string
@@ -54,6 +58,8 @@ export interface BurrowRow {
   stale: boolean
   /** Parent agent key (null for a root agent): the list is in tree order, a sub-agent under its orchestrator */
   parentId: string | null
+  /** Session of the agent: the list groups its rows by session when several are listed */
+  sessionId: string
   /** Rank in the tree of the listed agents: 0 for a root, 1 for its sub-agents... */
   depth: number
   /** Sub-agents this agent sent that have not returned yet (observed dispatches without a return), when any */
@@ -174,9 +180,11 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), stale: p.bubble?.kind === 'stale',
-      parentId: a.parentId ?? null, ...(delegating > 0 ? { delegating } : {}),
+      parentId: a.parentId ?? null, sessionId: a.sessionId, ...(delegating > 0 ? { delegating } : {}),
       ...(marks?.get(a.id)?.kind === 'loop' ? { loop: true as const } : {}), ...(lost > 0 ? { replayLost: lost } : {}),
     })
   }
+  // attention first (stable: the order among equals is kept); the tree then puts each sub-agent under its parent
+  flat.sort((x, y) => attentionRank(x.state) - attentionRank(y.state))
   return { rows: treeOrder(flat), hidden, changed }
 }

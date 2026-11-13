@@ -8,7 +8,7 @@ import { burrowRowLabel } from '../web/lib/burrow/burrow-row-label'
 import type { BurrowRow } from '../web/lib/burrow/burrow-sync'
 
 const row = (over: Partial<BurrowRow> = {}): BurrowRow =>
-  ({ id: 'a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0, ...over })
+  ({ id: 'a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, sessionId: 's1', depth: 0, ...over })
 const tr = (locale: Locale) => (key: Parameters<typeof translate>[1], params?: Readonly<Record<string, string | number>>) => translate(locale, key, params)
 
 test('a row without a loop or a loss says neither (never a "no loop")', () => {

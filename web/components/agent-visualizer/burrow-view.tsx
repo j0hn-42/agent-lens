@@ -534,6 +534,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
             rows={rows}
             selectedAgentId={selectedAgentId}
             rowLabel={rowLabel}
+            groupLabel={(sid) => t('burrow.session', { id: sid.slice(0, 8) })}
             onAgentClick={(id) => onAgentClick(id)}
             onAgentHover={onAgentHover}
           />

@@ -15,12 +15,12 @@ afterEach(() => {
 })
 
 const rows: BurrowRow[] = [
-  { id: 's1:a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0 },
-  { id: 's1:b', name: 'beta', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0 },
+  { id: 's1:a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, sessionId: 's1', depth: 0 },
+  { id: 's1:b', name: 'beta', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, sessionId: 's1', depth: 0 },
 ]
 
 test('focusBurrowAgentList puts the focus on the first button of the list', () => {
-  render(<BurrowAgentList label="Burrow agents" rows={rows} selectedAgentId={null} rowLabel={(r) => r.name} onAgentClick={() => {}} onAgentHover={() => {}} />)
+  render(<BurrowAgentList label="Burrow agents" rows={rows} selectedAgentId={null} rowLabel={(r) => r.name} groupLabel={(s) => s} onAgentClick={() => {}} onAgentHover={() => {}} />)
   assert.equal(focusBurrowAgentList(), true)
   assert.equal(document.activeElement?.textContent, 'alpha')
 })

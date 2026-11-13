@@ -14,8 +14,8 @@ afterEach(() => {
 })
 
 const rows: BurrowRow[] = [
-  { id: 's1:a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0 },
-  { id: 's1:b', name: 'beta', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0 },
+  { id: 's1:a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, sessionId: 's1', depth: 0 },
+  { id: 's1:b', name: 'beta', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, sessionId: 's1', depth: 0 },
 ]
 
 function mount(onHover: (id: string | null) => void = () => {}) {
@@ -25,13 +25,14 @@ function mount(onHover: (id: string | null) => void = () => {}) {
       rows={rows}
       selectedAgentId={null}
       rowLabel={(r) => r.name}
+      groupLabel={(s) => s}
       onAgentClick={() => {}}
       onAgentHover={onHover}
     />,
   )
 }
 
-test('the burrow agent list is named and its buttons are in the tab order', () => {
+test('the burrow agent list is named, is one Tab stop and every button can take the focus', () => {
   mount()
   const list = screen.getByRole('list', { name: 'Burrow agents' })
   assert.notEqual(list.getAttribute('aria-hidden'), 'true')
@@ -39,8 +40,8 @@ test('the burrow agent list is named and its buttons are in the tab order', () =
   assert.equal(list.classList.contains('hidden'), false)
   const buttons = screen.getAllByRole('button')
   assert.equal(buttons.length, 2)
+  assert.deepEqual(buttons.map((b) => b.tabIndex), [0, -1], 'one Tab stop, the arrows reach the others')
   for (const b of buttons) {
-    assert.ok(b.tabIndex >= 0, 'each agent button is reachable by Tab')
     b.focus()
     assert.equal(document.activeElement, b)
   }

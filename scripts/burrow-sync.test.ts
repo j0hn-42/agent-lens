@@ -136,7 +136,7 @@ test('beyond the cap the extra agents are counted, not drawn, and an animal alre
 test('the rows say where each agent is, for the keyboard and screen reader list', () => {
   const { e, st } = setup()
   const r = syncBurrow(e, st, [agent('a', { displayName: 'Main', state: 'thinking' })], opts)
-  assert.deepEqual(r.rows, [{ id: 'a', name: 'Main', presence: 'in', room: 'lounge', state: 'thinking', stale: false, parentId: null, depth: 0 }])
+  assert.deepEqual(r.rows, [{ id: 'a', name: 'Main', presence: 'in', room: 'lounge', state: 'thinking', stale: false, parentId: null, sessionId: 's', depth: 0 }])
 })
 
 test('a new agent after the start walks in through the front door unless motion is reduced', () => {
@@ -307,4 +307,19 @@ test('a row carries a proven loop and the events its session could not replay, t
   const plain = syncBurrow(setup().e, createBurrowSyncState(), [agent('a', { sessionId: 's1' })], opts).rows[0]
   assert.equal(plain.loop, undefined)
   assert.equal(plain.replayLost, undefined)
+})
+
+test('the rows carry their session, and among roots the ones needing attention come first, sub-agents staying under their parent', () => {
+  const { e, st } = setup()
+  const list = [
+    agent('idle1'),
+    agent('tool1', { state: 'tool_calling', currentTool: 'Edit' }),
+    agent('perm', { state: 'waiting_permission' }),
+    agent('err', { state: 'error' }),
+    agent('kid', { parentId: 'idle1' }),
+  ]
+  const { rows } = syncBurrow(e, st, list, opts)
+  assert.deepEqual(rows.map((r) => r.id), ['perm', 'err', 'tool1', 'idle1', 'kid'])
+  assert.equal(rows[0].sessionId, 's')
+  assert.equal(rows[4].depth, 1)
 })
