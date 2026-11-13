@@ -8,7 +8,7 @@ import { useCanvasStateEffects } from './use-canvas-state-effects'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
 /** How often the burrow looks for state changes to announce: independent of its drawing, so the art may still be loading */
-export const BURROW_ANNOUNCE_INTERVAL_MS = 200
+const BURROW_ANNOUNCE_INTERVAL_MS = 200
 
 interface BurrowAnnouncementsDeps {
   simulationRef: RefObject<SimulationState>

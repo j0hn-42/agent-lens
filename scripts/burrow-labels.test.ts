@@ -3,16 +3,16 @@
 // agent always keep theirs, and an animal outside the burrow or in the doorway has none.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { truncateName, cullTags, showsTag, nextTagNames, BURROW_TAG_MAX_CHARS, type TagBox } from '../web/lib/burrow/burrow-labels'
+import { truncateName, cullTags, showsTag, nextTagNames, type TagBox } from '../web/lib/burrow/burrow-labels'
 
 test('truncateName: a short name is kept as is', () => {
   assert.equal(truncateName('alpha'), 'alpha')
-  assert.equal(truncateName('x'.repeat(BURROW_TAG_MAX_CHARS)), 'x'.repeat(BURROW_TAG_MAX_CHARS))
+  assert.equal(truncateName('x'.repeat(16)), 'x'.repeat(16))
 })
 
 test('truncateName: a long name is cut to the limit, the last character being an ellipsis', () => {
   const out = truncateName('frontend-engineer-worker-42')
-  assert.equal(Array.from(out).length, BURROW_TAG_MAX_CHARS)
+  assert.equal(Array.from(out).length, 16)
   assert.equal(out, 'frontend-engine…')
   assert.equal(truncateName('abcdef', 4), 'abc…')
 })

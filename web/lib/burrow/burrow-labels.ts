@@ -5,7 +5,7 @@
  */
 
 /** Longest tag, ellipsis included: a long agent name would cover its neighbours (the agent list carries the full name) */
-export const BURROW_TAG_MAX_CHARS = 16
+const BURROW_TAG_MAX_CHARS = 16
 
 /** `name` cut to `max` characters (code points), the last one being an ellipsis when it was cut */
 export function truncateName(name: string, max = BURROW_TAG_MAX_CHARS): string {
