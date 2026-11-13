@@ -254,11 +254,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
 
   // ---------------- agents ----------------
   const actors: Actor[] = []
+  // the same actors by key, kept in step with `actors` (push / splice): the view asks about them inside loops over the agents
+  const index = new Map<string, Actor>()
   let clock = 0
   const door: { user: Actor | null; closeAt: number } = { user: null, closeAt: 0 }
   const doorIsOpen = (): boolean => door.user !== null || clock < door.closeAt
 
-  const byKey = (key: string): Actor | undefined => actors.find((o) => o.key === key)
+  const byKey = (key: string): Actor | undefined => index.get(key)
   const canUse = (a: Actor, p: BurrowPoi & { taken?: Actor | null }): boolean => !p.taken && (!p.perch || !!a.meta.poses[p.perch.pose])
   // POIs are shared mutable data of the picture: the engine keeps its own copy so two engines never see each other's seats
   const pois: Array<BurrowPoi & { taken: Actor | null }> = MAP.poi.map((p) => ({ ...p, taken: null }))
@@ -299,6 +301,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null,
     }
     actors.push(a)
+    index.set(key, a)
     if (!opt.inside) { stayOutside(a, 0.3 + 1.2 * actors.filter((o) => o.mode === 'home').length); return }
     const room = opt.room
     if (room === 'door') {
@@ -579,7 +582,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     for (const a of actors) tick(a, dt)
     const removed: string[] = []
     for (let i = actors.length - 1; i >= 0; i--) {
-      if (actors[i].gone) { releasePoi(actors[i]); removed.push(actors[i].key); actors.splice(i, 1) }
+      if (actors[i].gone) { releasePoi(actors[i]); removed.push(actors[i].key); index.delete(actors[i].key); actors.splice(i, 1) }
     }
     stepAmbience(dt)
     return { removed }

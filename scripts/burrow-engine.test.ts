@@ -191,3 +191,32 @@ test('an agent sent to the door post stands beside the front door, facing it, of
   run(e, 40)
   assert.equal(e.jobOf('a'), null)
 })
+
+test('has, jobOf, isGone and isOutside follow the agents through add, remove, the walk out and a new arrival under the same key', () => {
+  const e = make(4)
+  const keys = Array.from({ length: 30 }, (_, i) => `k${i}`)
+  for (const k of keys) e.addActor(k, 'fox', { inside: true, room: 'office' })
+  for (const k of keys) assert.equal(e.has(k), true, k)
+  assert.equal(e.has('ghost'), false)
+  assert.equal(e.jobOf('k3'), 'office')
+  e.addActor('k3', 'otter', { inside: true })               // a key already there is not added twice
+  assert.equal(e.actors.filter((a) => a.key === 'k3').length, 1)
+  for (const k of keys.filter((_, i) => i % 2 === 0)) e.removeActor(k)
+  assert.equal(e.isGone('k0'), true)                         // leaving: holds no place, still in the scene
+  assert.equal(e.has('k0'), true)
+  assert.equal(e.jobOf('k0'), null)
+  assert.equal(e.isGone('k1'), false)
+  run(e, 120)                                                // every leaving animal has walked out
+  for (const [i, k] of keys.entries()) {
+    assert.equal(e.has(k), i % 2 === 1, k)
+    assert.equal(e.isGone(k), i % 2 === 0, k)
+    assert.equal(e.isOutside(k), i % 2 === 0, k)
+  }
+  assert.equal(e.actors.length, 15)
+  e.addActor('k0', 'otter', { inside: true, room: 'lab' })   // back under the same key: the new animal, not the old one
+  assert.equal(e.has('k0'), true)
+  assert.equal(e.jobOf('k0'), 'lab')
+  assert.equal(e.isGone('k0'), false)
+  assert.equal(e.assign('k0', 'library'), true)
+  assert.equal(e.jobOf('k0'), 'library')
+})
