@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
-import { BURROW_TELEPHONE as T } from '../web/lib/burrow/burrow-telephone'
+import { BURROW_TELEPHONE as T, telephoneRings } from '../web/lib/burrow/burrow-telephone'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
 
 const FR = { lounge: 'Salon', office: 'Bureau', library: 'Bibliothèque', workshop: 'Atelier', lab: 'Labo', home: 'Maison' }
@@ -81,4 +81,13 @@ test('nobody walks through the telephone, and an idle animal never stops on the 
       if (a.mode === 'idle' && !e.jobOf(a.key)) assert.ok(!inReserved(a.x, a.y), `${a.key} idle at the telephone ${a.x},${a.y}`)
     }
   })
+})
+
+test('the telephone rings only while a dispatch call is observed running, and never under reduced motion or Freeze motion', () => {
+  const row = (over: Partial<{ room: 'phone' | 'office' | 'door'; presence: 'in' | 'finished' | 'away'; stale: boolean }>) => ({ room: 'phone' as const, presence: 'in' as const, stale: false, ...over })
+  assert.equal(telephoneRings([row({})], false), true)
+  assert.equal(telephoneRings([row({})], true), false, 'still scene')
+  assert.equal(telephoneRings([row({ stale: true })], false), false, 'a last known state proves no call now')
+  assert.equal(telephoneRings([row({ room: 'office' }), row({ room: 'door' })], false), false)
+  assert.equal(telephoneRings([], false), false)
 })

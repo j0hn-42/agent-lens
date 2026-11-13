@@ -22,6 +22,7 @@ import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
+import { telephoneRings } from '@/lib/burrow/burrow-telephone'
 import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
 import { bubbleShown, cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
@@ -244,6 +245,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     /** Colour of the floor ring per agent (rows' marker): sessions and teams told apart, the graph's halo colours */
     let rings = new Map<string, string>()
     let shownTags = new Set<string>()
+    /** Rows of the last sync: the telephone rings while one of them is in a dispatch call (telephoneRings) */
+    let lastRows: BurrowRow[] = []
     let scale = 1
     let rowsSig = ''
     let hiddenShown = -1
@@ -335,6 +338,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
       })
       if (changed) dirtyRef.current = true
+      lastRows = next
       const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.toolCallId ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
@@ -456,7 +460,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       return out
     }
     const draw = (): void => {
-      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns })
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced) })
       placeOverlays()
     }
 

@@ -5,6 +5,7 @@
  * workshop. Its callers stand on its right, facing it, off the doormat's title.
  * Scene pixels of the 560 x 315 picture (burrow-data).
  */
+import type { BurrowRoomId } from './burrow-types'
 
 /** One letter per pixel, '.' = nothing drawn; the colours are those of the decor (the desks, the stools, the armchairs) */
 const ROWS = [
@@ -63,4 +64,12 @@ export const BURROW_TELEPHONE = {
   ] as const,
   /** Floor kept for the callers: an idle animal does not stop there, so an animal at the telephone is a caller */
   reserved: [170, 142, 210, 166] as const,
+}
+
+/**
+ * Whether the telephone rings: while an agent in the burrow is observed in a dispatch call (its row's room is the
+ * telephone and its state is not only the last one known). Never in the still scene of reduced motion or Freeze motion.
+ */
+export function telephoneRings(rows: ReadonlyArray<{ room: BurrowRoomId; presence: string; stale: boolean }>, still: boolean): boolean {
+  return !still && rows.some((r) => r.room === 'phone' && r.presence === 'in' && !r.stale)
 }
