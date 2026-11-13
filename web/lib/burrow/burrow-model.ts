@@ -8,11 +8,18 @@ import { BURROW_ANIMALS, type BurrowAnimal, type BurrowRoomId, type BurrowWorksh
 
 export const BURROW_ROOM_ORDER: readonly BurrowRoomId[] = ['lounge', 'office', 'library', 'workshop', 'lab']
 
-const OFFICE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
-const LIBRARY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'])
-const WORKSHOP_TOOLS = new Set(['Bash', 'BashOutput', 'KillShell'])
-/** Tools that hand a task to a sub-agent */
-const DISPATCH_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
+/** The tools of each room that has a list (the laboratory is every other tool, the lounge no tool); the legend reads this table too */
+export const BURROW_ROOM_TOOLS = {
+  office: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'],
+  library: ['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'],
+  workshop: ['Bash', 'BashOutput', 'KillShell'],
+  /** Tools that hand a task to a sub-agent */
+  door: ['Agent', 'Task'],
+} as const
+const OFFICE_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.office)
+const LIBRARY_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.library)
+const WORKSHOP_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.workshop)
+const DISPATCH_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.door)
 
 /**
  * Room of a tool call: edits, reads and searches, the shell; a dispatch to a sub-agent is the post beside the front door;

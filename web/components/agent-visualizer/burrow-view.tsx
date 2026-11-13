@@ -9,6 +9,7 @@ import { LiveAnnouncements } from './live-announcements'
 import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList } from './burrow-agent-list'
+import { BurrowLegend } from './burrow-legend'
 import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -526,6 +527,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         >
           {t('burrow.titles')}
         </button>
+        <BurrowLegend />
         {rows.length > 0 && (
           <BurrowAgentList
             label={t('burrow.list')}
