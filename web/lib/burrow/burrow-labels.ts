@@ -63,3 +63,12 @@ export function nextTagNames(prev: ReadonlyMap<string, string>, rows: readonly {
   if (!changed) return { names: prev as Map<string, string>, changed }
   return { names: new Map(rows.map((r) => [r.id, r.name])), changed }
 }
+
+/**
+ * Whether an animal's speech bubble is shown. A "last known state" bubble (the agent is silent, replayed or imported)
+ * would otherwise stay up for good: it shows only on the hovered or selected animal. The sleeping posture and the agent
+ * list already say the state is the last one known. Every other bubble is always shown.
+ */
+export function bubbleShown(key: string, stale: ReadonlySet<string>, selected: string | null, hovered: string | null): boolean {
+  return !stale.has(key) || key === selected || key === hovered
+}

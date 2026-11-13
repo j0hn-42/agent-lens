@@ -3,7 +3,7 @@
 // agent always keep theirs, and an animal outside the burrow or in the doorway has none.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { truncateName, cullTags, showsTag, nextTagNames, type TagBox } from '../web/lib/burrow/burrow-labels'
+import { truncateName, cullTags, showsTag, nextTagNames, bubbleShown, type TagBox } from '../web/lib/burrow/burrow-labels'
 
 test('truncateName: a short name is kept as is', () => {
   assert.equal(truncateName('alpha'), 'alpha')
@@ -78,4 +78,13 @@ test('nextTagNames: a rename is a change, the same names are not', () => {
   assert.equal(renamed.names.get('s1:a'), 'Reviewer')
   assert.equal(nextTagNames(prev, [{ id: 's1:a', name: 'agent-1' }]).changed, true, 'an agent gone is a change')
   assert.equal(nextTagNames(prev, [...prev].map(([id, name]) => ({ id, name })).concat({ id: 's1:c', name: 'c' })).changed, true, 'a new agent is a change')
+})
+
+test('bubbleShown: a "last known state" bubble shows only on the hovered or selected animal, every other bubble always', () => {
+  const stale = new Set(['s1:old'])
+  assert.equal(bubbleShown('s1:old', stale, null, null), false, 'stale, neither hovered nor selected: hidden (the sleeping animal and the list say it)')
+  assert.equal(bubbleShown('s1:old', stale, null, 's1:old'), true, 'hovered')
+  assert.equal(bubbleShown('s1:old', stale, 's1:old', null), true, 'selected')
+  assert.equal(bubbleShown('s1:old', stale, 's1:x', 's1:y'), false, 'another agent picked')
+  assert.equal(bubbleShown('s1:live', stale, null, null), true, 'a live state or a tool bubble is not hidden')
 })

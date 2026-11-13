@@ -24,7 +24,7 @@ import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_
 import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
 import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
-import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
+import { bubbleShown, cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 import { burrowLayout, controlColumn, type BurrowLayout, type StageInsets } from '@/lib/burrow/burrow-fit'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 
@@ -237,6 +237,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let toolIds = new Map<string, string>()
     /** Agents with a proven loop: their tag carries the graph's loop badge */
     let loops = new Set<string>()
+    // agents whose bubble is a "last known state": shown only on hover or selection (bubbleShown)
+    let stales = new Set<string>()
     /** Colour of the floor ring per agent (rows' marker): sessions and teams told apart, the graph's halo colours */
     let rings = new Map<string, string>()
     let shownTags = new Set<string>()
@@ -343,6 +345,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         const nextLoops = new Set(next.filter((r) => r.loop).map((r) => r.id))
         if (nextLoops.size !== loops.size || [...nextLoops].some((id) => !loops.has(id))) dirtyRef.current = true
         loops = nextLoops
+        // an agent turning stale or live again shows or hides its bubble: placed again under reduced motion too
+        const nextStales = new Set(next.filter((r) => r.stale).map((r) => r.id))
+        if (nextStales.size !== stales.size || [...nextStales].some((id) => !stales.has(id))) dirtyRef.current = true
+        stales = nextStales
         // a ring that appears, goes or changes colour is redrawn under reduced motion and Freeze motion as well
         const nextRings = new Map(next.flatMap((r) => (r.marker ? [[r.id, r.marker] as const] : [])))
         if (nextRings.size !== rings.size || [...nextRings].some(([id, c]) => rings.get(id) !== c)) dirtyRef.current = true
@@ -358,6 +364,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const bubbleBoxes: Box[] = []
       for (const a of engine.actors) {
         if (a.said === null || a.mode === 'home') continue
+        if (!bubbleShown(a.key, stales, live.current.selectedAgentId, live.current.hoveredAgentId)) continue
         seen.add(a.key)
         let el = bubbles.get(a.key)
         if (!el) {
