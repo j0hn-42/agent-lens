@@ -170,3 +170,24 @@ test('setResting: the agent goes back to the lounge, then stands still (no strol
   assert.notEqual(`${a.x},${a.y}`, `${x},${y}`, 'rested again, it strolls')
   assert.equal(e.setResting('ghost', true), false)
 })
+
+test('an agent sent to the door post stands beside the front door, facing it, off the doorway lane; two get two posts', () => {
+  const e = make(3)
+  const door = BURROW_DATA.map.door
+  e.addActor('a', 'fox', { inside: true })
+  e.addActor('b', 'otter', { inside: true, room: 'door' })
+  e.assign('a', 'door')
+  run(e, 40)
+  const a = e.actors.find((x) => x.key === 'a')!
+  const b = e.actors.find((x) => x.key === 'b')!
+  for (const x of [a, b]) {
+    assert.ok(x.x < door.cx - 14, `${x.key} left of the door (${x.x})`)
+    assert.ok(Math.abs(x.y - door.front) <= 30, `${x.key} level with the door (${x.y})`)
+    assert.ok(Math.hypot(x.x - door.cx, x.y - door.front) < 110, `${x.key} near the door`)
+  }
+  assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 10, 'two posts, not one')
+  assert.equal(e.jobOf('a'), 'door')
+  e.release('a')
+  run(e, 40)
+  assert.equal(e.jobOf('a'), null)
+})

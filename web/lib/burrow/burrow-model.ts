@@ -11,10 +11,16 @@ export const BURROW_ROOM_ORDER: readonly BurrowRoomId[] = ['lounge', 'office', '
 const OFFICE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 const LIBRARY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'])
 const WORKSHOP_TOOLS = new Set(['Bash', 'BashOutput', 'KillShell'])
+/** Tools that hand a task to a sub-agent */
+const DISPATCH_TOOLS: ReadonlySet<string> = new Set(['Agent', 'Task'])
 
-/** Room of a tool call: edits, reads and searches, the shell; every other tool (agent dispatch, MCP, unknown) is the laboratory */
+/**
+ * Room of a tool call: edits, reads and searches, the shell; a dispatch to a sub-agent is the post beside the front door;
+ * every other tool (MCP, unknown) is the laboratory
+ */
 function roomOfTool(tool: string | undefined): BurrowWorkshopId {
   if (tool === undefined) return 'lab'
+  if (DISPATCH_TOOLS.has(tool)) return 'door'
   if (OFFICE_TOOLS.has(tool)) return 'office'
   if (LIBRARY_TOOLS.has(tool)) return 'library'
   if (WORKSHOP_TOOLS.has(tool)) return 'workshop'
@@ -27,6 +33,8 @@ export type BurrowBubble =
   | { kind: 'state'; state: AgentState }
   /** The agent is silent, replayed or imported: its state is the last one known, not a proof of what it does now */
   | { kind: 'stale'; state: AgentState }
+  /** The agent runs a dispatch tool and `n` sub-agents it sent have not returned yet (burrow-links openDelegations) */
+  | { kind: 'waiting'; n: number }
 
 export interface BurrowPlacement {
   /**
@@ -43,13 +51,17 @@ type PlaceInput = Pick<Agent, 'state' | 'archived' | 'activity' | 'currentTool'>
 /**
  * `stale` (deriveFreshness = 'stale', the same test as the graph): no room, no tool, only the last known state in the lounge.
  * A tool call whose tool name was not received claims no room either.
+ * `delegating`: sub-agents this agent sent that have not returned yet; while it runs a dispatch tool the bubble says it
+ * waits for them (a count of observed dispatches without a return, never a guess).
  */
-export function placeAgent(a: PlaceInput, opt: { stale?: boolean } = {}): BurrowPlacement {
+export function placeAgent(a: PlaceInput, opt: { stale?: boolean; delegating?: number } = {}): BurrowPlacement {
   if (isDoneAgent(a)) return { presence: 'finished', room: 'lounge', bubble: null }
   if (opt.stale === true) return { presence: 'in', room: 'lounge', bubble: a.state === 'idle' ? null : { kind: 'stale', state: a.state } }
   switch (a.state) {
     case 'tool_calling': {
       const tool = typeof a.currentTool === 'string' && a.currentTool !== '' ? a.currentTool : undefined
+      const waiting = opt.delegating ?? 0
+      if (tool && DISPATCH_TOOLS.has(tool) && waiting > 0) return { presence: 'in', room: 'door', bubble: { kind: 'waiting', n: waiting } }
       return tool ? { presence: 'in', room: roomOfTool(tool), bubble: { kind: 'tool', tool } } : { presence: 'in', room: 'lounge', bubble: { kind: 'state', state: 'tool_calling' } }
     }
     case 'thinking':

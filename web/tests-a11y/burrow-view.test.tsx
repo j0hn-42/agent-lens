@@ -14,8 +14,8 @@ afterEach(() => {
 })
 
 const rows: BurrowRow[] = [
-  { id: 's1:a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false },
-  { id: 's1:b', name: 'beta', presence: 'in', room: 'lounge', state: 'idle', stale: false },
+  { id: 's1:a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0 },
+  { id: 's1:b', name: 'beta', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0 },
 ]
 
 function mount(onHover: (id: string | null) => void = () => {}) {

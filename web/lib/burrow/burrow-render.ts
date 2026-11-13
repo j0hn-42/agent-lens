@@ -25,10 +25,21 @@ function drawText(ctx: CanvasRenderingContext2D, font: BurrowData['font'], text:
   }
 }
 
+/** A thread between two animals (scene pixels): the selected agent and its parent or sub-agents */
+export interface BurrowThread { x1: number; y1: number; x2: number; y2: number }
+/** A letter in flight (scene pixels): a dispatch, a return, or a message between teammates */
+export interface BurrowLetter { x: number; y: number; kind: 'dispatch' | 'return' | 'message' }
+
+// Letters and threads keep the paper and ink of the picture, like the speech bubbles.
+const PAPER = '#fbefd2'
+const INK = '#3b2013'
+const LETTER_FILL: Record<BurrowLetter['kind'], string> = { dispatch: PAPER, return: '#d6ecbf', message: '#cfe1f4' }
+const SEAL = '#b8322a'
+
 export interface BurrowRenderer {
   /** Scene pixels -> visible canvas: call when the visible canvas changes size */
   resize(width: number, height: number): void
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string> }): void
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[] }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement): BurrowRenderer | null {
@@ -93,7 +104,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys }) {
+    render({ showTitles, hiddenKeys, threads, letters }) {
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
       g.imageSmoothingEnabled = false
       g.drawImage(images.decor, 0, 0)
@@ -125,6 +136,21 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
           g.globalAlpha = 1
         }
       }
+      // threads of the selected agent, on the floor under the animals: dashed, one pixel wide
+      if (threads?.length) {
+        for (const th of threads) {
+          const len = Math.hypot(th.x2 - th.x1, th.y2 - th.y1)
+          const n = Math.max(1, Math.round(len))
+          for (let i = 0; i <= n; i++) {
+            if (i % 5 > 2) continue
+            const x = Math.round(th.x1 + ((th.x2 - th.x1) * i) / n)
+            const y = Math.round(th.y1 + ((th.y2 - th.y1) * i) / n)
+            g.fillStyle = INK; g.globalAlpha = 0.55; g.fillRect(x, y + 1, 1, 1)
+            g.fillStyle = PAPER; g.globalAlpha = 0.9; g.fillRect(x, y, 1, 1)
+          }
+        }
+        g.globalAlpha = 1
+      }
       // everyone else in the burrow, from back to front
       const list = engine.actors.filter((a) => a !== u && a.mode !== 'home' && !hiddenKeys?.has(a.key)).sort((p, q) => p.y - q.y)
       for (const a of list) drawActor(a, a.alpha)
@@ -149,6 +175,20 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
         drawFx('glowShroom', p[0] - (r[2] >> 1), p[1] - (r[3] >> 1))
       })
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
+      // letters in flight, above everything: a 9 x 6 envelope, its flap drawn in ink; a return carries a red seal
+      if (letters?.length) {
+        for (const l of letters) {
+          const x = Math.round(l.x) - 4
+          const y = Math.round(l.y) - 3
+          g.fillStyle = 'rgba(20, 8, 4, 0.35)'; g.fillRect(x + 1, y + 6, 9, 1)
+          g.fillStyle = INK; g.fillRect(x, y, 9, 6)
+          g.fillStyle = LETTER_FILL[l.kind]; g.fillRect(x + 1, y + 1, 7, 4)
+          g.fillStyle = INK
+          for (let i = 0; i < 3; i++) { g.fillRect(x + 1 + i, y + 1 + i, 1, 1); g.fillRect(x + 7 - i, y + 1 + i, 1, 1) }
+          g.fillRect(x + 4, y + 3, 1, 1)
+          if (l.kind === 'return') { g.fillStyle = SEAL; g.fillRect(x + 4, y + 3, 1, 2) }
+        }
+      }
       // crisp enlargement to the visible canvas
       vg.imageSmoothingEnabled = false
       vg.drawImage(world, 0, 0, W, H, 0, 0, view.width, view.height)

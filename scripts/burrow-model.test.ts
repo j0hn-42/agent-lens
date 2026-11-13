@@ -14,8 +14,22 @@ test('roomOfTool: edits in the office, reads and searches in the library, the sh
   for (const t of ['Bash', 'BashOutput', 'KillShell']) assert.equal(roomOfTool(t), 'workshop', t)
 })
 
-test('roomOfTool: any other named tool (agent dispatch, MCP, unknown) goes to the laboratory; no name, no room', () => {
-  assert.equal(roomOfTool('Agent'), 'lab')
+test('roomOfTool: a dispatch to a sub-agent is the post beside the front door', () => {
+  assert.equal(roomOfTool('Agent'), 'door')
+  assert.equal(roomOfTool('Task'), 'door')
+})
+
+test('placeAgent: a dispatch with sub-agents still out says how many it waits for; none out, the bubble names the tool', () => {
+  const p = (delegating?: number) => placeAgent({ ...base, state: 'tool_calling', currentTool: 'Agent' }, { delegating })
+  assert.deepEqual(p(2), { presence: 'in', room: 'door', bubble: { kind: 'waiting', n: 2 } })
+  assert.deepEqual(p(0), { presence: 'in', room: 'door', bubble: { kind: 'tool', tool: 'Agent' } })
+  assert.deepEqual(p(undefined).bubble, { kind: 'tool', tool: 'Agent' })
+  // waiting is only claimed while the dispatch tool runs: thinking with sub-agents out says thinking
+  assert.deepEqual(placeAgent({ ...base, state: 'thinking' }, { delegating: 3 }).bubble, { kind: 'state', state: 'thinking' })
+  assert.deepEqual(placeAgent({ ...base, state: 'tool_calling', currentTool: 'Read' }, { delegating: 3 }).bubble, { kind: 'tool', tool: 'Read' })
+})
+
+test('roomOfTool: any other named tool (MCP, unknown) goes to the laboratory; no name, no room', () => {
   assert.equal(roomOfTool('mcp__github__get_issue'), 'lab')
   assert.equal(roomOfTool('SomethingNew'), 'lab')
   assert.equal(roomOfTool(undefined), 'lounge')

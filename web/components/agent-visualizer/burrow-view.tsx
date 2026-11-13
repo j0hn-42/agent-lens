@@ -10,7 +10,9 @@ import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList } from './burrow-agent-list'
 import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
-import { createBurrowRenderer, type BurrowRenderer } from '@/lib/burrow/burrow-render'
+import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
+import { createMailState, linksSignature, newMail, openDelegations, relativesOf, type MailKind } from '@/lib/burrow/burrow-links'
+import { isDoneAgent } from '@/lib/inactive-agents'
 import { BURROW_DATA } from '@/lib/burrow/burrow-data'
 import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
@@ -39,6 +41,9 @@ export interface BurrowViewProps {
 const BUBBLE_PAPER = '#fbefd2'
 const BUBBLE_INK = '#3b2013'
 const BUBBLE_SHADOW = 'rgba(20, 8, 4, 0.45)'
+/** Seconds a letter takes from one animal to the other; at most this many letters fly at once */
+const LETTER_SECONDS = 1.6
+const MAX_LETTERS = 12
 
 type Assets = { images: Record<string, HTMLImageElement> }
 
@@ -184,16 +189,34 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const bubbleText = (b: BurrowBubble): string => {
       const tr = live.current.t
       if (b.kind === 'tool') return b.tool
+      if (b.kind === 'waiting') return b.n === 1 ? tr('burrow.bubble.waiting.one') : tr('burrow.bubble.waiting.many', { n: b.n })
       const state = tr(`state.${b.state}` as 'state.idle')
       return b.kind === 'stale' ? tr('burrow.bubble.stale', { state }) : state
     }
+    // Delegation: letters fly between two animals when a dispatch, a return or a teammate message is received (never
+    // replayed from the history), and the orchestrators' open delegations are counted from the same link messages.
+    const mail = createMailState()
+    let linksSig = ''
+    let delegations = new Map<string, number>()
+    const flights: Array<{ kind: MailKind; from: string; to: string; t0: number }> = []
     const follow = (): void => {
       const sim = simulationRef.current
-      const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, sim ? sim.agents : new Map(), {
-        hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now: Date.now(),
+      const agents = sim ? sim.agents : new Map()
+      const nextLinksSig = linksSignature(sim?.links)
+      if (nextLinksSig !== linksSig) {
+        linksSig = nextLinksSig
+        for (const m of newMail(sim?.links, mail)) {
+          if (live.current.reduced) continue
+          flights.push({ kind: m.kind, from: m.from, to: m.to, t0: engine.clock })
+          if (flights.length > MAX_LETTERS) flights.shift()
+        }
+      }
+      delegations = openDelegations(sim?.links, (key) => { const ag = agents.get(key); return ag !== undefined && !isDoneAgent(ag) })
+      const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
+        hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now: Date.now(), delegations,
       })
       if (changed) dirtyRef.current = true
-      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}`).join('\n')
+      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
         setRows(next)
@@ -258,8 +281,36 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       place(ring, sel)
       place(hoverRing, hov && hov !== sel ? hov : null)
     }
+    const inScene = (key: string) => engine.actors.find((a) => a.key === key && a.mode !== 'home')
+    const letters = (): BurrowLetter[] => {
+      const out: BurrowLetter[] = []
+      for (let i = flights.length - 1; i >= 0; i--) {
+        const f = flights[i]
+        const k = (engine.clock - f.t0) / LETTER_SECONDS
+        const from = inScene(f.from)
+        const to = inScene(f.to)
+        if (k >= 1 || !from || !to) { flights.splice(i, 1); continue }   // delivered, or one end is not drawn
+        const e = k < 0 ? 0 : k * k * (3 - 2 * k)
+        const y1 = from.y - from.meta.h * 0.6
+        const y2 = to.y - to.meta.h * 0.6
+        out.push({ kind: f.kind, x: from.x + (to.x - from.x) * e, y: y1 + (y2 - y1) * e - 14 * Math.sin(Math.PI * e) })
+      }
+      return out
+    }
+    const threads = (): BurrowThread[] => {
+      const sel = live.current.selectedAgentId
+      const sim = simulationRef.current
+      const me = sel ? inScene(sel) : undefined
+      if (!sel || !sim || !me) return []
+      const out: BurrowThread[] = []
+      for (const key of relativesOf(sel, sim.agents, (k) => inScene(k) !== undefined)) {
+        const o = inScene(key)
+        if (o) out.push({ x1: me.x, y1: me.y - 2, x2: o.x, y2: o.y - 2 })
+      }
+      return out
+    }
     const draw = (): void => {
-      renderer.render({ showTitles: live.current.showTitles })
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters() })
       placeOverlays()
     }
 
@@ -335,13 +386,22 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
 
   const onTitles = useCallback(() => setPref('burrowTitles', !prefs.burrowTitles), [setPref, prefs.burrowTitles])
   const roomName = (r: BurrowRoomId): string => t(`burrow.room.${r}` as 'burrow.room.lounge')
-  const rowLabel = (r: BurrowRow): string => {
+  const baseLabel = (r: BurrowRow): string => {
     if (r.presence === 'finished') return t('burrow.agent.done', { name: r.name })
     const state = t(`state.${r.state}` as 'state.idle')
     if (r.stale) return t('burrow.agent.stale', { name: r.name, state })
     return r.tool
       ? t('burrow.agent.tool', { name: r.name, state, room: roomName(r.room), tool: r.tool })
       : t('burrow.agent', { name: r.name, state, room: roomName(r.room) })
+  }
+  // a sub-agent names its orchestrator; an orchestrator says how many sub-agents it still waits for
+  const rowLabel = (r: BurrowRow): string => {
+    let label = baseLabel(r)
+    const n = r.delegating ?? 0
+    if (n > 0) label = n === 1 ? t('burrow.agent.delegating.one', { row: label }) : t('burrow.agent.delegating.many', { row: label, n })
+    const parent = r.parentId ? rows.find((o) => o.id === r.parentId) : undefined
+    if (parent) label = t('burrow.agent.child', { row: label, parent: parent.name })
+    return label
   }
 
   return (
