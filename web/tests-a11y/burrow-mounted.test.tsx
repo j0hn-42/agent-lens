@@ -304,6 +304,29 @@ test('a tool bubble that names a running call is clickable and opens it; a state
   assert.deepEqual(anchors[1], { x: 700, y: 324 }, 'from the row, the popup opens at the row')
 })
 
+test('under reduced motion a tool bubble becomes clickable when its running call arrives after it, and stops being when the call goes', async () => {
+  prefersReducedMotion(true)
+  spyFrames()
+  try {
+    globalThis.Image = LoadedImage as never
+    const sim = simulation({ ...agent('alpha', 'tool_calling'), currentTool: 'Grep' } as Agent, agent('beta', 'thinking'))
+    const view = render(
+      <BurrowView simulationRef={sim as never} selectedAgentId={null} onAgentClick={() => {}} onAgentHover={() => {}} onToolCallClick={() => {}} />,
+    )
+    for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+    await wait(300)
+    const bubble = () => Array.from(view.container.querySelectorAll<HTMLElement>('div[aria-hidden="true"] > div[aria-hidden="true"]')).find((b) => b.textContent === 'Grep')
+    assert.ok(bubble(), 'the tool bubble is drawn from the current tool')
+    assert.equal(bubble()!.style.pointerEvents, 'none', 'no running call known yet')
+    sim.current.toolCalls = new Map([['tc9', { id: 'tc9', agentId: 'alpha', toolName: 'Grep', state: 'running' }]]) as never
+    await wait(700)
+    assert.equal(bubble()!.style.pointerEvents, 'auto', 'the call arrived: the bubble is clickable without any other change')
+    sim.current.toolCalls = new Map() as never
+    await wait(700)
+    assert.equal(bubble()!.style.pointerEvents, 'none', 'the call is gone: no pointer left on the bubble')
+  } finally { prefersReducedMotion(false) }
+})
+
 test('a tool call opened with an anchor (the burrow) places its popup there, not at the graph\'s tool card', () => {
   const call = { id: 'tc1', agentId: 'a', toolName: 'Read', state: 'running', x: 5000, y: 5000 }
   const { result } = renderHook(() => useSelectionState({ agents: new Map(), toolCalls: new Map([['tc1', call]]) as never, discoveries: [] }))

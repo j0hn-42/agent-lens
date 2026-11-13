@@ -334,7 +334,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         // a renamed agent must redraw its tag, also under reduced motion where only a dirty scene is placed again
         const tagNames = nextTagNames(names, next)
         names = tagNames.names
-        toolIds = new Map(next.flatMap((r) => (r.toolCallId ? [[r.id, r.toolCallId] as const] : [])))
+        // a running call that arrives, goes or changes makes its bubble clickable or not: placed again under reduced motion too
+        const nextToolIds = new Map(next.flatMap((r) => (r.toolCallId ? [[r.id, r.toolCallId] as const] : [])))
+        if (nextToolIds.size !== toolIds.size || [...nextToolIds].some(([id, c]) => toolIds.get(id) !== c)) dirtyRef.current = true
+        toolIds = nextToolIds
         if (tagNames.changed) dirtyRef.current = true
         // a loop proven or gone changes a tag too: redrawn under reduced motion and Freeze motion as well
         const nextLoops = new Set(next.filter((r) => r.loop).map((r) => r.id))
