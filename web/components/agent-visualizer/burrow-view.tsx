@@ -1,8 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { SimulationState } from '@/hooks/simulation/types'
+import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
+import { useBurrowAnnouncements } from '@/hooks/use-burrow-announcements'
+import type { AnnounceLevel } from '@/lib/ui-preferences'
+import { LiveAnnouncements } from './live-announcements'
 import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList } from './burrow-agent-list'
@@ -23,6 +26,10 @@ export interface BurrowViewProps {
   hideInactive?: boolean
   onAgentClick: (agentId: string | null, modifiers?: { shiftKey: boolean }) => void
   onAgentHover: (agentId: string | null) => void
+  /** Verbosity of the live announcements, the same preference as the graph (#379) */
+  announceLevel?: AnnounceLevel
+  /** Links between agents, for the team announcements ("<from> sent a message to <to>"); the simulation's otherwise */
+  links?: Map<string, AgentLink>
 }
 
 // The speech bubbles keep the paper and ink of the picture they sit on, whatever the theme.
@@ -63,10 +70,11 @@ function styleBubble(el: HTMLDivElement, u: number): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, announceLevel = 'all', links }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs } = useUiPreferences()
+  const announcements = useBurrowAnnouncements({ simulationRef, announceLevel, hideInactive, selectedAgentId, links })
   const containerRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -337,6 +345,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         />
       )}
       <p className="sr-only">{t('burrow.rooms.help')} {t('burrow.hint')}</p>
+      <LiveAnnouncements announcements={announcements} />
     </div>
   )
 }

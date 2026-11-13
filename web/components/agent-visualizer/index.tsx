@@ -438,6 +438,8 @@ export function AgentVisualizer() {
           hideInactive={hideInactiveShown}
           onAgentClick={handleCanvasAgentClick}
           onAgentHover={selection.setHoveredAgentId}
+          announceLevel={prefs.announceLevel}
+          links={links}
         />
       ) : (
       <AgentCanvas
