@@ -20,6 +20,8 @@ import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import type { BurrowRoomId } from '@/lib/burrow/burrow-types'
 import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
+import { fitStage, type StageInsets } from '@/lib/burrow/burrow-fit'
+import { measureOverlayInsets } from './canvas/overlay-insets'
 
 export interface BurrowViewProps {
   simulationRef: React.RefObject<SimulationState>
@@ -45,6 +47,8 @@ const BUBBLE_SHADOW = 'rgba(20, 8, 4, 0.45)'
 /** Seconds a letter takes from one animal to the other; at most this many letters fly at once */
 const LETTER_SECONDS = 1.6
 const MAX_LETTERS = 12
+/** The panels over the scene (dock opened or closed, control bar folded) are measured again this often, like the graph's fit */
+const INSETS_MS = 1000
 
 type Assets = { images: Record<string, HTMLImageElement> }
 
@@ -111,6 +115,12 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const [failed, setFailed] = useState(false)
   const [rows, setRows] = useState<BurrowRow[]>([])
   const [hidden, setHidden] = useState(0)
+  /** Width of the panel docked on the right: the burrow's own controls stay left of it */
+  const [dockRight, setDockRight] = useState(0)
+  /** The area the top bar, the control bar and the docked panels leave free (the graph's measure): the picture is fitted to it */
+  const insetsRef = useRef<StageInsets>({ top: 0, right: 0, bottom: 0, left: 0 })
+  /** Fits the stage again (set by the scene once its pictures are loaded) */
+  const refitRef = useRef<() => void>(() => {})
   const showTitles = prefs.burrowTitles
   const [osReduced, setOsReduced] = useState(false)
   const reduced = osReduced || prefs.freezeMotion
@@ -123,6 +133,28 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting); a motion
   // setting change also switches the loop between animation frames and the slow timer
   useEffect(() => { dirtyRef.current = true; wakeRef.current() }, [selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles])
+
+  // a panel opening or closing does not resize the scene: the edges are read again every INSETS_MS and on a resize
+  // (layout reads, so never per frame)
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const same = (a: StageInsets, b: StageInsets): boolean =>
+      Math.round(a.top) === Math.round(b.top) && Math.round(a.right) === Math.round(b.right)
+      && Math.round(a.bottom) === Math.round(b.bottom) && Math.round(a.left) === Math.round(b.left)
+    const measure = (): void => {
+      const next = measureOverlayInsets(container)
+      if (same(insetsRef.current, next)) return
+      insetsRef.current = next
+      setDockRight(Math.round(next.right))
+      refitRef.current()
+    }
+    measure()
+    const timer = window.setInterval(measure, INSETS_MS)
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null
+    ro?.observe(container)
+    return () => { window.clearInterval(timer); ro?.disconnect() }
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -170,12 +202,13 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let hiddenShown = -1
 
     const resize = (): void => {
-      const cw = container.clientWidth
-      const ch = container.clientHeight
-      if (cw <= 0 || ch <= 0) return
-      scale = Math.max(0.5, Math.min(cw / W, ch / H))
-      stage.style.width = `${Math.floor(W * scale)}px`
-      stage.style.height = `${Math.floor(H * scale)}px`
+      const fit = fitStage({ w: container.clientWidth, h: container.clientHeight }, insetsRef.current, { w: W, h: H })
+      if (!fit) return
+      scale = fit.scale
+      stage.style.width = `${fit.width}px`
+      stage.style.height = `${fit.height}px`
+      stage.style.left = `${fit.left}px`
+      stage.style.top = `${fit.top}px`
       backing()
       for (const el of bubbles.values()) styleBubble(el, Math.max(2.4, scale))
       for (const el of tags.values()) styleTag(el, Math.max(2.4, scale))
@@ -191,6 +224,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null
     ro?.observe(container)
     resize()
+    refitRef.current = resize
 
     const bubbleText = (b: BurrowBubble): string => {
       const tr = live.current.t
@@ -392,6 +426,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       loop.stop()
       wakeRef.current = () => {}
       ro?.disconnect()
+      refitRef.current = () => {}
       view.removeEventListener('pointermove', onMove)
       view.removeEventListener('pointerleave', onLeave)
       view.removeEventListener('pointerup', onUp)
@@ -431,7 +466,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       className="absolute inset-0 flex items-center justify-center overflow-hidden"
       style={{ background: 'var(--lens-void)' }}
     >
-      <div ref={stageRef} className="relative" style={{ width: 560, height: 315 }}>
+      <div ref={stageRef} className="absolute" style={{ width: 560, height: 315 }}>
         <canvas ref={canvasRef} width={560} height={315} aria-hidden="true" className="block size-full" style={{ imageRendering: 'pixelated' }} />
         <div ref={overlayRef} aria-hidden="true" className="pointer-events-none absolute inset-0" />
         <div
@@ -466,8 +501,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           )}
         </div>
       )}
-      {/* Below the top bar (drawn over the top of <main>), on the right: the collapsed Conversation pill holds the left */}
-      <div className="absolute right-2 flex max-w-[calc(100%-1rem)] flex-col items-end gap-1 text-2xs font-mono" style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', color: 'var(--lens-ink-muted)' }}>
+      {/* Below the top bar (drawn over the top of <main>), on the right but left of a docked panel: the collapsed Conversation pill holds the left */}
+      <div className="absolute flex max-w-[calc(100%-1rem)] flex-col items-end gap-1 text-2xs font-mono" style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', right: dockRight + 8, color: 'var(--lens-ink-muted)' }}>
         {hidden > 0 && <p role="status" className="m-0">{t('burrow.hidden', { n: hidden, max: BURROW_MAX_ANIMALS })}</p>}
         <button
           type="button"
