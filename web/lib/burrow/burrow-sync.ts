@@ -94,6 +94,15 @@ export const createBurrowSyncState = (): BurrowSyncState => ({ applied: new Map(
  */
 const ROOM_HOLD_MS = 10_000
 
+/** Longest silence for which a live tool call still open keeps its room: past it, the end of the call may have been lost */
+const OPEN_CALL_MAX_MS = 10 * 60_000
+
+/** Stale only because it has been silent a while: its events came live (not replayed, not imported), and not for too long */
+function silentOnly(a: SyncAgent, now: number): boolean {
+  if (a.freshnessSource === 'imported' || a.freshnessSource === 'history') return false
+  return typeof a.lastEventAt === 'number' && now - a.lastEventAt < OPEN_CALL_MAX_MS
+}
+
 /** The placement with the room of the last tool held while a thinking agent is between two calls (see ROOM_HOLD_MS) */
 function holdRoom(p: BurrowPlacement, a: SyncAgent, stale: boolean, st: BurrowSyncState, now: number): BurrowPlacement {
   if (p.presence !== 'in' || stale) { st.lastRoom.delete(a.id); return p }
@@ -164,7 +173,9 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const stale = deriveFreshness(a, opts.now) === 'stale'
     // a filtered agent is not drawn: it walks out through the front door, and it is not listed (finished or not)
     wanted.push({
-      a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : holdRoom(placeAgent(a, { stale, delegating: opts.delegations?.get(a.id) }), a, stale, st, opts.now),
+      a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : holdRoom(placeAgent(a, {
+        stale, silentOnly: silentOnly(a, opts.now), delegating: opts.delegations?.get(a.id),
+      }), a, stale, st, opts.now),
       filtered, posture: postureOf(a.state, stale),
     })
   }

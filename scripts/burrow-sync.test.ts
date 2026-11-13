@@ -184,11 +184,15 @@ test('a stale agent (silent for long, or replayed) is not placed in a room and s
   const old = agent('old', { state: 'tool_calling', currentTool: 'Bash', lastEventAt: 1_000_000 - 10 * 60_000 })
   const history = agent('hist', { state: 'tool_calling', currentTool: 'Edit', lastEventAt: 999_999, freshnessSource: 'history' })
   const live = agent('live', { state: 'tool_calling', currentTool: 'Bash', lastEventAt: 999_999 })
-  syncBurrow(e, st, [old, history, live], opts)
-  assert.equal(at(e, 'old'), 'lounge')
+  // a long command: live events, silent for 2 minutes, its Bash call seen opening and not closing
+  const long = agent('long', { state: 'tool_calling', currentTool: 'Bash', lastEventAt: 1_000_000 - 2 * 60_000 })
+  syncBurrow(e, st, [old, history, live, long], opts)
+  assert.equal(at(e, 'old'), 'lounge', 'silent for 10 minutes: the end of the call may have been lost')
   assert.equal(at(e, 'hist'), 'lounge')
   assert.equal(at(e, 'live'), 'workshop')
+  assert.equal(at(e, 'long'), 'workshop', 'a long command keeps its room')
   assert.equal(e.actors.find((a) => a.key === 'old')?.said, 'stale:tool_calling')
+  assert.equal(e.actors.find((a) => a.key === 'long')?.said, 'stale:tool_calling', 'its bubble still says the state is the last one known')
   assert.equal(e.actors.find((a) => a.key === 'live')?.said, 'Bash')
 })
 

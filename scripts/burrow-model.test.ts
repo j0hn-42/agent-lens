@@ -66,6 +66,16 @@ test('placeAgent: a stale agent (silent, replayed or imported) claims no room an
   assert.equal(placeAgent({ ...base, state: 'complete' }, { stale: true }).presence, 'finished')
 })
 
+test('placeAgent: a live tool call that is only silent (a long command) keeps the room of its tool, its bubble says last known state', () => {
+  const silent = placeAgent({ ...base, state: 'tool_calling', currentTool: 'Bash' }, { stale: true, silentOnly: true })
+  assert.deepEqual(silent, { presence: 'in', room: 'workshop', bubble: { kind: 'stale', state: 'tool_calling' } })
+  // replayed or imported: nothing proves the call is still open, lounge as before
+  assert.equal(placeAgent({ ...base, state: 'tool_calling', currentTool: 'Bash' }, { stale: true, silentOnly: false }).room, 'lounge')
+  // silent but not in a named tool call: lounge
+  assert.equal(placeAgent({ ...base, state: 'thinking' }, { stale: true, silentOnly: true }).room, 'lounge')
+  assert.equal(placeAgent({ ...base, state: 'tool_calling', currentTool: undefined }, { stale: true, silentOnly: true }).room, 'lounge')
+})
+
 test('placeAgent: thinking, a permission wait, an error and a pause stay in the lounge and say so', () => {
   for (const state of ['thinking', 'waiting_permission', 'error', 'paused'] as const) {
     const p = placeAgent({ ...base, state })

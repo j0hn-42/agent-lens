@@ -57,13 +57,20 @@ type PlaceInput = Pick<Agent, 'state' | 'archived' | 'activity' | 'currentTool'>
 
 /**
  * `stale` (deriveFreshness = 'stale', the same test as the graph): no room, no tool, only the last known state in the lounge.
+ * `silentOnly`: the agent is stale only because it has been silent, its events were received live (not replayed, not
+ * imported). A named tool call seen opening live and not seen closing keeps the room of its tool (a long command sends
+ * nothing until it ends); the bubble still says the state is the last one known.
  * A tool call whose tool name was not received claims no room either.
  * `delegating`: sub-agents this agent sent that have not returned yet; while it runs a dispatch tool the bubble says it
  * waits for them (a count of observed dispatches without a return, never a guess).
  */
-export function placeAgent(a: PlaceInput, opt: { stale?: boolean; delegating?: number } = {}): BurrowPlacement {
+export function placeAgent(a: PlaceInput, opt: { stale?: boolean; silentOnly?: boolean; delegating?: number } = {}): BurrowPlacement {
   if (isDoneAgent(a)) return { presence: 'finished', room: 'lounge', bubble: null }
-  if (opt.stale === true) return { presence: 'in', room: 'lounge', bubble: a.state === 'idle' ? null : { kind: 'stale', state: a.state } }
+  if (opt.stale === true) {
+    const tool = typeof a.currentTool === 'string' && a.currentTool !== '' ? a.currentTool : undefined
+    const room = opt.silentOnly === true && a.state === 'tool_calling' && tool ? roomOfTool(tool) : 'lounge'
+    return { presence: 'in', room, bubble: a.state === 'idle' ? null : { kind: 'stale', state: a.state } }
+  }
   switch (a.state) {
     case 'tool_calling': {
       const tool = typeof a.currentTool === 'string' && a.currentTool !== '' ? a.currentTool : undefined
