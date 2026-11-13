@@ -23,6 +23,7 @@ import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
 import { telephoneRings } from '@/lib/burrow/burrow-telephone'
+import { flashAlpha, flashesOf, type BurrowFlash } from '@/lib/burrow/burrow-flash'
 import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
 import { bubbleShown, cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
@@ -59,6 +60,8 @@ export interface BurrowViewProps {
 /** Seconds a letter takes from one animal to the other; at most this many letters fly at once */
 const LETTER_SECONDS = 1.6
 const MAX_LETTERS = 12
+/** Most room objects lit at once: a burst of calls does not turn the burrow into a light show */
+const MAX_FLASHES = 16
 /** The panels over the scene (dock opened or closed, control bar folded) are measured again this often, like the graph's fit */
 const INSETS_MS = 1000
 /** The picture is laid out on the whole scene: the panels pass over it instead of shrinking it */
@@ -247,6 +250,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let shownTags = new Set<string>()
     /** Rows of the last sync: the telephone rings while one of them is in a dispatch call (telephoneRings) */
     let lastRows: BurrowRow[] = []
+    /** Room objects lighting up, one per tool call received while the scene moves (none in the still scene) */
+    let lit: BurrowFlash[] = []
     let scale = 1
     let rowsSig = ''
     let hiddenShown = -1
@@ -333,12 +338,14 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const nextCrowns = orchestratorsOf(agents)
       if (nextCrowns.size !== crowns.size || [...nextCrowns].some((id) => !crowns.has(id))) dirtyRef.current = true
       crowns = nextCrowns
-      const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
+      const { rows: next, hidden: extra, changed, received } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
         health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
       })
       if (changed) dirtyRef.current = true
       lastRows = next
+      lit.push(...flashesOf(received, live.current.reduced, engine.clock))
+      if (lit.length > MAX_FLASHES) lit = lit.slice(-MAX_FLASHES)
       const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.toolCallId ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
@@ -460,7 +467,9 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       return out
     }
     const draw = (): void => {
-      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced) })
+      lit = live.current.reduced ? [] : lit.filter((f) => flashAlpha(engine.clock - f.t0) > 0 || engine.clock <= f.t0)
+      const flashes = lit.map((f) => ({ x: f.x, y: f.y, a: flashAlpha(engine.clock - f.t0) }))
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced), flashes })
       placeOverlays()
     }
 

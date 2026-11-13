@@ -73,8 +73,9 @@ export interface BurrowRenderer {
    * `crowns`: agents that launched at least one known sub-agent (burrow-links orchestratorsOf) wear a crown.
    * `ringing`: a dispatch call is observed running (an orchestrator at the telephone): the telephone rings. Never under
    * reduced motion or Freeze motion, where the scene is still.
+   * `flashes`: objects of a room lighting up for a tool call just received (burrow-flash), with their brightness now.
    */
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean }): void
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean; flashes?: ReadonlyArray<{ x: number; y: number; a: number }> }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
@@ -208,7 +209,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false }) {
+    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false, flashes }) {
       rings = ringsIn
       crowns = crownsIn
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
@@ -285,7 +286,24 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
         g.globalAlpha = clamp01(0.5 + 0.4 * Math.sin(clock * 1.1 + i * 1.3))
         drawFx('glowShroom', p[0] - (r[2] >> 1), p[1] - (r[3] >> 1))
       })
+      // a room object lighting up for a received tool call: a lamp's glow, then a small spark of paper at its heart
+      if (flashes?.length) {
+        r = FX.rects.glowLamp
+        for (const f of flashes) { g.globalAlpha = clamp01(f.a); drawFx('glowLamp', f.x - (r[2] >> 1), f.y - (r[3] >> 1)) }
+      }
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
+      if (flashes?.length) {
+        g.fillStyle = pal.paper
+        for (const f of flashes) {
+          if (f.a < 0.35) continue
+          g.globalAlpha = clamp01(f.a)
+          const x = Math.round(f.x)
+          const y = Math.round(f.y)
+          g.fillRect(x - 1, y, 3, 1); g.fillRect(x, y - 1, 1, 3)
+          if (f.a > 0.7) { g.fillRect(x - 2, y, 1, 1); g.fillRect(x + 2, y, 1, 1); g.fillRect(x, y - 2, 1, 1); g.fillRect(x, y + 2, 1, 1) }
+        }
+        g.globalAlpha = 1
+      }
       // letters in flight, above everything: a 9 x 6 envelope, its flap drawn in ink; a return carries a red seal
       if (letters?.length) {
         for (const l of letters) {
