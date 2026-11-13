@@ -16,7 +16,7 @@ import { isDoneAgent } from '@/lib/inactive-agents'
 import { BURROW_DATA } from '@/lib/burrow/burrow-data'
 import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
-import { createBurrowSyncState, syncBurrow, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
+import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import type { BurrowRoomId } from '@/lib/burrow/burrow-types'
 import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 
@@ -102,6 +102,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const ringRef = useRef<HTMLDivElement>(null)
   const hoverRingRef = useRef<HTMLDivElement>(null)
   const dirtyRef = useRef(true)
+  /** The scene must follow the agents at the next frame, whatever syncDue says (selection, filter, motion setting) */
+  const resyncRef = useRef(true)
   const [assets, setAssets] = useState<Assets | null>(null)
   const [failed, setFailed] = useState(false)
   const [rows, setRows] = useState<BurrowRow[]>([])
@@ -115,6 +117,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, t }
   // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting)
   useEffect(() => { dirtyRef.current = true }, [selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles])
+  // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places newcomers at once
+  useEffect(() => { resyncRef.current = true }, [selectedAgentId, hideInactive, reduced])
 
   useEffect(() => {
     let alive = true
@@ -199,8 +203,16 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let linksSig = ''
     let delegations = new Map<string, number>()
     const flights: Array<{ kind: MailKind; from: string; to: string; t0: number }> = []
+    // following the agents (freshness, filter, placements, rows) is not redone every frame: only when an event arrived,
+    // an agent or a link message appeared, a setting changed, or SYNC_INTERVAL_MS went by (what the clock alone changes)
+    let lastSync: { at: number; fingerprint: string } | null = null
     const follow = (): void => {
       const sim = simulationRef.current
+      const now = Date.now()
+      const fingerprint = simFingerprint(sim)
+      if (!resyncRef.current && !syncDue(lastSync, now, fingerprint)) return
+      resyncRef.current = false
+      lastSync = { at: now, fingerprint }
       const agents = sim ? sim.agents : new Map()
       const nextLinksSig = linksSignature(sim?.links)
       if (nextLinksSig !== linksSig) {
@@ -213,7 +225,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       }
       delegations = openDelegations(sim?.links, (key) => { const ag = agents.get(key); return ag !== undefined && !isDoneAgent(ag) })
       const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
-        hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now: Date.now(), delegations,
+        hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
       })
       if (changed) dirtyRef.current = true
       const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}`).join('\n')

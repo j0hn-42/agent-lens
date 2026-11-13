@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
-import { createBurrowSyncState, syncBurrow as syncList, BURROW_MAX_ANIMALS, type SyncAgent } from '../web/lib/burrow/burrow-sync'
+import { createBurrowSyncState, syncBurrow as syncList, syncDue, simFingerprint, SYNC_INTERVAL_MS, BURROW_MAX_ANIMALS, type SyncAgent } from '../web/lib/burrow/burrow-sync'
 
 const TITLES = { lounge: 'L', office: 'O', library: 'B', workshop: 'A', lab: 'X', home: 'M' }
 function seeded(seed: number): () => number {
@@ -262,4 +262,27 @@ test('syncBurrow stays cheap with 300 agents, most of them beyond the cap', () =
   const perCall = (performance.now() - t0) / runs
   // about 0.2 ms here; a search of every animal for every agent (the engine's lookups, the cap) took ten times that
   assert.ok(perCall < 2, `${perCall.toFixed(2)} ms per call`)
+})
+
+test('syncDue: the scene follows at once when the simulation changed, else at most every SYNC_INTERVAL_MS', () => {
+  assert.equal(syncDue(null, 0, 'a'), true)                              // first frame
+  const last = { at: 1000, fingerprint: 'a' }
+  assert.equal(syncDue(last, 1010, 'a'), false)                          // same frame of data, too soon
+  assert.equal(syncDue(last, 1000 + SYNC_INTERVAL_MS - 1, 'a'), false)
+  assert.equal(syncDue(last, 1000 + SYNC_INTERVAL_MS, 'a'), true)        // time alone (freshness ages with the clock)
+  assert.equal(syncDue(last, 1010, 'b'), true)                           // new events: at once
+  assert.ok(SYNC_INTERVAL_MS <= 250)
+})
+
+test('simFingerprint changes with new events, a new or dropped agent and new link messages, not with the clock', () => {
+  const links = new Map([['l', { id: 'l', from: 'a', to: 'b', kind: 'spawn', messages: [], dropped: 0 }]]) as unknown as Parameters<typeof simFingerprint>[0]['links']
+  const base = { agents: new Map([['a', agent('a')]]), links, eventIndex: 3, eventLog: [1, 2, 3], droppedEvents: 0, currentTime: 1 } as unknown as Parameters<typeof simFingerprint>[0]
+  const f = simFingerprint(base)
+  assert.equal(simFingerprint({ ...base, currentTime: 9 } as typeof base), f)
+  assert.notEqual(simFingerprint({ ...base, eventIndex: 4 } as typeof base), f)
+  assert.notEqual(simFingerprint({ ...base, eventLog: [1, 2, 3, 4] } as unknown as typeof base), f)
+  assert.notEqual(simFingerprint({ ...base, agents: new Map() } as typeof base), f)
+  const more = new Map([['l', { id: 'l', from: 'a', to: 'b', kind: 'spawn', messages: [{ id: 'm', type: 'dispatch' }], dropped: 0 }]]) as unknown as typeof links
+  assert.notEqual(simFingerprint({ ...base, links: more } as typeof base), f)
+  assert.equal(simFingerprint(undefined), '')
 })

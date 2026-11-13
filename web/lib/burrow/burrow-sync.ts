@@ -1,18 +1,40 @@
 /**
- * Burrow view: makes the scene follow the agents. Called every frame with the simulation's agents; it acts only when
- * what an agent is observed doing changed (a new room, present or not, a new bubble), so the animals keep walking in between.
+ * Burrow view: makes the scene follow the agents. Called with the simulation's agents when they may have changed
+ * (syncDue); it acts only when what an agent is observed doing changed (a new room, present or not, a new bubble), so
+ * the animals keep walking in between.
  */
 import type { Agent } from '../agent-types'
 import { visibleAgents } from '../inactive-agents'
 import { deriveFreshness } from '../../hooks/simulation/freshness'
+import type { SimulationState } from '../../hooks/simulation/types'
 import type { BurrowEngine } from './burrow-engine'
 import { placeAgent, pickAnimal, type BurrowBubble, type BurrowPlacement } from './burrow-model'
 import type { BurrowRoomId } from './burrow-types'
-import { treeOrder } from './burrow-links'
+import { linksSignature, treeOrder } from './burrow-links'
 
 /** Most animals drawn at once: more would hide each other in a 560 x 315 px scene */
 export const BURROW_MAX_ANIMALS = 24
 const BUBBLE_SECONDS = 6
+
+/**
+ * Longest time the scene goes without following the agents when no event arrived: what changes with the clock alone
+ * (an agent that turns stale, the stamps of the list) shows up within this delay.
+ */
+export const SYNC_INTERVAL_MS = 250
+
+/**
+ * Cheap fingerprint of what the scene follows: changes when an event is applied or dropped, an agent appears or goes,
+ * or a link message arrives. Not with the clock (the simulation's time moves every frame).
+ */
+export function simFingerprint(sim: Pick<SimulationState, 'agents' | 'links' | 'eventIndex' | 'eventLog' | 'droppedEvents'> | null | undefined): string {
+  if (!sim) return ''
+  return `${sim.agents.size}|${sim.eventIndex}|${sim.eventLog?.length ?? 0}|${sim.droppedEvents}|${linksSignature(sim.links)}`
+}
+
+/** Whether the scene should follow the agents now: at once when the fingerprint changed, otherwise every SYNC_INTERVAL_MS */
+export function syncDue(last: { at: number; fingerprint: string } | null, now: number, fingerprint: string): boolean {
+  return last === null || fingerprint !== last.fingerprint || now - last.at >= SYNC_INTERVAL_MS
+}
 
 export type SyncAgent = Pick<Agent, 'id' | 'displayName' | 'state' | 'archived' | 'activity' | 'currentTool' | 'awaitingNextEvent' | 'kind'>
   & Pick<Agent, 'sessionId' | 'parentId'> & Partial<Pick<Agent, 'teamName' | 'teamKind' | 'clusterKey' | 'lastEventAt' | 'freshnessSource'>>
