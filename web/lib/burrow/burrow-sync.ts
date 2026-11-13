@@ -83,8 +83,26 @@ export interface BurrowSyncState {
   /** Last placement applied per agent id: what changed since is what the engine is told */
   applied: Map<string, string>
   started: boolean
+  /** Room of the last tool each agent was seen running, and when (opts.now): held while it thinks between two calls */
+  lastRoom: Map<string, { room: BurrowRoomId; at: number }>
 }
-export const createBurrowSyncState = (): BurrowSyncState => ({ applied: new Map(), started: false })
+export const createBurrowSyncState = (): BurrowSyncState => ({ applied: new Map(), started: false, lastRoom: new Map() })
+
+/**
+ * Between two tool calls an agent thinks for a moment: it stays in the room of its last tool for up to this long
+ * (its bubble says Thinking), instead of crossing the burrow and back for a think of a second.
+ */
+const ROOM_HOLD_MS = 10_000
+
+/** The placement with the room of the last tool held while a thinking agent is between two calls (see ROOM_HOLD_MS) */
+function holdRoom(p: BurrowPlacement, a: SyncAgent, stale: boolean, st: BurrowSyncState, now: number): BurrowPlacement {
+  if (p.presence !== 'in' || stale) { st.lastRoom.delete(a.id); return p }
+  if (p.room !== 'lounge') { st.lastRoom.set(a.id, { room: p.room, at: now }); return p }
+  const between = a.state === 'thinking' || (a.state === 'tool_calling' && !a.currentTool)
+  const last = st.lastRoom.get(a.id)
+  if (!between || !last || now - last.at > ROOM_HOLD_MS) { st.lastRoom.delete(a.id); return p }
+  return { ...p, room: last.room }
+}
 
 export interface BurrowSyncOptions {
   hideInactive: boolean
@@ -146,7 +164,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const stale = deriveFreshness(a, opts.now) === 'stale'
     // a filtered agent is not drawn: it walks out through the front door, and it is not listed (finished or not)
     wanted.push({
-      a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : placeAgent(a, { stale, delegating: opts.delegations?.get(a.id) }),
+      a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : holdRoom(placeAgent(a, { stale, delegating: opts.delegations?.get(a.id) }), a, stale, st, opts.now),
       filtered, posture: postureOf(a.state, stale),
     })
   }
@@ -154,6 +172,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   // animals of agents that are gone from the data walk out for good
   for (const actor of engine.actors) if (!ids.has(actor.key)) { engine.removeActor(actor.key); st.applied.delete(actor.key); changed = true }
   for (const key of [...st.applied.keys()]) if (!engine.has(key) && !ids.has(key)) st.applied.delete(key)
+  for (const key of [...st.lastRoom.keys()]) if (!ids.has(key)) st.lastRoom.delete(key)
 
   // already drawn first, then the busiest: the cap never takes an animal away from an agent that works
   const order = wanted.slice().sort((x, y) => Number(engine.has(y.a.id)) - Number(engine.has(x.a.id)) || rank(y) - rank(x))

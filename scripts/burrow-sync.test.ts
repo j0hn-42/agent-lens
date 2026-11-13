@@ -432,3 +432,24 @@ test('two running calls of the tool the bubble names (parallel calls, or an end 
   assert.equal(id('a'), undefined, 'two running Reads: which one the bubble names is a guess')
   assert.equal(id('b'), 't4', 'one running Read among other tools: that one')
 })
+
+test('between two tool calls a thinking agent stays in the room of its last tool for up to 10 s, then goes back to the lounge', () => {
+  const { e, st } = setup()
+  const a = agent('a', { state: 'tool_calling', currentTool: 'Read' })
+  const t0 = opts.now
+  syncBurrow(e, st, [a], { ...opts, now: t0 })
+  assert.equal(e.jobOf('a'), 'library')
+  a.state = 'thinking'; a.currentTool = undefined
+  const held = syncBurrow(e, st, [a], { ...opts, now: t0 + 3000 })
+  assert.equal(e.jobOf('a'), 'library', 'a short think between two Reads does not send it back across the burrow')
+  assert.equal(held.rows[0].room, 'library')
+  assert.equal(e.actors.find((x) => x.key === 'a')?.said, 'state:thinking', 'the bubble says the state it is in, not the tool')
+  syncBurrow(e, st, [a], { ...opts, now: t0 + 11_000 })
+  assert.equal(e.jobOf('a'), null, 'a long think: back to the lounge')
+  // idle, an error or a permission wait never hold the room
+  const b = agent('b', { state: 'tool_calling', currentTool: 'Edit' })
+  syncBurrow(e, st, [a, b], { ...opts, now: t0 + 12_000 })
+  b.state = 'waiting_permission'; b.currentTool = undefined
+  syncBurrow(e, st, [a, b], { ...opts, now: t0 + 12_500 })
+  assert.equal(e.jobOf('b'), null)
+})

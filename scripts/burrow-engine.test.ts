@@ -385,3 +385,14 @@ test('a posture waits behind a job and behind resting: the room and the finished
   run(e, 40)
   assert.equal(a.pose, null, 'a finished agent keeps its plain dimmed rest')
 })
+
+test('an agent sent to a workshop runs: it reaches the room across the burrow within a few seconds, a stroll stays slow', () => {
+  for (const room of ['office', 'library', 'workshop', 'lab'] as const) {
+    const e = make(7)
+    e.addActor('a', 'beetle', { inside: true })      // the slowest animal, from the lounge
+    e.assign('a', room)
+    run(e, 3.5)
+    const a = e.actors.find((x) => x.key === 'a')!
+    assert.equal(e.zoneOf(a.x, a.y), room, `in the ${room} after 3.5 s (${Math.round(a.x)},${Math.round(a.y)})`)
+  }
+})

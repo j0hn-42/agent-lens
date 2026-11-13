@@ -13,6 +13,8 @@ const LOUNGE: BurrowRoomId = 'lounge'
 const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'door']
 /** Seconds an unavailable agent still waits in the lounge before it walks out through the front door */
 const HOME_AFTER_S = 4
+/** An agent on its way to a workshop or the door post moves this many times faster than a stroll */
+const RUN_FACTOR = 3.5
 const SAY_NEVER_ENDS = Number.POSITIVE_INFINITY
 
 type Mode = 'idle' | 'queue' | 'walk' | 'doorOut' | 'doorIn' | 'home' | 'hopOn' | 'hopOff' | 'sit'
@@ -567,8 +569,10 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
         if (a.wait <= 0) begin(a)
         break
       case 'walk': {
-        let d = a.speed * dt
-        a.animT += dt
+        // sent to work (a tool call is often over in a second): it runs, so the room it reaches is still the tool's
+        const pace = a.job && !a.goingHome ? RUN_FACTOR : 1
+        let d = a.speed * pace * dt
+        a.animT += dt * pace
         while (d > 0 && a.route.length) {
           const p = a.route[0]
           const dx = p.x - a.x
