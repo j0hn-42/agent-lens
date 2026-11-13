@@ -73,7 +73,7 @@ function styleBubble(el: HTMLDivElement, u: number): void {
 export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, announceLevel = 'all', links }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
-  const { prefs } = useUiPreferences()
+  const { prefs, setPref } = useUiPreferences()
   const announcements = useBurrowAnnouncements({ simulationRef, announceLevel, hideInactive, selectedAgentId, links })
   const containerRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -86,7 +86,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const [failed, setFailed] = useState(false)
   const [rows, setRows] = useState<BurrowRow[]>([])
   const [hidden, setHidden] = useState(0)
-  const [showTitles, setShowTitles] = useState(true)
+  const showTitles = prefs.burrowTitles
   const [osReduced, setOsReduced] = useState(false)
   const reduced = osReduced || prefs.freezeMotion
 
@@ -282,7 +282,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     }
   }, [assets, titles, simulationRef])
 
-  const onTitles = useCallback(() => setShowTitles((v) => !v), [])
+  const onTitles = useCallback(() => setPref('burrowTitles', !prefs.burrowTitles), [setPref, prefs.burrowTitles])
   const roomName = (r: BurrowRoomId): string => t(`burrow.room.${r}` as 'burrow.room.lounge')
   const rowLabel = (r: BurrowRow): string => {
     if (r.presence === 'finished') return t('burrow.agent.done', { name: r.name })
@@ -322,7 +322,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           {failed ? t('burrow.failed') : t('burrow.loading')}
         </p>
       )}
-      <div className="absolute bottom-2 left-2 flex max-w-[calc(100%-1rem)] flex-col items-start gap-1 text-2xs font-mono" style={{ color: 'var(--lens-ink-muted)' }}>
+      <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-col items-start gap-1 text-2xs font-mono" style={{ color: 'var(--lens-ink-muted)' }}>
         {hidden > 0 && <p role="status" className="m-0">{t('burrow.hidden', { n: hidden, max: BURROW_MAX_ANIMALS })}</p>}
         <button
           type="button"

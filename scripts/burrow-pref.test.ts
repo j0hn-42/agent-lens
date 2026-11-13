@@ -19,3 +19,16 @@ test('sceneStyle survives the stored envelope and a flat v0 object', () => {
   assert.equal(parsePrefs(serializePrefs({ ...DEFAULT_UI_PREFS, sceneStyle: 'burrow' })).sceneStyle, 'burrow')
   assert.equal(parsePrefs('{"v":1,"prefs":{"sceneStyle":"zoo"}}').sceneStyle, 'graph')
 })
+
+test('burrowTitles: on by default, only a boolean is kept', () => {
+  assert.equal(DEFAULT_UI_PREFS.burrowTitles, true)
+  assert.equal(sanitizePref('burrowTitles', false), false)
+  assert.equal(sanitizePref('burrowTitles', true), true)
+  for (const bad of ['false', 0, null, undefined, {}, []]) assert.equal(sanitizePref('burrowTitles', bad), true)
+})
+
+test('burrowTitles round-trips through serializePrefs and parsePrefs', () => {
+  assert.equal(parsePrefs(serializePrefs({ ...DEFAULT_UI_PREFS, burrowTitles: false })).burrowTitles, false)
+  assert.equal(parsePrefs(serializePrefs(DEFAULT_UI_PREFS)).burrowTitles, true)
+  assert.equal(parsePrefs('{"v":1,"prefs":{"burrowTitles":"no"}}').burrowTitles, true)
+})

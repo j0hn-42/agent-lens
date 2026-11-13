@@ -80,6 +80,8 @@ export interface UiPrefs {
   announceLevel: AnnounceLevel
   /** Scene style: 'graph' (default) or 'burrow'; the Burrow draws the same observed states, only differently */
   sceneStyle: SceneStyle
+  /** Burrow view: show the room titles woven into the picture (the 'Room titles' toggle); on by default */
+  burrowTitles: boolean
   /** View menu > 'Freeze motion' (#372, formerly its own key): off by default */
   freezeMotion: boolean
   /** View menu > per-layer motion (#247; in the blob since #372): true = this canvas layer is calm */
@@ -116,6 +118,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   relayScope: null,
   announceLevel: 'all',
   sceneStyle: 'graph',
+  burrowTitles: true,
   freezeMotion: false,
   calmBackground: DEFAULT_CALM_LAYERS.background,
   calmLinks: DEFAULT_CALM_LAYERS.links,
