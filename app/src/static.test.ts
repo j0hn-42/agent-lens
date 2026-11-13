@@ -94,8 +94,31 @@ test('burrow pictures: a PNG is served only from burrow/ of the webview director
     assert.equal((await fetch(`${base}/burrow/%2e%2e%2ftop.png`)).status, 404, 'no way out of burrow/')
     assert.equal((await fetch(`${base}/burrow/fox.js`)).status, 404, 'only pictures under burrow/')
     assert.equal((await fetch(`${base}/x/burrow/fox.png`)).status, 404)
+    // Variants the name pattern must keep out (hardening review): case, backslashes, a doubled slash, a directory
+    assert.equal((await fetch(`${base}/burrow/FOX.png`)).status, 404, 'names are lower case only')
+    assert.equal((await fetch(`${base}/burrow/..%5cfox.png`)).status, 404, 'an encoded backslash does not match')
+    assert.equal((await fetch(`${base}/burrow/..\\fox.png`)).status, 404, 'a raw backslash does not match')
+    assert.equal((await fetch(`${base}//burrow/fox.png`)).status, 404, 'a doubled slash does not match')
+    fs.mkdirSync(path.join(dir, 'burrow', 'dir.png'))
+    assert.equal((await fetch(`${base}/burrow/dir.png`)).status, 404, 'a directory is not a picture')
+    // The query string is ignored, and HEAD answers like GET without a body
+    assert.equal((await fetch(`${base}/burrow/fox.png?x=1`)).status, 200)
+    const head = await fetch(`${base}/burrow/fox.png`, { method: 'HEAD' })
+    assert.equal(head.status, 200)
+    assert.equal((await head.arrayBuffer()).byteLength, 0)
   } finally {
     server.close()
     fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('burrow pictures behind the request guard: a POST is refused before the static route', async () => {
+  const server = http.createServer((req, res) => { if (!guardRequest(req, res, { kind: 'static' })) serveStatic(req, res) })
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  try {
+    assert.equal((await fetch(`${base}/burrow/fox.png`, { method: 'POST' })).status, 405)
+  } finally {
+    server.close()
   }
 })
