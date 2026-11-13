@@ -52,3 +52,14 @@ export function cullTags(tags: readonly TagBox[], obstacles: readonly Box[], opt
   }
   return shown
 }
+
+/**
+ * The names the tags carry, refreshed from the list rows. `changed` says the tags must be placed again: under reduced
+ * motion or Freeze motion nothing else would redraw them when only an agent's name changed.
+ */
+export function nextTagNames(prev: ReadonlyMap<string, string>, rows: readonly { id: string; name: string }[]): { names: Map<string, string>; changed: boolean } {
+  let changed = rows.length !== prev.size
+  if (!changed) for (const r of rows) if (prev.get(r.id) !== r.name) { changed = true; break }
+  if (!changed) return { names: prev as Map<string, string>, changed }
+  return { names: new Map(rows.map((r) => [r.id, r.name])), changed }
+}

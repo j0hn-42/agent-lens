@@ -3,7 +3,7 @@
 // agent always keep theirs, and an animal outside the burrow or in the doorway has none.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { truncateName, cullTags, showsTag, BURROW_TAG_MAX_CHARS, type TagBox } from '../web/lib/burrow/burrow-labels'
+import { truncateName, cullTags, showsTag, nextTagNames, BURROW_TAG_MAX_CHARS, type TagBox } from '../web/lib/burrow/burrow-labels'
 
 test('truncateName: a short name is kept as is', () => {
   assert.equal(truncateName('alpha'), 'alpha')
@@ -64,4 +64,18 @@ test('cullTags: a tag shown at the previous frame keeps its place against a newc
 
 test('cullTags: boxes that only share an edge do not overlap', () => {
   assert.equal(cullTags([box('a', 0, 0, 40, 10), box('b', 40, 0, 40, 10)], []).size, 2)
+})
+
+// With reduced motion or Freeze motion the tags are placed again only when the scene is marked as changed: a renamed
+// agent (its label arrives after it spawned) must mark it, or its tag keeps the old name while the list shows the new one.
+test('nextTagNames: a rename is a change, the same names are not', () => {
+  const prev = new Map([['s1:a', 'agent-1'], ['s1:b', 'beta']])
+  const same = nextTagNames(prev, [{ id: 's1:a', name: 'agent-1' }, { id: 's1:b', name: 'beta' }])
+  assert.equal(same.changed, false)
+  assert.equal(same.names, prev, 'unchanged names keep the same map')
+  const renamed = nextTagNames(prev, [{ id: 's1:a', name: 'Reviewer' }, { id: 's1:b', name: 'beta' }])
+  assert.equal(renamed.changed, true)
+  assert.equal(renamed.names.get('s1:a'), 'Reviewer')
+  assert.equal(nextTagNames(prev, [{ id: 's1:a', name: 'agent-1' }]).changed, true, 'an agent gone is a change')
+  assert.equal(nextTagNames(prev, [...prev].map(([id, name]) => ({ id, name })).concat({ id: 's1:c', name: 'c' })).changed, true, 'a new agent is a change')
 })

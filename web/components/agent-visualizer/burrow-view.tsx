@@ -16,7 +16,7 @@ import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import type { BurrowRoomId } from '@/lib/burrow/burrow-types'
-import { cullTags, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
+import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 
 export interface BurrowViewProps {
   simulationRef: React.RefObject<SimulationState>
@@ -194,7 +194,14 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       })
       if (changed) dirtyRef.current = true
       const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}`).join('\n')
-      if (sig !== rowsSig) { rowsSig = sig; setRows(next); names = new Map(next.map((r) => [r.id, r.name])) }
+      if (sig !== rowsSig) {
+        rowsSig = sig
+        setRows(next)
+        // a renamed agent must redraw its tag, also under reduced motion where only a dirty scene is placed again
+        const tagNames = nextTagNames(names, next)
+        names = tagNames.names
+        if (tagNames.changed) dirtyRef.current = true
+      }
       if (extra !== hiddenShown) { hiddenShown = extra; setHidden(extra) }
     }
 
