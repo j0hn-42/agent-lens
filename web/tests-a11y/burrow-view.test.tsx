@@ -65,3 +65,10 @@ test('focusing a list button keeps the list an absolute overlay: the scene size 
   assert.equal(list.className, before)
   assert.deepEqual(hovered, ['s1:a', null])
 })
+
+test('the agent list opens under the Room titles button, not at the top of the window', () => {
+  mount()
+  const classes = screen.getByRole('list', { name: 'Burrow agents' }).className.split(/\s+/)
+  assert.ok(classes.includes('top-full'), 'the list hangs from the column that sits under the top bar')
+  assert.ok(!classes.includes('top-2'), 'the list is not pinned to the top of the window, where the top bar covers it')
+})

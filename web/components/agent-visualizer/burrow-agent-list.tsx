@@ -5,12 +5,13 @@ import { Z } from '@/lib/agent-types'
 import type { BurrowRow } from '@/lib/burrow/burrow-sync'
 
 /**
- * Visually hidden until a button inside takes focus, then shown in the top-right corner. It stays
- * `position: absolute` in both states: `sr-only focus-within:not-sr-only` would reset it to `static`,
+ * Visually hidden until a button inside takes focus, then shown under the Room titles button: it hangs from the
+ * burrow's control column (`top-full right-0`), which sits below the top bar, so no focused row is drawn under the
+ * bar. It stays `position: absolute` in both states: `sr-only focus-within:not-sr-only` would reset it to `static`,
  * make it a flex child beside the stage and shrink the scene while the list has focus.
  */
 const LIST_CLASS = [
-  'absolute right-2 top-2 m-0 flex max-h-[60%] max-w-[calc(100%-1rem)] list-none flex-col gap-1 p-0 text-2xs font-mono',
+  'absolute right-0 top-full mt-1 m-0 flex max-h-[calc(100dvh-var(--topbar-h,60px)-6rem)] w-max max-w-[min(24rem,calc(100vw-2rem))] list-none flex-col gap-1 p-0 text-2xs font-mono',
   'size-px overflow-hidden whitespace-nowrap [clip-path:inset(50%)]',
   'focus-within:h-auto focus-within:w-auto focus-within:overflow-y-auto focus-within:whitespace-normal focus-within:[clip-path:none]',
 ].join(' ')

@@ -374,7 +374,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           )}
         </div>
       )}
-      <div className="absolute left-2 top-2 flex max-w-[calc(100%-1rem)] flex-col items-start gap-1 text-2xs font-mono" style={{ color: 'var(--lens-ink-muted)' }}>
+      {/* Below the top bar (drawn over the top of <main>), on the right: the collapsed Conversation pill holds the left */}
+      <div className="absolute right-2 flex max-w-[calc(100%-1rem)] flex-col items-end gap-1 text-2xs font-mono" style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', color: 'var(--lens-ink-muted)' }}>
         {hidden > 0 && <p role="status" className="m-0">{t('burrow.hidden', { n: hidden, max: BURROW_MAX_ANIMALS })}</p>}
         <button
           type="button"
@@ -385,17 +386,17 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         >
           {t('burrow.titles')}
         </button>
+        {rows.length > 0 && (
+          <BurrowAgentList
+            label={t('burrow.list')}
+            rows={rows}
+            selectedAgentId={selectedAgentId}
+            rowLabel={rowLabel}
+            onAgentClick={(id) => onAgentClick(id)}
+            onAgentHover={onAgentHover}
+          />
+        )}
       </div>
-      {rows.length > 0 && (
-        <BurrowAgentList
-          label={t('burrow.list')}
-          rows={rows}
-          selectedAgentId={selectedAgentId}
-          rowLabel={rowLabel}
-          onAgentClick={(id) => onAgentClick(id)}
-          onAgentHover={onAgentHover}
-        />
-      )}
       <p className="sr-only">{t('burrow.rooms.help')} {t('burrow.hint')}</p>
       <LiveAnnouncements announcements={announcements} />
     </div>
