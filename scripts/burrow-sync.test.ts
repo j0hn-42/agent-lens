@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
+import { BURROW_ERROR_PLACE } from '../web/lib/burrow/burrow-error-place'
 import { clusterColor } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { createBurrowSyncState, syncBurrow as syncList, syncDue, simFingerprint, SYNC_INTERVAL_MS, BURROW_MAX_ANIMALS, type SyncAgent } from '../web/lib/burrow/burrow-sync'
 /** Palette colour of a session, as the graph gives its halo */
@@ -370,6 +371,7 @@ test('the posture follows the state: thinking seated, waiting for a permission w
   const wait = actor('wait')
   assert.equal(wait.pose, wait.meta.poses.wave ? 'wave' : null)
   assert.equal(actor('err').pose, null)
+  assert.ok(BURROW_ERROR_PLACE.spots.some((p) => p.x === actor('err').x && p.y === actor('err').y), 'in error: at the fixed place of errors')
   const old = actor('old')
   assert.equal(old.pose, old.meta.poses.sleep ? 'sleep' : null)
   assert.ok(BURROW_DATA.map.poi.some((p) => p.id.startsWith('fire') && p.x === old.x && p.y === old.y), 'by the fireside')

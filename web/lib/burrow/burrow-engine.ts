@@ -9,18 +9,23 @@
  */
 import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowPosture, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
 import { BURROW_TELEPHONE } from './burrow-telephone'
+import { BURROW_ERROR_PLACE } from './burrow-error-place'
 
 const LOUNGE: BurrowRoomId = 'lounge'
 const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'phone', 'door']
-/** Places made of fixed posts rather than of a room's furniture: the telephone, beside the front door */
-type PostKind = 'phone' | 'door'
-const isPostKind = (room: BurrowRoomId): room is PostKind => room === 'phone' || room === 'door'
+/**
+ * Places made of fixed posts rather than of a room's furniture: the telephone and beside the front door (jobs), and
+ * the place of errors in the lounge (the 'error' posture)
+ */
+type PostKind = 'phone' | 'door' | 'error'
+type PostRoom = Extract<BurrowRoomId, PostKind>
+const isPostKind = (room: BurrowRoomId): room is PostRoom => room === 'phone' || room === 'door'
 /**
  * Which way an animal at a post looks: callers face the telephone (on their left); beside the front door an agent waits
  * for the user, it faces the door (on its right) and waves when its drawing can
  */
-const POST_FACE: Record<PostKind, BurrowDir> = { phone: 'left', door: 'right' }
-const POST_POSE: Record<PostKind, string | null> = { phone: null, door: 'wave' }
+const POST_FACE: Record<PostKind, BurrowDir> = { phone: 'left', door: 'right', error: 'down' }
+const POST_POSE: Record<PostKind, string | null> = { phone: null, door: 'wave', error: null }
 /** Seconds an unavailable agent still waits in the lounge before it walks out through the front door */
 const HOME_AFTER_S = 4
 /** An agent on its way to a workshop or the door post moves this many times faster than a stroll */
@@ -144,13 +149,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   // a character standing right in front of a mat would hide its title: agents walk over the mats but never stop there
   const hidesTitle = (x: number, y: number): boolean => mats.some((m) => x > m.x - 10 && x < m.x + m.w + 10 && y > m.y - 2 && y < m.y + m.h + 30)
   // floor kept for a place of its own (the telephone's callers): an animal walks over it but stops there only to hold that place
-  const KEPT: ReadonlyArray<readonly [number, number, number, number]> = [BURROW_TELEPHONE.reserved]
+  const KEPT: ReadonlyArray<readonly [number, number, number, number]> = [BURROW_TELEPHONE.reserved, BURROW_ERROR_PLACE.reserved]
   const kept = (x: number, y: number): boolean => KEPT.some((r) => x >= r[0] && x < r[2] && y >= r[1] && y < r[3])
   const zoneCells: Partial<Record<BurrowRoomId, Array<[number, number]>>> = {}
   const cellsOf = (room: BurrowRoomId): Array<[number, number]> => zoneCells[room] ?? zoneCells[LOUNGE] ?? [[Math.floor(GW / 2), Math.floor(GH / 2)]]
-  // Posts: at the telephone (burrow-telephone), and a row beside the front door, facing it. Never on a title mat, never in
-  // the lane in front of the doorway that agents use to come in and go out.
-  const posts: Record<PostKind, Pt[]> = { phone: [], door: [] }
+  // Posts: at the telephone (burrow-telephone), a row beside the front door, facing it, and the place of errors
+  // (burrow-error-place). Never on a title mat, never in the lane in front of the doorway that agents use to come in and go out.
+  const posts: Record<PostKind, Pt[]> = { phone: [], door: [], error: [] }
 
   function layTitles(titles: Readonly<Record<string, string>>): void {
     mats.length = 0
@@ -175,6 +180,8 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     }
     posts.phone.length = 0
     for (const p of BURROW_TELEPHONE.posts) if (pointOk(p.x, p.y) && !hidesTitle(p.x, p.y)) posts.phone.push({ x: p.x, y: p.y })
+    posts.error.length = 0
+    for (const p of BURROW_ERROR_PLACE.spots) if (pointOk(p.x, p.y) && !hidesTitle(p.x, p.y)) posts.error.push({ x: p.x, y: p.y })
   }
   layTitles(opts.titles)
 
@@ -478,7 +485,9 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   }
   function chooseGoal(a: Actor): void {
     releasePoi(a)
-    if (a.post && a.job?.room !== a.post.kind) a.post = null
+    // the post it holds is kept only for the same use: its job, or (no job, no rest) its error
+    const use: PostKind | null = a.job ? (isPostKind(a.job.room) ? a.job.room : null) : !a.resting && a.posture === 'error' ? 'error' : null
+    if (a.post && a.post.kind !== use) a.post = null
 
     if (dueHome(a) && wayClear(a)) { goHome(a); return }
     if (a.job) { goWork(a, a.job.room); return }      // next post in the same room, until released
@@ -532,6 +541,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   /** The posture of a state other than idle, held until the state changes (no end, no wander) */
   function hold(a: Actor, posture: Exclude<BurrowPosture, 'stroll'>): void {
     a.zone = LOUNGE
+    if (posture === 'error') {                       // in error: a spot of the place of errors
+      const p = takePost(a, 'error')
+      if (p) { a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE.error }]; return }
+      const c = standingSpot(a)                       // all taken: it stands still, and looks again for a free spot after a while
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(4, 8), face: 'down' }]
+      return
+    }
     if (posture === 'sit') {                         // thinking: the nearest free seat; none free, it stands still
       const seat = nearest(a, freePois(a, LOUNGE).filter((p) => p.perch))
       if (seat?.perch) {

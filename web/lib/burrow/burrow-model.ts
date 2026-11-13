@@ -105,6 +105,7 @@ export function postureOf(state: AgentState, stale: boolean): BurrowPosture {
     case 'idle': return 'stroll'
     case 'thinking': return 'sit'
     case 'waiting_permission': return 'wave'
+    case 'error': return 'error'
     default: return 'still'
   }
 }

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
+import { BURROW_ERROR_PLACE } from '../web/lib/burrow/burrow-error-place'
 
 const HOME_AFTER_S = 4   // the engine's rest time in the lounge before an unavailable agent leaves
 const TITLES = { lounge: 'Salon', office: 'Bureau', library: 'Bibliothèque', workshop: 'Atelier', lab: 'Labo', home: 'Maison' }
@@ -390,6 +391,43 @@ test('setPosture still: no stroll, no seat; stroll gives the idle wander back', 
   e.setPosture('a', 'stroll')
   run(e, 60)
   assert.notEqual(`${a.x},${a.y}`, `${x},${y}`, 'idle again, it strolls')
+})
+
+test('setPosture error: the agent stands at the fixed place of errors, facing the viewer, one spot each; back to idle it leaves', () => {
+  const MAP = BURROW_DATA.map
+  const walkable = (x: number, y: number) => MAP.grid[Math.floor(y / MAP.cell)]?.[Math.floor(x / MAP.cell)] === '1'
+  const r = BURROW_ERROR_PLACE.reserved
+  for (const p of BURROW_ERROR_PLACE.spots) {
+    assert.ok(walkable(p.x, p.y), `${p.x},${p.y} walkable`)
+    assert.ok(p.x >= r[0] && p.x < r[2] && p.y >= r[1] && p.y < r[3], `${p.x},${p.y} on its kept floor`)
+  }
+  const e = make(12)
+  const n = BURROW_ERROR_PLACE.spots.length
+  for (let i = 0; i <= n; i++) { e.addActor(`e${i}`, i % 2 ? 'fox' : 'squirrel', { inside: true }); e.setPosture(`e${i}`, 'error') }
+  run(e, 60)
+  const at = (a: { x: number; y: number }) => BURROW_ERROR_PLACE.spots.some((p) => p.x === a.x && p.y === a.y)
+  const placed = e.actors.filter(at)
+  assert.equal(placed.length, n, 'every spot taken once')
+  assert.equal(new Set(placed.map((a) => `${a.x},${a.y}`)).size, n)
+  for (const a of placed) { assert.equal(a.dir, 'down'); assert.equal(a.pose, null); assert.equal(a.mode, 'idle') }
+  const extra = e.actors.find((a) => !at(a))!
+  assert.equal(e.zoneOf(extra.x, extra.y), 'lounge')
+  const first = placed[0]
+  settledAndKept(e, first.key)
+  assert.ok(at(first))
+  e.setPosture(first.key, 'stroll')
+  run(e, 60)
+  assert.ok(!at(first), 'idle again, it left the place of errors')
+})
+
+test('an idle animal walks over the place of errors but never stops there', () => {
+  const e = make(13)
+  const r = BURROW_ERROR_PLACE.reserved
+  for (let i = 0; i < 12; i++) e.addActor(`a${i}`, 'otter', { inside: true })
+  for (let t = 0; t < 300; t += 0.1) {
+    e.update(0.1)
+    for (const a of e.actors) if (a.mode === 'idle' || a.mode === 'sit') assert.ok(!(a.x >= r[0] && a.x < r[2] && a.y >= r[1] && a.y < r[3]), `${a.key} stopped at ${a.x},${a.y}`)
+  }
 })
 
 test('a posture waits behind a job and behind resting: the room and the finished rest come first', () => {
