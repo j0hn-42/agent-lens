@@ -121,6 +121,15 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
         className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING_INSET}`}
         style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
       >
+        {/* the colour of the animal's floor ring (its session or team halo), a picture beside the text that names the group */}
+        {r.marker && (
+          <span
+            aria-hidden="true"
+            data-burrow-swatch
+            className="mr-1 inline-block size-2 rounded-full align-middle"
+            style={{ background: r.marker, outline: '1px solid var(--lens-control-border)' }}
+          />
+        )}
         {rowLabel(r)}
       </button>
     </li>

@@ -92,3 +92,15 @@ test('Escape from elsewhere on the page leaves the legend, the focus and the glo
   assert.equal(document.activeElement, field)
   assert.notEqual(screen.queryByRole('group'), null, 'the legend stays open')
 })
+
+test('the legend says what the floor ring is and where its colour is named', () => {
+  setLocaleChoice('en')
+  try {
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    const text = screen.getByRole('group').textContent ?? ''
+    assert.ok(/ring on the floor/i.test(text) && /agent list/i.test(text), text)
+  } finally {
+    setLocaleChoice('auto')
+  }
+})

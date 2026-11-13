@@ -170,3 +170,14 @@ test('the rows draw their focus ring inside: the list scrolls (overflow clips bo
     view.unmount()
   }
 })
+
+test('a row whose animal stands on a floor ring shows that colour beside its name (a picture: the name is unchanged)', () => {
+  setup([{ ...row('a', 'alpha'), marker: '#12ab34' }, row('b', 'beta')])
+  const [a, b] = buttons()
+  const swatch = a.querySelector<HTMLElement>('[data-burrow-swatch]')
+  assert.ok(swatch, 'the ring colour is shown in the row')
+  assert.equal(swatch.getAttribute('aria-hidden'), 'true')
+  assert.equal(swatch.style.background, 'rgb(18, 171, 52)')
+  assert.equal(a.textContent, 'alpha')
+  assert.equal(b.querySelector('[data-burrow-swatch]'), null, 'no ring, no swatch')
+})
