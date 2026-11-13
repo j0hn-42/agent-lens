@@ -71,3 +71,64 @@ test('rows of several sessions are grouped under a session heading; one session 
   setup([row('a', 'alpha', 's1'), row('b', 'beta', 's1')])
   assert.equal(document.querySelectorAll('[data-burrow-session]').length, 0)
 })
+
+function listOf(rows: BurrowRow[]) {
+  return (
+    <BurrowAgentList label="Burrow agents" rows={rows} selectedAgentId={null} rowLabel={(r) => r.name}
+      groupLabel={(s) => `Session ${s}`} onAgentClick={() => {}} onAgentHover={() => {}} />
+  )
+}
+
+test('one session is one flat list: no nested list, no wrapper item', () => {
+  setup([row('a', 'alpha'), row('b', 'beta')])
+  assert.equal(document.querySelectorAll('[data-burrow-agent-list] ul').length, 0)
+  const items = Array.from(document.querySelector('[data-burrow-agent-list]')!.children)
+  assert.deepEqual(items.map((li) => li.textContent), ['alpha', 'beta'])
+})
+
+test('several sessions: each group is a labelled list in an item that keeps its listitem role', () => {
+  setup([row('a', 'alpha', 's1'), row('c', 'gamma', 's2')])
+  const inner = Array.from(document.querySelectorAll('[data-burrow-agent-list] ul'))
+  assert.deepEqual(inner.map((u) => u.getAttribute('aria-label')), ['Session s1', 'Session s2'])
+  for (const u of inner) assert.ok(!u.parentElement!.className.includes('contents'))
+})
+
+test('the focused row keeps the focus when an agent of a second session appears, and when it leaves again', () => {
+  const { rerender } = render(listOf([row('a', 'alpha', 's1'), row('b', 'beta', 's1')]))
+  buttons()[1].focus()
+  rerender(listOf([row('a', 'alpha', 's1'), row('b', 'beta', 's1'), row('c', 'gamma', 's2')]))
+  assert.equal(document.activeElement?.textContent, 'beta')
+  rerender(listOf([row('a', 'alpha', 's1'), row('b', 'beta', 's1')]))
+  assert.equal(document.activeElement?.textContent, 'beta')
+})
+
+/** jsdom keeps the focus on a node moved in the document; a browser drops it to <body>, as this does */
+function withBrowserMoves(run: () => void): void {
+  const proto = Node.prototype as unknown as Record<'insertBefore' | 'appendChild', (...args: Node[]) => Node>
+  const saved = { insertBefore: proto.insertBefore, appendChild: proto.appendChild }
+  const dropFocus = (node: Node) => {
+    const active = document.activeElement
+    if (node.isConnected && active instanceof HTMLElement && node.contains(active)) active.blur()
+  }
+  proto.insertBefore = function (this: Node, node: Node, ...rest: Node[]) { dropFocus(node); return saved.insertBefore.call(this, node, ...rest) }
+  proto.appendChild = function (this: Node, node: Node) { dropFocus(node); return saved.appendChild.call(this, node) }
+  try { run() } finally { Object.assign(proto, saved) }
+}
+
+// React DOM gives the focus back to a node it moved during a commit (restoreSelection), so the attention-first order
+// does not throw the keyboard out of the list; this pins that behaviour
+test('the focused row keeps the focus when the rows are reordered (an agent asks for a permission)', () => {
+  const { rerender } = render(listOf([row('a', 'alpha'), row('b', 'beta'), row('c', 'gamma')]))
+  buttons()[0].focus()
+  withBrowserMoves(() => rerender(listOf([row('c', 'gamma'), row('a', 'alpha'), row('b', 'beta')])))
+  assert.equal(document.activeElement?.textContent, 'alpha')
+})
+
+test('a reorder does not take the focus when no row had it', () => {
+  const outside = document.createElement('button')
+  document.body.append(outside)
+  const { rerender } = render(listOf([row('a', 'alpha'), row('b', 'beta')]))
+  outside.focus()
+  rerender(listOf([row('b', 'beta'), row('a', 'alpha')]))
+  assert.equal(document.activeElement, outside)
+})

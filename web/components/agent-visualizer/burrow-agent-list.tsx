@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { Z } from '@/lib/agent-types'
 import type { BurrowRow } from '@/lib/burrow/burrow-sync'
@@ -74,31 +74,51 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
     buttons[next].focus()
   }
 
+  // React gives the focus back to a button it only moved (rows reordered by attention), not to one it remounted: when
+  // the list splits into session groups or merges back, the focused button is a new node, the focus would fall to
+  // <body> and the list, shown only while it holds the focus, would vanish. The focused row is read before this
+  // render is committed and focused again after it.
+  const listRef = useRef<HTMLUListElement>(null)
+  const focusedRow = useRef<string | null>(null)
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  focusedRow.current = active instanceof HTMLElement && listRef.current?.contains(active) ? active.dataset.burrowRow ?? null : null
+  useLayoutEffect(() => {
+    const id = focusedRow.current
+    if (id === null) return
+    const target = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('button[data-burrow-row]') ?? [])
+      .find((b) => b.dataset.burrowRow === id)
+    if (target && document.activeElement !== target) target.focus()
+  })
+
+  const item = (r: BurrowRow) => (
+    <li key={r.id} style={r.depth > 0 ? { paddingInlineStart: `${r.depth * 0.75}rem` } : undefined}>
+      <button
+        type="button"
+        data-burrow-row={r.id}
+        tabIndex={r.id === stop ? 0 : -1}
+        title={rowLabel(r)}
+        aria-current={r.id === selectedAgentId ? 'true' : undefined}
+        onClick={() => onAgentClick(r.id)}
+        onFocus={() => { setActiveId(r.id); onAgentHover(r.id) }}
+        onBlur={() => onAgentHover(null)}
+        className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING}`}
+        style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
+      >
+        {rowLabel(r)}
+      </button>
+    </li>
+  )
+
   return (
-    <ul data-burrow-agent-list aria-label={label} onKeyDown={onKeyDown} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
-      {groups.map((g) => (
-        <li key={g.sessionId ?? 'all'} className="contents">
+    <ul ref={listRef} data-burrow-agent-list aria-label={label} onKeyDown={onKeyDown} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
+      {/* one session: a flat list of agents; several: one labelled list per session, each in an item of its own */}
+      {groups.length === 1 ? groups[0].rows.map(item) : groups.map((g) => (
+        <li key={g.sessionId ?? ''}>
           <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label={g.sessionId !== null ? groupLabel(g.sessionId) : undefined}>
             {g.sessionId !== null && (
               <li data-burrow-session aria-hidden="true" className="truncate px-1 pt-1 font-semibold">{groupLabel(g.sessionId)}</li>
             )}
-            {g.rows.map((r) => (
-              <li key={r.id} style={r.depth > 0 ? { paddingInlineStart: `${r.depth * 0.75}rem` } : undefined}>
-                <button
-                  type="button"
-                  tabIndex={r.id === stop ? 0 : -1}
-                  title={rowLabel(r)}
-                  aria-current={r.id === selectedAgentId ? 'true' : undefined}
-                  onClick={() => onAgentClick(r.id)}
-                  onFocus={() => { setActiveId(r.id); onAgentHover(r.id) }}
-                  onBlur={() => onAgentHover(null)}
-                  className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING}`}
-                  style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
-                >
-                  {rowLabel(r)}
-                </button>
-              </li>
-            ))}
+            {g.rows.map(item)}
           </ul>
         </li>
       ))}
