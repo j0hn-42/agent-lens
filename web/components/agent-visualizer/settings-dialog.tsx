@@ -58,6 +58,11 @@ export interface SettingsDialogProps {
     level: AnnounceLevel
     onLevelChange: (level: AnnounceLevel) => void
   }
+  /** Scene style: the node graph or the Burrow; the switch is left out when absent */
+  burrow?: {
+    on: boolean
+    onChange: (on: boolean) => void
+  }
   /** Quota gauges of the top bar (#467); the switch is left out when absent */
   quota?: {
     show: boolean
@@ -311,7 +316,7 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
  */
 export function SettingsDialog({
   open, onClose, tab, onTabChange, hexGrid, onHexGridChange, muted, onToggleMute, showMode, onShowModeChange,
-  singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota,
+  singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota, burrow,
   onResetPrefs, onOpenViewControls,
 }: SettingsDialogProps) {
   const { locale, choice, setChoice } = useLocale()
@@ -446,6 +451,7 @@ export function SettingsDialog({
               <LanguageSelect id={langId} choice={choice} onChange={setChoice} autoLabel={t('settings.language.auto')} frLabel={t('settings.language.fr')} enLabel={t('settings.language.en')} />
             </div>
             <SwitchRow label={t('settings.hexGrid')} help={t('settings.hexGrid.help')} checked={hexGrid} onChange={onHexGridChange} />
+            {burrow && <SwitchRow label={t('burrow.settings.label')} help={t('burrow.settings.help')} checked={burrow.on} onChange={burrow.onChange} />}
             {quota && <SwitchRow label={t('settings.quota')} help={t('settings.quota.help')} extraHelp={t('settings.quota.setup')} checked={quota.show} onChange={quota.onShowChange} />}
           </Section>
 

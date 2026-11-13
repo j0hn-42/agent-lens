@@ -7,6 +7,7 @@ import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
 import { AgentCanvas } from "./canvas"
+import { BurrowView } from "./burrow-view"
 import { ControlBar } from "./control-bar"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
@@ -428,7 +429,17 @@ export function AgentVisualizer() {
       {/* In full screen too: the canvas still draws the Cost panel there, and the region is sr-only (no visual footprint) */}
       {showCostOverlay && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} />}
 
-      {/* Canvas fills everything */}
+      {/* Canvas fills everything: the node graph, or the Burrow (same agents, same observed states, drawn as animals in rooms) */}
+      {prefs.sceneStyle === 'burrow' ? (
+        <BurrowView
+          simulationRef={labelledSimulationRef}
+          selectedAgentId={selection.selectedAgentId}
+          hoveredAgentId={selection.hoveredAgentId}
+          hideInactive={hideInactiveShown}
+          onAgentClick={handleCanvasAgentClick}
+          onAgentHover={selection.setHoveredAgentId}
+        />
+      ) : (
       <AgentCanvas
         {...canvasTeamProps}
         simulationRef={labelledSimulationRef}
@@ -459,6 +470,7 @@ export function AgentVisualizer() {
         agentListKey={singleKeyShortcuts ? "L" : null}
         openViewRequest={viewControlsRequest}
       />
+      )}
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
       <ConversationPanel
@@ -534,6 +546,7 @@ export function AgentVisualizer() {
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs, onOpenViewControls: openViewControls,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: settingsAnnouncements,
+          burrow: { on: prefs.sceneStyle === 'burrow', onChange: on => setPref('sceneStyle', on ? 'burrow' : 'graph') },
           quota: quotaSettingActive ? { show: showQuota, onShowChange: updateShowQuota } : undefined,
           notifications: settingsNotifications,
         }}

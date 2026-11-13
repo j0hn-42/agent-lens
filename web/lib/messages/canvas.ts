@@ -1,5 +1,5 @@
 // Message catalog (#247), domain “canvas” (#612): Canvas: controls, motion layers, legend, graph help and context menu.
-// Keys: controls.*, motion.*, legend.*, graph.*, menu.*. Add a key here with its two languages, fr and en; web/lib/messages.ts assembles the domains.
+// Keys: controls.*, motion.*, legend.*, graph.*, menu.*, burrow.*. Add a key here with its two languages, fr and en; web/lib/messages.ts assembles the domains.
 
 import { PANEL_NAMES } from '../ui-glossary'
 import { FILES_PANEL_FR } from './shared'
@@ -120,6 +120,29 @@ export const fr = {
   'controls.hiddenNames.title': 'Noms d’agents masqués pour que les libellés ne se chevauchent pas. Survolez un nœud ou donnez-lui le focus pour lire son nom, ou ouvrez la liste {panel}.',
   // Aide clavier du graphe lue par les lecteurs d’écran (graphKeyboardHelp), touches dites en toutes lettres (#613)
   'graph.help.entry': '{keys} : {description}.',
+  // Burrow view: the pixel-art scene. The room titles are woven into the picture (pixel font, accents included).
+  'burrow.name': 'Terrier',
+  'burrow.loading': 'Chargement du terrier…',
+  'burrow.failed': 'Le terrier n’a pas pu démarrer.',
+  'burrow.region': 'Terrier : un animal par agent, une pièce par type de travail',
+  'burrow.room.lounge': 'Salon',
+  'burrow.room.office': 'Bureau',
+  'burrow.room.library': 'Bibliothèque',
+  'burrow.room.workshop': 'Atelier',
+  'burrow.room.lab': 'Labo',
+  'burrow.room.home': 'Maison',
+  'burrow.rooms.help': 'Salon : au repos, en réflexion, en pause ou en attente. Bureau : modifie des fichiers. Bibliothèque : lit ou cherche. Atelier : lance des commandes. Labo : tout autre outil.',
+  'burrow.agent': '{name} : {state}, {room}',
+  'burrow.agent.away': '{name} : terminé, hors du terrier',
+  'burrow.agent.tool': '{name} : {state}, {room}, outil {tool}',
+  'burrow.agent.stale': '{name} : dernier état connu, {state}',
+  'burrow.bubble.stale': 'Dernier état connu : {state}',
+  'burrow.list': 'Agents du terrier',
+  'burrow.titles': 'Titres des pièces',
+  'burrow.hidden': '{n} agent(s) non dessiné(s) : le terrier en montre {max} au plus.',
+  'burrow.hint': 'Cliquez un animal, ou parcourez la liste des agents au clavier (Tab), pour sélectionner son agent.',
+  'burrow.settings.label': 'Vue Terrier',
+  'burrow.settings.help': 'Dessine les agents comme des animaux dans un terrier : la pièce dépend de l’outil en cours (voir le guide). Seuls des états observés sont montrés.',
 } as const
 
 export const en: Record<keyof typeof fr, string> = {
@@ -238,4 +261,27 @@ export const en: Record<keyof typeof fr, string> = {
   'controls.hiddenNames.title': 'Agent names hidden so that labels do not overlap. Hover or focus a node to read its name, or open the {panel} list.',
   // Keyboard help of the graph read by screen readers (graphKeyboardHelp), keys spelled out (#613)
   'graph.help.entry': '{keys}: {description}.',
+  // Burrow view: the pixel-art scene. The room titles are woven into the picture (pixel font, accents included).
+  'burrow.name': 'Burrow',
+  'burrow.loading': 'Loading the burrow…',
+  'burrow.failed': 'The burrow could not start.',
+  'burrow.region': 'Burrow: one animal per agent, one room per kind of work',
+  'burrow.room.lounge': 'Lounge',
+  'burrow.room.office': 'Office',
+  'burrow.room.library': 'Library',
+  'burrow.room.workshop': 'Workshop',
+  'burrow.room.lab': 'Laboratory',
+  'burrow.room.home': 'Home',
+  'burrow.rooms.help': 'Lounge: at rest, thinking, paused or waiting. Office: edits files. Library: reads or searches. Workshop: runs commands. Laboratory: any other tool.',
+  'burrow.agent': '{name}: {state}, {room}',
+  'burrow.agent.away': '{name}: finished, outside the burrow',
+  'burrow.agent.tool': '{name}: {state}, {room}, tool {tool}',
+  'burrow.agent.stale': '{name}: last known state, {state}',
+  'burrow.bubble.stale': 'Last known state: {state}',
+  'burrow.list': 'Burrow agents',
+  'burrow.titles': 'Room titles',
+  'burrow.hidden': '{n} agent(s) not drawn: the burrow shows {max} at most.',
+  'burrow.hint': 'Click an animal, or go through the agent list with the keyboard (Tab), to select its agent.',
+  'burrow.settings.label': 'Burrow view',
+  'burrow.settings.help': 'Draws the agents as animals in a burrow: the room depends on the tool being run (see the guide). Only observed states are shown.',
 }

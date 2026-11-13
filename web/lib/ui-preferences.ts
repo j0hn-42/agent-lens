@@ -41,6 +41,10 @@ export const SESSION_ID_MAX_LENGTH = 256
 export const ANNOUNCE_LEVELS = ['all', 'important'] as const
 export type AnnounceLevel = (typeof ANNOUNCE_LEVELS)[number]
 
+/** How the scene is drawn: the node graph, or the pixel-art Burrow (one animal per agent, one room per kind of work) */
+const SCENE_STYLES = ['graph', 'burrow'] as const
+export type SceneStyle = (typeof SCENE_STYLES)[number]
+
 export interface UiPrefs {
   showHexGrid: boolean
   showStats: boolean
@@ -74,6 +78,8 @@ export interface UiPrefs {
   relayScope: 'workspace' | 'all' | null
   /** Verbosity of the live announcements (#379): urgent states are told at every level */
   announceLevel: AnnounceLevel
+  /** Scene style: 'graph' (default) or 'burrow'; the Burrow draws the same observed states, only differently */
+  sceneStyle: SceneStyle
   /** View menu > 'Freeze motion' (#372, formerly its own key): off by default */
   freezeMotion: boolean
   /** View menu > per-layer motion (#247; in the blob since #372): true = this canvas layer is calm */
@@ -109,6 +115,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   sessionListActiveOnly: true,
   relayScope: null,
   announceLevel: 'all',
+  sceneStyle: 'graph',
   freezeMotion: false,
   calmBackground: DEFAULT_CALM_LAYERS.background,
   calmLinks: DEFAULT_CALM_LAYERS.links,
@@ -132,6 +139,8 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
       return (isShowMode(value) ? value : fallback) as UiPrefs[K]
     case 'announceLevel':
       return (value === 'all' || value === 'important' ? value : fallback) as UiPrefs[K]
+    case 'sceneStyle':
+      return ((SCENE_STYLES as readonly unknown[]).includes(value) ? value : fallback) as UiPrefs[K]
     case 'relayScope':
       return (value === 'workspace' || value === 'all' ? value : null) as UiPrefs[K]
     case 'toolExpiryS':

@@ -167,7 +167,6 @@
   "web/lib/feed-utils.ts:VIRTUALIZE_THRESHOLD",
   "web/lib/file-conflicts.ts:MAX_FILE_CONFLICTS",
   "web/lib/inactive-agents.ts:activeWorkflowGroups",
-  "web/lib/inactive-agents.ts:isDoneAgent",
   "web/lib/issue-links.ts:issueLinksUrl",
   "web/lib/issue-links.ts:parseIssueLinks",
   "web/lib/legend-presence.ts:PRESENCE_LABEL_MAX",
