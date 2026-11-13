@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import { useBurrowAnnouncements } from '@/hooks/use-burrow-announcements'
@@ -131,6 +131,19 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const insetsRef = useRef<StageInsets>({ top: 0, right: 0, bottom: 0, left: 0 })
   /** Portrait (narrow, tall free area): where the always-shown agent list goes under the stage; null in landscape */
   const [listBox, setListBox] = useState<BurrowLayout['list']>(null)
+  /** Agent row that had the focus at the last fit: focused again when the list moved to the other layout */
+  const refocusRowRef = useRef<string | null>(null)
+  const portrait = listBox !== null
+  useLayoutEffect(() => {
+    const id = refocusRowRef.current
+    refocusRowRef.current = null
+    if (id === null) return
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    const row = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-burrow-agent-list] button[data-burrow-row]') ?? [])
+      .find((b) => b.dataset.burrowRow === id)
+    row?.focus()
+  }, [portrait])
   /** Fits the stage again (set by the scene once its pictures are loaded) */
   const refitRef = useRef<() => void>(() => {})
   const showTitles = prefs.burrowTitles
@@ -236,6 +249,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       if (!layout) return
       const fit = layout.stage
       const box = layout.list
+      // the list moves between the control column and its portrait panel, so React mounts it anew: the row that has
+      // the focus now is read before the switch and focused again after it (useLayoutEffect on the orientation)
+      const active = document.activeElement
+      refocusRowRef.current = active instanceof HTMLElement && container.contains(active) ? active.dataset.burrowRow ?? null : null
       setListBox((b) => (b === box || (b && box && b.left === box.left && b.top === box.top && b.width === box.width && b.height === box.height) ? b : box))
       scale = fit.scale
       stage.style.width = `${fit.width}px`

@@ -311,6 +311,30 @@ test('portrait (a phone): the stage spans the width at the top and the agent lis
   }
 })
 
+test('a switch from landscape to portrait (zoom, rotation, docked panel) keeps the focus on the focused row', async () => {
+  const g = globalThis as unknown as { ResizeObserver: unknown }
+  const savedRO = g.ResizeObserver
+  const observers: Array<() => void> = []
+  g.ResizeObserver = class { constructor(cb: () => void) { observers.push(cb) } observe() {} unobserve() {} disconnect() {} }
+  let restore = withClientSize(1280, 800)
+  try {
+    await mountLoaded()
+    const row = screen.getByRole('list', { name: 'Burrow agents' }).querySelector<HTMLButtonElement>('button[data-burrow-row="beta"]')!
+    act(() => row.focus())
+    assert.equal(document.activeElement, row)
+    restore()
+    restore = withClientSize(390, 844)
+    act(() => { for (const cb of observers) cb() })
+    const list = screen.getByRole('list', { name: 'Burrow agents' })
+    assert.ok(list.closest('[data-burrow-list-panel]'), 'now in portrait')
+    assert.equal((document.activeElement as HTMLElement | null)?.dataset.burrowRow, 'beta', 'the focus stays on that row')
+    assert.ok(list.contains(document.activeElement))
+  } finally {
+    restore()
+    g.ResizeObserver = savedRO
+  }
+})
+
 test('landscape: the agent list stays hidden until it takes the focus', async () => {
   const restore = withClientSize(1280, 800)
   try {
