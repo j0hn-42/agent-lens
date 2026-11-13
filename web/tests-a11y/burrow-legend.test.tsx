@@ -32,12 +32,44 @@ test('the legend opens, lists the tools of the model for each room, and closes w
   assert.equal(screen.queryByRole('group'), null)
 })
 
-test('Escape closes the legend and gives the focus back to the button', () => {
+test('Escape on the button closes the legend and leaves the focus there', () => {
   render(<BurrowLegend />)
   const btn = screen.getByRole('button')
   fireEvent.click(btn)
-  fireEvent.keyDown(document.body, { key: 'Escape' })
+  btn.focus()
+  fireEvent.keyDown(btn, { key: 'Escape' })
   assert.equal(screen.queryByRole('group'), null)
   assert.equal(btn.getAttribute('aria-expanded'), 'false')
   assert.equal(document.activeElement, btn)
+})
+
+test('Escape inside the panel closes the legend and gives the focus back to the button', () => {
+  render(<BurrowLegend />)
+  const btn = screen.getByRole('button')
+  fireEvent.click(btn)
+  const panel = screen.getByRole('group')
+  panel.tabIndex = -1
+  panel.focus()
+  fireEvent.keyDown(panel, { key: 'Escape' })
+  assert.equal(screen.queryByRole('group'), null)
+  assert.equal(document.activeElement, btn)
+})
+
+test('Escape from elsewhere on the page leaves the legend, the focus and the global Escape alone', () => {
+  render(<><input aria-label="elsewhere" /><BurrowLegend /></>)
+  const btn = screen.getByRole('button')
+  fireEvent.click(btn)
+  const field = screen.getByLabelText('elsewhere')
+  field.focus()
+  let reachedWindow = false
+  const onWindow = () => { reachedWindow = true }
+  window.addEventListener('keydown', onWindow)
+  try {
+    fireEvent.keyDown(field, { key: 'Escape' })
+  } finally {
+    window.removeEventListener('keydown', onWindow)
+  }
+  assert.ok(reachedWindow, 'the window-level Escape still sees the key')
+  assert.equal(document.activeElement, field)
+  assert.notEqual(screen.queryByRole('group'), null, 'the legend stays open')
 })

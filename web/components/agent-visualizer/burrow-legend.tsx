@@ -8,20 +8,28 @@ import { BURROW_ROOM_TOOLS } from '@/lib/burrow/burrow-model'
 /** Rooms in the order of the legend; the tools of a room come from the model, so the legend cannot drift from the placement */
 const LEGEND_ROOMS = ['lounge', 'office', 'library', 'workshop', 'lab', 'door'] as const
 
-/** Burrow view: a toggle that opens a compact legend of the rooms and their tools (Escape or the button closes it) */
+/**
+ * Burrow view: a toggle that opens a compact legend of the rooms and their tools. The button closes it, and so does
+ * Escape when the focus is on the button or in the panel; an Escape from elsewhere is left to the global shortcuts.
+ */
 export function BurrowLegend() {
   const t = useT()
   const [open, setOpen] = useState(false)
   const panelId = useId()
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      const target = e.target instanceof Node ? e.target : null
+      const onButton = target !== null && buttonRef.current?.contains(target) === true
+      const inPanel = target !== null && panelRef.current?.contains(target) === true
+      if (!onButton && !inPanel) return
       e.stopPropagation()
       setOpen(false)
-      buttonRef.current?.focus()
+      if (inPanel) buttonRef.current?.focus()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -45,6 +53,7 @@ export function BurrowLegend() {
       </button>
       {open && (
         <div
+          ref={panelRef}
           id={panelId}
           role="group"
           aria-label={t('burrow.legend.title')}
