@@ -273,3 +273,50 @@ test('a tool bubble that names a running call is clickable and opens it; a state
   fireEvent.keyDown(row, { key: 'Enter', shiftKey: true })
   assert.deepEqual(opened, ['tc9', 'tc9'], 'Shift+Enter on its row opens the same call')
 })
+
+/** Gives every element a client size (jsdom lays nothing out): the burrow's scene is then `w` x `h` */
+function withClientSize(w: number, h: number): () => void {
+  const proto = HTMLElement.prototype
+  const saved = ['clientWidth', 'clientHeight'].map((k) => [k, Object.getOwnPropertyDescriptor(proto, k)] as const)
+  Object.defineProperty(proto, 'clientWidth', { configurable: true, get: () => w })
+  Object.defineProperty(proto, 'clientHeight', { configurable: true, get: () => h })
+  return () => { for (const [k, d] of saved) if (d) Object.defineProperty(proto, k, d) }
+}
+
+const clipped = (el: Element): boolean => el.className.includes('[clip-path:inset(50%)]')
+
+test('portrait (a phone): the stage spans the width at the top and the agent list is shown below it, without focus, one Tab stop', async () => {
+  const restore = withClientSize(390, 844)
+  try {
+    const view = await mountLoaded()
+    const list = screen.getByRole('list', { name: 'Burrow agents' })
+    assert.equal(clipped(list), false, 'the list is visible without taking the focus')
+    assert.equal(list.contains(document.activeElement), false)
+    const panel = list.closest<HTMLElement>('[data-burrow-list-panel]')
+    assert.ok(panel, 'the list sits in its own panel, not in the control column')
+    const stage = view.container.querySelector('canvas')!.parentElement as HTMLElement
+    assert.equal(stage.style.width, '390px', 'the stage spans the free width')
+    assert.equal(stage.style.top, '0px', 'at the top of the free area')
+    assert.ok(parseFloat(panel.style.top) >= parseFloat(stage.style.height), 'the panel is under the stage')
+    assert.ok(list.className.includes('overflow-y-auto'), 'a long list scrolls')
+    const rows = Array.from(list.querySelectorAll<HTMLButtonElement>('button[data-burrow-row]'))
+    assert.deepEqual(rows.map((b) => b.tabIndex).sort(), [-1, 0], 'still one Tab stop')
+    rows.find((b) => b.tabIndex === 0)!.focus()
+    fireEvent.keyDown(document.activeElement!, { key: 'End' })
+    assert.equal(document.activeElement, rows[rows.length - 1], 'the arrows and Home/End still move in it')
+  } finally {
+    restore()
+  }
+})
+
+test('landscape: the agent list stays hidden until it takes the focus', async () => {
+  const restore = withClientSize(1280, 800)
+  try {
+    await mountLoaded()
+    const list = screen.getByRole('list', { name: 'Burrow agents' })
+    assert.equal(clipped(list), true)
+    assert.equal(list.closest('[data-burrow-list-panel]'), null)
+  } finally {
+    restore()
+  }
+})

@@ -21,24 +21,62 @@ function axis(a: number, b: number, size: number): [number, number] {
   return [a * k, b * k]
 }
 
-/** Scale and position of the `map`-sized stage in a `container`, centred on the area the `insets` leave free */
-export function fitStage(container: { w: number; h: number }, insets: StageInsets, map: { w: number; h: number }): StageFit | null {
-  const cw = container.w
-  const ch = container.h
-  if (!(cw > 0) || !(ch > 0) || !(map.w > 0) || !(map.h > 0)) return null
-  const [left, right] = axis(edge(insets.left), edge(insets.right), cw)
-  const [top, bottom] = axis(edge(insets.top), edge(insets.bottom), ch)
-  const freeW = cw - left - right
-  const freeH = ch - top - bottom
-  const scale = Math.max(MIN_SCALE, Math.min(freeW / map.w, freeH / map.h))
+interface FreeArea { left: number; top: number; width: number; height: number }
+
+/** The area the insets leave free in the container (null when the container or the picture has no size) */
+function freeArea(container: { w: number; h: number }, insets: StageInsets, map: { w: number; h: number }): FreeArea | null {
+  if (!(container.w > 0) || !(container.h > 0) || !(map.w > 0) || !(map.h > 0)) return null
+  const [left, right] = axis(edge(insets.left), edge(insets.right), container.w)
+  const [top, bottom] = axis(edge(insets.top), edge(insets.bottom), container.h)
+  return { left, top, width: container.w - left - right, height: container.h - top - bottom }
+}
+
+/** Centred on the free span; a stage that fits the scene is kept inside it, one that does not is centred on it */
+function place(start: number, free: number, size: number, total: number): number {
+  const at = start + (free - size) / 2
+  return Math.round(size <= total ? Math.max(0, Math.min(total - size, at)) : (total - size) / 2)
+}
+
+function stageIn(container: { w: number; h: number }, free: FreeArea, map: { w: number; h: number }, atTop: boolean): StageFit {
+  const scale = Math.max(MIN_SCALE, Math.min(free.width / map.w, free.height / map.h))
   const width = Math.floor(map.w * scale)
   const height = Math.floor(map.h * scale)
-  // centred on the free area; a stage that fits the scene is kept inside it, one that does not is centred on it
-  const place = (start: number, free: number, size: number, total: number): number => {
-    const at = start + (free - size) / 2
-    return Math.round(size <= total ? Math.max(0, Math.min(total - size, at)) : (total - size) / 2)
+  const top = atTop ? Math.round(free.top) : place(free.top, free.height, height, container.h)
+  return { scale, left: place(free.left, free.width, width, container.w), top, width, height }
+}
+
+/** A free area narrower than this, and taller than wide, is laid out in portrait (a phone, a narrow strip beside a dock) */
+const PORTRAIT_MAX_W = 600
+/** Height the list panel needs under the stage for portrait to be worth it (a heading and a couple of rows) */
+const MIN_LIST_H = 64
+
+export interface BurrowLayout {
+  stage: StageFit
+  /** Portrait: where the always-shown agent list goes, under the stage in the free area; null in the landscape layout */
+  list: { left: number; top: number; width: number; height: number } | null
+}
+
+/**
+ * The burrow's layout. Landscape (the default): the `map`-sized stage centred on the area the `insets` leave free, the agent list shown on focus in the control
+ * column. Portrait, when the free area is narrower than PORTRAIT_MAX_W and taller than wide: the stage spans the free
+ * width at the top of the free area, and the list is a visible panel filling the rest below it, with the scene's gutters.
+ */
+export function burrowLayout(container: { w: number; h: number }, insets: StageInsets, map: { w: number; h: number }): BurrowLayout | null {
+  const free = freeArea(container, insets, map)
+  if (!free) return null
+  if (free.width < PORTRAIT_MAX_W && free.height > free.width) {
+    const stage = stageIn(container, free, map, true)
+    const top = stage.top + stage.height + GUTTER
+    const left = Math.round(free.left + GUTTER)
+    const list = {
+      left,
+      top,
+      width: Math.max(0, Math.floor(free.left + free.width - GUTTER) - left),
+      height: Math.floor(free.top + free.height - GUTTER) - top,
+    }
+    if (list.height >= MIN_LIST_H && list.width > 0) return { stage, list }
   }
-  return { scale, left: place(left, freeW, width, cw), top: place(top, freeH, height, ch), width, height }
+  return { stage: stageIn(container, free, map, false), list: null }
 }
 
 /** Gap between the burrow's control column and the scene's edges or a docked panel */

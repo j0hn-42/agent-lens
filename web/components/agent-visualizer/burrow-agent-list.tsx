@@ -17,6 +17,9 @@ const LIST_CLASS = [
   'focus-within:h-auto focus-within:w-auto focus-within:overflow-y-auto focus-within:whitespace-normal focus-within:[clip-path:none]',
 ].join(' ')
 
+/** Portrait: always shown, filling the panel the view places under the stage, scrolled when the rows overflow it */
+const PANEL_CLASS = 'm-0 flex size-full list-none flex-col gap-1 overflow-y-auto p-0 text-2xs font-mono'
+
 /** The L shortcut: the focus goes to the list's tab stop (it appears, as when Tab reaches it); false when there is none */
 export function focusBurrowAgentList(): boolean {
   const target = document.querySelector<HTMLElement>('[data-burrow-agent-list] button[tabindex="0"]')
@@ -38,6 +41,8 @@ export interface BurrowAgentListProps {
   onToolCallClick?: (toolCallId: string) => void
   /** Accessible description of that key, said after the row's name (the hint of the secondary action) */
   toolCallKeyHint?: string
+  /** Portrait layout: the list is always shown and fills its panel; otherwise it is hidden until it takes the focus */
+  panel?: boolean
 }
 
 /** The rows by session, in order of first appearance (the tree order kept inside each); a single session is not split */
@@ -57,7 +62,7 @@ function groupBySession(rows: BurrowRow[]): Array<{ sessionId: string | null; ro
  * (roving tabindex): the arrows, Home and End move between rows, Enter and Space select as on any button. The visible
  * name is truncated, the title and the accessible name carry it in full.
  */
-export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowLabel, onAgentClick, onAgentHover, onToolCallClick, toolCallKeyHint }: BurrowAgentListProps) {
+export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowLabel, onAgentClick, onAgentHover, onToolCallClick, toolCallKeyHint, panel = false }: BurrowAgentListProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const groups = groupBySession(rows)
   const ordered = groups.flatMap((g) => g.rows)
@@ -122,7 +127,7 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
   )
 
   return (
-    <ul ref={listRef} data-burrow-agent-list aria-label={label} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
+    <ul ref={listRef} data-burrow-agent-list aria-label={label} className={panel ? PANEL_CLASS : LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
       {/* one session: a flat list of agents; several: one labelled list per session, each in an item of its own */}
       {groups.length === 1 ? groups[0].rows.map(item) : groups.map((g) => (
         <li key={g.sessionId ?? ''}>

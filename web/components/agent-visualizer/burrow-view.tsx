@@ -24,7 +24,7 @@ import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
 import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
 import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
-import { controlColumn, fitStage, type StageInsets } from '@/lib/burrow/burrow-fit'
+import { burrowLayout, controlColumn, type BurrowLayout, type StageInsets } from '@/lib/burrow/burrow-fit'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 
 export interface BurrowViewProps {
@@ -129,6 +129,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const [column, setColumn] = useState<{ right: number; room: number | null }>({ right: 8, room: null })
   /** The area the top bar, the control bar and the docked panels leave free (the graph's measure): the picture is fitted to it */
   const insetsRef = useRef<StageInsets>({ top: 0, right: 0, bottom: 0, left: 0 })
+  /** Portrait (narrow, tall free area): where the always-shown agent list goes under the stage; null in landscape */
+  const [listBox, setListBox] = useState<BurrowLayout['list']>(null)
   /** Fits the stage again (set by the scene once its pictures are loaded) */
   const refitRef = useRef<() => void>(() => {})
   const showTitles = prefs.burrowTitles
@@ -230,8 +232,11 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let hiddenShown = -1
 
     const resize = (): void => {
-      const fit = fitStage({ w: container.clientWidth, h: container.clientHeight }, insetsRef.current, { w: W, h: H })
-      if (!fit) return
+      const layout = burrowLayout({ w: container.clientWidth, h: container.clientHeight }, insetsRef.current, { w: W, h: H })
+      if (!layout) return
+      const fit = layout.stage
+      const box = layout.list
+      setListBox((b) => (b === box || (b && box && b.left === box.left && b.top === box.top && b.width === box.width && b.height === box.height) ? b : box))
       scale = fit.scale
       stage.style.width = `${fit.width}px`
       stage.style.height = `${fit.height}px`
@@ -515,6 +520,21 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
 
   const onTitles = useCallback(() => setPref('burrowTitles', !prefs.burrowTitles), [setPref, prefs.burrowTitles])
   const rowLabel = (r: BurrowRow): string => burrowRowLabel(r, rows, t)
+  // landscape: in the control column, shown when it takes the focus; portrait: in its own panel under the stage, always shown
+  const agentList = rows.length > 0 ? (
+    <BurrowAgentList
+      label={t('burrow.list')}
+      rows={rows}
+      selectedAgentId={selectedAgentId}
+      rowLabel={rowLabel}
+      groupLabel={(sid) => t('burrow.session', { id: sid.slice(0, 8) })}
+      onAgentClick={(id) => onAgentClick(id)}
+      onAgentHover={onAgentHover}
+      onToolCallClick={onToolCallClick}
+      toolCallKeyHint={t('burrow.tool.open')}
+      panel={listBox !== null}
+    />
+  ) : null
 
   return (
     <div
@@ -580,20 +600,18 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           {t('burrow.titles')}
         </button>
         <BurrowLegend />
-        {rows.length > 0 && (
-          <BurrowAgentList
-            label={t('burrow.list')}
-            rows={rows}
-            selectedAgentId={selectedAgentId}
-            rowLabel={rowLabel}
-            groupLabel={(sid) => t('burrow.session', { id: sid.slice(0, 8) })}
-            onAgentClick={(id) => onAgentClick(id)}
-            onAgentHover={onAgentHover}
-            onToolCallClick={onToolCallClick}
-            toolCallKeyHint={t('burrow.tool.open')}
-          />
-        )}
+        {listBox === null && agentList}
       </div>
+      {/* Portrait: the list is always shown, in the free area under the stage (after the controls in the Tab order) */}
+      {listBox !== null && agentList !== null && (
+        <div
+          data-burrow-list-panel
+          className="absolute"
+          style={{ left: listBox.left, top: listBox.top, width: listBox.width, height: listBox.height }}
+        >
+          {agentList}
+        </div>
+      )}
       <p className="sr-only">{t('burrow.rooms.help')} {t('burrow.hint')}</p>
       <LiveAnnouncements announcements={announcements} />
     </div>

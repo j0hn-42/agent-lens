@@ -3,10 +3,12 @@
  */
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { controlColumn, fitStage } from '../web/lib/burrow/burrow-fit'
+import { burrowLayout, controlColumn, type StageInsets } from '../web/lib/burrow/burrow-fit'
 
 const MAP = { w: 560, h: 315 }
 const NONE = { top: 0, right: 0, bottom: 0, left: 0 }
+/** The stage of the burrow's layout (landscape in every case below but the portrait ones) */
+const fitStage = (c: { w: number; h: number }, ins: StageInsets, map: { w: number; h: number }) => burrowLayout(c, ins, map)?.stage ?? null
 
 const inside = (f: { left: number; top: number; width: number; height: number }, r: { x: number; y: number; w: number; h: number }): boolean =>
   f.left >= r.x && f.top >= r.y && f.left + f.width <= r.x + r.w && f.top + f.height <= r.y + r.h
@@ -80,4 +82,44 @@ test('the control column sits left of a docked panel, and keeps usable room when
   // a scene narrower than the minimum gives the column the whole width, never a negative room
   assert.deepEqual(controlColumn(150, 400), { right: 8, room: 134 })
   assert.deepEqual(controlColumn(800, Number.NaN), controlColumn(800, 0))
+})
+
+test('a wide free area keeps the landscape layout: the stage centred, no list panel', () => {
+  for (const [w, h, ins] of [[1600, 900, { ...NONE, top: 64, bottom: 120 }], [1120, 900, NONE], [580, 400, NONE], [700, 1200, NONE]] as const) {
+    const l = burrowLayout({ w, h }, ins, MAP)
+    assert.ok(l)
+    assert.equal(l.list, null, `${w}x${h}`)
+  }
+  assert.deepEqual(burrowLayout({ w: 700, h: 1200 }, NONE, MAP)?.stage, { scale: 1.25, left: 0, top: 404, width: 700, height: 393 }, 'centred, not at the top')
+})
+
+test('a narrow portrait free area (a phone): the stage spans the free width at its top, the list fills the rest below', () => {
+  const ins = { ...NONE, top: 60, bottom: 80 }
+  const l = burrowLayout({ w: 390, h: 844 }, ins, MAP)
+  assert.ok(l)
+  assert.ok(l.list, 'a list panel in portrait')
+  assert.equal(l.stage.width, 390, 'full free width')
+  assert.equal(l.stage.left, 0)
+  assert.equal(l.stage.top, 60, 'at the top of the free area, not centred')
+  assert.ok(Math.abs(l.stage.width / l.stage.height - MAP.w / MAP.h) < 0.01)
+  // the list sits under the stage, inside the free area, and keeps the scene's gutters
+  assert.ok(l.list.top >= l.stage.top + l.stage.height, JSON.stringify(l))
+  assert.ok(l.list.top + l.list.height <= 844 - 80, JSON.stringify(l))
+  assert.ok(l.list.left >= 0 && l.list.left + l.list.width <= 390)
+  assert.ok(l.list.height > 200, `room for rows: ${l.list.height}`)
+  for (const v of Object.values(l.list)) assert.ok(Number.isInteger(v))
+})
+
+test('the free area decides, not the window: a dock that leaves a narrow tall strip switches to portrait, one that leaves a wide strip does not', () => {
+  const tall = burrowLayout({ w: 900, h: 1000 }, { ...NONE, right: 420 }, MAP)
+  assert.ok(tall?.list, 'a 480 px wide, 1000 px high free area is portrait')
+  assert.ok(tall.list.left + tall.list.width <= 480, 'the list stays left of the dock')
+  assert.equal(burrowLayout({ w: 900, h: 450 }, { ...NONE, right: 420 }, MAP)?.list, null, '480x450: not taller than wide')
+  assert.equal(burrowLayout({ w: 640, h: 1000 }, NONE, MAP)?.list, null, 'not narrower than 600 px')
+})
+
+test('portrait without room left under the stage for a row keeps the landscape layout', () => {
+  // 200 wide: the stage is drawn at half size (280x157) and leaves too little under it in a 220 px high area
+  assert.equal(burrowLayout({ w: 200, h: 220 }, NONE, MAP)?.list, null)
+  assert.equal(burrowLayout({ w: 0, h: 500 }, NONE, MAP), null)
 })
