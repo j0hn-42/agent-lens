@@ -220,3 +220,25 @@ test('has, jobOf, isGone and isOutside follow the agents through add, remove, th
   assert.equal(e.assign('k0', 'library'), true)
   assert.equal(e.jobOf('k0'), 'library')
 })
+
+test('setTitles re-lays the mats on the same engine: actors and their jobs stay, labels and widths change', () => {
+  const e = make()
+  e.addActor('a', 'fox', { inside: true, room: 'library' })
+  e.addActor('b', 'otter', { inside: true })
+  run(e, 3)
+  e.assign('b', 'office')
+  const before = e.actors.map((a) => ({ x: a.x, y: a.y }))
+  const w0 = e.mats.find((m) => m.id === 'library')?.w
+  const mats = e.mats
+  e.setTitles({ ...TITLES, library: 'Library of the burrow', lounge: 'Lounge' })
+  assert.equal(e.mats, mats, 'the same array, refilled')
+  const lib2 = e.mats.find((m) => m.id === 'library')
+  assert.equal(lib2?.label, 'LIBRARY OF THE BURROW')
+  assert.notEqual(lib2?.w, w0)
+  assert.equal(e.mats.find((m) => m.id === 'lounge')?.label, 'LOUNGE')
+  assert.deepEqual(e.actors.map((a) => ({ x: a.x, y: a.y })), before)
+  assert.equal(e.jobOf('a'), 'library')
+  assert.equal(e.jobOf('b'), 'office')
+  run(e, 5)
+  assert.equal(e.jobOf('b'), 'office')
+})

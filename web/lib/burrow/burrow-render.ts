@@ -37,6 +37,8 @@ export interface BurrowRenderer {
   resize(width: number, height: number): void
   /** The theme changed: letters and threads take the new paper and ink at the next render */
   setPalette(palette: BurrowPalette): void
+  /** Draws the title layer again from the engine's current mats (after engine.setTitles) */
+  redrawTitles(): void
   render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[] }): void
 }
 
@@ -54,9 +56,12 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
   const FX = data.fx
   const MAP = data.map
 
-  // title mats, drawn once
-  sg.imageSmoothingEnabled = false
   const M = FX.mat
+  // title mats: drawn once, and again when the engine lays them anew (language change)
+  function drawSigns(): void {
+  if (!sg) return
+  sg.clearRect(0, 0, W, H)
+  sg.imageSmoothingEnabled = false
   for (const m of engine.mats) {
     const r = FX.rects[`mat_${m.id}`] ?? FX.rects.mat_lounge
     sg.drawImage(images.fx, r[0], r[1], M.cap, M.h, m.x, m.y, M.cap, M.h)                                  // left fringe
@@ -69,6 +74,8 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     drawText(sg, data.font, m.label, m.x + M.cap + M.pad, m.y + M.textY + 1, ink.shade)                    // one darker stitch underneath,
     drawText(sg, data.font, m.label, m.x + M.cap + M.pad, m.y + M.textY, ink.ink)                          // then the thread itself
   }
+  }
+  drawSigns()
 
   function drawFx(name: string, x: number, y: number): void {
     const r = FX.rects[name]
@@ -100,6 +107,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
 
   return {
     setPalette(palette) { pal = palette },
+    redrawTitles: drawSigns,
     resize(width, height) {
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false

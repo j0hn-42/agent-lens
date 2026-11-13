@@ -183,13 +183,18 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     return () => mql.removeEventListener('change', onChange)
   }, [])
 
-  // the room titles are woven into the picture: a new language builds a new scene (the agents are put back where they were)
+  // the room titles are woven into the picture: a new language lays the mats again on the same engine (the agents stay where they are)
   const titles = useMemo(() => {
     const out: Record<string, string> = {}
     for (const r of [...BURROW_ROOM_ORDER, 'home']) out[r] = t(`burrow.room.${r}` as 'burrow.room.lounge')
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t changes with the locale
   }, [locale])
+  // read by the scene effect when it builds; a later change goes through retitleRef, never a rebuild
+  const titlesRef = useRef(titles)
+  titlesRef.current = titles
+  const retitleRef = useRef<(next: Readonly<Record<string, string>>) => void>(() => {})
+  useEffect(() => { retitleRef.current(titles) }, [titles])
 
   useEffect(() => {
     const view = canvasRef.current
@@ -200,10 +205,11 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const hoverRing = hoverRingRef.current
     if (!assets || !view || !container || !stage || !overlay || !ring || !hoverRing) return
     const { w: W, h: H } = BURROW_DATA.map
-    const engine: BurrowEngine = createBurrowEngine({ data: BURROW_DATA, titles })
+    const engine: BurrowEngine = createBurrowEngine({ data: BURROW_DATA, titles: titlesRef.current })
     const renderer: BurrowRenderer | null = createBurrowRenderer(BURROW_DATA, assets.images, engine, view, readBurrowPalette(getComputedStyle(container)))
     if (!renderer) { setFailed(true); return }
     setFailed(false)
+    retitleRef.current = (next) => { engine.setTitles(next); renderer.redrawTitles(); dirtyRef.current = true; wakeRef.current() }
     const sync: BurrowSyncState = createBurrowSyncState()
     const forcedMql = typeof window.matchMedia === 'function' ? window.matchMedia('(forced-colors: active)') : null
     let colors: OverlayColors = overlayColors(forcedMql?.matches ?? false)
@@ -468,6 +474,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     return () => {
       loop.stop()
       wakeRef.current = () => {}
+      retitleRef.current = () => {}
       ro?.disconnect()
       refitRef.current = () => {}
       themeObserver?.disconnect()
@@ -482,7 +489,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       for (const el of tags.values()) el.remove()
       live.current.onAgentHover(null)
     }
-  }, [assets, titles, simulationRef])
+  }, [assets, simulationRef])
 
   const onTitles = useCallback(() => setPref('burrowTitles', !prefs.burrowTitles), [setPref, prefs.burrowTitles])
   const rowLabel = (r: BurrowRow): string => burrowRowLabel(r, rows, t)

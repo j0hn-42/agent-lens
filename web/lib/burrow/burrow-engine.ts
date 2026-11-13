@@ -116,31 +116,39 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   }
   const cellPoint = (c: [number, number]): Pt => ({ x: c[0] * CELL + CELL / 2, y: c[1] * CELL + CELL / 2 })
 
-  const mats = layoutMats(data, opts.titles)
+  // The title-dependent parts (mats, where agents may stop, door posts) live in fixed containers that setTitles refills in place
+  const mats: BurrowMat[] = []
   // a character standing right in front of a mat would hide its title: agents walk over the mats but never stop there
   const hidesTitle = (x: number, y: number): boolean => mats.some((m) => x > m.x - 10 && x < m.x + m.w + 10 && y > m.y - 2 && y < m.y + m.h + 30)
   const zoneCells: Partial<Record<BurrowRoomId, Array<[number, number]>>> = {}
-  for (let gy = 0; gy < GH; gy++) {
-    for (let gx = 0; gx < GW; gx++) {
-      if (!cellOk(gx, gy)) continue
-      const c = cellPoint([gx, gy])
-      if (hidesTitle(c.x, c.y)) continue
-      const z = zoneOf(c.x, c.y)
-      ;(zoneCells[z] ??= []).push([gx, gy])
-    }
-  }
   const cellsOf = (room: BurrowRoomId): Array<[number, number]> => zoneCells[room] ?? zoneCells[LOUNGE] ?? [[Math.floor(GW / 2), Math.floor(GH / 2)]]
-
   // Posts of the agents that delegate: a row beside the front door, facing it (they send a sub-agent out). Never on a title
   // mat, never in the lane in front of the doorway that agents use to come in and go out.
   const doorPosts: Pt[] = []
-  for (const dy of [6, 22]) {
-    for (let dx = 30; dx <= 102; dx += 12) {
-      const x = MAP.door.cx - dx
-      const y = MAP.door.front + dy
-      if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) doorPosts.push({ x, y })
+
+  function layTitles(titles: Readonly<Record<string, string>>): void {
+    mats.length = 0
+    mats.push(...layoutMats(data, titles))
+    for (const k of Object.keys(zoneCells)) delete zoneCells[k as BurrowRoomId]
+    for (let gy = 0; gy < GH; gy++) {
+      for (let gx = 0; gx < GW; gx++) {
+        if (!cellOk(gx, gy)) continue
+        const c = cellPoint([gx, gy])
+        if (hidesTitle(c.x, c.y)) continue
+        const z = zoneOf(c.x, c.y)
+        ;(zoneCells[z] ??= []).push([gx, gy])
+      }
+    }
+    doorPosts.length = 0
+    for (const dy of [6, 22]) {
+      for (let dx = 30; dx <= 102; dx += 12) {
+        const x = MAP.door.cx - dx
+        const y = MAP.door.front + dy
+        if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) doorPosts.push({ x, y })
+      }
     }
   }
+  layTitles(opts.titles)
 
   function nearestCell(x: number, y: number): [number, number] | null {
     const cx = Math.floor(x / CELL)
@@ -612,6 +620,8 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   return {
     actors: actors as ReadonlyArray<BurrowActor>,
     mats,
+    /** A new language: the mats are laid again and so are the cells and posts that depend on them. Actors and jobs stay where they are; one standing on a forbidden spot moves on at its next goal. */
+    setTitles: layTitles,
     door,
     ambience,
     get clock() { return clock },
