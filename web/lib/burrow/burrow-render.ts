@@ -9,6 +9,8 @@ export type BurrowImages = Readonly<Record<string, CanvasImageSource>>
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
 const MOVING = new Set(['walk', 'doorOut', 'doorIn', 'hopOn', 'hopOff'])
+/** A finished agent is drawn dimmed, like a finished node of the graph */
+const RESTING_ALPHA = 0.45
 
 function drawText(ctx: CanvasRenderingContext2D, font: BurrowData['font'], text: string, x: number, y: number, color: string): void {
   ctx.fillStyle = color
@@ -62,8 +64,9 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     const r = FX.rects[name]
     if (r) g?.drawImage(images.fx, r[0], r[1], r[2], r[3], x, y, r[2], r[3])
   }
-  function drawActor(a: BurrowActor, alpha: number): void {
+  function drawActor(a: BurrowActor, alphaIn: number): void {
     if (!g) return
+    const alpha = a.resting ? alphaIn * RESTING_ALPHA : alphaIn
     const m = a.meta
     const c = m.cell
     let row: number

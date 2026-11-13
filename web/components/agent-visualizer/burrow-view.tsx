@@ -277,7 +277,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const onTitles = useCallback(() => setShowTitles((v) => !v), [])
   const roomName = (r: BurrowRoomId): string => t(`burrow.room.${r}` as 'burrow.room.lounge')
   const rowLabel = (r: BurrowRow): string => {
-    if (r.presence === 'away') return t('burrow.agent.away', { name: r.name })
+    if (r.presence === 'finished') return t('burrow.agent.done', { name: r.name })
     const state = t(`state.${r.state}` as 'state.idle')
     if (r.stale) return t('burrow.agent.stale', { name: r.name, state })
     return r.tool

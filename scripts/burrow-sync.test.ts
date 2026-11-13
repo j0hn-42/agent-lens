@@ -42,15 +42,46 @@ test('a tool change moves the animal to the room of the new tool, and idle bring
   assert.equal(at(e, 'a'), 'lounge')
 })
 
-test('a finished agent walks out; one that was never drawn stays out', () => {
+test('a finished agent stays in the burrow, resting in the lounge and listed as finished: the graph draws it too', () => {
   const { e, st } = setup()
-  const a = agent('a')
+  const a = agent('a', { state: 'tool_calling', currentTool: 'Edit' })
+  const r1 = syncBurrow(e, st, [a, agent('done', { state: 'complete' })], opts)
+  assert.equal(e.has('done'), true)
+  assert.equal(e.isResting('done'), true)
+  assert.deepEqual(r1.rows.find((x) => x.id === 'done')?.presence, 'finished')
+  a.state = 'complete'; a.currentTool = undefined
   syncBurrow(e, st, [a, agent('done', { state: 'complete' })], opts)
-  assert.equal(e.has('done'), false)
-  a.state = 'complete'
+  run(e, 60)
+  assert.equal(e.isOutside('a'), false)
+  assert.equal(at(e, 'a'), 'lounge')
+  assert.equal(e.isResting('a'), true)
+  assert.equal(e.actors.find((x) => x.key === 'a')?.said, null)
+})
+
+test('a finished agent walks out only when the filter hides it (Show: active), like the graph drops it', () => {
+  const { e, st } = setup()
+  const a = agent('a', { state: 'complete' })
   syncBurrow(e, st, [a], opts)
+  assert.equal(e.has('a'), true)
+  const r = syncBurrow(e, st, [a], { ...opts, hideInactive: true })
+  assert.deepEqual(r.rows, [])
   run(e, 60)
   assert.equal(e.isOutside('a'), true)
+  // a filtered finished agent that was never drawn is not drawn now
+  const fresh = setup()
+  syncBurrow(fresh.e, fresh.st, [agent('gone', { state: 'complete' })], { ...opts, hideInactive: true })
+  assert.equal(fresh.e.has('gone'), false)
+})
+
+test('an agent that resumes after finishing stops resting and goes back to work', () => {
+  const { e, st } = setup()
+  const a = agent('a', { state: 'complete' })
+  syncBurrow(e, st, [a], opts)
+  a.state = 'tool_calling'; a.currentTool = 'Bash'
+  syncBurrow(e, st, [a], opts)
+  run(e, 40)
+  assert.equal(e.isResting('a'), false)
+  assert.equal(at(e, 'a'), 'workshop')
 })
 
 test('hide inactive: an idle agent is not drawn, unless it is the selected one', () => {
@@ -149,16 +180,29 @@ test('a stale agent (silent for long, or replayed) is not placed in a room and s
   assert.equal(e.actors.find((a) => a.key === 'live')?.said, 'Bash')
 })
 
-test('finished animals do not hold a slot of the cap: new active agents are still drawn', () => {
+test('a working agent takes the place of a finished animal first, then of an idle one, when the burrow is full', () => {
   const { e, st } = setup()
+  const calm = { ...opts, instant: true }   // newcomers are inside at once: an animal outside the door holds no place
   const first = Array.from({ length: BURROW_MAX_ANIMALS }, (_, i) => agent(`k${i}`, { state: 'thinking' }))
-  syncBurrow(e, st, first, opts)
-  for (const a of first) a.state = 'complete'
-  syncBurrow(e, st, first, opts)
+  syncBurrow(e, st, first, calm)
+  first[3].state = 'complete'
+  first[7].state = 'idle'
+  syncBurrow(e, st, first, calm)
   const fresh = agent('fresh', { state: 'thinking' })
-  const r = syncBurrow(e, st, [...first, fresh], opts)
+  let r = syncBurrow(e, st, [...first, fresh], calm)
   assert.equal(e.has('fresh'), true)
-  assert.equal(r.hidden, 0)
+  assert.equal(r.hidden, 0, 'it took a place, nothing is counted')
+  assert.equal(e.isGone('k3'), true, 'the finished animal gave its place')
+  assert.equal(e.isGone('k7'), false, 'the idle one kept it')
+  const fresh2 = agent('fresh2', { state: 'thinking' })
+  r = syncBurrow(e, st, [...first, fresh, fresh2], calm)
+  assert.equal(e.has('fresh2'), true)
+  assert.equal(e.isGone('k7'), true, 'then the idle animal gave its place')
+  // a newcomer that claims no more than any drawn animal (idle, while only working ones are left) is counted
+  const idle = agent('idle')
+  r = syncBurrow(e, st, [...first, fresh, fresh2, idle], calm)
+  assert.equal(e.has('idle'), false)
+  assert.equal(r.hidden, 1)
 })
 
 test('an agent that needs attention takes the place of an idle animal when the burrow is full', () => {

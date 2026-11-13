@@ -39,7 +39,7 @@ test('placeAgent: a stale agent (silent, replayed or imported) claims no room an
   assert.deepEqual(p, { presence: 'in', room: 'lounge', bubble: { kind: 'stale', state: 'tool_calling' } })
   assert.deepEqual(placeAgent({ ...base, state: 'idle' }, { stale: true }).bubble, null)
   // a finished agent is finished, fresh or not
-  assert.equal(placeAgent({ ...base, state: 'complete' }, { stale: true }).presence, 'away')
+  assert.equal(placeAgent({ ...base, state: 'complete' }, { stale: true }).presence, 'finished')
 })
 
 test('placeAgent: thinking, a permission wait, an error and a pause stay in the lounge and say so', () => {
@@ -57,10 +57,10 @@ test('placeAgent: idle rests in the lounge without a bubble (nothing is claimed 
   assert.deepEqual(placeAgent({ ...base, state: 'idle', awaitingNextEvent: true }), { presence: 'in', room: 'lounge', bubble: null })
 })
 
-test('placeAgent: a finished agent leaves through the front door, and an error is never taken for a finished one', () => {
-  assert.equal(placeAgent({ ...base, state: 'complete' }).presence, 'away')
-  assert.equal(placeAgent({ ...base, state: 'idle', archived: true }).presence, 'away')
-  assert.equal(placeAgent({ ...base, state: 'idle', activity: 'done' }).presence, 'away')
+test('placeAgent: a finished agent rests in the lounge without a bubble (like a dimmed node of the graph), and an error is never taken for a finished one', () => {
+  assert.deepEqual(placeAgent({ ...base, state: 'complete' }), { presence: 'finished', room: 'lounge', bubble: null })
+  assert.equal(placeAgent({ ...base, state: 'idle', archived: true }).presence, 'finished')
+  assert.equal(placeAgent({ ...base, state: 'idle', activity: 'done' }).presence, 'finished')
   assert.equal(placeAgent({ ...base, state: 'error', activity: 'done' }).presence, 'in')
   assert.equal(placeAgent({ ...base, state: 'waiting_permission', archived: false, activity: 'done' }).presence, 'in')
 })

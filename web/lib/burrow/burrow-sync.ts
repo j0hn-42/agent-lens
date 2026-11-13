@@ -56,6 +56,8 @@ export interface BurrowSyncResult {
 }
 
 const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind === 'state' && (b.state === 'waiting_permission' || b.state === 'error')
+/** Claim on a place of the cap: a working agent takes the place of a finished animal first, then of an idle one */
+const rank = (w: { a: SyncAgent; p: BurrowPlacement }): number => (w.p.presence === 'finished' ? 0 : w.a.state === 'idle' ? 1 : 2)
 
 export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: ReadonlyMap<string, SyncAgent>, opts: BurrowSyncOptions): BurrowSyncResult {
   const max = opts.max ?? BURROW_MAX_ANIMALS
@@ -66,7 +68,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   for (const a of agents.values()) {
     const filtered = !shown.has(a.id)
     const stale = deriveFreshness(a, opts.now) === 'stale'
-    // a filtered agent is not drawn: it walks out like a finished one, but it is not listed as finished
+    // a filtered agent is not drawn: it walks out through the front door, and it is not listed (finished or not)
     wanted.push({ a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : placeAgent(a, { stale }), filtered })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
@@ -75,7 +77,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   for (const key of [...st.applied.keys()]) if (!engine.has(key) && !ids.has(key)) st.applied.delete(key)
 
   // already drawn first, then the busiest: the cap never takes an animal away from an agent that works
-  const order = wanted.slice().sort((x, y) => Number(engine.has(y.a.id)) - Number(engine.has(x.a.id)) || Number(y.a.state !== 'idle') - Number(x.a.state !== 'idle'))
+  const order = wanted.slice().sort((x, y) => Number(engine.has(y.a.id)) - Number(engine.has(x.a.id)) || rank(y) - rank(x))
   const used = new Set<string>(engine.actors.map((a) => a.sprite))
   const wantedAway = new Set(wanted.filter((w) => w.p.presence === 'away').map((w) => w.a.id))
   // an animal holds a place of the cap while it is in the burrow: not when it is outside, leaving or sent out
@@ -85,14 +87,14 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   const instant = opts.instant === true || !st.started
   for (const { a, p } of order) {
     if (!engine.has(a.id)) {
-      if (p.presence === 'away') continue            // a finished agent that was never drawn is not drawn now
+      if (p.presence === 'away') continue            // a filtered agent that was never drawn is not drawn now
       if (drawn >= max) {
-        // an agent that needs attention or works takes the place of an idle animal; anything else is counted
-        const needsPlace = a.state !== 'idle'
-        const idle = needsPlace ? wanted.find((w) => w.a.state === 'idle' && w.p.presence === 'in' && holdsPlace(w.a.id) && w.a.id !== opts.selectedId) : undefined
-        if (!idle) { hidden++; continue }
-        engine.removeActor(idle.a.id); st.applied.delete(idle.a.id); drawn--
-        wantedAway.add(idle.a.id)
+        // a newcomer takes the place of a drawn animal that claims less (a finished one first, then an idle one); otherwise it is counted
+        const me = rank({ a, p })
+        const victim = wanted.filter((w) => rank(w) < me && holdsPlace(w.a.id) && w.a.id !== opts.selectedId).sort((x, y) => rank(x) - rank(y))[0]
+        if (!victim) { hidden++; continue }
+        engine.removeActor(victim.a.id); st.applied.delete(victim.a.id); drawn--
+        wantedAway.add(victim.a.id)
       }
       const sprite = pickAnimal(a.id, used)
       used.add(sprite)
@@ -105,7 +107,8 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     if (st.applied.get(a.id) === sig) continue
     st.applied.set(a.id, sig)
     changed = true
-    engine.setAvailable(a.id, p.presence === 'in')
+    engine.setAvailable(a.id, p.presence !== 'away')
+    engine.setResting(a.id, p.presence === 'finished')
     if (p.presence === 'in') {
       if (p.room === 'lounge') engine.release(a.id)
       else engine.assign(a.id, p.room)

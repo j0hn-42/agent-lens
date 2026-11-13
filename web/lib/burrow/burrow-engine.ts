@@ -1,7 +1,8 @@
 /**
  * Burrow view: the movement engine (no DOM, no drawing). Ported from the pixel-art burrow prototype with its demo removed:
  * nothing happens at random except where an idle agent strolls in the lounge. An agent works in a room only because it
- * was assigned there (assign) and goes back to the lounge when released; it is outside only when unavailable.
+ * was assigned there (assign) and goes back to the lounge when released; it is outside only when unavailable. A finished
+ * agent rests (setResting): it goes back to the lounge and stands still, so nothing is invented for it.
  * What the picture says is decided by burrow-model.ts, from observed states.
  */
 import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
@@ -40,6 +41,8 @@ export interface BurrowActor {
   /** Doorstep progress, 0 = on the floor in front of the door, 1 = deep in the doorway */
   tp: number
   wait: number
+  /** Finished agent: stands still in the lounge (drawn dimmed), no stroll and no seat */
+  resting: boolean
 }
 
 interface Actor extends BurrowActor {
@@ -280,7 +283,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       fps: Math.max(6, Math.min(11, Math.round(meta.anims.down.frames * 1.5))),
       x: 0, y: 0, dir: 'down', mode: 'idle', wait: 0, plan: [{ t: 'idle', dur: rnd(0.3, 2.5) }], route: [], animT: rng(), alpha: 1,
       pose: null, poi: null, lastPoi: null, zone: LOUNGE, job: null, tp: 0, dx: 0, hop: null, hopT: 0,
-      awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0,
+      awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false,
     }
     actors.push(a)
     if (!opt.inside) { stayOutside(a, 0.3 + 1.2 * actors.filter((o) => o.mode === 'home').length); return }
@@ -323,8 +326,9 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   function assign(key: string, room: BurrowWorkshopId): boolean {
     const a = byKey(key)
     if (!a || a.leaving || !WORKSHOPS.includes(room)) return false
-    if (a.job?.room === room && a.awaySince === null) return true
+    if (a.job?.room === room && a.awaySince === null && !a.resting) return true
     comeBack(a)
+    a.resting = false
     a.job = { room }
     replan(a)
     return true
@@ -333,6 +337,16 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     const a = byKey(key)
     if (!a || !a.job) return false
     a.job = null
+    replan(a)
+    return true
+  }
+  /** A finished agent rests: back to the lounge, then it stands still until rested again (or sent away) */
+  function setResting(key: string, resting: boolean): boolean {
+    const a = byKey(key)
+    if (!a || a.leaving) return false
+    if (a.resting === resting) return true
+    a.resting = resting
+    if (resting) a.job = null
     replan(a)
     return true
   }
@@ -372,6 +386,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     releasePoi(a)
     if (dueHome(a) && wayClear(a)) { goHome(a); return }
     if (a.job) { goWork(a, a.job.room); return }      // next post in the same room, until released
+    if (a.resting) {                                   // finished: a standing spot in the lounge, then nothing more
+      const c = cellPoint(pick(cellsOf(LOUNGE)))
+      a.zone = LOUNGE
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: 'down' }]
+      return
+    }
     const r = rng()
     // settle somewhere in the lounge: sofa, armchair, pouf, fireside...
     if (r < 0.9) {
@@ -556,10 +576,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     ambience,
     get clock() { return clock },
     doorIsOpen,
-    addActor, removeActor, assign, release, setAvailable, say,
+    addActor, removeActor, assign, release, setAvailable, setResting, say,
     update, fastForward, zoneOf, actorAt,
     /** Room an agent is assigned to now (null = not working) */
     jobOf: (key: string): BurrowWorkshopId | null => byKey(key)?.job?.room ?? null,
+    /** True while the agent rests as finished */
+    isResting: (key: string): boolean => byKey(key)?.resting === true,
     /** True when the agent is not in the burrow (outside, or on its way out) */
     /** Walks out for good, or is outside: it holds no place in the burrow */
     isGone: (key: string): boolean => { const a = byKey(key); return !a || a.leaving || outside(a) },

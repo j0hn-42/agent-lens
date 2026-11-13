@@ -29,8 +29,11 @@ export type BurrowBubble =
   | { kind: 'stale'; state: AgentState }
 
 export interface BurrowPlacement {
-  /** 'away' = outside the burrow (finished): the agent walks out through the front door */
-  presence: 'in' | 'away'
+  /**
+   * 'finished' = the agent is done (complete, archived, done): it rests in the lounge, dimmed like a finished node of the
+   * graph. 'away' = outside the burrow: the agent walked out through the front door (hidden by the filter, or gone)
+   */
+  presence: 'in' | 'finished' | 'away'
   room: BurrowRoomId
   bubble: BurrowBubble | null
 }
@@ -42,7 +45,7 @@ type PlaceInput = Pick<Agent, 'state' | 'archived' | 'activity' | 'currentTool'>
  * A tool call whose tool name was not received claims no room either.
  */
 export function placeAgent(a: PlaceInput, opt: { stale?: boolean } = {}): BurrowPlacement {
-  if (isDoneAgent(a)) return { presence: 'away', room: 'lounge', bubble: null }
+  if (isDoneAgent(a)) return { presence: 'finished', room: 'lounge', bubble: null }
   if (opt.stale === true) return { presence: 'in', room: 'lounge', bubble: a.state === 'idle' ? null : { kind: 'stale', state: a.state } }
   switch (a.state) {
     case 'tool_calling': {

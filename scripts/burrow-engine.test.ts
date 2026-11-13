@@ -151,3 +151,22 @@ test('actorAt finds the agent under a point, nothing on empty floor', () => {
   assert.equal(e.actorAt(a.x, a.y - 5)?.key, 'a')
   assert.equal(e.actorAt(a.x + 100, a.y), null)
 })
+
+test('setResting: the agent goes back to the lounge, then stands still (no stroll, no seat), until rested again', () => {
+  const e = make()
+  e.addActor('a', 'fox', { inside: true, room: 'office' })
+  assert.equal(e.setResting('a', true), true)
+  assert.equal(e.isResting('a'), true)
+  assert.equal(e.jobOf('a'), null)
+  run(e, 40)
+  const a = e.actors.find((x) => x.key === 'a')!
+  assert.equal(e.zoneOf(a.x, a.y), 'lounge')
+  const { x, y } = a
+  run(e, 60)
+  assert.equal(a.x, x); assert.equal(a.y, y)
+  assert.equal(a.pose, null)
+  e.setResting('a', false)
+  run(e, 60)
+  assert.notEqual(`${a.x},${a.y}`, `${x},${y}`, 'rested again, it strolls')
+  assert.equal(e.setResting('ghost', true), false)
+})
