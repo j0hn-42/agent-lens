@@ -10,6 +10,7 @@ import axe from 'axe-core'
 import { BurrowView } from '@/components/agent-visualizer/burrow-view'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import type { Agent } from '@/lib/agent-types'
+import { sessionColor } from '@/components/agent-visualizer/canvas/cluster-model'
 
 const RealImage = globalThis.Image
 const realMatchMedia = window.matchMedia
@@ -204,4 +205,41 @@ test('under Freeze motion the burrow requests no animation frame either', async 
   await wait(400)
   assert.equal(frames.count(), 0, 'no requestAnimationFrame under Freeze motion')
   fireEvent.click(screen.getByText('freeze'))
+})
+
+/** Records every fillStyle the scene sets on its canvases (the setup's context draws nothing either) */
+function spyFills(): { fills: Set<string>; restore: () => void } {
+  const fills = new Set<string>()
+  const real = window.HTMLCanvasElement.prototype.getContext
+  const ctx = new Proxy({}, {
+    get: (_t, prop) => (prop === 'measureText' ? () => ({ width: 0 }) : prop === 'createLinearGradient' || prop === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => {}),
+    set: (_t, prop, v) => { if (prop === 'fillStyle') fills.add(String(v)); return true },
+  })
+  window.HTMLCanvasElement.prototype.getContext = (() => ctx) as never
+  return { fills, restore: () => { window.HTMLCanvasElement.prototype.getContext = real } }
+}
+
+test('two sessions and a team: each animal stands on a ring of its cluster colour, and its row names the team', async () => {
+  const spy = spyFills()
+  try {
+    globalThis.Image = LoadedImage as never
+    const member = { ...agent('alpha', 'thinking'), teamName: 'alpha-team', teamColor: '#12ab34' } as Agent
+    const other = { ...agent('beta', 'idle'), sessionId: 's2' } as Agent
+    const view = render(<Page sim={simulation(member, other)} picks={[]} />)
+    for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+    await wait(300)
+    assert.ok(screen.getByRole('button', { name: /^alpha: .*, team alpha-team/ }), 'the row of the member names its team')
+    assert.ok(spy.fills.has('#12ab34'), 'the team colour is drawn')
+    assert.ok(spy.fills.has(sessionColor('s2')), 'the other session\'s colour is drawn')
+  } finally { spy.restore() }
+})
+
+test('one session and no team: no ring is drawn and no row names a team', async () => {
+  const spy = spyFills()
+  try {
+    await mountLoaded()
+    await wait(300)
+    assert.equal(spy.fills.has(sessionColor('s1')), false)
+    assert.equal(screen.queryAllByRole('button', { name: /team|équipe/ }).length, 0)
+  } finally { spy.restore() }
 })

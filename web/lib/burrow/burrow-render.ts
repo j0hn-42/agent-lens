@@ -13,6 +13,24 @@ const MOVING = new Set(['walk', 'doorOut', 'doorIn', 'hopOn', 'hopOff'])
 /** A finished agent is drawn dimmed, like a finished node of the graph */
 const RESTING_ALPHA = 0.45
 
+/**
+ * The ring on the floor that tells sessions and teams apart (burrow-marker): the pixels of an ellipse just around the
+ * animal's shadow (20 x 7 px), relative to its feet, computed once.
+ */
+const RING_PIXELS: ReadonlyArray<readonly [number, number]> = (() => {
+  const rx = 11
+  const ry = 4
+  const seen = new Set<string>()
+  const out: Array<[number, number]> = []
+  for (let i = 0; i < 96; i++) {
+    const a = (i / 96) * Math.PI * 2
+    const p: [number, number] = [Math.round(rx * Math.cos(a)), Math.round(ry * Math.sin(a))]
+    const k = `${p[0]},${p[1]}`
+    if (!seen.has(k)) { seen.add(k); out.push(p) }
+  }
+  return out
+})()
+
 function drawText(ctx: CanvasRenderingContext2D, font: BurrowData['font'], text: string, x: number, y: number, color: string): void {
   ctx.fillStyle = color
   for (const ch of text) {
@@ -39,7 +57,8 @@ export interface BurrowRenderer {
   setPalette(palette: BurrowPalette): void
   /** Draws the title layer again from the engine's current mats (after engine.setTitles) */
   redrawTitles(): void
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[] }): void
+  /** `rings`: colour of the floor ring per agent key (burrow-marker colourOf); an agent without one gets no ring */
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string> }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
@@ -81,6 +100,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     const r = FX.rects[name]
     if (r) g?.drawImage(images.fx, r[0], r[1], r[2], r[3], x, y, r[2], r[3])
   }
+  let rings: ReadonlyMap<string, string> | undefined
   function drawActor(a: BurrowActor, alphaIn: number): void {
     if (!g) return
     const alpha = a.resting ? alphaIn * RESTING_ALPHA : alphaIn
@@ -101,6 +121,14 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     const y = Math.round(a.y)
     g.globalAlpha = alpha
     if (a.mode !== 'sit') drawFx('shadow', x - 10, y - 4)
+    const ring = rings?.get(a.key)
+    if (ring) {
+      // on the floor under the animal: one pixel of the colour over one of shadow (it stays visible on any floor)
+      g.fillStyle = pal.shadow
+      for (const [dx, dy] of RING_PIXELS) if (dy >= 0) g.fillRect(x + dx, y + dy + 1, 1, 1)
+      g.fillStyle = ring
+      for (const [dx, dy] of RING_PIXELS) g.fillRect(x + dx, y + dy, 1, 1)
+    }
     g.drawImage(images[a.sprite], col * c, row * c, c, c, x - m.anchor[0], y - m.anchor[1], c, c)
     g.globalAlpha = 1
   }
@@ -112,7 +140,8 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys, threads, letters }) {
+    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn }) {
+      rings = ringsIn
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
       g.imageSmoothingEnabled = false
       g.drawImage(images.decor, 0, 0)

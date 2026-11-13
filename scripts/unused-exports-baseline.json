@@ -18,7 +18,6 @@
   "web/components/agent-visualizer/canvas/cluster-model.ts:effectiveClusterState",
   "web/components/agent-visualizer/canvas/cluster-model.ts:isFinishedWorkflow",
   "web/components/agent-visualizer/canvas/cluster-model.ts:SESSION_PALETTE",
-  "web/components/agent-visualizer/canvas/cluster-model.ts:sessionColor",
   "web/components/agent-visualizer/canvas/delegation-path.ts:PATH_HOP_MS",
   "web/components/agent-visualizer/canvas/delegation-path.ts:PATH_MAX_DURATION_MS",
   "web/components/agent-visualizer/canvas/delegation-path.ts:PATH_MAX_HOPS",

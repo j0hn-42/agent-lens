@@ -218,6 +218,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let names = new Map<string, string>()
     /** Agents with a proven loop: their tag carries the graph's loop badge */
     let loops = new Set<string>()
+    /** Colour of the floor ring per agent (rows' marker): sessions and teams told apart, the graph's halo colours */
+    let rings = new Map<string, string>()
     let shownTags = new Set<string>()
     let scale = 1
     let rowsSig = ''
@@ -296,10 +298,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       delegations = openDelegations(sim?.links, (key) => { const ag = agents.get(key); return ag !== undefined && !isDoneAgent(ag) })
       const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
-        health: live.current.health, replayLost: live.current.replayLost,
+        health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams,
       })
       if (changed) dirtyRef.current = true
-      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}`).join('\n')
+      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
         setRows(next)
@@ -311,6 +313,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         const nextLoops = new Set(next.filter((r) => r.loop).map((r) => r.id))
         if (nextLoops.size !== loops.size || [...nextLoops].some((id) => !loops.has(id))) dirtyRef.current = true
         loops = nextLoops
+        // a ring that appears, goes or changes colour is redrawn under reduced motion and Freeze motion as well
+        const nextRings = new Map(next.flatMap((r) => (r.marker ? [[r.id, r.marker] as const] : [])))
+        if (nextRings.size !== rings.size || [...nextRings].some(([id, c]) => rings.get(id) !== c)) dirtyRef.current = true
+        rings = nextRings
       }
       if (extra !== hiddenShown) { hiddenShown = extra; setHidden(extra) }
     }
@@ -396,7 +402,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       return out
     }
     const draw = (): void => {
-      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters() })
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings })
       placeOverlays()
     }
 
