@@ -1,7 +1,11 @@
 // The Burrow view is a preference of the scene style: the graph by default, anything unknown falls back to it.
+import './all-locales'
+import fs from 'node:fs'
+import path from 'node:path'
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { DEFAULT_UI_PREFS, sanitizePref, sanitizePrefs, parsePrefs, serializePrefs } from '../web/lib/ui-preferences'
+import { MESSAGES } from '../web/lib/messages'
 
 test('sceneStyle: the graph is the default', () => {
   assert.equal(DEFAULT_UI_PREFS.sceneStyle, 'graph')
@@ -31,4 +35,18 @@ test('burrowTitles round-trips through serializePrefs and parsePrefs', () => {
   assert.equal(parsePrefs(serializePrefs({ ...DEFAULT_UI_PREFS, burrowTitles: false })).burrowTitles, false)
   assert.equal(parsePrefs(serializePrefs(DEFAULT_UI_PREFS)).burrowTitles, true)
   assert.equal(parsePrefs('{"v":1,"prefs":{"burrowTitles":"no"}}').burrowTitles, true)
+})
+
+// Reset preferences replaces every stored pref by its default: it also leaves the Burrow view for the node graph.
+// Its help and the preferences guide must say so, or a reset that changes the whole scene comes as a surprise.
+test('the reset help says that Reset preferences goes back from the Burrow view to the node graph, in both languages', () => {
+  assert.match(MESSAGES.fr['settings.reset.help'], /Vue Terrier[^;.]*graphe/)
+  assert.match(MESSAGES.en['settings.reset.help'], /Burrow view[^;.]*graph/)
+})
+
+test('the preferences guide lists the Burrow view and its room titles among the stored preferences', () => {
+  const guide = fs.readFileSync(path.join(__dirname, '..', 'docs', 'reading-the-ui', 'preferences.md'), 'utf8')
+  const stored = guide.split('\n').find((l) => l.startsWith('- **Preferences and Reset preferences**')) ?? ''
+  assert.match(stored, /\*\*Burrow view\*\*/)
+  assert.match(stored, /\*Room titles\*/)
 })
