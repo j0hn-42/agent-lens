@@ -11,6 +11,9 @@ import type { BurrowEngine } from './burrow-engine'
 import { placeAgent, pickAnimal, type BurrowBubble, type BurrowPlacement } from './burrow-model'
 import type { BurrowRoomId } from './burrow-types'
 import { linksSignature, treeOrder } from './burrow-links'
+import type { HealthVerdict } from '../loop-detection'
+import { repeatMarks } from '../repeat-marks'
+import { replayLostForAgents } from '../event-loss'
 
 /** Most animals drawn at once: more would hide each other in a 560 x 315 px scene */
 export const BURROW_MAX_ANIMALS = 24
@@ -55,6 +58,10 @@ export interface BurrowRow {
   depth: number
   /** Sub-agents this agent sent that have not returned yet (observed dispatches without a return), when any */
   delegating?: number
+  /** A loop is proven for this agent: the graph badges its node (repeatMarks, kind loop). Absent = no proof, never "no loop" */
+  loop?: true
+  /** Events the relay could not replay for this agent's session (a lower bound), when any: the graph qualifies its figures */
+  replayLost?: number
 }
 
 export interface BurrowSyncState {
@@ -75,6 +82,10 @@ export interface BurrowSyncOptions {
   instant?: boolean
   /** Per orchestrator: sub-agents it sent that have not returned yet (burrow-links openDelegations) */
   delegations?: ReadonlyMap<string, number>
+  /** Loop verdict per agent id, the graph's `health.byAgent` */
+  health?: ReadonlyMap<string, HealthVerdict>
+  /** Events the relay could not replay, per session id */
+  replayLost?: ReadonlyMap<string, number>
   max?: number
 }
 
@@ -154,13 +165,17 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   }
   st.started = true
   const flat: Array<Omit<BurrowRow, 'depth'>> = []
+  // the graph's own rule for its loop badge (a proven verdict with findings); the repeat ledger is not read here
+  const marks = opts.health ? repeatMarks(opts.health, undefined, agents.keys()) : undefined
   for (const { a, p, filtered } of wanted) {
     if (filtered || !engine.has(a.id)) continue   // filtered: not listed; not drawn (cap): counted in `hidden`
     const delegating = opts.delegations?.get(a.id) ?? 0
+    const lost = replayLostForAgents(opts.replayLost, [a])
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), stale: p.bubble?.kind === 'stale',
       parentId: a.parentId ?? null, ...(delegating > 0 ? { delegating } : {}),
+      ...(marks?.get(a.id)?.kind === 'loop' ? { loop: true as const } : {}), ...(lost > 0 ? { replayLost: lost } : {}),
     })
   }
   return { rows: treeOrder(flat), hidden, changed }

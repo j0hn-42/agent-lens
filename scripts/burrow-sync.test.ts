@@ -286,3 +286,25 @@ test('simFingerprint changes with new events, a new or dropped agent and new lin
   assert.notEqual(simFingerprint({ ...base, links: more } as typeof base), f)
   assert.equal(simFingerprint(undefined), '')
 })
+
+// The graph badges a node whose loop verdict is proven (repeatMarks) and qualifies an agent whose session lost events:
+// the burrow rows carry the same two facts, and nothing when there is no proof.
+test('a row carries a proven loop and the events its session could not replay, the same facts the graph shows', () => {
+  const { e, st } = setup()
+  const loop = { status: 'loop', findings: [{ kind: 'repeat', toolName: 'Read', count: 3, atLeast: false, toolUseIds: [] }], calls: 3, comparable: 3, dropped: 0, lostEvents: 0 }
+  const clear = { status: 'clear', findings: [], calls: 3, comparable: 3, dropped: 0, lostEvents: 0 }
+  const noFinding = { status: 'loop', findings: [], calls: 3, comparable: 3, dropped: 0, lostEvents: 0 }
+  const health = new Map([['a', loop], ['b', clear], ['c', noFinding], ['gone', loop]]) as unknown as NonNullable<Parameters<typeof syncList>[3]['health']>
+  const { rows } = syncBurrow(e, st, [agent('a', { sessionId: 's1' }), agent('b', { sessionId: 's2' }), agent('c', { sessionId: 's2' })], {
+    ...opts, health, replayLost: new Map([['s1', 7], ['s2', 0]]),
+  })
+  const row = (id: string) => rows.find((r) => r.id === id)
+  assert.equal(row('a')?.loop, true)
+  assert.equal(row('b')?.loop, undefined, 'a clear verdict is no badge, never a "no loop"')
+  assert.equal(row('c')?.loop, undefined, 'a loop verdict without a finding proves nothing')
+  assert.equal(row('a')?.replayLost, 7)
+  assert.equal(row('b')?.replayLost, undefined, 'a session with nothing lost says nothing')
+  const plain = syncBurrow(setup().e, createBurrowSyncState(), [agent('a', { sessionId: 's1' })], opts).rows[0]
+  assert.equal(plain.loop, undefined)
+  assert.equal(plain.replayLost, undefined)
+})
