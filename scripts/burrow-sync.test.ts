@@ -416,3 +416,19 @@ test('the row of an agent running a tool carries the id of that running call, on
   assert.equal(id('c'), undefined, 'no running call')
   assert.equal(id('d'), undefined)
 })
+
+test('two running calls of the tool the bubble names (parallel calls, or an end that was lost): no call is proven, none is opened', () => {
+  const { e, st } = setup()
+  const call = (id: string, agentId: string, toolName: string, state: string) => [id, { id, agentId, toolName, state }] as const
+  const toolCalls = new Map([
+    call('t1', 'a', 'Read', 'running'), call('t2', 'a', 'Read', 'running'),
+    call('t3', 'b', 'Grep', 'running'), call('t4', 'b', 'Read', 'running'),
+  ])
+  const r = syncBurrow(e, st, [
+    agent('a', { state: 'tool_calling', currentTool: 'Read' }),
+    agent('b', { state: 'tool_calling', currentTool: 'Read' }),
+  ], { ...opts, toolCalls: toolCalls as never })
+  const id = (k: string) => r.rows.find((x) => x.id === k)?.toolCallId
+  assert.equal(id('a'), undefined, 'two running Reads: which one the bubble names is a guess')
+  assert.equal(id('b'), 't4', 'one running Read among other tools: that one')
+})

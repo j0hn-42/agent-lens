@@ -121,10 +121,17 @@ const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind =
 /** Claim on a place of the cap: a working agent takes the place of a finished animal first, then of an idle one */
 const rank = (w: { a: SyncAgent; p: BurrowPlacement }): number => (w.p.presence === 'finished' ? 0 : w.a.state === 'idle' ? 1 : 2)
 
-/** The latest running call of each agent, by agent id (the map is in order of arrival) */
-function runningCalls(toolCalls: BurrowSyncOptions['toolCalls']): Map<string, { id: string; toolName: string }> {
-  const running = new Map<string, { id: string; toolName: string }>()
-  if (toolCalls) for (const [id, c] of toolCalls) if (c.state === 'running') running.set(c.agentId, { id, toolName: c.toolName })
+/** The running calls of each agent, by agent id */
+function runningCalls(toolCalls: BurrowSyncOptions['toolCalls']): Map<string, Array<{ id: string; toolName: string }>> {
+  const running = new Map<string, Array<{ id: string; toolName: string }>>()
+  if (toolCalls) {
+    for (const [id, c] of toolCalls) {
+      if (c.state !== 'running') continue
+      const list = running.get(c.agentId)
+      if (list) list.push({ id, toolName: c.toolName })
+      else running.set(c.agentId, [{ id, toolName: c.toolName }])
+    }
+  }
   return running
 }
 
@@ -206,9 +213,11 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const lost = replayLostForAgents(opts.replayLost, [a])
     const marker = colourOf(a, ringCtx)
     const team = teamOf(a, ringCtx)
-    // the call to open is the running one of this agent, when it is the tool the bubble names (never a guess)
-    const call = p.bubble?.kind === 'tool' ? running.get(a.id) : undefined
-    const toolCallId = call && call.toolName === (p.bubble?.kind === 'tool' ? p.bubble.tool : '') ? call.id : undefined
+    // the call to open is the one running call of this agent of the tool the bubble names: with two or more (parallel
+    // calls, or an end that was lost) the bubble does not say which, and none is opened (never a guess)
+    const bubbleTool = p.bubble?.kind === 'tool' ? p.bubble.tool : undefined
+    const calls = bubbleTool !== undefined ? (running.get(a.id) ?? []).filter((c) => c.toolName === bubbleTool) : []
+    const toolCallId = calls.length === 1 ? calls[0].id : undefined
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), ...(toolCallId ? { toolCallId } : {}), stale: p.bubble?.kind === 'stale',
