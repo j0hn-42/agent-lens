@@ -14,21 +14,21 @@ export const BURROW_ROOM_TOOLS = {
   office: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'TodoWrite'],
   library: ['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'],
   workshop: ['Bash', 'BashOutput', 'KillShell'],
-  /** Tools that hand a task to a sub-agent */
-  door: ['Agent', 'Task'],
+  /** Tools that hand a task to a sub-agent: the agent phones, the sub-agent walks in through the front door */
+  phone: ['Agent', 'Task'],
 } as const
 const OFFICE_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.office)
 const LIBRARY_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.library)
 const WORKSHOP_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.workshop)
-const DISPATCH_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.door)
+const DISPATCH_TOOLS: ReadonlySet<string> = new Set(BURROW_ROOM_TOOLS.phone)
 
 /**
- * Room of a tool call: edits, reads and searches, the shell; a dispatch to a sub-agent is the post beside the front door;
+ * Room of a tool call: edits, reads and searches, the shell; a dispatch to a sub-agent is the telephone;
  * every other tool (MCP, unknown) is the laboratory
  */
 function roomOfTool(tool: string | undefined): BurrowWorkshopId {
   if (tool === undefined) return 'lab'
-  if (DISPATCH_TOOLS.has(tool)) return 'door'
+  if (DISPATCH_TOOLS.has(tool)) return 'phone'
   if (OFFICE_TOOLS.has(tool)) return 'office'
   if (LIBRARY_TOOLS.has(tool)) return 'library'
   if (WORKSHOP_TOOLS.has(tool)) return 'workshop'
@@ -76,7 +76,7 @@ export function placeAgent(a: PlaceInput, opt: { stale?: boolean; silentOnly?: b
     case 'tool_calling': {
       const tool = typeof a.currentTool === 'string' && a.currentTool !== '' ? a.currentTool : undefined
       const waiting = opt.delegating ?? 0
-      if (tool && DISPATCH_TOOLS.has(tool) && waiting > 0) return { presence: 'in', room: 'door', bubble: { kind: 'waiting', n: waiting } }
+      if (tool && DISPATCH_TOOLS.has(tool) && waiting > 0) return { presence: 'in', room: 'phone', bubble: { kind: 'waiting', n: waiting } }
       return tool ? { presence: 'in', room: roomOfTool(tool), bubble: { kind: 'tool', tool } } : { presence: 'in', room: 'lounge', bubble: { kind: 'state', state: 'tool_calling' } }
     }
     case 'thinking':

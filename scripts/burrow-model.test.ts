@@ -26,15 +26,15 @@ test('postureOf: the posture encodes the observed state, an idle agent alone str
   for (const s of ['idle', 'thinking', 'waiting_permission', 'error', 'tool_calling'] as const) assert.equal(postureOf(s, true), 'sleep', `stale ${s}`)
 })
 
-test('roomOfTool: a dispatch to a sub-agent is the post beside the front door', () => {
-  assert.equal(roomOfTool('Agent'), 'door')
-  assert.equal(roomOfTool('Task'), 'door')
+test('roomOfTool: a dispatch to a sub-agent is the telephone (the sub-agent walks in through the front door)', () => {
+  assert.equal(roomOfTool('Agent'), 'phone')
+  assert.equal(roomOfTool('Task'), 'phone')
 })
 
 test('placeAgent: a dispatch with sub-agents still out says how many it waits for; none out, the bubble names the tool', () => {
   const p = (delegating?: number) => placeAgent({ ...base, state: 'tool_calling', currentTool: 'Agent' }, { delegating })
-  assert.deepEqual(p(2), { presence: 'in', room: 'door', bubble: { kind: 'waiting', n: 2 } })
-  assert.deepEqual(p(0), { presence: 'in', room: 'door', bubble: { kind: 'tool', tool: 'Agent' } })
+  assert.deepEqual(p(2), { presence: 'in', room: 'phone', bubble: { kind: 'waiting', n: 2 } })
+  assert.deepEqual(p(0), { presence: 'in', room: 'phone', bubble: { kind: 'tool', tool: 'Agent' } })
   assert.deepEqual(p(undefined).bubble, { kind: 'tool', tool: 'Agent' })
   // waiting is only claimed while the dispatch tool runs: thinking with sub-agents out says thinking
   assert.deepEqual(placeAgent({ ...base, state: 'thinking' }, { delegating: 3 }).bubble, { kind: 'state', state: 'thinking' })

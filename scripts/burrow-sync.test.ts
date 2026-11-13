@@ -245,12 +245,13 @@ test('changed: true when a placement was applied, false when nothing moved', () 
   assert.equal(syncBurrow(e, st, [agent('a', { state: 'thinking' })], opts).changed, true)
 })
 
-test('delegation: an orchestrator in a dispatch call waits at the door post, its sub-agents are listed under it', () => {
+test('delegation: an orchestrator in a dispatch call waits at the telephone, its sub-agents are listed under it', () => {
   const { e, st } = setup()
   const lead = agent('lead', { state: 'tool_calling', currentTool: 'Agent' })
   const sub = agent('sub', { state: 'tool_calling', currentTool: 'Read', parentId: 'lead', kind: 'subagent' })
   const r = syncBurrow(e, st, [sub, lead], { ...opts, delegations: new Map([['lead', 1]]) })
-  assert.equal(e.jobOf('lead'), 'door')
+  assert.equal(e.jobOf('lead'), 'phone')
+  assert.equal(r.rows.find((x) => x.id === 'lead')?.room, 'phone')
   assert.equal(e.actors.find((a) => a.key === 'lead')?.said, 'waiting:undefined')
   assert.deepEqual(r.rows.map((x) => `${x.id}:${x.depth}:${x.delegating ?? 0}`), ['lead:0:1', 'sub:1:0'])
 })

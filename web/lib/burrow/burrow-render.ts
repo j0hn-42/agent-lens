@@ -5,6 +5,7 @@
 import type { BurrowActor, BurrowEngine } from './burrow-engine'
 import type { BurrowData } from './burrow-types'
 import type { BurrowPalette } from './burrow-palette'
+import { BURROW_TELEPHONE } from './burrow-telephone'
 
 export type BurrowImages = Readonly<Record<string, CanvasImageSource>>
 
@@ -70,8 +71,10 @@ export interface BurrowRenderer {
   /**
    * `rings`: colour of the floor ring per agent key (burrow-marker colourOf); an agent without one gets no ring.
    * `crowns`: agents that launched at least one known sub-agent (burrow-links orchestratorsOf) wear a crown.
+   * `ringing`: a dispatch call is observed running (an orchestrator at the telephone): the telephone rings. Never under
+   * reduced motion or Freeze motion, where the scene is still.
    */
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string> }): void
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
@@ -108,6 +111,42 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
   }
   }
   drawSigns()
+
+  // the telephone, drawn once as pixel art: its handset at rest, and lifted a pixel (it rings)
+  const TEL = BURROW_TELEPHONE
+  const telephone = (lift: number): HTMLCanvasElement => {
+    const c = document.createElement('canvas')
+    c.width = TEL.rows[0].length; c.height = TEL.rows.length + 1
+    const tg = c.getContext('2d')
+    TEL.rows.forEach((row, j) => {
+      for (let i = 0; i < row.length; i++) {
+        const colour = TEL.colours[row[i]]
+        if (!colour || !tg) continue
+        tg.fillStyle = colour
+        tg.fillRect(i, j + 1 - (j < TEL.handsetRows ? lift : 0), 1, 1)
+      }
+    })
+    return c
+  }
+  const telAtRest = telephone(0)
+  const telLifted = telephone(1)
+  function drawTelephone(ringing: boolean): void {
+    if (!g) return
+    drawFx('shadow', TEL.cx - 10, TEL.base - 4)
+    // it rings in bursts: a burst of a fraction of a second, its handset jumping, then a pause
+    const clock = engine.clock
+    const burst = ringing && clock % 1.4 < 0.7
+    const jump = burst && Math.floor(clock * 14) % 2 === 0
+    g.drawImage(jump ? telLifted : telAtRest, TEL.x, TEL.y - 1)
+    if (burst) {                                      // two small ring marks either side of the handset, paper on ink
+      const w = TEL.rows[0].length
+      const marks: Array<[number, number]> = [[-2, 0], [-3, 1], [-3, 2], [-2, 3], [w + 1, 0], [w + 2, 1], [w + 2, 2], [w + 1, 3]]
+      g.fillStyle = pal.ink
+      for (const [dx, dy] of marks) g.fillRect(TEL.x + dx, TEL.y + dy + 1, 1, 1)
+      g.fillStyle = pal.paper
+      for (const [dx, dy] of marks) g.fillRect(TEL.x + dx, TEL.y + dy, 1, 1)
+    }
+  }
 
   function drawFx(name: string, x: number, y: number): void {
     const r = FX.rects[name]
@@ -169,7 +208,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn }) {
+    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false }) {
       rings = ringsIn
       crowns = crownsIn
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
@@ -218,9 +257,14 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
         }
         g.globalAlpha = 1
       }
-      // everyone else in the burrow, from back to front
+      // everyone else in the burrow, from back to front; the telephone among them, at the depth of its feet
       const list = engine.actors.filter((a) => a !== u && a.mode !== 'home' && !hiddenKeys?.has(a.key)).sort((p, q) => p.y - q.y)
-      for (const a of list) drawActor(a, a.alpha)
+      let telDrawn = false
+      for (const a of list) {
+        if (!telDrawn && a.y > TEL.base) { drawTelephone(ringing); telDrawn = true }
+        drawActor(a, a.alpha)
+      }
+      if (!telDrawn) drawTelephone(ringing)
       // glows
       const { fireGlow } = engine.ambience
       const clock = engine.clock

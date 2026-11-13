@@ -8,9 +8,15 @@
  * What the picture says is decided by burrow-model.ts, from observed states.
  */
 import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowPosture, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
+import { BURROW_TELEPHONE } from './burrow-telephone'
 
 const LOUNGE: BurrowRoomId = 'lounge'
-const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'door']
+const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'phone', 'door']
+/** Places made of fixed posts rather than of a room's furniture: the telephone, beside the front door */
+type PostKind = 'phone' | 'door'
+const isPostKind = (room: BurrowRoomId): room is PostKind => room === 'phone' || room === 'door'
+/** Which way an animal at a post looks: callers face the telephone (on their left), the others the front door (on their right) */
+const POST_FACE: Record<PostKind, BurrowDir> = { phone: 'left', door: 'right' }
 /** Seconds an unavailable agent still waits in the lounge before it walks out through the front door */
 const HOME_AFTER_S = 4
 /** An agent on its way to a workshop or the door post moves this many times faster than a stroll */
@@ -63,8 +69,8 @@ interface Actor extends BurrowActor {
   goingHome: boolean
   leaving: boolean
   gone: boolean
-  /** Index of the post beside the front door this agent holds while it delegates (job 'door'), else null */
-  post: number | null
+  /** The post this agent holds (job 'phone' or 'door'), else null */
+  post: { kind: PostKind; i: number } | null
   /** How it holds itself in the lounge when it has no job and does not rest (setPosture) */
   posture: BurrowPosture
 }
@@ -114,6 +120,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   MAP.grid.forEach((row, gy) => {
     for (let gx = 0; gx < GW; gx++) walk[gy * GW + gx] = row.charCodeAt(gx) === 49 ? 1 : 0
   })
+  // the telephone's table stands on the floor: nobody walks through it
+  {
+    const [x0, y0, x1, y1] = BURROW_TELEPHONE.block
+    for (let gy = Math.floor(y0 / CELL); gy <= Math.floor(y1 / CELL); gy++) {
+      for (let gx = Math.floor(x0 / CELL); gx <= Math.floor(x1 / CELL); gx++) if (gx >= 0 && gy >= 0 && gx < GW && gy < GH) walk[gy * GW + gx] = 0
+    }
+  }
   const cellOk = (gx: number, gy: number): boolean => gx >= 0 && gy >= 0 && gx < GW && gy < GH && walk[gy * GW + gx] === 1
   const pointOk = (x: number, y: number): boolean => cellOk(Math.floor(x / CELL), Math.floor(y / CELL))
   function zoneOf(x: number, y: number): BurrowRoomId {
@@ -126,11 +139,14 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   const mats: BurrowMat[] = []
   // a character standing right in front of a mat would hide its title: agents walk over the mats but never stop there
   const hidesTitle = (x: number, y: number): boolean => mats.some((m) => x > m.x - 10 && x < m.x + m.w + 10 && y > m.y - 2 && y < m.y + m.h + 30)
+  // floor kept for a place of its own (the telephone's callers): an animal walks over it but stops there only to hold that place
+  const KEPT: ReadonlyArray<readonly [number, number, number, number]> = [BURROW_TELEPHONE.reserved]
+  const kept = (x: number, y: number): boolean => KEPT.some((r) => x >= r[0] && x < r[2] && y >= r[1] && y < r[3])
   const zoneCells: Partial<Record<BurrowRoomId, Array<[number, number]>>> = {}
   const cellsOf = (room: BurrowRoomId): Array<[number, number]> => zoneCells[room] ?? zoneCells[LOUNGE] ?? [[Math.floor(GW / 2), Math.floor(GH / 2)]]
-  // Posts of the agents that delegate: a row beside the front door, facing it (they send a sub-agent out). Never on a title
-  // mat, never in the lane in front of the doorway that agents use to come in and go out.
-  const doorPosts: Pt[] = []
+  // Posts: at the telephone (burrow-telephone), and a row beside the front door, facing it. Never on a title mat, never in
+  // the lane in front of the doorway that agents use to come in and go out.
+  const posts: Record<PostKind, Pt[]> = { phone: [], door: [] }
 
   function layTitles(titles: Readonly<Record<string, string>>): void {
     mats.length = 0
@@ -140,19 +156,21 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       for (let gx = 0; gx < GW; gx++) {
         if (!cellOk(gx, gy)) continue
         const c = cellPoint([gx, gy])
-        if (hidesTitle(c.x, c.y)) continue
+        if (hidesTitle(c.x, c.y) || kept(c.x, c.y)) continue
         const z = zoneOf(c.x, c.y)
         ;(zoneCells[z] ??= []).push([gx, gy])
       }
     }
-    doorPosts.length = 0
+    posts.door.length = 0
     for (const dy of [6, 22]) {
       for (let dx = 30; dx <= 102; dx += 12) {
         const x = MAP.door.cx - dx
         const y = MAP.door.front + dy
-        if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) doorPosts.push({ x, y })
+        if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) posts.door.push({ x, y })
       }
     }
+    posts.phone.length = 0
+    for (const p of BURROW_TELEPHONE.posts) if (pointOk(p.x, p.y) && !hidesTitle(p.x, p.y)) posts.phone.push({ x: p.x, y: p.y })
   }
   layTitles(opts.titles)
 
@@ -318,12 +336,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     index.set(key, a)
     if (!opt.inside) { stayOutside(a, 0.3 + 1.2 * actors.filter((o) => o.mode === 'home').length); return }
     const room = opt.room
-    if (room === 'door') {
-      const p = takePost(a)
+    if (room && isPostKind(room)) {
+      const p = takePost(a, room)
       if (p) {
-        a.x = p.x; a.y = p.y; a.dir = 'right'; a.zone = LOUNGE
+        a.x = p.x; a.y = p.y; a.dir = POST_FACE[room]; a.zone = LOUNGE
         a.job = { room }
-        a.plan = [{ t: 'idle', dur: rnd(7, 13), face: 'right' }]
+        a.plan = [{ t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE[room] }]
         begin(a)
         return
       }
@@ -338,7 +356,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
         return
       }
     }
-    const spots = pois.filter((q) => q.room === LOUNGE && !q.taken && !q.perch)
+    const spots = pois.filter((q) => q.room === LOUNGE && !q.taken && !q.perch && !kept(q.x, q.y))
     if (spots.length) placeAt(a, pick(spots))
     else { const c = cellPoint(pick(cellsOf(LOUNGE))); a.x = c.x; a.y = c.y }
     if (room) { a.job = { room }; replan(a) } else begin(a)
@@ -420,18 +438,25 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     a.sayUntil = text === null ? 0 : clock + dur
   }
 
-  /** A post beside the front door for `a`: the one it holds, else the first free one (null when all are taken) */
-  function takePost(a: Actor): Pt | null {
-    if (a.post !== null && doorPosts[a.post]) return doorPosts[a.post]
-    for (let i = 0; i < doorPosts.length; i++) {
-      if (!actors.some((o) => o !== a && o.post === i)) { a.post = i; return doorPosts[i] }
+  /** A post of that kind for `a`: the one it holds, else the first free one, nearest first (null when all are taken) */
+  function takePost(a: Actor, kind: PostKind): Pt | null {
+    const list = posts[kind]
+    if (a.post?.kind === kind && list[a.post.i]) return list[a.post.i]
+    for (let i = 0; i < list.length; i++) {
+      if (!actors.some((o) => o !== a && o.post?.kind === kind && o.post.i === i)) { a.post = { kind, i }; return list[i] }
     }
+    a.post = null
     return null
   }
   function goWork(a: Actor, room: BurrowWorkshopId): void {   // a free post in the room (failing that, a standing spot in it)
-    if (room === 'door') {                                    // delegating: stands at its post beside the front door, facing it
-      const p = takePost(a)
-      if (p) { a.zone = LOUNGE; a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'idle', dur: rnd(7, 13), face: 'right' }]; return }
+    if (isPostKind(room)) {                                   // at the telephone, or beside the front door: held until released
+      const p = takePost(a, room)
+      if (p) { a.zone = LOUNGE; a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: POST_FACE[room] }]; return }
+      // every post taken: it stands still in the lounge, and looks again for a free post after a while
+      const c = standingSpot(a)
+      a.zone = LOUNGE
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(4, 8), face: 'down' }]
+      return
     }
     const free = freePois(a, room)
     const others = free.filter((p) => p !== a.lastPoi)
@@ -442,13 +467,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(7, 13), face: 'up' }]
   }
   function goHome(a: Actor): void {                 // walks to the front door and leaves the burrow
-    a.goingHome = true; a.job = null; a.zone = null
+    a.goingHome = true; a.job = null; a.zone = null; a.post = null
     a.dx = Math.round(rnd(-3, 3))
     a.plan = [{ t: 'walk', x: MAP.door.cx + a.dx, y: MAP.door.front }, { t: 'door' }]
   }
   function chooseGoal(a: Actor): void {
     releasePoi(a)
-    if (a.job?.room !== 'door') a.post = null
+    if (a.post && a.job?.room !== a.post.kind) a.post = null
 
     if (dueHome(a) && wayClear(a)) { goHome(a); return }
     if (a.job) { goWork(a, a.job.room); return }      // next post in the same room, until released
@@ -462,7 +487,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     const r = rng()
     // settle somewhere in the lounge: sofa, armchair, pouf, fireside...
     if (r < 0.9) {
-      const free = freePois(a, LOUNGE).filter((p) => p !== a.lastPoi)
+      const free = freePois(a, LOUNGE).filter((p) => p !== a.lastPoi && !kept(p.x, p.y))
       if (free.length) {
         const w = free.map((q) => (q.perch ? 2.2 : q.id.startsWith('fire') ? 1.6 : 1))
         let pickR = rng() * w.reduce((p, q) => p + q, 0)
@@ -490,7 +515,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   const poseIf = (a: Actor, pose: string): string | undefined => (a.meta.poses[pose] ? pose : undefined)
   /** Where it stands in the lounge: where it is when that is a lounge spot that hides no title, else a lounge cell */
   function standingSpot(a: Actor): Pt {
-    if (zoneOf(a.x, a.y) === LOUNGE && pointOk(a.x, a.y) && !hidesTitle(a.x, a.y)) return { x: a.x, y: a.y }
+    if (zoneOf(a.x, a.y) === LOUNGE && pointOk(a.x, a.y) && !hidesTitle(a.x, a.y) && !kept(a.x, a.y)) return { x: a.x, y: a.y }
     return cellPoint(pick(cellsOf(LOUNGE)))
   }
   /** The posture of a state other than idle, held until the state changes (no end, no wander) */

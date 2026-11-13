@@ -3,10 +3,11 @@
 export type BurrowDir = 'up' | 'down' | 'left' | 'right'
 
 /**
- * The lounge is where an agent that works nowhere rests; the four others are workshops. 'door' is not a room of the
- * picture but a post: beside the front door, where an agent stands while it delegates (it sends a sub-agent out).
+ * The lounge is where an agent that works nowhere rests; the four others are workshops. 'phone' and 'door' are not
+ * rooms of the picture but posts: 'phone' at the telephone (burrow-telephone), where an agent stands while it delegates
+ * (it sends a sub-agent, who walks in through the front door); 'door' beside the front door.
  */
-export type BurrowRoomId = 'lounge' | 'office' | 'library' | 'workshop' | 'lab' | 'door'
+export type BurrowRoomId = 'lounge' | 'office' | 'library' | 'workshop' | 'lab' | 'phone' | 'door'
 export type BurrowWorkshopId = Exclude<BurrowRoomId, 'lounge'>
 
 /**
