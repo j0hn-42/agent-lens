@@ -18,7 +18,9 @@ import { BURROW_DATA } from '@/lib/burrow/burrow-data'
 import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
-import type { BurrowRoomId } from '@/lib/burrow/burrow-types'
+import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
+import { fillTag } from './burrow-tag'
+import type { HealthVerdict } from '@/lib/loop-detection'
 import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 import { fitStage, type StageInsets } from '@/lib/burrow/burrow-fit'
 import { measureOverlayInsets } from './canvas/overlay-insets'
@@ -40,6 +42,10 @@ export interface BurrowViewProps {
   links?: Map<string, AgentLink>
   /** Element that takes the focus when *Back to the graph* removes the burrow (and the button with it) */
   focusTargetId?: string
+  /** Loop verdict per agent id, the graph's `health.byAgent`: a proven loop gets the graph's badge, beside the name tag */
+  health?: ReadonlyMap<string, HealthVerdict>
+  /** Events the relay could not replay, per session (#366): the list rows of that session's agents say it */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 // The speech bubbles keep the paper and ink of the picture they sit on, whatever the theme.
@@ -97,7 +103,7 @@ function styleTag(el: HTMLDivElement, u: number): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, announceLevel = 'all', links, focusTargetId }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, announceLevel = 'all', links, focusTargetId, health, replayLost }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -128,10 +134,11 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const reduced = osReduced || prefs.freezeMotion
 
   // live values for the frame loop (it never restarts for them)
-  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t })
-  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t }
-  // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places newcomers at once
-  useEffect(() => { resyncRef.current = true }, [selectedAgentId, hideInactive, reduced])
+  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t, health, replayLost })
+  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t, health, replayLost }
+  // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places
+  // newcomers at once, a new loop verdict or replay loss changes the rows
+  useEffect(() => { resyncRef.current = true; wakeRef.current() }, [selectedAgentId, hideInactive, reduced, health, replayLost])
   // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting); a motion
   // setting change also switches the loop between animation frames and the slow timer
   useEffect(() => { dirtyRef.current = true; wakeRef.current() }, [selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles])
@@ -198,6 +205,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const bubbles = new Map<string, HTMLDivElement>()
     const tags = new Map<string, HTMLDivElement>()
     let names = new Map<string, string>()
+    /** Agents with a proven loop: their tag carries the graph's loop badge */
+    let loops = new Set<string>()
     let shownTags = new Set<string>()
     let scale = 1
     let rowsSig = ''
@@ -264,9 +273,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       delegations = openDelegations(sim?.links, (key) => { const ag = agents.get(key); return ag !== undefined && !isDoneAgent(ag) })
       const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
+        health: live.current.health, replayLost: live.current.replayLost,
       })
       if (changed) dirtyRef.current = true
-      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}`).join('\n')
+      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
         setRows(next)
@@ -274,6 +284,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         const tagNames = nextTagNames(names, next)
         names = tagNames.names
         if (tagNames.changed) dirtyRef.current = true
+        // a loop proven or gone changes a tag too: redrawn under reduced motion and Freeze motion as well
+        const nextLoops = new Set(next.filter((r) => r.loop).map((r) => r.id))
+        if (nextLoops.size !== loops.size || [...nextLoops].some((id) => !loops.has(id))) dirtyRef.current = true
+        loops = nextLoops
       }
       if (extra !== hiddenShown) { hiddenShown = extra; setHidden(extra) }
     }
@@ -308,8 +322,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         tagged.add(a.key)
         let el = tags.get(a.key)
         if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleTag(el, u); overlay.appendChild(el); tags.set(a.key, el) }
-        const text = truncateName(name)
-        if (el.textContent !== text) el.textContent = text
+        fillTag(el, truncateName(name), loops.has(a.key) ? live.current.t('card.health.loop') : null, u)
         const w = el.offsetWidth
         const h = el.offsetHeight
         const left = Math.max(4, Math.min(stageW - w - 4, a.x * scale - w / 2))
@@ -453,24 +466,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   }, [assets, titles, simulationRef])
 
   const onTitles = useCallback(() => setPref('burrowTitles', !prefs.burrowTitles), [setPref, prefs.burrowTitles])
-  const roomName = (r: BurrowRoomId): string => t(`burrow.room.${r}` as 'burrow.room.lounge')
-  const baseLabel = (r: BurrowRow): string => {
-    if (r.presence === 'finished') return t('burrow.agent.done', { name: r.name })
-    const state = t(`state.${r.state}` as 'state.idle')
-    if (r.stale) return t('burrow.agent.stale', { name: r.name, state })
-    return r.tool
-      ? t('burrow.agent.tool', { name: r.name, state, room: roomName(r.room), tool: r.tool })
-      : t('burrow.agent', { name: r.name, state, room: roomName(r.room) })
-  }
-  // a sub-agent names its orchestrator; an orchestrator says how many sub-agents it still waits for
-  const rowLabel = (r: BurrowRow): string => {
-    let label = baseLabel(r)
-    const n = r.delegating ?? 0
-    if (n > 0) label = n === 1 ? t('burrow.agent.delegating.one', { row: label }) : t('burrow.agent.delegating.many', { row: label, n })
-    const parent = r.parentId ? rows.find((o) => o.id === r.parentId) : undefined
-    if (parent) label = t('burrow.agent.child', { row: label, parent: parent.name })
-    return label
-  }
+  const rowLabel = (r: BurrowRow): string => burrowRowLabel(r, rows, t)
 
   return (
     <div

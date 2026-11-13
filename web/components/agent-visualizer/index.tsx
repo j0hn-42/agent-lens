@@ -451,6 +451,8 @@ export function AgentVisualizer() {
           announceLevel={prefs.announceLevel}
           links={links}
           focusTargetId="visualizer-main"
+          health={health.byAgent}
+          replayLost={replayLostBySession}
         />
       ) : (
       <AgentCanvas

@@ -1,0 +1,37 @@
+// Burrow view: the agent list row is the text path of everything the scene draws (the bubbles and tags are aria-hidden).
+// A proven loop and a replay loss of the agent's session are said there, with the graph's words, and only when proven.
+import './all-locales'
+import { test } from 'node:test'
+import { strict as assert } from 'node:assert'
+import { translate, type Locale } from '../web/lib/messages'
+import { burrowRowLabel } from '../web/lib/burrow/burrow-row-label'
+import type { BurrowRow } from '../web/lib/burrow/burrow-sync'
+
+const row = (over: Partial<BurrowRow> = {}): BurrowRow =>
+  ({ id: 'a', name: 'alpha', presence: 'in', room: 'lounge', state: 'idle', stale: false, parentId: null, depth: 0, ...over })
+const tr = (locale: Locale) => (key: Parameters<typeof translate>[1], params?: Readonly<Record<string, string | number>>) => translate(locale, key, params)
+
+test('a row without a loop or a loss says neither (never a "no loop")', () => {
+  const label = burrowRowLabel(row(), [row()], tr('en'))
+  assert.equal(label, 'alpha: Idle, Lounge')
+  assert.doesNotMatch(label, /loop|replayed/i)
+})
+
+test('a proven loop is said with the words of the graph and of the agent card', () => {
+  assert.match(burrowRowLabel(row({ loop: true }), [], tr('en')), /^alpha: Idle, Lounge, loop observed$/)
+  assert.match(burrowRowLabel(row({ loop: true }), [], tr('fr')), /boucle observée$/)
+})
+
+test('a replay loss of the session is a lower bound, singular and plural', () => {
+  assert.match(burrowRowLabel(row({ replayLost: 1 }), [], tr('en')), /at least 1 earlier event of its session was not replayed$/)
+  assert.match(burrowRowLabel(row({ replayLost: 12 }), [], tr('en')), /at least 12 earlier events of its session were not replayed$/)
+  assert.match(burrowRowLabel(row({ replayLost: 12 }), [], tr('fr')), /au moins 12 événements antérieurs de sa session n’ont pas été rejoués$/)
+})
+
+test('the notes go with the existing ones: tool, open delegations, the orchestrator named last', () => {
+  const parent = row({ id: 'p', name: 'boss' })
+  const child = row({ id: 'c', name: 'kid', parentId: 'p', depth: 1, state: 'tool_calling', room: 'office', tool: 'Edit', loop: true, replayLost: 2 })
+  const label = burrowRowLabel(child, [parent, child], tr('en'))
+  assert.equal(label, 'kid: Calling tool, Office, tool Edit, loop observed, at least 2 earlier events of its session were not replayed, sub-agent of boss')
+  assert.equal(burrowRowLabel(row({ presence: 'finished', delegating: 1 }), [], tr('en')), 'alpha: finished, 1 sub-agent running')
+})
