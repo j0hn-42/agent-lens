@@ -9,6 +9,14 @@ export type BurrowDir = 'up' | 'down' | 'left' | 'right'
 export type BurrowRoomId = 'lounge' | 'office' | 'library' | 'workshop' | 'lab' | 'door'
 export type BurrowWorkshopId = Exclude<BurrowRoomId, 'lounge'>
 
+/**
+ * How an agent that works in no room holds itself in the lounge: it encodes the observed state, never an invented
+ * activity. 'stroll' = idle (the only random wander); 'sit' = thinking, on a free seat; 'wave' = waiting for a
+ * permission, standing facing the front door; 'sleep' = last known state (stale), by the fireside; 'still' = any other
+ * state, standing. A sprite without the pose stands still in its place.
+ */
+export type BurrowPosture = 'stroll' | 'sit' | 'wave' | 'sleep' | 'still'
+
 export interface BurrowPoi {
   id: string
   room: BurrowRoomId

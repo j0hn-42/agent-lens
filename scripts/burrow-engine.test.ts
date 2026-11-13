@@ -242,3 +242,105 @@ test('setTitles re-lays the mats on the same engine: actors and their jobs stay,
   run(e, 5)
   assert.equal(e.jobOf('b'), 'office')
 })
+
+// ---------------- postures: the observed state, held as long as it lasts ----------------
+const SEAT_POSES = new Set(['sit', 'sitLeft'])
+const FIRE = BURROW_DATA.map.poi.filter((p) => p.id.startsWith('fire'))
+function towardDoor(x: number, y: number): string {
+  const dx = BURROW_DATA.map.door.cx - x
+  const dy = BURROW_DATA.map.door.front - y
+  return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
+}
+/** Settles the scene, then checks the animal holds its place and pose for two more minutes */
+function settledAndKept(e: ReturnType<typeof make>, key: string) {
+  run(e, 40)
+  const a = e.actors.find((x) => x.key === key)!
+  const held = { x: a.x, y: a.y, pose: a.pose, dir: a.dir, mode: a.mode }
+  for (let i = 0; i < 12; i++) {
+    run(e, 10)
+    assert.deepEqual({ x: a.x, y: a.y, pose: a.pose, dir: a.dir, mode: a.mode }, held, `${key} kept its posture`)
+  }
+  assert.equal(e.zoneOf(a.x, a.y), 'lounge')
+  return a
+}
+
+test('setPosture sit: the agent takes a free lounge seat and stays seated, no stroll', () => {
+  const e = make(2)
+  e.addActor('a', 'fox', { inside: true })
+  assert.equal(e.setPosture('a', 'sit'), true)
+  const a = settledAndKept(e, 'a')
+  assert.equal(a.mode, 'sit')
+  assert.ok(a.pose !== null && SEAT_POSES.has(a.pose), String(a.pose))
+  assert.equal(e.setPosture('ghost', 'sit'), false)
+})
+
+test('setPosture sit: with every seat taken the agent stands still instead', () => {
+  const e = make(2)
+  const seats = BURROW_DATA.map.poi.filter((p) => p.room === 'lounge' && p.perch).length
+  for (let i = 0; i < seats; i++) { e.addActor(`s${i}`, 'otter', { inside: true }); e.setPosture(`s${i}`, 'sit') }
+  run(e, 40)
+  assert.equal(e.actors.filter((x) => x.mode === 'sit').length, seats)
+  e.addActor('late', 'hare', { inside: true })
+  e.setPosture('late', 'sit')
+  const a = settledAndKept(e, 'late')
+  assert.equal(a.pose, null)
+  assert.equal(a.mode, 'idle')
+})
+
+test('setPosture wave: the agent stands still facing the front door, waving when its sprite has the pose', () => {
+  const e = make(4)
+  e.addActor('fox', 'fox', { inside: true })
+  e.addActor('sq', 'squirrel', { inside: true })
+  e.setPosture('fox', 'wave')
+  e.setPosture('sq', 'wave')
+  const f = settledAndKept(e, 'fox')
+  assert.equal(f.pose, 'wave')
+  const s = settledAndKept(e, 'sq')
+  assert.equal(BURROW_DATA.sprites.squirrel.poses.wave, undefined, 'the squirrel sheet has no wave')
+  assert.equal(s.pose, null, 'no pose it does not have: it stands still')
+  assert.equal(s.dir, towardDoor(s.x, s.y))
+})
+
+test('setPosture sleep: by the fireside asleep when the sprite has the pose, else standing still there', () => {
+  const e = make(6)
+  e.addActor('o', 'otter', { inside: true, room: 'lab' })
+  e.addActor('sq', 'squirrel', { inside: true })
+  e.setPosture('o', 'sleep')
+  e.setPosture('sq', 'sleep')
+  e.release('o')
+  const o = settledAndKept(e, 'o')
+  assert.equal(o.pose, 'sleep')
+  assert.ok(FIRE.some((p) => p.x === o.x && p.y === o.y), `${o.x},${o.y} by the fire`)
+  const s = settledAndKept(e, 'sq')
+  assert.equal(s.pose, null)
+  assert.ok(FIRE.some((p) => p.x === s.x && p.y === s.y), `${s.x},${s.y} by the fire`)
+})
+
+test('setPosture still: no stroll, no seat; stroll gives the idle wander back', () => {
+  const e = make(8)
+  e.addActor('a', 'beetle', { inside: true })
+  e.setPosture('a', 'still')
+  const a = settledAndKept(e, 'a')
+  assert.equal(a.pose, null)
+  assert.equal(a.mode, 'idle')
+  const { x, y } = a
+  e.setPosture('a', 'stroll')
+  run(e, 60)
+  assert.notEqual(`${a.x},${a.y}`, `${x},${y}`, 'idle again, it strolls')
+})
+
+test('a posture waits behind a job and behind resting: the room and the finished rest come first', () => {
+  const e = make(9)
+  e.addActor('a', 'fox', { inside: true, room: 'office' })
+  e.setPosture('a', 'wave')
+  run(e, 20)
+  const a = e.actors.find((x) => x.key === 'a')!
+  assert.equal(e.zoneOf(a.x, a.y), 'office')
+  assert.equal(a.pose, null)
+  e.release('a')
+  run(e, 40)
+  assert.equal(a.pose, 'wave')
+  e.setResting('a', true)
+  run(e, 40)
+  assert.equal(a.pose, null, 'a finished agent keeps its plain dimmed rest')
+})

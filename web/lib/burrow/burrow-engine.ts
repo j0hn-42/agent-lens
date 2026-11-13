@@ -2,10 +2,12 @@
  * Burrow view: the movement engine (no DOM, no drawing). Ported from the pixel-art burrow prototype with its demo removed:
  * nothing happens at random except where an idle agent strolls in the lounge. An agent works in a room only because it
  * was assigned there (assign) and goes back to the lounge when released; it is outside only when unavailable. A finished
- * agent rests (setResting): it goes back to the lounge and stands still, so nothing is invented for it.
+ * agent rests (setResting): it goes back to the lounge and stands still, so nothing is invented for it. In the lounge an
+ * agent holds the posture of its observed state (setPosture): seated, waving at the door, asleep by the fire or still;
+ * only the 'stroll' posture wanders.
  * What the picture says is decided by burrow-model.ts, from observed states.
  */
-import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
+import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowPosture, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
 
 const LOUNGE: BurrowRoomId = 'lounge'
 const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'door']
@@ -16,7 +18,7 @@ const SAY_NEVER_ENDS = Number.POSITIVE_INFINITY
 type Mode = 'idle' | 'queue' | 'walk' | 'doorOut' | 'doorIn' | 'home' | 'hopOn' | 'hopOff' | 'sit'
 type Step =
   | { t: 'walk'; x: number; y: number }
-  | { t: 'idle'; dur: number; face?: BurrowDir }
+  | { t: 'idle'; dur: number; face?: BurrowDir; pose?: string }
   | { t: 'door' }
   | { t: 'perch'; x: number; y: number; pose: string; dur: number }
 type Pt = { x: number; y: number }
@@ -61,6 +63,8 @@ interface Actor extends BurrowActor {
   gone: boolean
   /** Index of the post beside the front door this agent holds while it delegates (job 'door'), else null */
   post: number | null
+  /** How it holds itself in the lounge when it has no job and does not rest (setPosture) */
+  posture: BurrowPosture
 }
 
 export interface BurrowMat { id: string; label: string; x: number; y: number; w: number; h: number }
@@ -306,7 +310,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       fps: Math.max(6, Math.min(11, Math.round(meta.anims.down.frames * 1.5))),
       x: 0, y: 0, dir: 'down', mode: 'idle', wait: 0, plan: [{ t: 'idle', dur: rnd(0.3, 2.5) }], route: [], animT: rng(), alpha: 1,
       pose: null, poi: null, lastPoi: null, zone: LOUNGE, job: null, tp: 0, dx: 0, hop: null, hopT: 0,
-      awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null,
+      awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null, posture: 'stroll',
     }
     actors.push(a)
     index.set(key, a)
@@ -394,6 +398,18 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     }
     return true
   }
+  /**
+   * How the agent holds itself in the lounge, from its observed state (burrow-model postureOf). It waits behind a job,
+   * a rest or a stay outside: the agent takes it up once it is back in the lounge with nothing else to do.
+   */
+  function setPosture(key: string, posture: BurrowPosture): boolean {
+    const a = byKey(key)
+    if (!a || a.leaving) return false
+    if (a.posture === posture) return true
+    a.posture = posture
+    if (!a.job && !a.resting && !a.goingHome && !outside(a)) replan(a)
+    return true
+  }
   /** `dur` seconds (Infinity = until said again); null hushes */
   function say(key: string, text: string | null, dur = 6): void {
     const a = byKey(key)
@@ -440,6 +456,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: 'down' }]
       return
     }
+    if (a.posture !== 'stroll') { hold(a, a.posture); return }
     const r = rng()
     // settle somewhere in the lounge: sofa, armchair, pouf, fireside...
     if (r < 0.9) {
@@ -461,6 +478,47 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     const c = cellPoint(pick(cellsOf(LOUNGE)))
     a.zone = LOUNGE
     a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(1.5, 4) }]
+  }
+  const nearest = <T extends Pt>(a: Actor, spots: readonly T[]): T | undefined => {
+    let best: T | undefined
+    let bd = Infinity
+    for (const p of spots) { const d = Math.hypot(p.x - a.x, p.y - a.y); if (d < bd) { bd = d; best = p } }
+    return best
+  }
+  const poseIf = (a: Actor, pose: string): string | undefined => (a.meta.poses[pose] ? pose : undefined)
+  /** Where it stands in the lounge: where it is when that is a lounge spot that hides no title, else a lounge cell */
+  function standingSpot(a: Actor): Pt {
+    if (zoneOf(a.x, a.y) === LOUNGE && pointOk(a.x, a.y) && !hidesTitle(a.x, a.y)) return { x: a.x, y: a.y }
+    return cellPoint(pick(cellsOf(LOUNGE)))
+  }
+  /** The posture of a state other than idle, held until the state changes (no end, no wander) */
+  function hold(a: Actor, posture: Exclude<BurrowPosture, 'stroll'>): void {
+    a.zone = LOUNGE
+    if (posture === 'sit') {                         // thinking: the nearest free seat; none free, it stands still
+      const seat = nearest(a, freePois(a, LOUNGE).filter((p) => p.perch))
+      if (seat?.perch) {
+        takePoi(a, seat)
+        a.plan = [{ t: 'walk', x: seat.x, y: seat.y }, { t: 'perch', x: seat.perch.x, y: seat.perch.y, pose: seat.perch.pose, dur: Number.POSITIVE_INFINITY }]
+        return
+      }
+    }
+    if (posture === 'sleep') {                       // last known state: by the fireside, asleep when the sprite can be
+      const fire = nearest(a, freePois(a, LOUNGE).filter((p) => p.id.startsWith('fire')))
+      const pose = poseIf(a, 'sleep')
+      if (fire) { takePoi(a, fire); a.plan = [{ t: 'walk', x: fire.x, y: fire.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: fire.face, pose }]; return }
+      const c = standingSpot(a)
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: 'down', pose }]
+      return
+    }
+    const c = standingSpot(a)
+    if (posture === 'wave') {                        // waiting for a permission: facing the front door, waving when it can
+      const dx = MAP.door.cx - c.x
+      const dy = MAP.door.front - c.y
+      const toDoor: BurrowDir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')
+      a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: toDoor, pose: poseIf(a, 'wave') }]
+      return
+    }
+    a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: Number.POSITIVE_INFINITY, face: 'down' }]
   }
   function begin(a: Actor): void {
     if (!a.plan.length) chooseGoal(a)
@@ -484,7 +542,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       a.hop = { x: a.x, y: a.y, px: st.x, py: st.y }; a.hopT = 0; a.mode = 'hopOn'
       a.dir = Math.abs(st.x - a.x) > Math.abs(st.y - a.y) ? (st.x > a.x ? 'right' : 'left') : (st.y > a.y ? 'down' : 'up')
     } else {
-      a.mode = 'idle'; a.wait = st.dur; a.pose = null
+      a.mode = 'idle'; a.wait = st.dur; a.pose = st.pose ?? null
       if (st.face) a.dir = st.face
     }
   }
@@ -626,7 +684,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     ambience,
     get clock() { return clock },
     doorIsOpen,
-    addActor, removeActor, assign, release, setAvailable, setResting, say,
+    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say,
     update, fastForward, zoneOf, actorAt,
     /** Room an agent is assigned to now (null = not working) */
     jobOf: (key: string): BurrowWorkshopId | null => byKey(key)?.job?.room ?? null,
