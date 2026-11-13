@@ -31,14 +31,16 @@ function graphAnnouncements(level: AnnounceLevel, first: Agent[], second: Agent[
     announceLevelRef: { current: level },
   }))
   set(first); act(() => hook.result.current.detectStateChanges())
+  const before = new Set(hook.result.current.announcements.map(a => a.id))
   set(second); act(() => hook.result.current.detectStateChanges())
-  const out = hook.result.current.announcements.map(a => ({ text: a.text, urgent: a.urgent === true }))
+  // only what the second batch adds: the burrow takes the agents it finds on mount as its baseline
+  const out = hook.result.current.announcements.filter(a => !before.has(a.id)).map(a => ({ text: a.text, urgent: a.urgent === true }))
   hook.unmount()
   return out
 }
 
 /** The burrow shown, the same two batches, then the text of its polite and urgent live regions */
-async function burrowAnnouncements(level: AnnounceLevel, first: Agent[], second: Agent[]) {
+async function burrowAnnouncements(level: AnnounceLevel, first: Agent[], second: Agent[], onMounted?: (polite: (string | null)[]) => void) {
   const agents = new Map<string, Agent>()
   const set = (list: Agent[]) => { agents.clear(); for (const a of list) agents.set(a.id, a) }
   const simulationRef = { current: { agents, toolCalls: new Map(), links: new Map(), discoveries: [] } }
@@ -52,13 +54,18 @@ async function burrowAnnouncements(level: AnnounceLevel, first: Agent[], second:
       onAgentHover={() => {}}
     />,
   )
+  const texts = (el: Element) => Array.from(el.querySelectorAll('p')).map(p => p.textContent)
+  const politeRegion = () => {
+    const el = view.container.querySelector('[role="status"][aria-live="polite"]')
+    assert.ok(el, 'the burrow has a polite live region')
+    return el
+  }
   await wait(400)
+  onMounted?.(texts(politeRegion()))
   set(second)
   await wait(400)
   const urgent = screen.getByRole('alert')
-  const polite = view.container.querySelector('[role="status"][aria-live="polite"]')
-  assert.ok(polite, 'the burrow has a polite live region')
-  const texts = (el: Element) => Array.from(el.querySelectorAll('p')).map(p => p.textContent)
+  const polite = politeRegion()
   return { polite: texts(polite), urgent: texts(urgent) }
 }
 
@@ -81,4 +88,12 @@ test('burrow: level "important" filters exactly as the graph does', async () => 
   assert.deepEqual(burrow.urgent, graph.filter(a => a.urgent).map(a => a.text))
   assert.deepEqual(burrow.polite, [])
   assert.deepEqual(graph.filter(a => !a.urgent), [])
+})
+
+test('burrow: agents already there when the view opens are not announced as started, later changes are', async () => {
+  let onMount: (string | null)[] = []
+  const burrow = await burrowAnnouncements('all', first, second, (polite) => { onMount = polite })
+  assert.deepEqual(onMount, [], 'opening the burrow mid-session reads nothing: these agents did not just start')
+  assert.ok(!burrow.polite.some(t => t?.includes('started')), 'no agent is announced as started')
+  assert.ok(burrow.urgent.includes('Agent Reviewer is waiting for permission'), 'a later change is still announced')
 })

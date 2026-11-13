@@ -41,11 +41,14 @@ export function useBurrowAnnouncements({ simulationRef, announceLevel, hideInact
   })
 
   useEffect(() => {
+    // The first look is a baseline: agents already there when the burrow opens are not read as just started
+    let primed = false
     const tick = (): void => {
       const sim = simulationRef.current
       if (!sim) return
       drawPropsRef.current.agents = visibleAgents(sim.agents, live.current.hideInactive, [live.current.selectedAgentId])
-      detectStateChanges()
+      detectStateChanges({ silent: !primed })
+      primed = true
     }
     tick()
     const id = window.setInterval(tick, BURROW_ANNOUNCE_INTERVAL_MS)

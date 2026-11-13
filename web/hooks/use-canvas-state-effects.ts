@@ -33,7 +33,12 @@ export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMoti
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
   const announcementsRef = useRef<AnnouncementQueue>(createAnnouncementQueue())
 
-  const detectStateChanges = useCallback(() => {
+  /**
+   * `silent`: record the current states as the baseline and announce nothing. For a view that opens mid-session:
+   * the agents it finds did not just start, and their running tools did not just begin.
+   */
+  const detectStateChanges = useCallback((opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true
     const { agents } = drawPropsRef.current
     // States come from the whole simulation, only the shown agents are announced: expanding a
     // branch reveals agents that did not just start.
@@ -43,7 +48,7 @@ export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMoti
       prevAgentStatesRef.current, prevToolStatesRef.current,
       agents,
     )
-    if (!reducedMotionRef.current) {
+    if (!reducedMotionRef.current && !silent) {
       // Global flash limiter: at most FLASH_MAX_PER_SECOND bright flashes per second
       for (const fx of effects) {
         if ((fx.type === 'spawn' || fx.type === 'complete') && !flashLimiterRef.current.allow(performance.now())) {
@@ -63,7 +68,7 @@ export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMoti
     teamPrevRef.current = team.next
     transitions.push(...team.transitions)
 
-    if (transitions.length > 0) {
+    if (transitions.length > 0 && !silent) {
       const next = enqueueAnnouncements(announcementsRef.current, transitions, undefined, { multiSession: hasSeveralSessions(agents.values()), level: announceLevelRef.current })
       if (next !== announcementsRef.current) {
         announcementsRef.current = next
