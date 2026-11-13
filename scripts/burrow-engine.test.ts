@@ -119,6 +119,16 @@ test('nothing is said on its own: a bubble exists only after say(), and ends wit
   assert.equal(e.actors.find((a) => a.key === 'a')?.said, null)
 })
 
+test('a fast-forward (the still scene of reduced motion) brings the animals to rest but keeps a timed bubble, with its time left', () => {
+  const e = make(7)
+  e.addActor('a', 'fox', { inside: true, room: 'library' })
+  e.say('a', 'Grep', 6)
+  e.fastForward(40)
+  assert.equal(e.actors.find((a) => a.key === 'a')?.said, 'Grep', 'still said after the jump')
+  run(e, 7)
+  assert.equal(e.actors.find((a) => a.key === 'a')?.said, null, 'then it ends with its duration')
+})
+
 test('the same seed gives the same scene (no hidden randomness)', () => {
   const trace = (): string => {
     const e = make(42)

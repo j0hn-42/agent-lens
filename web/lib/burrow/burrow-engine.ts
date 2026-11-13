@@ -659,8 +659,10 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
    * remaining time: they are not used up by a jump of the clock.
    */
   function fastForward(seconds: number): void {
+    // the time left of each bubble is read before the jump: update() would end a timed one on its way
+    const left = new Map(actors.filter((a) => a.said !== null).map((a) => [a, { said: a.said, left: a.sayUntil - clock }] as const))
     for (let t = 0; t < seconds; t += 0.1) update(0.1)
-    for (const a of actors) if (a.said !== null && Number.isFinite(a.sayUntil)) a.sayUntil += seconds
+    for (const [a, b] of left) if (actors.includes(a)) { a.said = b.said; a.sayUntil = clock + b.left }
   }
 
   /** The agent whose sprite covers the point (scene pixels), nearest in front first */
