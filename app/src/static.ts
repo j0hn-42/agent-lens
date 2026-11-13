@@ -1,6 +1,6 @@
 /**
  * Static file server for the pre-built webview assets.
- * Serves index.html, index.js, and index.css from app/dist/webview/.
+ * Serves index.html, index.js, and index.css from app/dist/webview/, and the burrow view's PNGs from its burrow/.
  */
 import * as http from 'http'
 import * as fs from 'fs'
@@ -31,6 +31,8 @@ const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
 }
 
+/** /burrow/<name>.png: the only pictures served, from the burrow/ directory of the webview build */
+const BURROW_PICTURE = /^\/burrow\/([a-z0-9-]+)\.png$/
 /**
  * Webview assets kept in memory (#654): a request costs one stat, the disk is read again only when the file
  * changed (rebuild). The ETag lets the browser revalidate (304) instead of downloading the bundle again.
@@ -65,10 +67,13 @@ export function serveStatic(req: http.IncomingMessage, res: http.ServerResponse,
     return
   }
 
+  // The burrow view's pictures, copied by the Vite build to burrow/: a plain name only, so nothing is decoded or joined
+  const picture = BURROW_PICTURE.exec(url)
+
   // Only serve known asset files from the webview directory
   const basename = path.basename(url)
   const ext = path.extname(basename)
-  const mime = MIME_TYPES[ext]
+  const mime = picture ? 'image/png' : MIME_TYPES[ext]
 
   if (!mime) {
     res.writeHead(404)
@@ -76,7 +81,7 @@ export function serveStatic(req: http.IncomingMessage, res: http.ServerResponse,
     return
   }
 
-  const filePath = path.join(webviewDir, basename)
+  const filePath = picture ? path.join(webviewDir, 'burrow', `${picture[1]}.png`) : path.join(webviewDir, basename)
 
   // Prevent path traversal
   if (!filePath.startsWith(webviewDir)) {

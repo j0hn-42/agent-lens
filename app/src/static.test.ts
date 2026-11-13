@@ -74,3 +74,28 @@ test('static assets: read once, then served from memory; revalidated with an ETa
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('burrow pictures: a PNG is served only from burrow/ of the webview directory, as image/png', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-static-'))
+  fs.mkdirSync(path.join(dir, 'burrow'))
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+  fs.writeFileSync(path.join(dir, 'burrow', 'fox.png'), png)
+  fs.writeFileSync(path.join(dir, 'top.png'), png)
+  const server = http.createServer((req, res) => serveStatic(req, res, dir))
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  try {
+    const ok = await fetch(`${base}/burrow/fox.png`)
+    assert.equal(ok.status, 200)
+    assert.equal(ok.headers.get('content-type'), 'image/png')
+    assert.deepEqual(Buffer.from(await ok.arrayBuffer()), png)
+    assert.equal((await fetch(`${base}/top.png`)).status, 404, 'a PNG outside burrow/ is not served')
+    assert.equal((await fetch(`${base}/burrow/missing.png`)).status, 404)
+    assert.equal((await fetch(`${base}/burrow/%2e%2e%2ftop.png`)).status, 404, 'no way out of burrow/')
+    assert.equal((await fetch(`${base}/burrow/fox.js`)).status, 404, 'only pictures under burrow/')
+    assert.equal((await fetch(`${base}/x/burrow/fox.png`)).status, 404)
+  } finally {
+    server.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
