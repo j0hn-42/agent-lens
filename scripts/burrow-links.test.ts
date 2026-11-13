@@ -1,7 +1,7 @@
 // Burrow view: delegation is read from the observed link messages only (dispatch, return, teammate message).
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createMailState, linksSignature, newMail, openDelegations, relativesOf, treeOrder } from '../web/lib/burrow/burrow-links'
+import { createMailState, linksSignature, newMail, openDelegations, orchestratorsOf, relativesOf, treeOrder } from '../web/lib/burrow/burrow-links'
 import type { AgentLink, ConversationMessage } from '../web/hooks/simulation/types'
 
 let n = 0
@@ -45,6 +45,15 @@ test('openDelegations: a dispatch without its return counts once per live sub-ag
   assert.equal(open.get('p'), 2, 'c1 and c3 still out, c2 returned')
   assert.equal(open.has('q'), false, 'a finished sub-agent without a recorded return is not counted')
   assert.equal(open.has('x'), false, 'teammate messages are not delegations')
+})
+
+test('orchestratorsOf: an agent wears the crown when at least one of its sub-agents is known, nobody else', () => {
+  const agents = new Map([
+    ['lead', { parentId: null }], ['c1', { parentId: 'lead' }], ['mid', { parentId: 'lead' }], ['g', { parentId: 'mid' }],
+    ['solo', { parentId: null }], ['orphan', { parentId: 'gone' }], ['self', { parentId: 'self' }],
+  ])
+  assert.deepEqual([...orchestratorsOf(agents)].sort(), ['lead', 'mid'], 'a parent missing from the data, or an agent its own parent, wears none')
+  assert.equal(orchestratorsOf(new Map()).size, 0)
 })
 
 test('relativesOf: the parent and the children that are drawn', () => {

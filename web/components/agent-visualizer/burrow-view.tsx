@@ -14,7 +14,7 @@ import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engin
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
-import { createMailState, linksSignature, newMail, openDelegations, relativesOf, type MailKind } from '@/lib/burrow/burrow-links'
+import { createMailState, linksSignature, newMail, openDelegations, orchestratorsOf, relativesOf, type MailKind } from '@/lib/burrow/burrow-links'
 import { isDoneAgent } from '@/lib/inactive-agents'
 import { BURROW_DATA } from '@/lib/burrow/burrow-data'
 import { burrowImageNames, burrowImageUrl } from '@/lib/burrow/burrow-assets'
@@ -239,6 +239,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let loops = new Set<string>()
     // agents whose bubble is a "last known state": shown only on hover or selection (bubbleShown)
     let stales = new Set<string>()
+    /** Agents that launched at least one known sub-agent: they wear a crown (orchestratorsOf) */
+    let crowns = new Set<string>()
     /** Colour of the floor ring per agent (rows' marker): sessions and teams told apart, the graph's halo colours */
     let rings = new Map<string, string>()
     let shownTags = new Set<string>()
@@ -324,6 +326,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         }
       }
       delegations = openDelegations(sim?.links, (key) => { const ag = agents.get(key); return ag !== undefined && !isDoneAgent(ag) })
+      // a new orchestrator gets its crown under reduced motion too (the scene is drawn again only when dirty)
+      const nextCrowns = orchestratorsOf(agents)
+      if (nextCrowns.size !== crowns.size || [...nextCrowns].some((id) => !crowns.has(id))) dirtyRef.current = true
+      crowns = nextCrowns
       const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
         health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
@@ -450,7 +456,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       return out
     }
     const draw = (): void => {
-      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings })
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns })
       placeOverlays()
     }
 

@@ -12,6 +12,16 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
 const MOVING = new Set(['walk', 'doorOut', 'doorIn', 'hopOn', 'hopOff'])
 /** A finished agent is drawn dimmed, like a finished node of the graph */
 const RESTING_ALPHA = 0.45
+// The crown of an orchestrator is part of the pixel art, like the animals: gold, a darker edge and a red jewel
+const CROWN_GOLD = '#f2c037'
+const CROWN_EDGE = '#7a4a0a'
+const CROWN_JEWEL = '#c0392b'
+/** Pixels of the 7 x 5 crown: three points on top, then a full band */
+const CROWN_PIXELS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0], [3, 0], [6, 0],
+  [0, 1], [1, 1], [3, 1], [5, 1], [6, 1],
+  ...[0, 1, 2, 3, 4, 5, 6].flatMap((dx) => [[dx, 2], [dx, 3], [dx, 4]] as Array<[number, number]>),
+]
 
 /**
  * The ring on the floor that tells sessions and teams apart (burrow-marker): the pixels of an ellipse just around the
@@ -57,8 +67,11 @@ export interface BurrowRenderer {
   setPalette(palette: BurrowPalette): void
   /** Draws the title layer again from the engine's current mats (after engine.setTitles) */
   redrawTitles(): void
-  /** `rings`: colour of the floor ring per agent key (burrow-marker colourOf); an agent without one gets no ring */
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string> }): void
+  /**
+   * `rings`: colour of the floor ring per agent key (burrow-marker colourOf); an agent without one gets no ring.
+   * `crowns`: agents that launched at least one known sub-agent (burrow-links orchestratorsOf) wear a crown.
+   */
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string> }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
@@ -101,6 +114,18 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     if (r) g?.drawImage(images.fx, r[0], r[1], r[2], r[3], x, y, r[2], r[3])
   }
   let rings: ReadonlyMap<string, string> | undefined
+  let crowns: ReadonlySet<string> | undefined
+  /** A 7 x 5 pixel crown resting on the head: three points, a band, a red jewel in the middle */
+  function drawCrown(cx: number, top: number): void {
+    if (!g) return
+    const x0 = cx - 3
+    g.fillStyle = CROWN_EDGE
+    for (const [dx, dy] of CROWN_PIXELS) g.fillRect(x0 + dx, top + dy + 1, 1, 1)      // one darker pixel under each: it reads on any fur
+    g.fillStyle = CROWN_GOLD
+    for (const [dx, dy] of CROWN_PIXELS) g.fillRect(x0 + dx, top + dy, 1, 1)
+    g.fillStyle = CROWN_JEWEL
+    g.fillRect(x0 + 3, top + 3, 1, 1)
+  }
   function drawActor(a: BurrowActor, alphaIn: number): void {
     if (!g) return
     const alpha = a.resting ? alphaIn * RESTING_ALPHA : alphaIn
@@ -133,6 +158,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       g.globalAlpha = alpha
     }
     g.drawImage(images[a.sprite], col * c, row * c, c, c, x - m.anchor[0], y - m.anchor[1], c, c)
+    if (crowns?.has(a.key)) drawCrown(x, y - ((pose && pose.h) || m.h) - 1)
     g.globalAlpha = 1
   }
 
@@ -143,8 +169,9 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn }) {
+    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn }) {
       rings = ringsIn
+      crowns = crownsIn
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
       g.imageSmoothingEnabled = false
       g.drawImage(images.decor, 0, 0)

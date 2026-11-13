@@ -73,6 +73,16 @@ export function openDelegations(links: ReadonlyMap<string, AgentLink> | undefine
   return out
 }
 
+/**
+ * Orchestrators: the agents at least one known sub-agent names as its parent (the crown of the burrow). The link is
+ * observed (a spawn), never guessed from a name; a parent missing from the data wears nothing.
+ */
+export function orchestratorsOf(agents: ReadonlyMap<string, { parentId: string | null }>): Set<string> {
+  const out = new Set<string>()
+  for (const [key, a] of agents) if (a.parentId && a.parentId !== key && agents.has(a.parentId)) out.add(a.parentId)
+  return out
+}
+
 /** The parent and the children of an agent, among the keys `has` accepts (the animals drawn) */
 export function relativesOf(
   id: string,
