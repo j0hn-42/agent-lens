@@ -3,8 +3,10 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
-import { sessionColor } from '../web/components/agent-visualizer/canvas/cluster-model'
+import { clusterColor } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { createBurrowSyncState, syncBurrow as syncList, syncDue, simFingerprint, SYNC_INTERVAL_MS, BURROW_MAX_ANIMALS, type SyncAgent } from '../web/lib/burrow/burrow-sync'
+/** Palette colour of a session, as the graph gives its halo */
+const sessionColor = (id: string): string => clusterColor(`session:${id}`, [{ sessionId: id }])
 
 const TITLES = { lounge: 'L', office: 'O', library: 'B', workshop: 'A', lab: 'X', home: 'M' }
 function seeded(seed: number): () => number {

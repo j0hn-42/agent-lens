@@ -75,7 +75,7 @@ export interface BurrowRow {
   replayLost?: number
   /** Colour of the ring on the floor under the animal (burrow-marker colourOf): absent when the view shows one session and no team */
   marker?: string
-  /** Team or workflow the agent is drawn with (its own, else its parent's), when the rings are drawn */
+  /** Team or workflow whose halo holds the agent in the graph (its own, or the one its session hosts), when the rings are drawn */
   team?: { name: string; kind: GroupKind }
 }
 
@@ -199,13 +199,13 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   const marks = opts.health ? repeatMarks(opts.health, undefined, agents.keys()) : undefined
   // the rings tell apart the sessions and teams of the listed agents (a filtered one tells nothing apart)
   const running = runningCalls(opts.toolCalls)
-  const ringCtx = markerContext(wanted.filter((w) => !w.filtered && engine.has(w.a.id)).map((w) => w.a), agents, opts.teams)
+  const ringCtx = markerContext(wanted.filter((w) => !w.filtered && engine.has(w.a.id)).map((w) => w.a), opts.teams)
   for (const { a, p, filtered } of wanted) {
     if (filtered || !engine.has(a.id)) continue   // filtered: not listed; not drawn (cap): counted in `hidden`
     const delegating = opts.delegations?.get(a.id) ?? 0
     const lost = replayLostForAgents(opts.replayLost, [a])
-    const marker = colourOf(a, agents, ringCtx)
-    const team = marker !== null ? teamOf(a, agents) : undefined
+    const marker = colourOf(a, ringCtx)
+    const team = teamOf(a, ringCtx)
     // the call to open is the running one of this agent, when it is the tool the bubble names (never a guess)
     const call = p.bubble?.kind === 'tool' ? running.get(a.id) : undefined
     const toolCallId = call && call.toolName === (p.bubble?.kind === 'tool' ? p.bubble.tool : '') ? call.id : undefined

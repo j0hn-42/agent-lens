@@ -5,7 +5,7 @@ import {
   placeRects, rectsOverlap, overlayPriority, PRIORITY, type PlacementRequest, type Rect,
 } from '../web/components/agent-visualizer/canvas/label-placement'
 import {
-  computeClusters, clusterKeyOf, clusterStatus, clusterLabelLines, clusterAnnouncement, sessionColor,
+  computeClusters, clusterKeyOf, clusterStatus, clusterLabelLines, clusterAnnouncement, clusterColor,
 } from '../web/components/agent-visualizer/canvas/cluster-model'
 import {
   isOrchestrator, orchestratorRole, orchestratorInfo, agentDrawScale, agentDrawRadius, layoutAgentLabel,
@@ -20,6 +20,8 @@ import { buildA11yModel } from '../web/components/agent-visualizer/canvas/a11y-m
 import { detectTeamChanges, createTeamPrev } from '../web/components/agent-visualizer/canvas/team-changes'
 import { lodForZoom } from '../web/components/agent-visualizer/canvas/draw-options'
 import { EDGE_BUBBLE, ORCHESTRATOR_DRAW, PLACEMENT } from '../web/lib/canvas-constants'
+/** Palette colour of a session, as the graph gives its halo */
+const sessionColor = (id: string): string => clusterColor(`session:${id}`, [{ sessionId: id }])
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function agent(over: Record<string, unknown> = {}): any {

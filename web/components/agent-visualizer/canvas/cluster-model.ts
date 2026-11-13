@@ -75,7 +75,7 @@ const DEFAULT_SESSION = 'default'
 export const SESSION_PALETTE: readonly string[] = ['#66ccff', '#7ee0a8', '#ffcc66', '#ff9ec7', '#b79cff', '#9ad0ff', '#ffa978', '#8de3de']
 
 /** Stable palette entry of a session id. */
-export function sessionColor(sessionIdIn: string | undefined): string {
+function sessionColor(sessionIdIn: string | undefined): string {
   const sessionId = sessionIdIn || DEFAULT_SESSION
   let h = 0
   for (let i = 0; i < sessionId.length; i++) h = (h * 31 + sessionId.charCodeAt(i)) >>> 0
@@ -112,7 +112,7 @@ export function clusterKeyOf(
 }
 
 /** group session -> team hosted there (first team found among its teammates). */
-function hostedTeams(agents: Agent[], teams?: ReadonlyMap<string, TeamSummary>): Map<string, string> {
+export function hostedTeams(agents: Iterable<Pick<Agent, 'sessionId' | 'teamName'>>, teams?: ReadonlyMap<string, TeamSummary>): Map<string, string> {
   const hosted = new Map<string, string>()
   for (const a of agents) {
     const team = cleanText(a.teamName)
@@ -121,6 +121,21 @@ function hostedTeams(agents: Agent[], teams?: ReadonlyMap<string, TeamSummary>):
     if (!hosted.has(group)) hosted.set(group, team)
   }
   return hosted
+}
+
+/**
+ * Halo colour of a cluster (members in order, key from clusterKeyOf): for a team, the first member's valid colour, then
+ * the team summary's, then the default team colour; for a session, the session's palette colour. One colour per cluster.
+ */
+export function clusterColor(
+  key: string,
+  members: ReadonlyArray<Pick<Agent, 'sessionId' | 'teamName' | 'teamColor'>>,
+  teams?: ReadonlyMap<string, TeamSummary>,
+): string {
+  if (!key.startsWith('team:')) return sessionColor(members[0]?.sessionId)
+  return members.map(m => safeTeamColor(m.teamColor)).find(Boolean)
+    ?? members.map(m => teamOfAgent(teams, m)?.members.map(tm => safeTeamColor(tm.color)).find(Boolean)).find(Boolean)
+    ?? TEAM_DEFAULT_COLOR
 }
 
 /** Aggregate state of a cluster: error, then waiting for permission, then working, then idle, then complete. */
@@ -260,14 +275,7 @@ export function computeClusters(
     // The smallest circle that wraps the drawn agents with their labels (#146): it follows their number and size
     const { cx, cy, r } = fitHalo(members.map(m => ({ x: m.x, y: m.y, r: agentDrawRadius(m) + HALO_LABEL_ROOM })))!
 
-    let color: string
-    if (isTeam) {
-      color = members.map(m => safeTeamColor(m.teamColor)).find(Boolean)
-        ?? members.map(m => teamOfAgent(teams, m)?.members.map(tm => safeTeamColor(tm.color)).find(Boolean)).find(Boolean)
-        ?? TEAM_DEFAULT_COLOR
-    } else {
-      color = sessionColor(members[0].sessionId)
-    }
+    const color = clusterColor(key, members, teams)
 
     const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime

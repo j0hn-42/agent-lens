@@ -10,7 +10,9 @@ import axe from 'axe-core'
 import { BurrowView } from '@/components/agent-visualizer/burrow-view'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import type { Agent } from '@/lib/agent-types'
-import { sessionColor } from '@/components/agent-visualizer/canvas/cluster-model'
+import { clusterColor } from '@/components/agent-visualizer/canvas/cluster-model'
+/** Palette colour of a session, as the graph gives its halo */
+const sessionColor = (id: string): string => clusterColor(`session:${id}`, [{ sessionId: id }])
 
 const RealImage = globalThis.Image
 const realMatchMedia = window.matchMedia

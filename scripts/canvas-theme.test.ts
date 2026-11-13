@@ -12,10 +12,12 @@ import { PERF_OVERLAY, ORCHESTRATOR_DRAW, FRESHNESS_DRAW } from '../web/lib/canv
 import { scenePalette } from '../web/lib/scene-state-colors'
 import { stateColor } from '../web/components/agent-visualizer/canvas/draw-misc'
 import { THEME_IDS, TOKENS, extraVars } from '../web/lib/theme-tokens'
-import { sessionColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
+import { clusterColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { TEAM_DEFAULT_COLOR, teammateAccent } from '../web/components/agent-visualizer/canvas/team-style'
 import { sceneStamp } from '../web/components/agent-visualizer/canvas/scene-stamp'
 import { createDrawGate } from '../web/components/agent-visualizer/canvas/draw-gate'
+/** Palette colour of a session, as the graph gives its halo */
+const sessionColor = (id: string): string => clusterColor(`session:${id}`, [{ sessionId: id }])
 
 const root = join(__dirname, '..')
 const legacy = JSON.parse(readFileSync(join(__dirname, 'fixtures/neon-colors.legacy.json'), 'utf8')) as Record<string, string>
