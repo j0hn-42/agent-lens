@@ -371,6 +371,31 @@ test('portrait (a phone): the stage spans the width at the top and the agent lis
   }
 })
 
+// The picture is never shrunk to make room for a panel: the panels pass over it (the user's choice)
+test('a docked panel does not resize the picture: the stage fills the scene as with no panel', async () => {
+  const restore = withClientSize(1440, 810)
+  const dock = document.createElement('div')
+  dock.setAttribute('data-canvas-inset', 'right')
+  document.body.appendChild(dock)
+  const realRect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const box = (x: number, y: number, w: number, h: number) => ({ x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON: () => ({}) }) as DOMRect
+    if (this === dock) return box(1040, 0, 400, 810)
+    if (this.getAttribute('role') === 'region') return box(0, 0, 1440, 810)
+    return box(0, 0, 0, 0)
+  }
+  try {
+    const view = await mountLoaded()
+    const stage = view.container.querySelector('canvas')!.parentElement as HTMLElement
+    assert.equal(stage.style.width, '1440px', 'the whole scene width, not the width left of the dock')
+    assert.equal(stage.style.height, '810px')
+  } finally {
+    Element.prototype.getBoundingClientRect = realRect
+    dock.remove()
+    restore()
+  }
+})
+
 test('a switch from landscape to portrait (zoom, rotation, docked panel) keeps the focus on the focused row', async () => {
   const g = globalThis as unknown as { ResizeObserver: unknown }
   const savedRO = g.ResizeObserver

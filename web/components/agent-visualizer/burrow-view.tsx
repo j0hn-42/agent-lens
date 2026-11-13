@@ -60,6 +60,8 @@ const LETTER_SECONDS = 1.6
 const MAX_LETTERS = 12
 /** The panels over the scene (dock opened or closed, control bar folded) are measured again this often, like the graph's fit */
 const INSETS_MS = 1000
+/** The picture is laid out on the whole scene: the panels pass over it instead of shrinking it */
+const NO_INSETS: StageInsets = { top: 0, right: 0, bottom: 0, left: 0 }
 
 type Assets = { images: Record<string, HTMLImageElement> }
 
@@ -145,7 +147,6 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     row?.focus()
   }, [portrait])
   /** Fits the stage again (set by the scene once its pictures are loaded) */
-  const refitRef = useRef<() => void>(() => {})
   const showTitles = prefs.burrowTitles
   const [osReduced, setOsReduced] = useState(false)
   const reduced = osReduced || prefs.freezeMotion
@@ -176,7 +177,6 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       setColumn((c) => (c.right === col.right && c.room === col.room ? c : col))
       if (same(insetsRef.current, next)) return
       insetsRef.current = next
-      refitRef.current()
     }
     measure()
     const timer = window.setInterval(measure, INSETS_MS)
@@ -247,7 +247,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let hiddenShown = -1
 
     const resize = (): void => {
-      const layout = burrowLayout({ w: container.clientWidth, h: container.clientHeight }, insetsRef.current, { w: W, h: H })
+      // the picture keeps the whole scene whatever the panels do: they pass over it (only the controls avoid the docks)
+      const layout = burrowLayout({ w: container.clientWidth, h: container.clientHeight }, NO_INSETS, { w: W, h: H })
       if (!layout) return
       const fit = layout.stage
       const box = layout.list
@@ -288,7 +289,6 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null
     ro?.observe(container)
     resize()
-    refitRef.current = resize
 
     const bubbleText = (b: BurrowBubble): string => {
       const tr = live.current.t
@@ -530,7 +530,6 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       wakeRef.current = () => {}
       retitleRef.current = () => {}
       ro?.disconnect()
-      refitRef.current = () => {}
       themeObserver?.disconnect()
       forcedMql?.removeEventListener('change', restyle)
       view.removeEventListener('pointermove', onMove)
