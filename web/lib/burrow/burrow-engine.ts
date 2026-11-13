@@ -658,6 +658,21 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
    * Moves the scene `seconds` ahead at once (reduced motion: the resting state, no animation). The bubbles keep their
    * remaining time: they are not used up by a jump of the clock.
    */
+  /**
+   * A new language: the mats are laid again, and so are the cells and posts that depend on them. Actors and jobs stay;
+   * one that stops (or is walking to stop) on a spot a new title covers, or that holds a post beside the door (posts
+   * are laid again), decides again now: a held posture or a resting agent has no next goal to wait for.
+   */
+  function setTitles(titles: Readonly<Record<string, string>>): void {
+    layTitles(titles)
+    for (const a of actors) {
+      if (outside(a) || a.leaving || a.goingHome) continue
+      const step = a.plan[0]
+      const goal = a.mode === 'walk' && step?.t === 'walk' ? step : a
+      if (a.post !== null || ((a.mode === 'idle' || a.mode === 'walk') && hidesTitle(goal.x, goal.y))) replan(a)
+    }
+  }
+
   function fastForward(seconds: number): void {
     // the time left of each bubble is read before the jump: update() would end a timed one on its way
     const left = new Map(actors.filter((a) => a.said !== null).map((a) => [a, { said: a.said, left: a.sayUntil - clock }] as const))
@@ -680,8 +695,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   return {
     actors: actors as ReadonlyArray<BurrowActor>,
     mats,
-    /** A new language: the mats are laid again and so are the cells and posts that depend on them. Actors and jobs stay where they are; one standing on a forbidden spot moves on at its next goal. */
-    setTitles: layTitles,
+    setTitles,
     door,
     ambience,
     get clock() { return clock },

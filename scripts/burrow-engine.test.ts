@@ -253,6 +253,37 @@ test('setTitles re-lays the mats on the same engine: actors and their jobs stay,
   assert.equal(e.jobOf('b'), 'office')
 })
 
+test('setTitles: an animal holding a posture on a spot that a new, longer title covers moves off it', () => {
+  const SHORT = { lounge: 'A', office: 'B', library: 'C', workshop: 'D', lab: 'E', home: 'F' }
+  const LONG = { lounge: 'The lounge of the whole burrow', office: 'The office of the burrow', library: 'The library of the burrow', workshop: 'The workshop of the burrow', lab: 'The laboratory of it', home: 'Home sweet home' }
+  const hides = (mats: ReadonlyArray<{ x: number; y: number; w: number; h: number }>, x: number, y: number) =>
+    mats.some((m) => x > m.x - 10 && x < m.x + m.w + 10 && y > m.y - 2 && y < m.y + m.h + 30)
+  const longMats = layoutMats(BURROW_DATA, LONG)
+  // spots where strolling animals stop under the short titles (valid cells), and that the long titles cover
+  const scout = createBurrowEngine({ data: BURROW_DATA, titles: SHORT, rng: seeded(3) })
+  for (let i = 0; i < 6; i++) scout.addActor(`s${i}`, 'otter', { inside: true })
+  let spot: { x: number; y: number } | undefined
+  for (let t = 0; t < 600 && !spot; t++) {
+    run(scout, 1)
+    spot = scout.actors.filter((a) => a.mode === 'idle').map((a) => ({ x: a.x, y: a.y }))
+      .find((p) => scout.zoneOf(p.x, p.y) === 'lounge' && hides(longMats, p.x, p.y) && !hides(scout.mats, p.x, p.y))
+  }
+  assert.ok(spot, 'a lounge spot free under the short titles and covered by the long ones')
+  const e = createBurrowEngine({ data: BURROW_DATA, titles: SHORT, rng: seeded(5) })
+  e.addActor('a', 'otter', { inside: true })
+  e.setPosture('a', 'still')
+  run(e, 40)
+  const a = e.actors.find((x) => x.key === 'a')! as unknown as { x: number; y: number; mode: string; plan: unknown[] }
+  // it holds its posture there (the end of a 'still' hold, with no end)
+  a.x = spot.x; a.y = spot.y; a.mode = 'idle'; a.plan = [{ t: 'idle', dur: Number.POSITIVE_INFINITY, face: 'down' }]
+  run(e, 5)
+  assert.deepEqual({ x: a.x, y: a.y }, spot, 'held while the titles stay')
+  e.setTitles(LONG)
+  run(e, 40)
+  assert.equal(hides(e.mats, a.x, a.y), false, `it moved off the new title (${a.x}, ${a.y})`)
+  assert.equal(e.zoneOf(a.x, a.y), 'lounge')
+})
+
 // ---------------- postures: the observed state, held as long as it lasts ----------------
 const SEAT_POSES = new Set(['sit', 'sitLeft'])
 const FIRE = BURROW_DATA.map.poi.filter((p) => p.id.startsWith('fire'))
