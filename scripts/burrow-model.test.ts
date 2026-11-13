@@ -10,6 +10,8 @@ const base = { archived: false, activity: undefined, awaitingNextEvent: false, c
 
 test('roomOfTool: edits in the office, reads and searches in the library, the shell in the workshop', () => {
   for (const t of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']) assert.equal(roomOfTool(t), 'office', t)
+  // writing its to-do list is writing: the office, not the laboratory
+  assert.equal(roomOfTool('TodoWrite'), 'office')
   for (const t of ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'LS']) assert.equal(roomOfTool(t), 'library', t)
   for (const t of ['Bash', 'BashOutput', 'KillShell']) assert.equal(roomOfTool(t), 'workshop', t)
 })

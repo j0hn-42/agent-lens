@@ -10,7 +10,8 @@ export const BURROW_ROOM_ORDER: readonly BurrowRoomId[] = ['lounge', 'office', '
 
 /** The tools of each room that has a list (the laboratory is every other tool, the lounge no tool); the legend reads this table too */
 export const BURROW_ROOM_TOOLS = {
-  office: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'],
+  /** Writing: files, notebooks, and the agent's own to-do list */
+  office: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'TodoWrite'],
   library: ['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'],
   workshop: ['Bash', 'BashOutput', 'KillShell'],
   /** Tools that hand a task to a sub-agent */
