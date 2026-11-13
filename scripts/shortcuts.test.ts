@@ -89,3 +89,11 @@ test('in the burrow the dialog lists no graph-only key (zoom, fit, grid, stats o
   for (const k of ['l', ' ', '?', 'z']) assert.ok(keys.includes(k), k)
   assert.equal(shortcutsForView(false).length, SHORTCUTS.length, 'the graph lists everything')
 })
+
+test('the burrow dialog lists Shift+Enter, its agent row key that opens the running tool call; the graph dialog does not', () => {
+  const tool = shortcutsForView(true).find(s => s.display === 'Shift+Enter')
+  assert.ok(tool, 'listed in the burrow')
+  assert.equal(tool.singleKey, false)
+  assert.ok(/tool call/.test(tool.description), tool.description)
+  assert.equal(shortcutsForView(false).some(s => s.key === tool.key), false)
+})

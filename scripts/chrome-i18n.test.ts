@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { formatEventCount, formatSpeed, formatTruncatedHistory, liveBadge, scrubberValueText } from '../web/lib/chrome-utils'
 import { connectionText } from '../web/lib/top-bar-text'
-import { SHORTCUTS, SHORTCUT_GROUPS, graphKeyboardHelp } from '../web/lib/shortcuts'
+import { SHORTCUTS, SHORTCUT_GROUPS, graphKeyboardHelp, shortcutsForView } from '../web/lib/shortcuts'
 import { shortcutDescription, shortcutGroupName, shortcutKeyCap, graphKeyboardHelpText } from '../web/lib/shortcuts-text'
 import { LOCALES, MESSAGES, translate } from '../web/lib/messages'
 
@@ -113,4 +113,12 @@ test('playback bar: the Review button keeps its visible word in its accessible n
     const visible = translate(locale, 'bar.review').toLowerCase()
     assert.ok(translate(locale, 'bar.review.name').toLowerCase().includes(visible), locale)
   }
+})
+
+test('shortcuts: the burrow-only Shift+Enter entry speaks the language, its key cap included', () => {
+  const tool = shortcutsForView(true).find(s => s.key === 'burrow:tool')!
+  assert.equal(shortcutDescription(tool, 'en'), tool.description)
+  assert.equal(shortcutKeyCap(tool, 'en'), 'Shift+Enter')
+  assert.equal(shortcutKeyCap(tool, 'fr'), 'Maj+Entrée')
+  assert.notEqual(shortcutDescription(tool, 'fr'), tool.description)
 })

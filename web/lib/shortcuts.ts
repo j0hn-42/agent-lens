@@ -57,9 +57,14 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
 /** Keys of the table, outside the Graph group, that only act on the node graph (Shift+F fit, G grid, S stats overlay) */
 const GRAPH_ONLY_KEYS: ReadonlySet<string> = new Set(['F', 'g', 's'])
 
-/** The entries the dialog lists for the view shown: the burrow leaves out the graph-only ones */
+/** Keys only the burrow has, handled by its agent list (burrow-agent-list.tsx), not by the global shortcuts */
+const BURROW_ONLY: readonly ShortcutDef[] = [
+  { key: 'burrow:tool', display: 'Shift+Enter', description: 'On an agent row of the Burrow agents list: open the running tool call that its bubble names', group: 'View', singleKey: false },
+]
+
+/** The entries the dialog lists for the view shown: the burrow leaves out the graph-only ones and adds its own */
 export function shortcutsForView(burrow: boolean): readonly ShortcutDef[] {
-  return burrow ? SHORTCUTS.filter(s => s.group !== 'Graph' && !GRAPH_ONLY_KEYS.has(s.key)) : SHORTCUTS
+  return burrow ? [...SHORTCUTS.filter(s => s.group !== 'Graph' && !GRAPH_ONLY_KEYS.has(s.key)), ...BURROW_ONLY] : SHORTCUTS
 }
 
 export const SHORTCUT_GROUPS = ['Playback', 'Panels', 'View', 'Graph', 'General'] as const

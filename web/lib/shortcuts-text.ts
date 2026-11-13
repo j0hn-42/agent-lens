@@ -39,6 +39,7 @@ const DESCRIPTION_KEY: Readonly<Record<string, MessageKey>> = {
   'graph:fit': 'shortcut.graph.fit',
   'graph:open': 'shortcut.graph.open',
   'graph:menu': 'shortcut.graph.menu',
+  'burrow:tool': 'burrow.shortcut.tool',
 }
 
 const KEY_CAP_KEY: Readonly<Record<string, MessageKey>> = {
@@ -49,6 +50,7 @@ const KEY_CAP_KEY: Readonly<Record<string, MessageKey>> = {
   'graph:pan': 'shortcut.key.shiftArrows',
   'graph:open': 'shortcut.key.enterSpace',
   'graph:menu': 'shortcut.key.menu',
+  'burrow:tool': 'burrow.shortcut.toolKey',
 }
 
 /** What the shortcut does, in the language. */
