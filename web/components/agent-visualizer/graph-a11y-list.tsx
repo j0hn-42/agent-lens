@@ -6,6 +6,7 @@ import { panelName } from '@/lib/command-palette'
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
+import { LiveAnnouncements } from './live-announcements'
 import type { LinkMessageItem } from './canvas/edge-bubble-set'
 import { clusterNoun, clusterNounLower } from './canvas/cluster-model'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
@@ -176,13 +177,8 @@ export function GraphA11yList({
 
   return (
     <>
-      <div role="status" aria-live="polite" aria-atomic="false" className="sr-only">
-        {announcements.filter(a => !a.urgent).map(a => <p key={a.id}>{a.text}</p>)}
-      </div>
       {/* Actionable states (failure, permission request) interrupt: never summarised, own region */}
-      <div role="alert" aria-atomic="false" className="sr-only" data-testid="graph-urgent-announcer">
-        {announcements.filter(a => a.urgent).map(a => <p key={a.id}>{a.text}</p>)}
-      </div>
+      <LiveAnnouncements announcements={announcements} />
 
       {/* Arrow-key boundary of the outline (keys from its buttons bubble here): presentational and
           box-less, so the named section carries no handler */}
