@@ -945,9 +945,9 @@
   --lens-burrow-bubble: #ffffff;
   --lens-burrow-ink: #000000;
   --lens-burrow-shadow: rgba(0, 0, 0, 0);
-  --lens-burrow-letter-return: #ffffff;
-  --lens-burrow-letter-message: #ffffff;
-  --lens-burrow-seal: #000000;
+  --lens-burrow-letter-return: #ffff00;
+  --lens-burrow-letter-message: #00ffff;
+  --lens-burrow-seal: #c00000;
   --background: var(--lens-void);
   --foreground: var(--lens-ink);
   --card: var(--lens-surface);

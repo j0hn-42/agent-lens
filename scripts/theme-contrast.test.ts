@@ -321,3 +321,18 @@ for (const id of THEME_IDS) {
     assert.ok(c >= 4.5, `${TOPBAR_TOOLTIP.text} on ${TOPBAR_TOOLTIP.ground}=${groundValue}: ${c.toFixed(2)}`)
   })
 }
+
+// Burrow view: the ink of bubbles and name tags is text on the bubble paper (1.4.3), the letter outline and flap a
+// graphic on each letter paper (1.4.11); the three letter kinds stay told apart in every theme, High contrast included
+for (const id of THEME_IDS) {
+  test(`${id}: burrow ink reads on its paper, and the three letters differ`, () => {
+    const v = extraVars(id)
+    const c = (n: string) => rgb(v[`--lens-burrow-${n}`])
+    assert.ok(ratio(c('ink'), c('bubble')) >= 4.5, 'ink on bubble')
+    for (const paper of ['letter-return', 'letter-message']) assert.ok(ratio(c('ink'), c(paper)) >= 3, `ink on ${paper}`)
+    assert.ok(ratio(c('seal'), c('letter-return')) >= 3, 'seal on the return letter')
+    assert.ok(ratio(c('seal'), c('ink')) >= 1.5, 'the seal is not the ink')
+    const papers = ['bubble', 'letter-return', 'letter-message'].map((n) => v[`--lens-burrow-${n}`].toLowerCase())
+    assert.equal(new Set(papers).size, 3, `letter papers ${papers.join(' ')}`)
+  })
+}

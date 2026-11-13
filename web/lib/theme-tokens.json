@@ -465,9 +465,9 @@
           "neon": "#d6ecbf",
           "ember": "#d6ecbf",
           "anthropic": "#d6ecbf",
-          "contrast": "#ffffff"
+          "contrast": "#ffff00"
         },
-        "usage": "Burrow view: paper of a letter that returns a result to its parent."
+        "usage": "Burrow view: paper of a letter that returns a result to its parent. Differs from the other two letter papers in every theme (yellow in High contrast); `burrow-ink` 3:1 or more on it."
       },
       {
         "name": "burrow-letter-message",
@@ -480,9 +480,9 @@
           "neon": "#cfe1f4",
           "ember": "#cfe1f4",
           "anthropic": "#cfe1f4",
-          "contrast": "#ffffff"
+          "contrast": "#00ffff"
         },
-        "usage": "Burrow view: paper of a letter sent between teammates."
+        "usage": "Burrow view: paper of a letter sent between teammates. Differs from the other two letter papers in every theme (cyan in High contrast); `burrow-ink` 3:1 or more on it."
       },
       {
         "name": "burrow-seal",
@@ -495,9 +495,9 @@
           "neon": "#b8322a",
           "ember": "#b8322a",
           "anthropic": "#b8322a",
-          "contrast": "#000000"
+          "contrast": "#c00000"
         },
-        "usage": "Burrow view: wax seal of a returning letter."
+        "usage": "Burrow view: wax seal of a returning letter. 3:1 or more on `burrow-letter-return`, and not the ink."
       }
     ]
   }
