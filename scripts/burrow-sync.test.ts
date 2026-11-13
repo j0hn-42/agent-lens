@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
+import { sessionColor } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { createBurrowSyncState, syncBurrow as syncList, syncDue, simFingerprint, SYNC_INTERVAL_MS, BURROW_MAX_ANIMALS, type SyncAgent } from '../web/lib/burrow/burrow-sync'
 
 const TITLES = { lounge: 'L', office: 'O', library: 'B', workshop: 'A', lab: 'X', home: 'M' }
@@ -364,4 +365,30 @@ test('a stale idle agent that speaks again wakes up: the posture alone is a chan
   run(e, 60)
   assert.notEqual(actor.pose, 'sleep')
   assert.notEqual(`${actor.x},${actor.y}`, `${x},${y}`, 'idle and live again, it strolls')
+})
+
+// An 'All sessions' view: the ring under each animal tells its session or team apart, in the graph's halo colour
+test('the rows carry the floor ring colour and the team, only when sessions or teams are to be told apart', () => {
+  const { e, st } = setup()
+  const one = syncBurrow(e, st, [agent('a'), agent('b', { parentId: 'a' })], opts).rows
+  assert.ok(one.every((r) => r.marker === undefined && r.team === undefined), 'one session, no team: no ring')
+  const two = syncBurrow(setup().e, createBurrowSyncState(), [
+    agent('a', { sessionId: 's1' }),
+    agent('m', { sessionId: 's2', teamName: 'alpha', teamKind: 'workflow', teamColor: '#12ab34' }),
+    agent('kid', { sessionId: 's2', parentId: 'm' }),
+  ], opts).rows
+  const row = (id: string) => two.find((r) => r.id === id)
+  assert.equal(row('a')?.marker, sessionColor('s1'))
+  assert.equal(row('a')?.team, undefined)
+  assert.equal(row('m')?.marker, '#12ab34')
+  assert.deepEqual(row('m')?.team, { name: 'alpha', kind: 'workflow' })
+  assert.equal(row('kid')?.marker, '#12ab34', 'a sub-agent without a team takes its parent\'s')
+  assert.deepEqual(row('kid')?.team, { name: 'alpha', kind: 'workflow' })
+})
+
+test('a filtered agent of another session does not turn the rings on', () => {
+  const { e, st } = setup()
+  const { rows } = syncBurrow(e, st, [agent('a', { state: 'thinking' }), agent('old', { sessionId: 's2', state: 'complete' })], { ...opts, hideInactive: true })
+  assert.deepEqual(rows.map((r) => r.id), ['a'])
+  assert.equal(rows[0].marker, undefined)
 })

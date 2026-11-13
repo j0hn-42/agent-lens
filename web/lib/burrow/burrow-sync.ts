@@ -14,6 +14,9 @@ import { linksSignature, treeOrder } from './burrow-links'
 import type { HealthVerdict } from '../loop-detection'
 import { repeatMarks } from '../repeat-marks'
 import { replayLostForAgents } from '../event-loss'
+import type { TeamSummary } from '../agent-types'
+import type { GroupKind } from '../ui-glossary'
+import { colourOf, markerContext, teamOf } from './burrow-marker'
 
 /** Most animals drawn at once: more would hide each other in a 560 x 315 px scene */
 export const BURROW_MAX_ANIMALS = 24
@@ -40,7 +43,7 @@ export function syncDue(last: { at: number; fingerprint: string } | null, now: n
 }
 
 export type SyncAgent = Pick<Agent, 'id' | 'displayName' | 'state' | 'archived' | 'activity' | 'currentTool' | 'awaitingNextEvent' | 'kind'>
-  & Pick<Agent, 'sessionId' | 'parentId'> & Partial<Pick<Agent, 'teamName' | 'teamKind' | 'clusterKey' | 'lastEventAt' | 'freshnessSource'>>
+  & Pick<Agent, 'sessionId' | 'parentId'> & Partial<Pick<Agent, 'teamName' | 'teamKind' | 'teamColor' | 'clusterKey' | 'lastEventAt' | 'freshnessSource'>>
 
 /** List order: the agents that wait for the user or failed first, then the ones running a tool, then the rest */
 const attentionRank = (state: Agent['state']): number =>
@@ -68,6 +71,10 @@ export interface BurrowRow {
   loop?: true
   /** Events the relay could not replay for this agent's session (a lower bound), when any: the graph qualifies its figures */
   replayLost?: number
+  /** Colour of the ring on the floor under the animal (burrow-marker colourOf): absent when the view shows one session and no team */
+  marker?: string
+  /** Team or workflow the agent is drawn with (its own, else its parent's), when the rings are drawn */
+  team?: { name: string; kind: GroupKind }
 }
 
 export interface BurrowSyncState {
@@ -92,6 +99,8 @@ export interface BurrowSyncOptions {
   health?: ReadonlyMap<string, HealthVerdict>
   /** Events the relay could not replay, per session id */
   replayLost?: ReadonlyMap<string, number>
+  /** Teams of the simulation: a team colour missing on its members is read there, as the graph's halo does */
+  teams?: ReadonlyMap<string, TeamSummary>
   max?: number
 }
 
@@ -177,15 +186,20 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   const flat: Array<Omit<BurrowRow, 'depth'>> = []
   // the graph's own rule for its loop badge (a proven verdict with findings); the repeat ledger is not read here
   const marks = opts.health ? repeatMarks(opts.health, undefined, agents.keys()) : undefined
+  // the rings tell apart the sessions and teams of the listed agents (a filtered one tells nothing apart)
+  const ringCtx = markerContext(wanted.filter((w) => !w.filtered && engine.has(w.a.id)).map((w) => w.a), agents, opts.teams)
   for (const { a, p, filtered } of wanted) {
     if (filtered || !engine.has(a.id)) continue   // filtered: not listed; not drawn (cap): counted in `hidden`
     const delegating = opts.delegations?.get(a.id) ?? 0
     const lost = replayLostForAgents(opts.replayLost, [a])
+    const marker = colourOf(a, agents, ringCtx)
+    const team = marker !== null ? teamOf(a, agents) : undefined
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), stale: p.bubble?.kind === 'stale',
       parentId: a.parentId ?? null, sessionId: a.sessionId, ...(delegating > 0 ? { delegating } : {}),
       ...(marks?.get(a.id)?.kind === 'loop' ? { loop: true as const } : {}), ...(lost > 0 ? { replayLost: lost } : {}),
+      ...(marker !== null ? { marker } : {}), ...(team ? { team } : {}),
     })
   }
   // attention first (stable: the order among equals is kept); the tree then puts each sub-agent under its parent
