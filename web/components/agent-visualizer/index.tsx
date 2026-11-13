@@ -436,7 +436,8 @@ export function AgentVisualizer() {
       )}
 
       {/* In full screen too: the canvas still draws the Cost panel there, and the region is sr-only (no visual footprint) */}
-      {showCostOverlay && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} />}
+      {/* The Burrow view draws no Cost panel: it shows these totals itself, visible, in its corner */}
+      {showCostOverlay && prefs.sceneStyle !== 'burrow' && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} />}
 
       {/* Canvas fills everything: the node graph, or the Burrow (same agents, same observed states, drawn as animals in rooms) */}
       {prefs.sceneStyle === 'burrow' ? (
@@ -453,6 +454,7 @@ export function AgentVisualizer() {
           focusTargetId="visualizer-main"
           health={health.byAgent}
           replayLost={replayLostBySession}
+          costTotals={showCostOverlay ? <CostTotalsText visible tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} /> : null}
         />
       ) : (
       <AgentCanvas

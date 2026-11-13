@@ -46,6 +46,8 @@ export interface BurrowViewProps {
   health?: ReadonlyMap<string, HealthVerdict>
   /** Events the relay could not replay, per session (#366): the list rows of that session's agents say it */
   replayLost?: ReadonlyMap<string, number>
+  /** The Cost totals (CostTotalsText, visible) while the Cost panel is on: the burrow draws no panel, it shows them in its corner */
+  costTotals?: React.ReactNode
 }
 
 // The speech bubbles keep the paper and ink of the picture they sit on, whatever the theme.
@@ -103,7 +105,7 @@ function styleTag(el: HTMLDivElement, u: number): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, announceLevel = 'all', links, focusTargetId, health, replayLost }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -514,6 +516,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       {/* Below the top bar (drawn over the top of <main>), on the right but left of a docked panel: the collapsed Conversation pill holds the left */}
       <div className="absolute flex max-w-[calc(100%-1rem)] flex-col items-end gap-1 text-2xs font-mono" style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', right: dockRight + 8, color: 'var(--lens-ink-muted)' }}>
         {hidden > 0 && <p role="status" className="m-0">{t('burrow.hidden', { n: hidden, max: BURROW_MAX_ANIMALS })}</p>}
+        {costTotals}
         <button
           type="button"
           aria-pressed={showTitles}

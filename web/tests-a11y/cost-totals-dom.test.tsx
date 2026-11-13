@@ -12,6 +12,7 @@ import { AgentVisualizer } from '@/components/agent-visualizer'
 import { CostTotalsText } from '@/components/agent-visualizer/cost-totals-text'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { DEFAULT_UI_PREFS, UI_PREFS_STORAGE_KEY, serializePrefs } from '@/lib/ui-preferences'
 import { setLocaleChoice } from '@/lib/locale'
 import axe from 'axe-core'
 import { closeMore, pressInMore } from './topbar-more'
@@ -90,7 +91,12 @@ const ORPHAN_READING = ev('s1', 'context_update', { agent: 'ghost', tokens: 900_
  * One session; `lost` = the relay's event-loss message (null: none sent). `row` 0 is the 'All sessions' row, 1 the session
  * itself (single-session mode). `events` defaults to one agent that used a tool and has a context size.
  */
-async function mount(lost: Record<string, number> | null, openCost = true, { row = 0, events = TOOL_AND_CONTEXT }: { row?: number; events?: unknown[] } = {}) {
+async function mount(lost: Record<string, number> | null, openCost = true, { row = 0, events = TOOL_AND_CONTEXT, burrow = false }: { row?: number; events?: unknown[]; burrow?: boolean } = {}) {
+  if (burrow) {
+    // the Burrow view, as a reload with the setting on would find it
+    window.localStorage.setItem(UI_PREFS_STORAGE_KEY, serializePrefs({ ...DEFAULT_UI_PREFS, sceneStyle: 'burrow' }))
+    resetDefaultUiPreferencesStore({ keepStorage: true })
+  }
   const r = render(<AgentVisualizer />)
   const now = Date.now()
   await act(async () => { FakeES.last.open() })
@@ -116,7 +122,8 @@ async function mount(lost: Record<string, number> | null, openCost = true, { row
   // #440: the events reach the view with the simulation's throttled UI commit and the canvas draws them on a later frame
   // (setTimeout(0) here): wait until the top bar counts the agent and a frame has drawn it, not a fixed time a loaded runner overruns
   drawn = []
-  await waitFor(() => /\b[1-9]\d* agents?\b/.test(spoken(r)) && drawn.some(t => /main/.test(t)))
+  // (the burrow draws no graph: only the top bar is waited for)
+  await waitFor(() => /\b[1-9]\d* agents?\b/.test(spoken(r)) && (burrow || drawn.some(t => /main/.test(t))))
   return r
 }
 const spoken = (r: ReturnType<typeof render>) => r.container.querySelector('[data-testid="topbar-spoken-totals"]')?.textContent ?? ''
@@ -255,4 +262,25 @@ test('#576 French: the bar reads "environ" and "estimé" like the region', async
   setLocaleChoice('fr')
   const r = await mount(null, true, { row: 1, events: [...TOOL_AND_CONTEXT, ORPHAN] })
   assert.match(spoken(r), /dont 900k jetons non attribués \(environ \$[\d.]+ estimé\)/, spoken(r))
+})
+
+// ─── Burrow view: the graph draws the Cost panel on its canvas; the burrow shows the same totals as text, in a corner ───
+
+test('Burrow view, Cost panel open: one region, visible, in the burrow\'s corner, with the totals of the graph', async () => {
+  const r = await mount({ s1: 7 }, true, { burrow: true })
+  const regions = r.container.querySelectorAll<HTMLElement>('[data-testid="cost-panel-totals"]')
+  assert.equal(regions.length, 1, 'said once: not a hidden copy and a visible one')
+  const p = regions[0]
+  assert.ok(p.closest('[role="region"][aria-label^="Burrow"]'), 'inside the burrow, in its control column')
+  assert.ok(!p.className.split(/\s+/).includes('sr-only'), 'visible: the burrow draws no Cost panel of its own')
+  assert.equal(p.getAttribute('aria-label'), 'Cost totals')
+  assert.match(p.textContent ?? '', /120k tokens in context \(incomplete\)/)
+  for (const part of (p.textContent ?? '').split(', ')) assert.ok(spoken(r).includes(part), `"${part}" is in the bar text`)
+  const results = await axe.run(p)
+  assert.deepEqual(results.violations.map(v => v.id), [])
+})
+
+test('Burrow view, Cost panel closed: no totals in the burrow', async () => {
+  const r = await mount(null, false, { burrow: true })
+  assert.equal(panel(r)?.textContent ?? null, null)
 })

@@ -20,13 +20,16 @@ type CostAgent = { tokensUsed: number; model?: string; tokenStatus?: UsageStatus
  * - the unattributed row is given in every mode, with its tokens and the qualifiers of the drawing: "~" (priced at the
  *   default rate, the model is unknown) read as "about", plus "estimated" when one part of it is an estimate.
  * Rendered only while the panel is open, in full screen too: the canvas draws the panel there as well.
+ * `visible`: the Burrow view draws no Cost panel, so it shows this text itself, in a corner of the scene (the same words
+ * and figures, never numbers drawn again).
  */
-export function CostTotalsText({ tokens, cost, agents, unattributed }: {
+export function CostTotalsText({ tokens, cost, agents, unattributed, visible = false }: {
   tokens: UsageTotal
   cost: UsageTotal
   /** The agents and the usage tied to no agent that the drawing totals (costScope) */
   agents: Iterable<CostAgent>
   unattributed: Iterable<{ tokens: number; estimated?: boolean }>
+  visible?: boolean
 }) {
   const { locale } = useLocale()
   const t = (key: Parameters<typeof translate>[1], params?: Readonly<Record<string, string | number>>) => translate(locale, key, params)
@@ -44,7 +47,13 @@ export function CostTotalsText({ tokens, cost, agents, unattributed }: {
     hasRest ? unattributedRestText(summary.unattributedTokens, summary.unattributedCost, rest.some(u => u.estimated === true), locale) : null,
   ].filter((p): p is string => p !== null)
   return (
-    <section data-testid="cost-panel-totals" aria-label={t('cost.totals.region')} lang={locale} className="sr-only">
+    <section
+      data-testid="cost-panel-totals"
+      aria-label={t('cost.totals.region')}
+      lang={locale}
+      className={visible ? 'm-0 max-w-[min(24rem,calc(100vw-2rem))] rounded px-1.5 py-0.5 text-right' : 'sr-only'}
+      style={visible ? { background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' } : undefined}
+    >
       {parts.join(', ')}
     </section>
   )
