@@ -83,9 +83,9 @@ test('the command palette shortcut is documented and is not a single-key shortcu
   assert.match(entry.display, /Cmd\+K/)
 })
 
-test('in the burrow the dialog lists no graph-only key (zoom, fit, grid, graph navigation)', () => {
+test('in the burrow the dialog lists no graph-only key (zoom, fit, grid, stats overlay, graph navigation)', () => {
   const keys = shortcutsForView(true).map(s => s.key)
-  for (const k of ['graph:zoom', 'graph:fit', 'graph:step', 'graph:pan', 'graph:open', 'graph:menu', 'F', 'g']) assert.ok(!keys.includes(k), k)
+  for (const k of ['graph:zoom', 'graph:fit', 'graph:step', 'graph:pan', 'graph:open', 'graph:menu', 'F', 'g', 's']) assert.ok(!keys.includes(k), k)
   for (const k of ['l', ' ', '?', 'z']) assert.ok(keys.includes(k), k)
   assert.equal(shortcutsForView(false).length, SHORTCUTS.length, 'the graph lists everything')
 })

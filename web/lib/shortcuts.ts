@@ -54,8 +54,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: 'graph:menu', display: 'Menu / Shift+F10', description: 'Open the context menu of the focused node', group: 'Graph', singleKey: false, handles: ['ContextMenu', 'F10'], spoken: 'The context menu key or Shift F10' },
 ]
 
-/** Keys of the table, outside the Graph group, that only act on the node graph (Shift+F fit, G grid) */
-const GRAPH_ONLY_KEYS: ReadonlySet<string> = new Set(['F', 'g'])
+/** Keys of the table, outside the Graph group, that only act on the node graph (Shift+F fit, G grid, S stats overlay) */
+const GRAPH_ONLY_KEYS: ReadonlySet<string> = new Set(['F', 'g', 's'])
 
 /** The entries the dialog lists for the view shown: the burrow leaves out the graph-only ones */
 export function shortcutsForView(burrow: boolean): readonly ShortcutDef[] {
