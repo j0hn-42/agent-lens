@@ -29,7 +29,7 @@ export function BurrowAgentList({ label, rows, selectedAgentId, rowLabel, onAgen
   return (
     <ul aria-label={label} className={LIST_CLASS} style={{ color: 'var(--lens-ink)', zIndex: Z.info }}>
       {rows.map((r) => (
-        <li key={r.id}>
+        <li key={r.id} style={r.depth > 0 ? { paddingInlineStart: `${r.depth * 0.75}rem` } : undefined}>
           <button
             type="button"
             aria-current={r.id === selectedAgentId ? 'true' : undefined}

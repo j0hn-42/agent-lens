@@ -8,6 +8,7 @@ import { deriveFreshness } from '../../hooks/simulation/freshness'
 import type { BurrowEngine } from './burrow-engine'
 import { placeAgent, pickAnimal, type BurrowBubble, type BurrowPlacement } from './burrow-model'
 import type { BurrowRoomId } from './burrow-types'
+import { treeOrder } from './burrow-links'
 
 /** Most animals drawn at once: more would hide each other in a 560 x 315 px scene */
 export const BURROW_MAX_ANIMALS = 24
@@ -26,6 +27,12 @@ export interface BurrowRow {
   tool?: string
   /** The state is the last one known (silent, replayed or imported agent) */
   stale: boolean
+  /** Parent agent key (null for a root agent): the list is in tree order, a sub-agent under its orchestrator */
+  parentId: string | null
+  /** Rank in the tree of the listed agents: 0 for a root, 1 for its sub-agents... */
+  depth: number
+  /** Sub-agents this agent sent that have not returned yet (observed dispatches without a return), when any */
+  delegating?: number
 }
 
 export interface BurrowSyncState {
@@ -44,6 +51,8 @@ export interface BurrowSyncOptions {
   bubbleText: (b: BurrowBubble) => string
   /** Every new animal is already in the burrow (no walk through the door): reduced motion */
   instant?: boolean
+  /** Per orchestrator: sub-agents it sent that have not returned yet (burrow-links openDelegations) */
+  delegations?: ReadonlyMap<string, number>
   max?: number
 }
 
@@ -55,7 +64,7 @@ export interface BurrowSyncResult {
   changed: boolean
 }
 
-const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind === 'state' && (b.state === 'waiting_permission' || b.state === 'error')
+const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind === 'waiting' || b.kind === 'state' && (b.state === 'waiting_permission' || b.state === 'error')
 /** Claim on a place of the cap: a working agent takes the place of a finished animal first, then of an idle one */
 const rank = (w: { a: SyncAgent; p: BurrowPlacement }): number => (w.p.presence === 'finished' ? 0 : w.a.state === 'idle' ? 1 : 2)
 
@@ -69,7 +78,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const filtered = !shown.has(a.id)
     const stale = deriveFreshness(a, opts.now) === 'stale'
     // a filtered agent is not drawn: it walks out through the front door, and it is not listed (finished or not)
-    wanted.push({ a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : placeAgent(a, { stale }), filtered })
+    wanted.push({ a, p: filtered ? { presence: 'away', room: 'lounge', bubble: null } : placeAgent(a, { stale, delegating: opts.delegations?.get(a.id) }), filtered })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
   // animals of agents that are gone from the data walk out for good
@@ -116,13 +125,15 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     engine.say(a.id, p.presence === 'in' ? bubble : null, p.bubble && keepsBubble(p.bubble) ? Number.POSITIVE_INFINITY : BUBBLE_SECONDS)
   }
   st.started = true
-  const rows: BurrowRow[] = []
+  const flat: Array<Omit<BurrowRow, 'depth'>> = []
   for (const { a, p, filtered } of wanted) {
     if (filtered || !engine.has(a.id)) continue   // filtered: not listed; not drawn (cap): counted in `hidden`
-    rows.push({
+    const delegating = opts.delegations?.get(a.id) ?? 0
+    flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), stale: p.bubble?.kind === 'stale',
+      parentId: a.parentId ?? null, ...(delegating > 0 ? { delegating } : {}),
     })
   }
-  return { rows, hidden, changed }
+  return { rows: treeOrder(flat), hidden, changed }
 }

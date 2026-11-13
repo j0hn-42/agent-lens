@@ -8,7 +8,7 @@
 import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
 
 const LOUNGE: BurrowRoomId = 'lounge'
-const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab']
+const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'door']
 /** Seconds an unavailable agent still waits in the lounge before it walks out through the front door */
 const HOME_AFTER_S = 4
 const SAY_NEVER_ENDS = Number.POSITIVE_INFINITY
@@ -59,6 +59,8 @@ interface Actor extends BurrowActor {
   goingHome: boolean
   leaving: boolean
   gone: boolean
+  /** Index of the post beside the front door this agent holds while it delegates (job 'door'), else null */
+  post: number | null
 }
 
 export interface BurrowMat { id: string; label: string; x: number; y: number; w: number; h: number }
@@ -128,6 +130,17 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     }
   }
   const cellsOf = (room: BurrowRoomId): Array<[number, number]> => zoneCells[room] ?? zoneCells[LOUNGE] ?? [[Math.floor(GW / 2), Math.floor(GH / 2)]]
+
+  // Posts of the agents that delegate: a row beside the front door, facing it (they send a sub-agent out). Never on a title
+  // mat, never in the lane in front of the doorway that agents use to come in and go out.
+  const doorPosts: Pt[] = []
+  for (const dy of [6, 22]) {
+    for (let dx = 30; dx <= 102; dx += 12) {
+      const x = MAP.door.cx - dx
+      const y = MAP.door.front + dy
+      if (Math.abs(x - MAP.door.cx) > 14 && pointOk(x, y) && !hidesTitle(x, y)) doorPosts.push({ x, y })
+    }
+  }
 
   function nearestCell(x: number, y: number): [number, number] | null {
     const cx = Math.floor(x / CELL)
@@ -283,11 +296,21 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       fps: Math.max(6, Math.min(11, Math.round(meta.anims.down.frames * 1.5))),
       x: 0, y: 0, dir: 'down', mode: 'idle', wait: 0, plan: [{ t: 'idle', dur: rnd(0.3, 2.5) }], route: [], animT: rng(), alpha: 1,
       pose: null, poi: null, lastPoi: null, zone: LOUNGE, job: null, tp: 0, dx: 0, hop: null, hopT: 0,
-      awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false,
+      awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null,
     }
     actors.push(a)
     if (!opt.inside) { stayOutside(a, 0.3 + 1.2 * actors.filter((o) => o.mode === 'home').length); return }
     const room = opt.room
+    if (room === 'door') {
+      const p = takePost(a)
+      if (p) {
+        a.x = p.x; a.y = p.y; a.dir = 'right'; a.zone = LOUNGE
+        a.job = { room }
+        a.plan = [{ t: 'idle', dur: rnd(7, 13), face: 'right' }]
+        begin(a)
+        return
+      }
+    }
     if (room) {
       const free = freePois(a, room)
       if (free.length) {
@@ -368,7 +391,19 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     a.sayUntil = text === null ? 0 : clock + dur
   }
 
+  /** A post beside the front door for `a`: the one it holds, else the first free one (null when all are taken) */
+  function takePost(a: Actor): Pt | null {
+    if (a.post !== null && doorPosts[a.post]) return doorPosts[a.post]
+    for (let i = 0; i < doorPosts.length; i++) {
+      if (!actors.some((o) => o !== a && o.post === i)) { a.post = i; return doorPosts[i] }
+    }
+    return null
+  }
   function goWork(a: Actor, room: BurrowWorkshopId): void {   // a free post in the room (failing that, a standing spot in it)
+    if (room === 'door') {                                    // delegating: stands at its post beside the front door, facing it
+      const p = takePost(a)
+      if (p) { a.zone = LOUNGE; a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'idle', dur: rnd(7, 13), face: 'right' }]; return }
+    }
     const free = freePois(a, room)
     const others = free.filter((p) => p !== a.lastPoi)
     const p = free.length ? pick(others.length ? others : free) : null
@@ -384,6 +419,8 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   }
   function chooseGoal(a: Actor): void {
     releasePoi(a)
+    if (a.job?.room !== 'door') a.post = null
+
     if (dueHome(a) && wayClear(a)) { goHome(a); return }
     if (a.job) { goWork(a, a.job.room); return }      // next post in the same room, until released
     if (a.resting) {                                   // finished: a standing spot in the lounge, then nothing more

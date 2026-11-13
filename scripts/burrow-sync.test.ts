@@ -127,7 +127,7 @@ test('beyond the cap the extra agents are counted, not drawn, and an animal alre
 test('the rows say where each agent is, for the keyboard and screen reader list', () => {
   const { e, st } = setup()
   const r = syncBurrow(e, st, [agent('a', { displayName: 'Main', state: 'thinking' })], opts)
-  assert.deepEqual(r.rows, [{ id: 'a', name: 'Main', presence: 'in', room: 'lounge', state: 'thinking', stale: false }])
+  assert.deepEqual(r.rows, [{ id: 'a', name: 'Main', presence: 'in', room: 'lounge', state: 'thinking', stale: false, parentId: null, depth: 0 }])
 })
 
 test('a new agent after the start walks in through the front door unless motion is reduced', () => {
@@ -227,4 +227,14 @@ test('changed: true when a placement was applied, false when nothing moved', () 
   assert.equal(syncBurrow(e, st, [agent('a')], opts).changed, true)
   assert.equal(syncBurrow(e, st, [agent('a')], opts).changed, false)
   assert.equal(syncBurrow(e, st, [agent('a', { state: 'thinking' })], opts).changed, true)
+})
+
+test('delegation: an orchestrator in a dispatch call waits at the door post, its sub-agents are listed under it', () => {
+  const { e, st } = setup()
+  const lead = agent('lead', { state: 'tool_calling', currentTool: 'Agent' })
+  const sub = agent('sub', { state: 'tool_calling', currentTool: 'Read', parentId: 'lead', kind: 'subagent' })
+  const r = syncBurrow(e, st, [sub, lead], { ...opts, delegations: new Map([['lead', 1]]) })
+  assert.equal(e.jobOf('lead'), 'door')
+  assert.equal(e.actors.find((a) => a.key === 'lead')?.said, 'waiting:undefined')
+  assert.deepEqual(r.rows.map((x) => `${x.id}:${x.depth}:${x.delegating ?? 0}`), ['lead:0:1', 'sub:1:0'])
 })

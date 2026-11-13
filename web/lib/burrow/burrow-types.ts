@@ -2,8 +2,11 @@
 
 export type BurrowDir = 'up' | 'down' | 'left' | 'right'
 
-/** The lounge is where an agent that works nowhere rests; the four others are workshops */
-export type BurrowRoomId = 'lounge' | 'office' | 'library' | 'workshop' | 'lab'
+/**
+ * The lounge is where an agent that works nowhere rests; the four others are workshops. 'door' is not a room of the
+ * picture but a post: beside the front door, where an agent stands while it delegates (it sends a sub-agent out).
+ */
+export type BurrowRoomId = 'lounge' | 'office' | 'library' | 'workshop' | 'lab' | 'door'
 export type BurrowWorkshopId = Exclude<BurrowRoomId, 'lounge'>
 
 export interface BurrowPoi {
