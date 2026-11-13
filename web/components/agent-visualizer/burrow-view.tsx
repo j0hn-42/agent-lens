@@ -16,6 +16,7 @@ import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
 import { createBurrowSyncState, syncBurrow, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import type { BurrowRoomId } from '@/lib/burrow/burrow-types'
+import { cullTags, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 
 export interface BurrowViewProps {
   simulationRef: React.RefObject<SimulationState>
@@ -67,6 +68,18 @@ function styleBubble(el: HTMLDivElement, u: number): void {
   s.boxShadow = `0 ${u}px 0 ${BUBBLE_SHADOW}`
   s.padding = `${u * 1.5}px ${u * 2.5}px`
   s.fontSize = `${u * 4.2}px`; s.fontWeight = '700'; s.lineHeight = '1.25'; s.textAlign = 'center'
+  s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
+}
+
+/** Name tag under an animal: the same paper and ink as the bubbles, smaller */
+function styleTag(el: HTMLDivElement, u: number): void {
+  const s = el.style
+  s.position = 'absolute'; s.insetBlockStart = '0'; s.insetInlineStart = '0'
+  s.inlineSize = 'max-content'; s.whiteSpace = 'nowrap'
+  s.background = BUBBLE_PAPER; s.color = BUBBLE_INK
+  s.border = `${Math.max(1, u / 2)}px solid ${BUBBLE_INK}`; s.borderRadius = `${u}px`
+  s.padding = `0 ${u}px`
+  s.fontSize = `${u * 3.4}px`; s.fontWeight = '700'; s.lineHeight = '1.3'
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
@@ -134,6 +147,9 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     setFailed(false)
     const sync: BurrowSyncState = createBurrowSyncState()
     const bubbles = new Map<string, HTMLDivElement>()
+    const tags = new Map<string, HTMLDivElement>()
+    let names = new Map<string, string>()
+    let shownTags = new Set<string>()
     let scale = 1
     let rowsSig = ''
     let hiddenShown = -1
@@ -150,6 +166,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       stage.style.height = `${Math.floor(H * scale)}px`
       backing()
       for (const el of bubbles.values()) styleBubble(el, Math.max(2.4, scale))
+      for (const el of tags.values()) styleTag(el, Math.max(2.4, scale))
       dirtyRef.current = true
     }
     // the backing store follows the device pixel ratio too (window moved to another screen, browser zoom)
@@ -175,7 +192,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       })
       if (changed) dirtyRef.current = true
       const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}`).join('\n')
-      if (sig !== rowsSig) { rowsSig = sig; setRows(next) }
+      if (sig !== rowsSig) { rowsSig = sig; setRows(next); names = new Map(next.map((r) => [r.id, r.name])) }
       if (extra !== hiddenShown) { hiddenShown = extra; setHidden(extra) }
     }
 
@@ -183,6 +200,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const stageW = W * scale
       const u = Math.max(2.4, scale)
       const seen = new Set<string>()
+      const bubbleBoxes: Box[] = []
       for (const a of engine.actors) {
         if (a.said === null || a.mode === 'home') continue
         seen.add(a.key)
@@ -195,8 +213,31 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         const y = (a.y - tall - 4) * scale
         const cx = Math.max(half + 4, Math.min(stageW - half - 4, x))
         el.style.transform = `translate(${cx.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%)`
+        bubbleBoxes.push({ x: cx - half, y: y - el.offsetHeight, w: el.offsetWidth, h: el.offsetHeight })
       }
       for (const [key, el] of bubbles) if (!seen.has(key)) { el.remove(); bubbles.delete(key) }
+      // name tags under the feet (the bubble is above the head): hidden when they would cover another tag or a bubble
+      const stageH = H * scale
+      const boxes: TagBox[] = []
+      const tagged = new Set<string>()
+      for (const a of engine.actors) {
+        const name = names.get(a.key)
+        if (!name || !showsTag(a.mode)) continue
+        tagged.add(a.key)
+        let el = tags.get(a.key)
+        if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleTag(el, u); overlay.appendChild(el); tags.set(a.key, el) }
+        const text = truncateName(name)
+        if (el.textContent !== text) el.textContent = text
+        const w = el.offsetWidth
+        const h = el.offsetHeight
+        const left = Math.max(4, Math.min(stageW - w - 4, a.x * scale - w / 2))
+        const top = Math.max(0, Math.min(stageH - h - 2, (a.y + 4.5) * scale))
+        el.style.transform = `translate(${left.toFixed(1)}px,${top.toFixed(1)}px)`
+        boxes.push({ key: a.key, x: left, y: top, w, h })
+      }
+      for (const [key, el] of tags) if (!tagged.has(key)) { el.remove(); tags.delete(key) }
+      shownTags = cullTags(boxes, bubbleBoxes, { always: [live.current.selectedAgentId, live.current.hoveredAgentId], previous: shownTags })
+      for (const [key, el] of tags) el.style.visibility = shownTags.has(key) ? 'visible' : 'hidden'
       const place = (el: HTMLDivElement, key: string | null): void => {
         const picked = key ? engine.actors.find((a) => a.key === key && a.mode !== 'home') : undefined
         if (!picked) { el.style.display = 'none'; return }
@@ -278,6 +319,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       view.removeEventListener('pointerdown', onDown)
       view.removeEventListener('pointercancel', onCancel)
       for (const el of bubbles.values()) el.remove()
+      for (const el of tags.values()) el.remove()
       live.current.onAgentHover(null)
     }
   }, [assets, titles, simulationRef])
