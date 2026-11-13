@@ -246,6 +246,27 @@ test('one session and no team: no ring is drawn and no row names a team', async 
   } finally { spy.restore() }
 })
 
+test('a finished animal is dimmed, but its floor ring is drawn at full strength (the ring stays legible)', async () => {
+  const real = window.HTMLCanvasElement.prototype.getContext
+  const ringAlphas: number[] = []
+  const ringColour = sessionColor('s2')
+  const state: Record<string, unknown> = { globalAlpha: 1 }
+  const ctx = new Proxy(state, {
+    get: (t, prop) => (prop in t ? t[prop as string] : prop === 'measureText' ? () => ({ width: 0 }) : prop === 'createLinearGradient' || prop === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => {}),
+    set: (t, prop, v) => { t[prop as string] = v; if (prop === 'fillStyle' && v === ringColour) ringAlphas.push(t.globalAlpha as number); return true },
+  })
+  window.HTMLCanvasElement.prototype.getContext = (() => ctx) as never
+  try {
+    globalThis.Image = LoadedImage as never
+    const done = { ...agent('beta', 'complete'), sessionId: 's2' } as Agent
+    const view = render(<Page sim={simulation(agent('alpha', 'thinking'), done)} picks={[]} />)
+    for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+    await wait(300)
+    assert.ok(ringAlphas.length > 0, 'the finished agent\'s ring is drawn')
+    for (const a of ringAlphas) assert.equal(a, 1)
+  } finally { window.HTMLCanvasElement.prototype.getContext = real }
+})
+
 // A click on a tool bubble opens the running tool call it names (the graph's click on a tool card); other bubbles stay transparent
 test('a tool bubble that names a running call is clickable and opens it; a state bubble is not', async () => {
   globalThis.Image = LoadedImage as never

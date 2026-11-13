@@ -123,11 +123,14 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     if (a.mode !== 'sit') drawFx('shadow', x - 10, y - 4)
     const ring = rings?.get(a.key)
     if (ring) {
-      // on the floor under the animal: one pixel of the colour over one of shadow (it stays visible on any floor)
+      // on the floor under the animal: one pixel of the colour over one of shadow (it stays visible on any floor). Never
+      // dimmed with a finished animal: the ring tells its session or team apart, it would be lost at the resting alpha
+      g.globalAlpha = alphaIn
       g.fillStyle = pal.shadow
       for (const [dx, dy] of RING_PIXELS) if (dy >= 0) g.fillRect(x + dx, y + dy + 1, 1, 1)
       g.fillStyle = ring
       for (const [dx, dy] of RING_PIXELS) g.fillRect(x + dx, y + dy, 1, 1)
+      g.globalAlpha = alpha
     }
     g.drawImage(images[a.sprite], col * c, row * c, c, c, x - m.anchor[0], y - m.anchor[1], c, c)
     g.globalAlpha = 1
