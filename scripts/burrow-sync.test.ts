@@ -392,3 +392,25 @@ test('a filtered agent of another session does not turn the rings on', () => {
   assert.deepEqual(rows.map((r) => r.id), ['a'])
   assert.equal(rows[0].marker, undefined)
 })
+
+test('the row of an agent running a tool carries the id of that running call, only when it is proven', () => {
+  const { e, st } = setup()
+  const call = (id: string, agentId: string, toolName: string, state: string) => [id, { id, agentId, toolName, state }] as const
+  const toolCalls = new Map([
+    call('t1', 'a', 'Grep', 'complete'),
+    call('t2', 'a', 'Grep', 'running'),
+    call('t3', 'b', 'Read', 'running'),
+    call('t4', 'c', 'Edit', 'complete'),
+  ])
+  const r = syncBurrow(e, st, [
+    agent('a', { state: 'tool_calling', currentTool: 'Grep' }),
+    agent('b', { state: 'tool_calling', currentTool: 'Edit' }),
+    agent('c', { state: 'tool_calling', currentTool: 'Edit' }),
+    agent('d', { state: 'thinking' }),
+  ], { ...opts, toolCalls: toolCalls as never })
+  const id = (k: string) => r.rows.find((x) => x.id === k)?.toolCallId
+  assert.equal(id('a'), 't2')
+  assert.equal(id('b'), undefined, 'b runs Edit, the running call is a Read: not proven')
+  assert.equal(id('c'), undefined, 'no running call')
+  assert.equal(id('d'), undefined)
+})

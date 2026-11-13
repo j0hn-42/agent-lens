@@ -34,6 +34,10 @@ export interface BurrowAgentListProps {
   groupLabel: (sessionId: string) => string
   onAgentClick: (agentId: string) => void
   onAgentHover: (agentId: string | null) => void
+  /** Opens the tool call a row names (Shift+Enter on a row that carries a running call); absent = no such action */
+  onToolCallClick?: (toolCallId: string) => void
+  /** Accessible description of that key, said after the row's name (the hint of the secondary action) */
+  toolCallKeyHint?: string
 }
 
 /** The rows by session, in order of first appearance (the tree order kept inside each); a single session is not split */
@@ -53,14 +57,20 @@ function groupBySession(rows: BurrowRow[]): Array<{ sessionId: string | null; ro
  * (roving tabindex): the arrows, Home and End move between rows, Enter and Space select as on any button. The visible
  * name is truncated, the title and the accessible name carry it in full.
  */
-export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowLabel, onAgentClick, onAgentHover }: BurrowAgentListProps) {
+export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowLabel, onAgentClick, onAgentHover, onToolCallClick, toolCallKeyHint }: BurrowAgentListProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const groups = groupBySession(rows)
   const ordered = groups.flatMap((g) => g.rows)
   // the tab stop: the row last focused, else the selected one, else the first (a row that left the list is not kept)
   const stop = [activeId, selectedAgentId].find((id) => id !== null && ordered.some((r) => r.id === id)) ?? ordered[0]?.id
 
-  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, toolCallId?: string) => {
+    // the secondary action: a row that runs a tool opens that call (a plain Enter stays the click that selects the agent)
+    if (e.key === 'Enter' && e.shiftKey && toolCallId && onToolCallClick) {
+      e.preventDefault()
+      onToolCallClick(toolCallId)
+      return
+    }
     const buttons = Array.from(e.currentTarget.closest('[data-burrow-agent-list]')?.querySelectorAll<HTMLButtonElement>('button') ?? [])
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement)
     if (at < 0) return
@@ -101,7 +111,8 @@ export function BurrowAgentList({ label, rows, selectedAgentId, groupLabel, rowL
         onClick={() => onAgentClick(r.id)}
         onFocus={() => { setActiveId(r.id); onAgentHover(r.id) }}
         onBlur={() => onAgentHover(null)}
-        onKeyDown={onKeyDown}
+        onKeyDown={(e) => onKeyDown(e, r.toolCallId)}
+        {...(r.toolCallId && onToolCallClick ? { 'aria-keyshortcuts': 'Shift+Enter', 'aria-description': toolCallKeyHint } : {})}
         className={`block w-full max-w-full cursor-pointer truncate rounded px-1.5 py-0.5 text-left ${FOCUS_RING}`}
         style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
       >

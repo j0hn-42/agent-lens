@@ -243,3 +243,33 @@ test('one session and no team: no ring is drawn and no row names a team', async 
     assert.equal(screen.queryAllByRole('button', { name: /team|équipe/ }).length, 0)
   } finally { spy.restore() }
 })
+
+// A click on a tool bubble opens the running tool call it names (the graph's click on a tool card); other bubbles stay transparent
+test('a tool bubble that names a running call is clickable and opens it; a state bubble is not', async () => {
+  globalThis.Image = LoadedImage as never
+  const sim = simulation(
+    { ...agent('alpha', 'tool_calling'), currentTool: 'Grep' } as Agent,
+    agent('beta', 'thinking'),
+  )
+  sim.current.toolCalls = new Map([['tc9', { id: 'tc9', agentId: 'alpha', toolName: 'Grep', state: 'running' }]]) as never
+  const opened: string[] = []
+  const picks: string[] = []
+  const view = render(
+    <BurrowView simulationRef={sim as never} selectedAgentId={null} onAgentClick={(id) => picks.push(String(id))} onAgentHover={() => {}} onToolCallClick={(id) => opened.push(id)} />,
+  )
+  for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+  await wait(100)
+  const bubbles = Array.from(view.container.querySelectorAll<HTMLElement>('div[aria-hidden="true"] > div[aria-hidden="true"]'))
+  const tool = bubbles.find((b) => b.textContent === 'Grep')
+  assert.ok(tool, 'the tool bubble is drawn')
+  assert.equal(tool.style.pointerEvents, 'auto')
+  assert.equal(tool.style.cursor, 'pointer')
+  assert.equal(tool.getAttribute('aria-hidden'), 'true', 'still a picture: the list row is its text')
+  for (const b of bubbles) if (b !== tool) assert.equal(b.style.pointerEvents, 'none', 'a bubble without a running call is not clickable')
+  fireEvent.pointerDown(tool); fireEvent.pointerUp(tool); fireEvent.click(tool)
+  assert.deepEqual(opened, ['tc9'])
+  assert.deepEqual(picks, [], 'the press on the bubble is not a pick on the floor')
+  const row = view.container.querySelector<HTMLButtonElement>('button[data-burrow-row="alpha"]')!
+  fireEvent.keyDown(row, { key: 'Enter', shiftKey: true })
+  assert.deepEqual(opened, ['tc9', 'tc9'], 'Shift+Enter on its row opens the same call')
+})

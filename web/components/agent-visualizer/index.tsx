@@ -449,6 +449,7 @@ export function AgentVisualizer() {
           onAgentClick={handleCanvasAgentClick}
           onAgentHover={selection.setHoveredAgentId}
           onAgentContextMenu={openBurrowAgentMenu}
+          onToolCallClick={selection.handleToolCallClick}
           announceLevel={prefs.announceLevel}
           links={links}
           focusTargetId="visualizer-main"

@@ -38,6 +38,8 @@ export interface BurrowViewProps {
   onAgentHover: (agentId: string | null) => void
   /** Right click on an animal: the agent's context menu, at the pointer. Absent = the browser's own menu stays */
   onAgentContextMenu?: (agentId: string, at: { clientX: number; clientY: number }) => void
+  /** Opens a tool call (the graph's click on a tool card): a click on a tool bubble, Shift+Enter on the agent's list row */
+  onToolCallClick?: (toolCallId: string) => void
   /** Verbosity of the live announcements, the same preference as the graph (#379) */
   announceLevel?: AnnounceLevel
   /** Links between agents, for the team announcements ("<from> sent a message to <to>"); the simulation's otherwise */
@@ -103,7 +105,7 @@ function styleTag(el: HTMLDivElement, u: number, c: OverlayColors): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -134,8 +136,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const reduced = osReduced || prefs.freezeMotion
 
   // live values for the frame loop (it never restarts for them)
-  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t, health, replayLost })
-  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, t, health, replayLost }
+  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost })
+  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost }
   // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places
   // newcomers at once, a new loop verdict or replay loss changes the rows
   useEffect(() => { resyncRef.current = true; wakeRef.current() }, [selectedAgentId, hideInactive, reduced, health, replayLost])
@@ -216,6 +218,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const bubbles = new Map<string, HTMLDivElement>()
     const tags = new Map<string, HTMLDivElement>()
     let names = new Map<string, string>()
+    /** Running tool call each agent's tool bubble names (rows' toolCallId): only such a bubble is clickable */
+    let toolIds = new Map<string, string>()
     /** Agents with a proven loop: their tag carries the graph's loop badge */
     let loops = new Set<string>()
     /** Colour of the floor ring per agent (rows' marker): sessions and teams told apart, the graph's halo colours */
@@ -298,16 +302,17 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       delegations = openDelegations(sim?.links, (key) => { const ag = agents.get(key); return ag !== undefined && !isDoneAgent(ag) })
       const { rows: next, hidden: extra, changed } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
-        health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams,
+        health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
       })
       if (changed) dirtyRef.current = true
-      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}`).join('\n')
+      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.toolCallId ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
         setRows(next)
         // a renamed agent must redraw its tag, also under reduced motion where only a dirty scene is placed again
         const tagNames = nextTagNames(names, next)
         names = tagNames.names
+        toolIds = new Map(next.flatMap((r) => (r.toolCallId ? [[r.id, r.toolCallId] as const] : [])))
         if (tagNames.changed) dirtyRef.current = true
         // a loop proven or gone changes a tag too: redrawn under reduced motion and Freeze motion as well
         const nextLoops = new Set(next.filter((r) => r.loop).map((r) => r.id))
@@ -330,8 +335,19 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         if (a.said === null || a.mode === 'home') continue
         seen.add(a.key)
         let el = bubbles.get(a.key)
-        if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleBubble(el, u, colors); overlay.appendChild(el); bubbles.set(a.key, el) }
+        if (!el) {
+          el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleBubble(el, u, colors); overlay.appendChild(el); bubbles.set(a.key, el)
+          // a tool bubble opens its running call (the keyboard path is the agent list row); the press must not reach the stage's own pick
+          const key = a.key
+          el.addEventListener('pointerdown', (e) => { if (toolIds.has(key)) e.stopPropagation() })
+          el.addEventListener('pointerup', (e) => { if (toolIds.has(key)) e.stopPropagation() })
+          el.addEventListener('click', () => { const id = toolIds.get(key); if (id) live.current.onToolCallClick?.(id) })
+        }
         if (el.textContent !== a.said) el.textContent = a.said
+        // only a bubble that names a proven running call is clickable: the other bubbles stay transparent to the pointer
+        const clickable = live.current.onToolCallClick !== undefined && toolIds.has(a.key)
+        el.style.pointerEvents = clickable ? 'auto' : 'none'
+        el.style.cursor = clickable ? 'pointer' : ''
         const half = el.offsetWidth / 2
         const x = a.x * scale
         const tall = (a.pose && a.meta.poses[a.pose]?.h) || a.meta.h
@@ -573,6 +589,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
             groupLabel={(sid) => t('burrow.session', { id: sid.slice(0, 8) })}
             onAgentClick={(id) => onAgentClick(id)}
             onAgentHover={onAgentHover}
+            onToolCallClick={onToolCallClick}
+            toolCallKeyHint={t('burrow.tool.open')}
           />
         )}
       </div>

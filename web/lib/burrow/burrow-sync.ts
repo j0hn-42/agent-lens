@@ -3,7 +3,7 @@
  * (syncDue); it acts only when what an agent is observed doing changed (a new room, present or not, a new bubble), so
  * the animals keep walking in between.
  */
-import type { Agent } from '../agent-types'
+import type { Agent, ToolCallNode } from '../agent-types'
 import { visibleAgents } from '../inactive-agents'
 import { deriveFreshness } from '../../hooks/simulation/freshness'
 import type { SimulationState } from '../../hooks/simulation/types'
@@ -57,6 +57,8 @@ export interface BurrowRow {
   state: Agent['state']
   /** Tool being run, when observed: the bubble is aria-hidden, so the list carries it */
   tool?: string
+  /** Id of the running tool call the bubble names (the graph's ToolCallNode), only when it is proven: opens that call */
+  toolCallId?: string
   /** The state is the last one known (silent, replayed or imported agent) */
   stale: boolean
   /** Parent agent key (null for a root agent): the list is in tree order, a sub-agent under its orchestrator */
@@ -95,6 +97,8 @@ export interface BurrowSyncOptions {
   instant?: boolean
   /** Per orchestrator: sub-agents it sent that have not returned yet (burrow-links openDelegations) */
   delegations?: ReadonlyMap<string, number>
+  /** Tool calls of the simulation: the running call of an agent that runs a tool gives its row the id to open */
+  toolCalls?: ReadonlyMap<string, Pick<ToolCallNode, 'agentId' | 'toolName' | 'state'>>
   /** Loop verdict per agent id, the graph's `health.byAgent` */
   health?: ReadonlyMap<string, HealthVerdict>
   /** Events the relay could not replay, per session id */
@@ -116,6 +120,13 @@ export interface BurrowSyncResult {
 const keepsBubble = (b: BurrowBubble): boolean => b.kind === 'stale' || b.kind === 'waiting' || b.kind === 'state'
 /** Claim on a place of the cap: a working agent takes the place of a finished animal first, then of an idle one */
 const rank = (w: { a: SyncAgent; p: BurrowPlacement }): number => (w.p.presence === 'finished' ? 0 : w.a.state === 'idle' ? 1 : 2)
+
+/** The latest running call of each agent, by agent id (the map is in order of arrival) */
+function runningCalls(toolCalls: BurrowSyncOptions['toolCalls']): Map<string, { id: string; toolName: string }> {
+  const running = new Map<string, { id: string; toolName: string }>()
+  if (toolCalls) for (const [id, c] of toolCalls) if (c.state === 'running') running.set(c.agentId, { id, toolName: c.toolName })
+  return running
+}
 
 export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: ReadonlyMap<string, SyncAgent>, opts: BurrowSyncOptions): BurrowSyncResult {
   const max = opts.max ?? BURROW_MAX_ANIMALS
@@ -187,6 +198,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   // the graph's own rule for its loop badge (a proven verdict with findings); the repeat ledger is not read here
   const marks = opts.health ? repeatMarks(opts.health, undefined, agents.keys()) : undefined
   // the rings tell apart the sessions and teams of the listed agents (a filtered one tells nothing apart)
+  const running = runningCalls(opts.toolCalls)
   const ringCtx = markerContext(wanted.filter((w) => !w.filtered && engine.has(w.a.id)).map((w) => w.a), agents, opts.teams)
   for (const { a, p, filtered } of wanted) {
     if (filtered || !engine.has(a.id)) continue   // filtered: not listed; not drawn (cap): counted in `hidden`
@@ -194,9 +206,12 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const lost = replayLostForAgents(opts.replayLost, [a])
     const marker = colourOf(a, agents, ringCtx)
     const team = marker !== null ? teamOf(a, agents) : undefined
+    // the call to open is the running one of this agent, when it is the tool the bubble names (never a guess)
+    const call = p.bubble?.kind === 'tool' ? running.get(a.id) : undefined
+    const toolCallId = call && call.toolName === (p.bubble?.kind === 'tool' ? p.bubble.tool : '') ? call.id : undefined
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
-      ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), stale: p.bubble?.kind === 'stale',
+      ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), ...(toolCallId ? { toolCallId } : {}), stale: p.bubble?.kind === 'stale',
       parentId: a.parentId ?? null, sessionId: a.sessionId, ...(delegating > 0 ? { delegating } : {}),
       ...(marks?.get(a.id)?.kind === 'loop' ? { loop: true as const } : {}), ...(lost > 0 ? { replayLost: lost } : {}),
       ...(marker !== null ? { marker } : {}), ...(team ? { team } : {}),

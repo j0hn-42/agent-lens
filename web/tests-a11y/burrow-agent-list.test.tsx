@@ -132,3 +132,26 @@ test('a reorder does not take the focus when no row had it', () => {
   rerender(listOf([row('b', 'beta'), row('a', 'alpha')]))
   assert.equal(document.activeElement, outside)
 })
+
+// A row of an agent running a tool has a secondary action: Shift+Enter opens that tool call, as a click on its bubble
+test('Shift+Enter on a row that carries a running tool call opens it, and is the only key that does', () => {
+  const opened: string[] = []
+  const picked: string[] = []
+  const rows: BurrowRow[] = [{ ...row('a', 'alpha'), state: 'tool_calling', tool: 'Grep', toolCallId: 'tc1' }, row('b', 'beta')]
+  render(
+    <BurrowAgentList label="Burrow agents" rows={rows} selectedAgentId={null} rowLabel={(r) => r.name}
+      groupLabel={(s) => `Session ${s}`} onAgentClick={(id) => picked.push(id)} onAgentHover={() => {}}
+      onToolCallClick={(id) => opened.push(id)} toolCallKeyHint="Shift+Enter opens its tool call" />,
+  )
+  const [a, b] = buttons()
+  assert.equal(a.getAttribute('aria-keyshortcuts'), 'Shift+Enter')
+  assert.equal(b.getAttribute('aria-keyshortcuts'), null)
+  assert.match(a.getAttribute('aria-description') ?? '', /Shift\+Enter opens its tool call/)
+  fireEvent.keyDown(a, { key: 'Enter' })
+  assert.deepEqual(opened, [], 'plain Enter is the ordinary click')
+  assert.equal(fireEvent.keyDown(a, { key: 'Enter', shiftKey: true }), false, 'the key is handled')
+  assert.deepEqual(opened, ['tc1'])
+  fireEvent.keyDown(b, { key: 'Enter', shiftKey: true })
+  assert.deepEqual(opened, ['tc1'], 'a row without a running call does nothing')
+  assert.deepEqual(picked, [])
+})
