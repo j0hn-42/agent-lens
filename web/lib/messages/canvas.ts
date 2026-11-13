@@ -157,7 +157,7 @@ export const fr = {
   'burrow.legend.other': 'tout autre outil',
   'burrow.legend.letters': 'Une lettre vole d’un animal à l’autre à chaque envoi, retour ou message reçu ; un fil pointillé relie l’animal sélectionné à son parent et à ses sous-agents.',
   'burrow.hidden': '{n} agent(s) non dessiné(s) : le terrier en montre {max} au plus.',
-  'burrow.hint': 'Cliquez un animal, ou parcourez la liste des agents au clavier (Tab), pour sélectionner son agent.',
+  'burrow.hint': 'Cliquez un animal pour sélectionner son agent, ou atteignez la liste des agents avec Tab : les flèches, Début et Fin passent d’un agent à l’autre, Entrée le sélectionne.',
   'burrow.settings.label': 'Vue Terrier',
   'burrow.settings.help': 'Dessine les agents comme des animaux dans un terrier : la pièce dépend de l’outil en cours (voir le guide). Seuls des états observés sont montrés.',
 } as const
@@ -315,7 +315,7 @@ export const en: Record<keyof typeof fr, string> = {
   'burrow.legend.other': 'any other tool',
   'burrow.legend.letters': 'A letter flies from one animal to another for each dispatch, return or message received; a dashed thread links the selected animal to its parent and its sub-agents.',
   'burrow.hidden': '{n} agent(s) not drawn: the burrow shows {max} at most.',
-  'burrow.hint': 'Click an animal, or go through the agent list with the keyboard (Tab), to select its agent.',
+  'burrow.hint': 'Click an animal to select its agent, or reach the agent list with Tab: the arrow keys, Home and End move between agents, Enter selects one.',
   'burrow.settings.label': 'Burrow view',
   'burrow.settings.help': 'Draws the agents as animals in a burrow: the room depends on the tool being run (see the guide). Only observed states are shown.',
 }
