@@ -12,6 +12,7 @@ import { BurrowAgentList } from './burrow-agent-list'
 import { BurrowLegend } from './burrow-legend'
 import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
+import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
 import { createMailState, linksSignature, newMail, openDelegations, relativesOf, type MailKind } from '@/lib/burrow/burrow-links'
 import { isDoneAgent } from '@/lib/inactive-agents'
@@ -51,10 +52,6 @@ export interface BurrowViewProps {
   costTotals?: React.ReactNode
 }
 
-// The speech bubbles keep the paper and ink of the picture they sit on, whatever the theme.
-const BUBBLE_PAPER = '#fbefd2'
-const BUBBLE_INK = '#3b2013'
-const BUBBLE_SHADOW = 'rgba(20, 8, 4, 0.45)'
 /** Seconds a letter takes from one animal to the other; at most this many letters fly at once */
 const LETTER_SECONDS = 1.6
 const MAX_LETTERS = 12
@@ -82,25 +79,25 @@ async function loadAssets(): Promise<Assets> {
   return { images }
 }
 
-function styleBubble(el: HTMLDivElement, u: number): void {
+function styleBubble(el: HTMLDivElement, u: number, c: OverlayColors): void {
   const s = el.style
   s.position = 'absolute'; s.insetBlockStart = '0'; s.insetInlineStart = '0'
   s.inlineSize = 'max-content'; s.maxInlineSize = `${u * 78}px`
-  s.background = BUBBLE_PAPER; s.color = BUBBLE_INK
-  s.border = `${u}px solid ${BUBBLE_INK}`; s.borderRadius = `${u * 2}px`
-  s.boxShadow = `0 ${u}px 0 ${BUBBLE_SHADOW}`
+  s.background = c.paper; s.color = c.ink
+  s.border = `${u}px solid ${c.ink}`; s.borderRadius = `${u * 2}px`
+  s.boxShadow = `0 ${u}px 0 ${c.shadow}`
   s.padding = `${u * 1.5}px ${u * 2.5}px`
   s.fontSize = `${u * 4.2}px`; s.fontWeight = '700'; s.lineHeight = '1.25'; s.textAlign = 'center'
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
 /** Name tag under an animal: the same paper and ink as the bubbles, smaller */
-function styleTag(el: HTMLDivElement, u: number): void {
+function styleTag(el: HTMLDivElement, u: number, c: OverlayColors): void {
   const s = el.style
   s.position = 'absolute'; s.insetBlockStart = '0'; s.insetInlineStart = '0'
   s.inlineSize = 'max-content'; s.whiteSpace = 'nowrap'
-  s.background = BUBBLE_PAPER; s.color = BUBBLE_INK
-  s.border = `${Math.max(1, u / 2)}px solid ${BUBBLE_INK}`; s.borderRadius = `${u}px`
+  s.background = c.paper; s.color = c.ink
+  s.border = `${Math.max(1, u / 2)}px solid ${c.ink}`; s.borderRadius = `${u}px`
   s.padding = `0 ${u}px`
   s.fontSize = `${u * 3.4}px`; s.fontWeight = '700'; s.lineHeight = '1.3'
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
@@ -201,10 +198,12 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     if (!assets || !view || !container || !stage || !overlay || !ring || !hoverRing) return
     const { w: W, h: H } = BURROW_DATA.map
     const engine: BurrowEngine = createBurrowEngine({ data: BURROW_DATA, titles })
-    const renderer: BurrowRenderer | null = createBurrowRenderer(BURROW_DATA, assets.images, engine, view)
+    const renderer: BurrowRenderer | null = createBurrowRenderer(BURROW_DATA, assets.images, engine, view, readBurrowPalette(getComputedStyle(container)))
     if (!renderer) { setFailed(true); return }
     setFailed(false)
     const sync: BurrowSyncState = createBurrowSyncState()
+    const forcedMql = typeof window.matchMedia === 'function' ? window.matchMedia('(forced-colors: active)') : null
+    let colors: OverlayColors = overlayColors(forcedMql?.matches ?? false)
     const bubbles = new Map<string, HTMLDivElement>()
     const tags = new Map<string, HTMLDivElement>()
     let names = new Map<string, string>()
@@ -224,11 +223,23 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       stage.style.left = `${fit.left}px`
       stage.style.top = `${fit.top}px`
       backing()
-      for (const el of bubbles.values()) styleBubble(el, Math.max(2.4, scale))
-      for (const el of tags.values()) styleTag(el, Math.max(2.4, scale))
+      for (const el of bubbles.values()) styleBubble(el, Math.max(2.4, scale), colors)
+      for (const el of tags.values()) styleTag(el, Math.max(2.4, scale), colors)
       dirtyRef.current = true
       wakeRef.current()
     }
+    // a theme change (the overlays follow their var() by themselves) or forced colours switching on: the canvas and the overlays are redrawn
+    const restyle = (): void => {
+      colors = overlayColors(forcedMql?.matches ?? false)
+      renderer.setPalette(readBurrowPalette(getComputedStyle(container)))
+      for (const el of bubbles.values()) styleBubble(el, Math.max(2.4, scale), colors)
+      for (const el of tags.values()) styleTag(el, Math.max(2.4, scale), colors)
+      dirtyRef.current = true
+      wakeRef.current()
+    }
+    const themeObserver = typeof MutationObserver === 'function' ? new MutationObserver(restyle) : null
+    themeObserver?.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    forcedMql?.addEventListener('change', restyle)
     // the backing store follows the device pixel ratio too (window moved to another screen, browser zoom)
     let K = 0
     const backing = (): void => {
@@ -304,7 +315,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         if (a.said === null || a.mode === 'home') continue
         seen.add(a.key)
         let el = bubbles.get(a.key)
-        if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleBubble(el, u); overlay.appendChild(el); bubbles.set(a.key, el) }
+        if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleBubble(el, u, colors); overlay.appendChild(el); bubbles.set(a.key, el) }
         if (el.textContent !== a.said) el.textContent = a.said
         const half = el.offsetWidth / 2
         const x = a.x * scale
@@ -324,7 +335,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         if (!name || !showsTag(a.mode)) continue
         tagged.add(a.key)
         let el = tags.get(a.key)
-        if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleTag(el, u); overlay.appendChild(el); tags.set(a.key, el) }
+        if (!el) { el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleTag(el, u, colors); overlay.appendChild(el); tags.set(a.key, el) }
         fillTag(el, truncateName(name), loops.has(a.key) ? live.current.t('card.health.loop') : null, u)
         const w = el.offsetWidth
         const h = el.offsetHeight
@@ -456,6 +467,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       wakeRef.current = () => {}
       ro?.disconnect()
       refitRef.current = () => {}
+      themeObserver?.disconnect()
+      forcedMql?.removeEventListener('change', restyle)
       view.removeEventListener('pointermove', onMove)
       view.removeEventListener('pointerleave', onLeave)
       view.removeEventListener('contextmenu', onMenu)

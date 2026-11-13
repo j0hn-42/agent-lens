@@ -88,7 +88,7 @@ export function cssVar(role: string): string {
  * no backdrop blur, no glow.
  */
 export function extraVars(id: ThemeId): Record<string, string> {
-  return { ...baseExtraVars(id), ...panelExtraVars(id), ...ansiVars(id) }
+  return { ...baseExtraVars(id), ...panelExtraVars(id), ...ansiVars(id), ...BURROW_VARS[id] }
 }
 
 /**
@@ -329,3 +329,16 @@ export function themesCss(): string {
   }
   return lines.join('\n')
 }
+
+/**
+ * Burrow view colours (`--lens-burrow-*`): the paper, ink, shadow and seal of the bubbles, name tags, letters and threads.
+ * Same values in every theme but High contrast (white paper, black ink, no shadow). The canvas reads them back with `readBurrowPalette`.
+ */
+export const BURROW_VARS: Readonly<Record<ThemeId, Readonly<Record<string, string>>>> = (() => {
+  const out = {} as Record<ThemeId, Record<string, string>>
+  for (const id of THEME_IDS) out[id] = {}
+  for (const token of (data as { burrow: { tokens: RawToken[] } }).burrow.tokens) {
+    for (const id of THEME_IDS) out[id][cssVar(token.name)] = token.value[id]
+  }
+  return out
+})()

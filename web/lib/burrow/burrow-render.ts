@@ -4,6 +4,7 @@
  */
 import type { BurrowActor, BurrowEngine } from './burrow-engine'
 import type { BurrowData } from './burrow-types'
+import type { BurrowPalette } from './burrow-palette'
 
 export type BurrowImages = Readonly<Record<string, CanvasImageSource>>
 
@@ -30,19 +31,17 @@ export interface BurrowThread { x1: number; y1: number; x2: number; y2: number }
 /** A letter in flight (scene pixels): a dispatch, a return, or a message between teammates */
 export interface BurrowLetter { x: number; y: number; kind: 'dispatch' | 'return' | 'message' }
 
-// Letters and threads keep the paper and ink of the picture, like the speech bubbles.
-const PAPER = '#fbefd2'
-const INK = '#3b2013'
-const LETTER_FILL: Record<BurrowLetter['kind'], string> = { dispatch: PAPER, return: '#d6ecbf', message: '#cfe1f4' }
-const SEAL = '#b8322a'
 
 export interface BurrowRenderer {
   /** Scene pixels -> visible canvas: call when the visible canvas changes size */
   resize(width: number, height: number): void
+  /** The theme changed: letters and threads take the new paper and ink at the next render */
+  setPalette(palette: BurrowPalette): void
   render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[] }): void
 }
 
-export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement): BurrowRenderer | null {
+export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
+  let pal = initialPalette
   const { w: W, h: H } = data.map
   const vg = view.getContext('2d')
   const world = document.createElement('canvas')
@@ -100,6 +99,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
   }
 
   return {
+    setPalette(palette) { pal = palette },
     resize(width, height) {
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
@@ -145,8 +145,8 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
             if (i % 5 > 2) continue
             const x = Math.round(th.x1 + ((th.x2 - th.x1) * i) / n)
             const y = Math.round(th.y1 + ((th.y2 - th.y1) * i) / n)
-            g.fillStyle = INK; g.globalAlpha = 0.55; g.fillRect(x, y + 1, 1, 1)
-            g.fillStyle = PAPER; g.globalAlpha = 0.9; g.fillRect(x, y, 1, 1)
+            g.fillStyle = pal.ink; g.globalAlpha = 0.55; g.fillRect(x, y + 1, 1, 1)
+            g.fillStyle = pal.paper; g.globalAlpha = 0.9; g.fillRect(x, y, 1, 1)
           }
         }
         g.globalAlpha = 1
@@ -180,13 +180,13 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
         for (const l of letters) {
           const x = Math.round(l.x) - 4
           const y = Math.round(l.y) - 3
-          g.fillStyle = 'rgba(20, 8, 4, 0.35)'; g.fillRect(x + 1, y + 6, 9, 1)
-          g.fillStyle = INK; g.fillRect(x, y, 9, 6)
-          g.fillStyle = LETTER_FILL[l.kind]; g.fillRect(x + 1, y + 1, 7, 4)
-          g.fillStyle = INK
+          g.fillStyle = pal.shadow; g.fillRect(x + 1, y + 6, 9, 1)
+          g.fillStyle = pal.ink; g.fillRect(x, y, 9, 6)
+          g.fillStyle = l.kind === 'dispatch' ? pal.paper : l.kind === 'return' ? pal.letterReturn : pal.letterMessage; g.fillRect(x + 1, y + 1, 7, 4)
+          g.fillStyle = pal.ink
           for (let i = 0; i < 3; i++) { g.fillRect(x + 1 + i, y + 1 + i, 1, 1); g.fillRect(x + 7 - i, y + 1 + i, 1, 1) }
           g.fillRect(x + 4, y + 3, 1, 1)
-          if (l.kind === 'return') { g.fillStyle = SEAL; g.fillRect(x + 4, y + 3, 1, 2) }
+          if (l.kind === 'return') { g.fillStyle = pal.seal; g.fillRect(x + 4, y + 3, 1, 2) }
         }
       }
       // crisp enlargement to the visible canvas

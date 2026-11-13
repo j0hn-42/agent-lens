@@ -406,5 +406,99 @@
         "usage": "Glass card elevation. Neon adds the cyan top highlight; the other themes stay flat (High contrast has no shadow: its edge does the work)."
       }
     ]
+  },
+  "burrow": {
+    "tokens": [
+      {
+        "name": "burrow-bubble",
+        "value": {
+          "catppuccin-macchiato": "#fbefd2",
+          "catppuccin-mocha": "#fbefd2",
+          "catppuccin-frappe": "#fbefd2",
+          "midnight": "#fbefd2",
+          "graphite": "#fbefd2",
+          "neon": "#fbefd2",
+          "ember": "#fbefd2",
+          "anthropic": "#fbefd2",
+          "contrast": "#ffffff"
+        },
+        "usage": "Burrow view (pixel-art alternative to the graph): paper of the speech bubbles, name tags and dispatch letters. The picture keeps its own paper in every theme; High contrast uses white. Ink on it: `burrow-ink`."
+      },
+      {
+        "name": "burrow-ink",
+        "value": {
+          "catppuccin-macchiato": "#3b2013",
+          "catppuccin-mocha": "#3b2013",
+          "catppuccin-frappe": "#3b2013",
+          "midnight": "#3b2013",
+          "graphite": "#3b2013",
+          "neon": "#3b2013",
+          "ember": "#3b2013",
+          "anthropic": "#3b2013",
+          "contrast": "#000000"
+        },
+        "usage": "Burrow view: ink of the bubbles, name tags, letter outlines and threads. 4.5:1 or more on `burrow-bubble`."
+      },
+      {
+        "name": "burrow-shadow",
+        "value": {
+          "catppuccin-macchiato": "rgba(20, 8, 4, 0.45)",
+          "catppuccin-mocha": "rgba(20, 8, 4, 0.45)",
+          "catppuccin-frappe": "rgba(20, 8, 4, 0.45)",
+          "midnight": "rgba(20, 8, 4, 0.45)",
+          "graphite": "rgba(20, 8, 4, 0.45)",
+          "neon": "rgba(20, 8, 4, 0.45)",
+          "ember": "rgba(20, 8, 4, 0.45)",
+          "anthropic": "rgba(20, 8, 4, 0.45)",
+          "contrast": "rgba(0, 0, 0, 0)"
+        },
+        "usage": "Burrow view: drop shadow under bubbles and tags. None in High contrast."
+      },
+      {
+        "name": "burrow-letter-return",
+        "value": {
+          "catppuccin-macchiato": "#d6ecbf",
+          "catppuccin-mocha": "#d6ecbf",
+          "catppuccin-frappe": "#d6ecbf",
+          "midnight": "#d6ecbf",
+          "graphite": "#d6ecbf",
+          "neon": "#d6ecbf",
+          "ember": "#d6ecbf",
+          "anthropic": "#d6ecbf",
+          "contrast": "#ffffff"
+        },
+        "usage": "Burrow view: paper of a letter that returns a result to its parent."
+      },
+      {
+        "name": "burrow-letter-message",
+        "value": {
+          "catppuccin-macchiato": "#cfe1f4",
+          "catppuccin-mocha": "#cfe1f4",
+          "catppuccin-frappe": "#cfe1f4",
+          "midnight": "#cfe1f4",
+          "graphite": "#cfe1f4",
+          "neon": "#cfe1f4",
+          "ember": "#cfe1f4",
+          "anthropic": "#cfe1f4",
+          "contrast": "#ffffff"
+        },
+        "usage": "Burrow view: paper of a letter sent between teammates."
+      },
+      {
+        "name": "burrow-seal",
+        "value": {
+          "catppuccin-macchiato": "#b8322a",
+          "catppuccin-mocha": "#b8322a",
+          "catppuccin-frappe": "#b8322a",
+          "midnight": "#b8322a",
+          "graphite": "#b8322a",
+          "neon": "#b8322a",
+          "ember": "#b8322a",
+          "anthropic": "#b8322a",
+          "contrast": "#000000"
+        },
+        "usage": "Burrow view: wax seal of a returning letter."
+      }
+    ]
   }
 }
