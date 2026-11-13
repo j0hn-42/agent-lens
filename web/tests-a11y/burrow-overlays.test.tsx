@@ -55,3 +55,36 @@ test('an open right dock pushes the Room titles button and the agent list left o
     Element.prototype.getBoundingClientRect = original
   }
 })
+
+// 1.4.10: in a 320 px scene (a 640 px window at 200 %) a 400 px right dock would push the column past the left edge,
+// cut off with its focused rows; the column keeps 176 px of room instead, and the agent list keeps to that room
+test('a right dock wider than a narrow scene does not push the controls off its left edge', () => {
+  const dock = document.createElement('div')
+  dock.setAttribute('data-canvas-inset', 'right')
+  document.body.appendChild(dock)
+  const original = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const box = (x: number, y: number, w: number, h: number) => ({ x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON: () => ({}) }) as DOMRect
+    if (this === dock) return box(-80, 0, 400, 900)
+    if (this.getAttribute('role') === 'region') return box(0, 0, 320, 900)
+    return box(0, 0, 0, 0)
+  }
+  try {
+    render(
+      <BurrowView
+        simulationRef={{ current: { agents: new Map(), toolCalls: new Map(), links: new Map(), discoveries: [] } } as never}
+        selectedAgentId={null}
+        onAgentClick={() => {}}
+        onAgentHover={() => {}}
+      />,
+    )
+    const column = screen.getByRole('button', { name: /Room titles|Titres des pièces/ }).parentElement as HTMLElement
+    const right = parseFloat(column.style.right)
+    const room = parseFloat(column.style.getPropertyValue('--burrow-room'))
+    assert.ok(room >= 176, `room ${room}`)
+    assert.ok(right + room <= 320, `right ${right} + room ${room} stays in the scene`)
+    assert.equal(column.style.maxWidth, 'var(--burrow-room)')
+  } finally {
+    Element.prototype.getBoundingClientRect = original
+  }
+})

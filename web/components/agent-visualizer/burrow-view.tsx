@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import { useBurrowAnnouncements } from '@/hooks/use-burrow-announcements'
@@ -24,7 +24,7 @@ import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
 import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
 import { cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
-import { fitStage, type StageInsets } from '@/lib/burrow/burrow-fit'
+import { controlColumn, fitStage, type StageInsets } from '@/lib/burrow/burrow-fit'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 
 export interface BurrowViewProps {
@@ -123,8 +123,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const [failed, setFailed] = useState(false)
   const [rows, setRows] = useState<BurrowRow[]>([])
   const [hidden, setHidden] = useState(0)
-  /** Width of the panel docked on the right: the burrow's own controls stay left of it */
-  const [dockRight, setDockRight] = useState(0)
+  /** The burrow's own controls stay left of a panel docked on the right, with usable room (null until measured) */
+  const [column, setColumn] = useState<{ right: number; room: number | null }>({ right: 8, room: null })
   /** The area the top bar, the control bar and the docked panels leave free (the graph's measure): the picture is fitted to it */
   const insetsRef = useRef<StageInsets>({ top: 0, right: 0, bottom: 0, left: 0 })
   /** Fits the stage again (set by the scene once its pictures are loaded) */
@@ -153,9 +153,12 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       && Math.round(a.bottom) === Math.round(b.bottom) && Math.round(a.left) === Math.round(b.left)
     const measure = (): void => {
       const next = measureOverlayInsets(container)
+      // the column follows the scene's width too (a resize without a panel change); not laid out (0 wide): no limit yet
+      const width = container.getBoundingClientRect().width
+      const col = width > 0 ? controlColumn(width, next.right) : { right: Math.round(Math.max(0, next.right)) + 8, room: null }
+      setColumn((c) => (c.right === col.right && c.room === col.room ? c : col))
       if (same(insetsRef.current, next)) return
       insetsRef.current = next
-      setDockRight(Math.round(next.right))
       refitRef.current()
     }
     measure()
@@ -528,7 +531,14 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         </div>
       )}
       {/* Below the top bar (drawn over the top of <main>), on the right but left of a docked panel: the collapsed Conversation pill holds the left */}
-      <div className="absolute flex max-w-[calc(100%-1rem)] flex-col items-end gap-1 text-2xs font-mono" style={{ top: 'calc(var(--topbar-h, 60px) + 8px)', right: dockRight + 8, color: 'var(--lens-ink-muted)' }}>
+      {/* --burrow-room: the width left of the column's right edge, which the agent list hanging from it keeps to as well */}
+      <div
+        className="absolute flex flex-col items-end gap-1 text-2xs font-mono"
+        style={{
+          top: 'calc(var(--topbar-h, 60px) + 8px)', right: column.right, color: 'var(--lens-ink-muted)',
+          '--burrow-room': column.room === null ? 'calc(100vw - 2rem)' : `${column.room}px`, maxWidth: 'var(--burrow-room)',
+        } as CSSProperties}
+      >
         {hidden > 0 && <p role="status" className="m-0">{t('burrow.hidden', { n: hidden, max: BURROW_MAX_ANIMALS })}</p>}
         {costTotals}
         <button

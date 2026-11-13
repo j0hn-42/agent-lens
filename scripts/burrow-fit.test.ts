@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { fitStage } from '../web/lib/burrow/burrow-fit'
+import { controlColumn, fitStage } from '../web/lib/burrow/burrow-fit'
 
 const MAP = { w: 560, h: 315 }
 const NONE = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -67,4 +67,17 @@ test('unusable insets are ignored, an empty scene has no fit', () => {
   assert.deepEqual(f, { scale: 2, left: 0, top: 0, width: 1120, height: 630 })
   assert.equal(fitStage({ w: 0, h: 500 }, NONE, MAP), null)
   assert.equal(fitStage({ w: 500, h: -1 }, NONE, MAP), null)
+})
+
+test('the control column sits left of a docked panel, and keeps usable room when the panel takes most of the scene', () => {
+  assert.deepEqual(controlColumn(1200, 400), { right: 408, room: 784 })
+  assert.deepEqual(controlColumn(1200, 0), { right: 8, room: 1184 })
+  // 320 px wide (200 % zoom of a 640 px window) with a 400 px dock: the column is not pushed off the left edge
+  const narrow = controlColumn(320, 400)
+  assert.ok(narrow.room >= 176, `room ${narrow.room}`)
+  assert.ok(narrow.right + narrow.room <= 320 - 8, 'nothing past the left gutter')
+  assert.ok(narrow.right >= 8)
+  // a scene narrower than the minimum gives the column the whole width, never a negative room
+  assert.deepEqual(controlColumn(150, 400), { right: 8, room: 134 })
+  assert.deepEqual(controlColumn(800, Number.NaN), controlColumn(800, 0))
 })

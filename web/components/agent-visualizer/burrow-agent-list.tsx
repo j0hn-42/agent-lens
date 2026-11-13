@@ -12,7 +12,7 @@ import type { BurrowRow } from '@/lib/burrow/burrow-sync'
  * make it a flex child beside the stage and shrink the scene while the list has focus.
  */
 const LIST_CLASS = [
-  'absolute right-0 top-full mt-1 m-0 flex max-h-[calc(100dvh-var(--topbar-h,60px)-6rem)] w-max max-w-[min(24rem,calc(100vw-2rem))] list-none flex-col gap-1 p-0 text-2xs font-mono',
+  'absolute right-0 top-full mt-1 m-0 flex max-h-[calc(100dvh-var(--topbar-h,60px)-6rem)] w-max max-w-[min(24rem,var(--burrow-room,calc(100vw-2rem)))] list-none flex-col gap-1 p-0 text-2xs font-mono',
   'size-px overflow-hidden whitespace-nowrap [clip-path:inset(50%)]',
   'focus-within:h-auto focus-within:w-auto focus-within:overflow-y-auto focus-within:whitespace-normal focus-within:[clip-path:none]',
 ].join(' ')

@@ -40,3 +40,21 @@ export function fitStage(container: { w: number; h: number }, insets: StageInset
   }
   return { scale, left: place(left, freeW, width, cw), top: place(top, freeH, height, ch), width, height }
 }
+
+/** Gap between the burrow's control column and the scene's edges or a docked panel */
+const GUTTER = 8
+/** Width the control column keeps however wide a panel docked on the right is (its buttons, the legend, the agent list) */
+const MIN_CONTROLS = 176
+
+/**
+ * Where the control column goes: left of a panel docked on the right (`dockRight`, its measured inset), but never so
+ * far that less than MIN_CONTROLS is left before the scene's left edge (narrow window, 200 % zoom): the column then
+ * overlaps the panel rather than being cut off. `room` is the width its contents may take (1.4.10 reflow).
+ */
+export function controlColumn(containerW: number, dockRight: number): { right: number; room: number } {
+  const cw = edge(containerW)
+  const usable = Math.max(0, cw - 2 * GUTTER)
+  const dock = Math.min(edge(dockRight), Math.max(0, usable - MIN_CONTROLS))
+  const right = Math.round(dock + GUTTER)
+  return { right, room: Math.max(0, Math.round(cw - right - GUTTER)) }
+}
