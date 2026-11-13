@@ -31,6 +31,8 @@ export interface BurrowViewProps {
   announceLevel?: AnnounceLevel
   /** Links between agents, for the team announcements ("<from> sent a message to <to>"); the simulation's otherwise */
   links?: Map<string, AgentLink>
+  /** Element that takes the focus when *Back to the graph* removes the burrow (and the button with it) */
+  focusTargetId?: string
 }
 
 // The speech bubbles keep the paper and ink of the picture they sit on, whatever the theme.
@@ -83,7 +85,7 @@ function styleTag(el: HTMLDivElement, u: number): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, announceLevel = 'all', links }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, announceLevel = 'all', links, focusTargetId }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -365,7 +367,11 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           {failed && (
             <button
               type="button"
-              onClick={() => setPref('sceneStyle', 'graph')}
+              onClick={() => {
+                // the button leaves with the burrow: focus goes to the stable scene region, not back to <body>
+                if (focusTargetId) document.getElementById(focusTargetId)?.focus()
+                setPref('sceneStyle', 'graph')
+              }}
               className={`min-h-6 cursor-pointer rounded px-2 py-1 ${FOCUS_RING}`}
               style={{ background: 'var(--lens-surface-raised)', border: '1px solid var(--lens-control-border)', color: 'var(--lens-ink)' }}
             >

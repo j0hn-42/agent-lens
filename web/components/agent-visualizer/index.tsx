@@ -440,6 +440,7 @@ export function AgentVisualizer() {
           onAgentHover={selection.setHoveredAgentId}
           announceLevel={prefs.announceLevel}
           links={links}
+          focusTargetId="visualizer-main"
         />
       ) : (
       <AgentCanvas

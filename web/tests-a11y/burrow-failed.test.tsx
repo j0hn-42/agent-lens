@@ -19,7 +19,7 @@ class FailingImage {
 function Probe() {
   const { prefs, setPref } = useUiPreferences()
   return (
-    <>
+    <main id="visualizer-main" tabIndex={-1}>
       <output data-testid="scene">{prefs.sceneStyle}</output>
       <button type="button" onClick={() => setPref('sceneStyle', 'burrow')}>to-burrow</button>
       <BurrowView
@@ -27,8 +27,9 @@ function Probe() {
         selectedAgentId={null}
         onAgentClick={() => {}}
         onAgentHover={() => {}}
+        focusTargetId="visualizer-main"
       />
-    </>
+    </main>
   )
 }
 
@@ -40,6 +41,9 @@ test('when the burrow pictures fail, a "Back to the graph" button switches the s
   assert.equal(screen.getByTestId('scene').textContent, 'burrow')
   assert.ok(screen.getByText(/could not start|n’a pas pu démarrer/))
   const back = screen.getByRole('button', { name: /Back to the graph|Revenir au graphe/ })
+  back.focus()
   fireEvent.click(back)
   assert.equal(screen.getByTestId('scene').textContent, 'graph')
+  // the button goes away with the burrow: focus lands on the scene region, not on <body>
+  assert.equal(document.activeElement?.id, 'visualizer-main')
 })
