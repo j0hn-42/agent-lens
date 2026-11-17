@@ -24,7 +24,7 @@ test('truncateName: characters outside the BMP are never split, surrounding spac
 })
 
 test('showsTag: only an animal on the floor of the burrow has a tag (not outside, not in the doorway)', () => {
-  for (const m of ['idle', 'walk', 'queue', 'sit', 'hopOn', 'hopOff']) assert.equal(showsTag(m), true, m)
+  for (const m of ['idle', 'walk', 'queue', 'sit', 'hopOn', 'hopOff', 'act']) assert.equal(showsTag(m), true, m)
   for (const m of ['home', 'doorIn', 'doorOut']) assert.equal(showsTag(m), false, m)
 })
 

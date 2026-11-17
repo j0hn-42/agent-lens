@@ -4,13 +4,15 @@
  * was assigned there (assign) and goes back to the lounge when released; it is outside only when unavailable. A finished
  * agent rests (setResting): it goes back to the lounge and stands still, so nothing is invented for it. In the lounge an
  * agent holds the posture of its observed state (setPosture): seated, waving at the door, asleep by the fire or still;
- * only the 'stroll' posture wanders.
+ * only the 'stroll' posture wanders. The owner's one exception: while the scene moves (setPastimes), the squirrel of an
+ * idle agent may play a pastime in the lounge (burrow-pastimes); it only means "idle".
  * What the picture says is decided by burrow-model.ts, from observed states.
  */
 import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowPosture, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
 import { BURROW_TELEPHONE } from './burrow-telephone'
 import { BURROW_ERROR_PLACE } from './burrow-error-place'
-import type { BurrowActFrame } from './burrow-acts'
+import type { BurrowActFrame, Seq } from './burrow-acts'
+import { BURROW_PASTIMES, PASTIME_FLOOR, hasPastimes } from './burrow-pastimes'
 
 const LOUNGE: BurrowRoomId = 'lounge'
 const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'phone', 'door']
@@ -35,12 +37,14 @@ const HOME_AFTER_S = 4
 const RUN_FACTOR = 3.5
 const SAY_NEVER_ENDS = Number.POSITIVE_INFINITY
 
-type Mode = 'idle' | 'queue' | 'walk' | 'doorOut' | 'doorIn' | 'home' | 'hopOn' | 'hopOff' | 'sit'
+type Mode = 'idle' | 'queue' | 'walk' | 'doorOut' | 'doorIn' | 'home' | 'hopOn' | 'hopOff' | 'sit' | 'act'
 type Step =
   | { t: 'walk'; x: number; y: number }
   | { t: 'idle'; dur: number; face?: BurrowDir; pose?: string }
   | { t: 'door' }
   | { t: 'perch'; x: number; y: number; pose: string; dur: number }
+  /** A pastime of an idle squirrel (burrow-pastimes): its poses looped for `dur` seconds where it stands */
+  | { t: 'act'; id: string; seq: Seq; dur: number; face: BurrowDir }
 type Pt = { x: number; y: number }
 
 export interface BurrowActor {
@@ -78,11 +82,11 @@ export interface BurrowActor {
 }
 
 /**
- * The act shown now (`clock`: the engine's): only while the animal stands, sits on a seat or is held. An act on an
- * animal that walks, hops or goes through the door would make it slide: it waits until the animal stops.
+ * The act shown now (`clock`: the engine's): only while the animal stands (a pastime included), sits on a seat or is
+ * held. An act on an animal that walks, hops or goes through the door would make it slide: it waits until the animal stops.
  */
 export function actShown(a: Pick<BurrowActor, 'act' | 'mode' | 'heldUntil'>, clock: number): BurrowActFrame | null {
-  return a.act && (a.mode === 'idle' || a.mode === 'sit' || a.heldUntil > clock) ? a.act : null
+  return a.act && (a.mode === 'idle' || a.mode === 'sit' || a.mode === 'act' || a.heldUntil > clock) ? a.act : null
 }
 
 /** The pose drawn now: the shown act's when it gives one (null = standing frame), else the engine's own */
@@ -109,6 +113,10 @@ interface Actor extends BurrowActor {
   post: { kind: PostKind; i: number } | null
   /** How it holds itself in the lounge when it has no job and does not rest (setPosture) */
   posture: BurrowPosture
+  /** The pastime it plays now (mode 'act'): its poses, the step shown and the seconds left of it */
+  pastime: { id: string; seq: Seq; i: number; left: number } | null
+  /** The last pastime it played: never the same twice in a row */
+  lastPastime: string | null
 }
 
 export interface BurrowMat { id: string; label: string; x: number; y: number; w: number; h: number }
@@ -328,6 +336,8 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   const index = new Map<string, Actor>()
   let clock = 0
   const door: { user: Actor | null; closeAt: number } = { user: null, closeAt: 0 }
+  /** Pastimes are played only while the scene moves (the view turns them off for reduced motion and Freeze motion) */
+  let pastimesOn = false
   const doorIsOpen = (): boolean => door.user !== null || clock < door.closeAt
 
   const byKey = (key: string): Actor | undefined => index.get(key)
@@ -369,7 +379,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       x: 0, y: 0, dir: 'down', mode: 'idle', wait: 0, plan: [{ t: 'idle', dur: rnd(0.3, 2.5) }], route: [], animT: rng(), alpha: 1,
       pose: null, poi: null, lastPoi: null, zone: LOUNGE, job: null, tp: 0, dx: 0, hop: null, hopT: 0,
       awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null, posture: 'stroll',
-      act: null, heldUntil: 0,
+      act: null, heldUntil: 0, pastime: null, lastPastime: null,
     }
     actors.push(a)
     index.set(key, a)
@@ -407,10 +417,13 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     if (!a || a.leaving) return
     a.leaving = true; a.job = null
     if (a.mode === 'home') { a.gone = true }
+    else if (inPastime(a)) replan(a)
   }
 
+  /** Playing a pastime, or walking to one */
+  const inPastime = (a: Actor): boolean => a.mode === 'act' || a.plan.some((s) => s.t === 'act')
   function replan(a: Actor): void {                 // decide again without waiting for the end of what the agent was doing
-    if (a.mode === 'walk' || a.mode === 'idle' || a.mode === 'queue') { a.pose = null; a.plan = []; begin(a) }
+    if (a.mode === 'walk' || a.mode === 'idle' || a.mode === 'queue' || a.mode === 'act') { a.pose = null; a.pastime = null; a.plan = []; begin(a) }
     else if (a.mode === 'sit') a.wait = 0
     else if (a.mode === 'hopOn') (a.plan[0] as { dur: number }).dur = 0.2
   }
@@ -454,6 +467,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     else if (a.awaySince === null) {
       a.awaySince = clock
       if (a.job) { a.job = null; replan(a) }          // it was working: back to the lounge right away
+      else if (inPastime(a)) replan(a)                // a pastime means idle in the burrow: it stops at once
     }
     return true
   }
@@ -481,9 +495,21 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
    */
   function holdFor(key: string, seconds: number): boolean {
     const a = byKey(key)
-    if (!a || a.leaving || !(a.mode === 'idle' || a.mode === 'walk' || a.mode === 'queue' || a.mode === 'sit')) return false
+    if (!a || a.leaving || !(a.mode === 'idle' || a.mode === 'walk' || a.mode === 'queue' || a.mode === 'sit' || a.mode === 'act')) return false
+    // a failure ends a pastime (and drops one it walks to): held standing where it is, it decides anew afterwards
+    if (a.mode === 'act') { a.pose = null; a.pastime = null; a.mode = 'idle'; a.wait = 0; a.plan = [{ t: 'idle', dur: 0 }] }
+    else a.plan = a.plan.filter((s) => s.t !== 'act')
     a.heldUntil = clock + seconds
     return true
+  }
+  /**
+   * Pastimes on (the scene moves) or off (reduced motion, Freeze motion): off, an animal playing one, or walking to
+   * one, decides again now, and none starts
+   */
+  function setPastimes(on: boolean): void {
+    if (pastimesOn === on) return
+    pastimesOn = on
+    if (!on) for (const a of actors) if (inPastime(a)) replan(a)
   }
   /** `dur` seconds (Infinity = until said again); null hushes */
   function say(key: string, text: string | null, dur = 6): void {
@@ -542,6 +568,8 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       return
     }
     if (a.posture !== 'stroll') { hold(a, a.posture); return }
+    // the owner's exception: the squirrel of an idle agent, in the burrow, with no act of a state shown, may play a pastime
+    if (pastimesOn && hasPastimes(a.meta) && a.act === null && a.awaySince === null && !a.leaving && rng() < 0.6 && pastime(a)) return
     const r = rng()
     // settle somewhere in the lounge: sofa, armchair, pouf, fireside...
     if (r < 0.9) {
@@ -563,6 +591,28 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     const c = cellPoint(pick(cellsOf(LOUNGE)))
     a.zone = LOUNGE
     a.plan = [{ t: 'walk', x: c.x, y: c.y }, { t: 'idle', dur: rnd(1.5, 4) }]
+  }
+  /**
+   * A pastime other than the last one, on a free spot of its table in the lounge that is not the spot it just left, not
+   * floor kept for a place of its own (telephone, place of errors) and hides no room title; false when none is free
+   */
+  function pastime(a: Actor): boolean {
+    const options = BURROW_PASTIMES.filter((p) => p.id !== a.lastPastime && a.meta.poses[p.seq[0][0]])
+    while (options.length) {
+      let r = rng() * options.reduce((s, o) => s + o.weight, 0)
+      let k = options.length - 1
+      for (let i = 0; i < options.length; i++) { r -= options[i].weight; if (r < 0) { k = i; break } }
+      const t = options.splice(k, 1)[0]
+      const ids = t.spots === 'floor' ? PASTIME_FLOOR : t.spots
+      const free = pois.filter((p) => p.room === LOUNGE && ids.includes(p.id) && canUse(a, p) && p !== a.lastPoi && !kept(p.x, p.y) && !hidesTitle(p.x, p.y))
+      if (!free.length) continue
+      const p = pick(free)
+      takePoi(a, p)
+      a.lastPastime = t.id
+      a.plan = [{ t: 'walk', x: p.x, y: p.y }, { t: 'act', id: t.id, seq: t.seq, dur: rnd(t.dur[0], t.dur[1]), face: t.face ?? 'down' }]
+      return true
+    }
+    return false
   }
   const nearest = <T extends Pt>(a: Actor, spots: readonly T[]): T | undefined => {
     let best: T | undefined
@@ -633,6 +683,11 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
           begin(a)
         } else { a.mode = 'queue'; a.wait = 0.4 }
       } else { door.user = a; a.mode = 'doorOut'; a.tp = 0; a.wait = 0.35 }
+    } else if (st.t === 'act') {
+      if (!pastimesOn) { a.plan.shift(); begin(a); return }   // turned off on its way there
+      a.mode = 'act'; a.wait = st.dur; a.dir = st.face
+      a.pastime = { id: st.id, seq: st.seq, i: 0, left: st.seq[0][1] }
+      a.pose = st.seq[0][0]
     } else if (st.t === 'perch') {
       a.hop = { x: a.x, y: a.y, px: st.x, py: st.y }; a.hopT = 0; a.mode = 'hopOn'
       a.dir = Math.abs(st.x - a.x) > Math.abs(st.y - a.y) ? (st.x > a.x ? 'right' : 'left') : (st.y > a.y ? 'down' : 'up')
@@ -662,6 +717,17 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
         a.wait -= dt
         if (a.wait <= 0) begin(a)
         break
+      case 'act': {                                   // a pastime: its poses in a loop until its time runs out
+        const q = a.pastime
+        a.wait -= dt
+        if (q) {
+          q.left -= dt
+          while (q.left <= 0) { q.i = (q.i + 1) % q.seq.length; q.left += q.seq[q.i][1] }
+          a.pose = q.seq[q.i][0]
+        }
+        if (a.wait <= 0) { a.pose = null; a.pastime = null; done() }
+        break
+      }
       case 'walk': {
         // sent to work (a tool call is often over in a second): it runs, so the room it reaches is still the tool's
         const pace = a.job && !a.goingHome ? RUN_FACTOR : 1
@@ -767,7 +833,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       if (outside(a) || a.leaving || a.goingHome) continue
       const step = a.plan[0]
       const goal = a.mode === 'walk' && step?.t === 'walk' ? step : a
-      if (a.post !== null || ((a.mode === 'idle' || a.mode === 'walk') && hidesTitle(goal.x, goal.y))) replan(a)
+      if (a.post !== null || ((a.mode === 'idle' || a.mode === 'walk' || a.mode === 'act') && hidesTitle(goal.x, goal.y))) replan(a)
     }
   }
 
@@ -799,10 +865,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     ambience,
     get clock() { return clock },
     doorIsOpen,
-    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say, setAct, hold: holdFor,
+    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say, setAct, hold: holdFor, setPastimes,
     update, fastForward, zoneOf, actorAt,
     /** Room an agent is assigned to now (null = not working) */
     jobOf: (key: string): BurrowWorkshopId | null => byKey(key)?.job?.room ?? null,
+    /** The pastime the agent's animal plays now (an idle squirrel), null when none */
+    pastimeOf: (key: string): string | null => byKey(key)?.pastime?.id ?? null,
     /** True while the agent rests as finished */
     isResting: (key: string): boolean => byKey(key)?.resting === true,
     /** True when the agent is not in the burrow (outside, or on its way out) */
