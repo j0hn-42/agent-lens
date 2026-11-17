@@ -104,3 +104,16 @@ test('the legend says what the floor ring is and where its colour is named', () 
     setLocaleChoice('auto')
   }
 })
+
+test('the legend says what the signs over a head mean: "?" waits for you, "..." still waits and sulks, counted from when the burrow saw it', () => {
+  setLocaleChoice('en')
+  try {
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    const text = screen.getByRole('group').textContent ?? ''
+    assert.ok(/"\?": the agent waits for you/.test(text) && /"\.\.\.": it is still waiting and sulks/.test(text), text)
+    assert.match(text, /first saw it waiting/)
+  } finally {
+    setLocaleChoice('auto')
+  }
+})

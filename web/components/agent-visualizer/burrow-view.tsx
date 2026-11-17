@@ -10,7 +10,8 @@ import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList, popupAnchor, type PopupAnchor } from './burrow-agent-list'
 import { BurrowLegend } from './burrow-legend'
-import { createBurrowEngine, drawnPose, type BurrowEngine } from '@/lib/burrow/burrow-engine'
+import { actShown, createBurrowEngine, drawnPose, type BurrowEngine } from '@/lib/burrow/burrow-engine'
+import { glassOwner, needsYouFrame, SIGN_LIFT } from '@/lib/burrow/burrow-acts'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -252,6 +253,10 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let lastRows: BurrowRow[] = []
     /** Room objects lighting up, one per tool call received while the scene moves (none in the still scene) */
     let lit: BurrowFlash[] = []
+    /** Agents waiting for you at the post beside the front door, since when the burrow saw them there (last sync) */
+    let waits: ReadonlyMap<string, number> = new Map()
+    /** What the acts show (pose, sign, line per agent): the still scene is drawn again when it changes */
+    let actsSig = ''
     let scale = 1
     let rowsSig = ''
     let hiddenShown = -1
@@ -338,11 +343,12 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const nextCrowns = orchestratorsOf(agents)
       if (nextCrowns.size !== crowns.size || [...nextCrowns].some((id) => !crowns.has(id))) dirtyRef.current = true
       crowns = nextCrowns
-      const { rows: next, hidden: extra, changed, received } = syncBurrow(engine, sync, agents, {
+      const { rows: next, hidden: extra, changed, received, waits: nextWaits } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
         health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
       })
       if (changed) dirtyRef.current = true
+      waits = nextWaits
       lastRows = next
       lit.push(...flashesOf(received, live.current.reduced, engine.clock))
       if (lit.length > MAX_FLASHES) lit = lit.slice(-MAX_FLASHES)
@@ -374,13 +380,33 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       if (extra !== hiddenShown) { hiddenShown = extra; setHidden(extra) }
     }
 
+    /**
+     * Gives each animal the act of its observed state at `now` (wall clock, the sync's): an agent that waits for you
+     * wonders, calls and sulks (burrow-acts). Only the longest-waiting squirrel draws its knock bursts, and none in the
+     * still scene. Returns what the acts show, so the still scene is drawn again when a stage changes.
+     */
+    const applyActs = (now: number, still: boolean): string => {
+      const owner = glassOwner(waits, (key) => engine.actors.find((a) => a.key === key)?.meta)
+      let sig = ''
+      for (const a of engine.actors) {
+        const since = waits.get(a.key)
+        const frame = since === undefined ? null : needsYouFrame({ elapsed: (now - since) / 1000, still, meta: a.meta, bursts: !still && a.key === owner })
+        engine.setAct(a.key, frame)
+        if (frame) sig += `${a.key}|${frame.pose ?? ''}|${frame.sign ?? ''}|${frame.line ?? ''}\n`
+      }
+      return sig
+    }
+
     const placeOverlays = (): void => {
       const stageW = W * scale
       const u = Math.max(2.4, scale)
       const seen = new Set<string>()
       const bubbleBoxes: Box[] = []
       for (const a of engine.actors) {
-        if (a.said === null || a.mode === 'home') continue
+        const act = actShown(a)
+        // an act may say something of its own while it lasts; otherwise the engine's bubble
+        const said = act?.line ?? a.said
+        if (said === null || a.mode === 'home') continue
         if (!bubbleShown(a.key, stales, live.current.selectedAgentId, live.current.hoveredAgentId)) continue
         seen.add(a.key)
         let el = bubbles.get(a.key)
@@ -392,7 +418,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           el.addEventListener('pointerup', (e) => { if (toolIds.has(key)) e.stopPropagation() })
           el.addEventListener('click', (e) => { const id = toolIds.get(key); if (id && e.currentTarget instanceof Element) live.current.onToolCallClick?.(id, popupAnchor(e.currentTarget)) })
         }
-        if (el.textContent !== a.said) el.textContent = a.said
+        if (el.textContent !== said) el.textContent = said
         // only a bubble that names a proven running call is clickable: the other bubbles stay transparent to the pointer
         const clickable = live.current.onToolCallClick !== undefined && toolIds.has(a.key)
         el.style.pointerEvents = clickable ? 'auto' : 'none'
@@ -401,7 +427,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         const x = a.x * scale
         const pose = drawnPose(a)
         const tall = (pose && a.meta.poses[pose]?.h) || a.meta.h
-        const y = (a.y - tall - 4) * scale
+        // raised above the sign over its head, which it would hide for as long as the state lasts
+        const y = (a.y - (act?.oy ?? 0) - tall - 4 - (act?.sign ? SIGN_LIFT : 0)) * scale
         const cx = Math.max(half + 4, Math.min(stageW - half - 4, x))
         el.style.transform = `translate(${cx.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%)`
         bubbleBoxes.push({ x: cx - half, y: y - el.offsetHeight, w: el.offsetWidth, h: el.offsetHeight })
@@ -470,7 +497,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const draw = (): void => {
       lit = live.current.reduced ? [] : lit.filter((f) => flashAlpha(engine.clock - f.t0) > 0 || engine.clock <= f.t0)
       const flashes = lit.map((f) => ({ x: f.x, y: f.y, a: flashAlpha(engine.clock - f.t0) }))
-      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced), flashes })
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced), flashes, still: live.current.reduced })
       placeOverlays()
     }
 
@@ -490,11 +517,15 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         backing()
         dirtyRef.current = true
         engine.update(dt)
+        actsSig = applyActs(Date.now(), live.current.reduced)
         draw()
       },
       calm: () => {
         follow()
         backing()
+        // a stage of an act that changes (an agent that waits for you starts calling, then sulks) is drawn again
+        const sig = applyActs(Date.now(), true)
+        if (sig !== actsSig) { actsSig = sig; dirtyRef.current = true }
         if (dirtyRef.current) { dirtyRef.current = false; settle() }
       },
     })

@@ -210,6 +210,47 @@ test('under Freeze motion the burrow requests no animation frame either', async 
   fireEvent.click(screen.getByText('freeze'))
 })
 
+test('under reduced motion an agent that waits for you shows its sign still, the stage changes are drawn without any animation frame, and its row counts the minutes', async () => {
+  prefersReducedMotion(true)
+  const frames = spyFrames()
+  // which parts of the effects picture are drawn: "?" is the rect at (0, 495) of fx.png, "..." the one at (0, 714)
+  const sources: string[] = []
+  const real = window.HTMLCanvasElement.prototype.getContext
+  const ctx = new Proxy({}, {
+    get: (_t, prop) => (prop === 'drawImage' ? (...args: unknown[]) => { if (args.length === 9) sources.push(`${args[1]},${args[2]}`) }
+      : prop === 'measureText' ? () => ({ width: 0 }) : prop === 'createLinearGradient' || prop === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => {}),
+    set: () => true,
+  })
+  window.HTMLCanvasElement.prototype.getContext = (() => ctx) as never
+  const realNow = Date.now
+  let offset = 0
+  Date.now = () => realNow() + offset
+  try {
+    globalThis.Image = LoadedImage as never
+    // a question to you: its call stays open, so the wait is proven even after 30 s of silence
+    const ask = { ...agent('asker', 'tool_calling'), currentTool: 'AskUserQuestion' } as Agent
+    const view = render(<Page sim={simulation(ask)} picks={[]} />)
+    for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+    await wait(300)
+    assert.ok(sources.includes('0,495'), 'the "?" is drawn over its head')
+    assert.equal(sources.includes('0,714'), false)
+    const row = () => view.container.querySelector<HTMLButtonElement>('[data-burrow-agent-list] button[data-burrow-row="asker"]')?.title ?? ''
+    assert.doesNotMatch(row(), /waiting for you/)
+    // 30 s later it sulks (whatever its animal): the still scene is drawn again, with "..."
+    sources.length = 0
+    offset = 30_000
+    await wait(700)
+    assert.ok(sources.includes('0,714'), 'the "..." of the sulk is drawn')
+    offset = 95_000
+    await wait(700)
+    assert.match(row(), /has been waiting for you for at least 1 min/)
+    assert.equal(frames.count(), 0, 'no requestAnimationFrame under reduced motion')
+  } finally {
+    Date.now = realNow
+    window.HTMLCanvasElement.prototype.getContext = real
+  }
+})
+
 /** Records every fillStyle the scene sets on its canvases (the setup's context draws nothing either) */
 function spyFills(): { fills: Set<string>; restore: () => void } {
   const fills = new Set<string>()

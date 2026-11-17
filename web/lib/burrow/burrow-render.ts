@@ -6,6 +6,7 @@ import { actShown, drawnPose, type BurrowActor, type BurrowEngine } from './burr
 import type { BurrowData } from './burrow-types'
 import type { BurrowPalette } from './burrow-palette'
 import { BURROW_TELEPHONE } from './burrow-telephone'
+import { actDrawList } from './burrow-acts'
 
 export type BurrowImages = Readonly<Record<string, CanvasImageSource>>
 
@@ -74,8 +75,9 @@ export interface BurrowRenderer {
    * `ringing`: a dispatch call is observed running (an orchestrator at the telephone): the telephone rings. Never under
    * reduced motion or Freeze motion, where the scene is still.
    * `flashes`: objects of a room lighting up for a tool call just received (burrow-flash), with their brightness now.
+   * `still`: reduced motion or Freeze motion: the signs over the heads (acts the view set, burrow-acts) do not bob.
    */
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean; flashes?: ReadonlyArray<{ x: number; y: number; a: number }> }): void
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean; flashes?: ReadonlyArray<{ x: number; y: number; a: number }>; still?: boolean }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
@@ -212,7 +214,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false, flashes }) {
+    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false, flashes, still = false }) {
       rings = ringsIn
       crowns = crownsIn
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
@@ -307,6 +309,17 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
         }
         g.globalAlpha = 1
       }
+      // the signs over the heads and the effects of the acts the view shows ("?" of an agent that waits for you...):
+      // after every animal and light, so no animal hides them and no lantern tints them
+      for (const a of list) {
+        const act = actShown(a)
+        if (!act) continue
+        for (const it of actDrawList({ x: a.x, y: a.y, meta: a.meta, pose: a.pose }, act, FX.rects, clock, still)) {
+          g.globalAlpha = clamp01(it.alpha)
+          drawFx(it.name, it.x, it.y)
+        }
+      }
+      g.globalAlpha = 1
       // letters in flight, above everything: a 9 x 6 envelope, its flap drawn in ink; a return carries a red seal
       if (letters?.length) {
         for (const l of letters) {
