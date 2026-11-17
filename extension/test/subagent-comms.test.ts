@@ -161,6 +161,11 @@ describe('SubagentStop hook payload', () => {
     assert.equal(ret.tokenCost, undefined)
   })
 
+  it('a SubagentStop without agent_type falls back to a generic summary', () => {
+    const events = run([{ hook_event_name: 'SubagentStop', agent_id: 'agent-yyyyyy' }])
+    assert.equal(ofType(events, 'subagent_return')[0].payload.summary, 'subagent complete')
+  })
+
   it('PostToolUseFailure marks the call as an error with its toolUseId', () => {
     const events = run([{ hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_use_id: 'b1', tool_response: 'nope' }])
     const end = ofType(events, 'tool_call_end')[0].payload

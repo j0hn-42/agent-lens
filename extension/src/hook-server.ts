@@ -659,7 +659,7 @@ export class HookServer implements vscode.Disposable {
       payload: {
         child: childName,
         parent: parentName,
-        summary: report || `${payload.agent_type} complete`,
+        summary: report || `${payload.agent_type || 'subagent'} complete`,
         ...(toolUseId ? { toolUseId } : {}),
         ...(typeof payload.is_error === 'boolean' ? { isError: payload.is_error } : {}),
         ...(correlated ? { durationS: Math.round((Date.now() - correlated.startTime) / 100) / 10 } : {}),
