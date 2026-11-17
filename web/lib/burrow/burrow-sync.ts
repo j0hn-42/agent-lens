@@ -139,7 +139,7 @@ const WORK_ROOMS: ReadonlySet<BurrowRoomId> = new Set(['office', 'library', 'wor
  * Longest time between two syncs after which what changed meanwhile is not "just seen": the burrow did not follow (a
  * background tab draws no frame), so a failure or a call of that gap only becomes the new baseline, like a first look
  */
-export const SYNC_GAP_MS = FAILED_ROW_MS
+const SYNC_GAP_MS = FAILED_ROW_MS
 
 /** A tool call seen starting since the last sync: the view flashes an object of its room (nothing on the first look) */
 export interface ReceivedCall { id: string; agentId: string; room: BurrowRoomId }
