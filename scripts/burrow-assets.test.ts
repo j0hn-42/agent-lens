@@ -7,7 +7,7 @@ import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
-import { burrowImageNames, burrowImageUrl, burrowGlassImage, setBurrowAssetBase } from '../web/lib/burrow/burrow-assets'
+import { burrowImageNames, burrowImageUrl, setBurrowAssetBase } from '../web/lib/burrow/burrow-assets'
 
 const DIR = path.join(__dirname, '..', 'web', 'public', 'burrow')
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -53,7 +53,6 @@ test('every picture name is one the standalone app serves: lower-case letters, d
 })
 
 test('the squirrel has a close-up picture, loaded with the others, as wide as its columns and as high as its cell', () => {
-  assert.equal(burrowGlassImage('squirrel'), 'squirrel-glass')
   assert.ok(burrowImageNames(BURROW_DATA).includes('squirrel-glass'))
   const glass = BURROW_DATA.sprites.squirrel.glass
   assert.ok(glass)

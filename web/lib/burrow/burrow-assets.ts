@@ -17,7 +17,7 @@ export function burrowImageNames(data: BurrowData): string[] {
 }
 
 /** The name of the close-up picture of a sprite (a name the standalone app serves: lower case, digits, hyphens) */
-export function burrowGlassImage(sprite: string): string {
+function burrowGlassImage(sprite: string): string {
   return `${sprite}-glass`
 }
 
