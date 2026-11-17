@@ -7,6 +7,8 @@ import type { BurrowData } from './burrow-types'
 import type { BurrowPalette } from './burrow-palette'
 import { BURROW_TELEPHONE } from './burrow-telephone'
 import { actDrawList } from './burrow-acts'
+import { glassDrawList, type GlassFrame, type GlassPlace } from './burrow-glass'
+import { burrowGlassImage } from './burrow-assets'
 
 export type BurrowImages = Readonly<Record<string, CanvasImageSource>>
 
@@ -76,8 +78,10 @@ export interface BurrowRenderer {
    * reduced motion or Freeze motion, where the scene is still.
    * `flashes`: objects of a room lighting up for a tool call just received (burrow-flash), with their brightness now.
    * `still`: reduced motion or Freeze motion: the signs over the heads (acts the view set, burrow-acts) do not bob.
+   * `glass`: the close-up of the squirrel that waits for you longest, at its place on the bottom edge (burrow-glass),
+   * drawn last, over everything of the picture.
    */
-  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean; flashes?: ReadonlyArray<{ x: number; y: number; a: number }>; still?: boolean }): void
+  render(opts: { showTitles: boolean; hiddenKeys?: ReadonlySet<string>; threads?: readonly BurrowThread[]; letters?: readonly BurrowLetter[]; rings?: ReadonlyMap<string, string>; crowns?: ReadonlySet<string>; ringing?: boolean; flashes?: ReadonlyArray<{ x: number; y: number; a: number }>; still?: boolean; glass?: { sprite: string; place: GlassPlace; frame: GlassFrame } | null }): void
 }
 
 export function createBurrowRenderer(data: BurrowData, images: BurrowImages, engine: BurrowEngine, view: HTMLCanvasElement, initialPalette: BurrowPalette): BurrowRenderer | null {
@@ -215,7 +219,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       if (view.width !== width || view.height !== height) { view.width = width; view.height = height }
       vg.imageSmoothingEnabled = false
     },
-    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false, flashes, still = false }) {
+    render({ showTitles, hiddenKeys, threads, letters, rings: ringsIn, crowns: crownsIn, ringing = false, flashes, still = false, glass }) {
       rings = ringsIn
       crowns = crownsIn
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'
@@ -334,6 +338,15 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
           g.fillRect(x + 4, y + 3, 1, 1)
           if (l.kind === 'return') { g.fillStyle = pal.seal; g.fillRect(x + 4, y + 3, 1, 2) }
         }
+      }
+      // the squirrel's close-up right behind the glass, and what its knocks left on it: the last thing of the picture
+      const meta = glass ? data.sprites[glass.sprite] : undefined
+      const glassImage = glass ? images[burrowGlassImage(glass.sprite)] : undefined
+      if (glass && meta && glassImage) {
+        const d = glassDrawList(glass.place, glass.frame, meta, FX.rects, clock, still)
+        if (d.bust) g.drawImage(glassImage, d.bust.sx, d.bust.sy, d.bust.w, d.bust.h, d.bust.x, d.bust.y, d.bust.w, d.bust.h)
+        for (const it of d.items) { g.globalAlpha = it.alpha; drawFx(it.name, it.x, it.y) }
+        g.globalAlpha = 1
       }
       // crisp enlargement to the visible canvas
       vg.imageSmoothingEnabled = false

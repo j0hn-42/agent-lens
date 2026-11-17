@@ -251,6 +251,65 @@ test('under reduced motion an agent that waits for you shows its sign still, the
   }
 })
 
+test('under reduced motion a question of the squirrel unanswered for 3 min: the close-up stands still at the glass with its big "?" and the crack reached, the row says the minutes, a click on the close-up selects the agent, and no animation frame', async () => {
+  prefersReducedMotion(true)
+  const frames = spyFrames()
+  // which parts of the pictures are drawn: the close-up "ready" is the cell at (112, 0) of squirrel-glass.png, the big
+  // "?" the rect at (0, 509) of fx.png, the biggest crack (0, 918), the tape (0, 770)
+  const sources: string[] = []
+  const real = window.HTMLCanvasElement.prototype.getContext
+  const ctx = new Proxy({}, {
+    get: (_t, prop) => (prop === 'drawImage' ? (...args: unknown[]) => { if (args.length === 9) sources.push(`${args[1]},${args[2]}`) }
+      : prop === 'measureText' ? () => ({ width: 0 }) : prop === 'createLinearGradient' || prop === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => {}),
+    set: () => true,
+  })
+  window.HTMLCanvasElement.prototype.getContext = (() => ctx) as never
+  // the canvas lies at the page's origin at the picture's own size: a scene point is a client point
+  const realRect = Element.prototype.getBoundingClientRect
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const w = this instanceof HTMLCanvasElement ? 560 : 0
+    const h = this instanceof HTMLCanvasElement ? 315 : 0
+    return { x: 0, y: 0, left: 0, top: 0, width: w, height: h, right: w, bottom: h, toJSON: () => ({}) } as DOMRect
+  }
+  const realNow = Date.now
+  let offset = 0
+  Date.now = () => realNow() + offset
+  try {
+    globalThis.Image = LoadedImage as never
+    // 'asker4' gets the squirrel; a question to you keeps its post however long it waits (its call stays open)
+    const ask = { ...agent('asker4', 'tool_calling'), currentTool: 'AskUserQuestion' } as Agent
+    const picks: string[] = []
+    const view = render(<Page sim={simulation(ask)} picks={picks} />)
+    for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+    await wait(300)
+    assert.equal(sources.includes('112,0'), false, 'no close-up the first 8 s')
+    offset = 180_000
+    sources.length = 0
+    await wait(700)
+    const row = view.container.querySelector<HTMLButtonElement>('[data-burrow-agent-list] button[data-burrow-row="asker4"]')?.title ?? ''
+    assert.match(row, /has been waiting for you for at least 3 min/)
+    assert.ok(sources.includes('112,0'), 'the close-up, steady')
+    assert.ok(sources.includes('0,509'), 'its big "?"')
+    assert.ok(sources.includes('0,918'), 'the crack reached after 3 min')
+    assert.equal(sources.includes('0,770'), false, 'no tape yet')
+    // a click on the close-up (in the gap left of the Lounge title, its body about 30 px above the bottom edge)
+    let hit: { x: number; y: number } | null = null
+    for (let x = 120; x < 260 && !hit; x += 4) {
+      const target = { x, y: 290 }
+      view.container.querySelector('canvas')!.dispatchEvent(new MouseEvent('pointerdown', { clientX: target.x, clientY: target.y, button: 0, bubbles: true }))
+      view.container.querySelector('canvas')!.dispatchEvent(new MouseEvent('pointerup', { clientX: target.x, clientY: target.y, button: 0, bubbles: true }))
+      if (picks.includes('asker4')) hit = target
+    }
+    assert.ok(hit, 'a click on the close-up selects its agent')
+    assert.ok(hit.x > 150 && hit.x < 250, `on the close-up, not on the animal at its post (${hit.x})`)
+    assert.equal(frames.count(), 0, 'no requestAnimationFrame under reduced motion')
+  } finally {
+    Date.now = realNow
+    Element.prototype.getBoundingClientRect = realRect
+    window.HTMLCanvasElement.prototype.getContext = real
+  }
+})
+
 test('under reduced motion a failed Bash call shows the animal under a still "!" with a bubble giving the received exit code, its row says it, and both go without any animation frame', async () => {
   prefersReducedMotion(true)
   const frames = spyFrames()

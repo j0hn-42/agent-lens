@@ -71,6 +71,7 @@ export function BurrowLegend() {
           </dl>
           <p className="m-0 mt-1" style={{ color: 'var(--lens-ink-muted)' }}>{t('burrow.legend.flash')}</p>
           <p className="m-0 mt-1" style={{ color: 'var(--lens-ink-muted)' }}>{t('burrow.legend.signs')}</p>
+          <p className="m-0 mt-1" style={{ color: 'var(--lens-ink-muted)' }}>{t('burrow.legend.glass')}</p>
           <p className="m-0 mt-1" style={{ color: 'var(--lens-ink-muted)' }}>{t('burrow.legend.failures')}</p>
           <p className="m-0 mt-1" style={{ color: 'var(--lens-ink-muted)' }}>{t('burrow.legend.pastimes')}</p>
           <p className="m-0 mt-1" style={{ color: 'var(--lens-ink-muted)' }}>{t('burrow.legend.recent')}</p>

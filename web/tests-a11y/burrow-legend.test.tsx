@@ -144,3 +144,21 @@ test('the legend says what a pastime of the squirrel means: only that the agent 
     setLocaleChoice('auto')
   }
 })
+
+test('the legend says the close-up at the glass: its crack and its tape only count the time waited, in both languages', () => {
+  setLocaleChoice('en')
+  try {
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    const text = screen.getByRole('group').textContent ?? ''
+    assert.match(text, /a close-up of the squirrel also knocks on the glass at the bottom of the picture/)
+    assert.match(text, /its crack and its tape only count the time it has waited, nothing is broken/)
+    cleanup()
+    setLocaleChoice('fr')
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    assert.match(screen.getByRole('group').textContent ?? '', /un gros plan de l’écureuil frappe aussi à la vitre/)
+  } finally {
+    setLocaleChoice('auto')
+  }
+})

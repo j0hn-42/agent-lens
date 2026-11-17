@@ -10,10 +10,10 @@ import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList, popupAnchor, type PopupAnchor } from './burrow-agent-list'
 import { BurrowLegend } from './burrow-legend'
-import { actShown, createBurrowEngine, drawnPose, type BurrowEngine } from '@/lib/burrow/burrow-engine'
+import { actShown, createBurrowEngine, drawnPose, type BurrowActor, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { glassOwner, needsYouFrame, SIGN_LIFT, type BurrowActFrame } from '@/lib/burrow/burrow-acts'
 import { glumFrame, STUMBLE_S, stumbleFrame } from '@/lib/burrow/burrow-failure'
-import { glassBand, glassPlace } from '@/lib/burrow/burrow-glass'
+import { glassBand, glassFrame, glassHit, glassPlace, type GlassFrame, type GlassPlace } from '@/lib/burrow/burrow-glass'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -276,6 +276,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const heldFor = new Map<string, number>()
     /** Agents in error (live, in the burrow): glum under "!" */
     let glum = new Set<string>()
+    /** The close-up at the glass of the squirrel that waits for you longest, when it has a place (last applyActs) */
+    let glass: { key: string; sprite: string; meta: BurrowActor['meta']; place: GlassPlace; frame: GlassFrame } | null = null
     /** What the acts show (pose, sign, line per agent): the still scene is drawn again when it changes */
     let actsSig = ''
     let scale = 1
@@ -444,12 +446,19 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         ? glassPlace({ agentX: ownerActor.x, mats: engine.mats, posts: [...engine.postsOf('door'), ...engine.postsOf('phone'), ...engine.postsOf('error')], ...glassCovers() })
         : null
       engine.setGlassBand(place ? glassBand(place) : null)
-      let sig = place ? `glass|${place.cx}|${place.base}\n` : ''
+      const ownerSince = owner === null ? undefined : waits.get(owner)
+      glass = ownerActor && place && ownerSince !== undefined
+        ? { key: ownerActor.key, sprite: ownerActor.sprite, meta: ownerActor.meta, place, frame: glassFrame({ elapsed: (now - ownerSince) / 1000, still, meta: ownerActor.meta, rects: BURROW_DATA.fx.rects }) }
+        : null
+      // the still scene is drawn again when the close-up rises, its crack grows, its tape is put on or it moves
+      let sig = glass ? `glass|${glass.place.cx}|${glass.place.base}|${glass.frame.bust?.pose ?? ''}|${glass.frame.pane}|${glass.frame.taped}\n` : ''
       for (const a of engine.actors) {
         const since = waits.get(a.key)
         const stumble = stumbles.get(a.key)
         let frame: BurrowActFrame | null = null
-        if (since !== undefined) frame = needsYouFrame({ elapsed: (now - since) / 1000, still, meta: a.meta, bursts: !still && a.key === owner })
+        // the squirrel at the glass: its scene at its post between two visits; without a place it knocks at its post
+        if (glass && a.key === glass.key) frame = glass.frame.room
+        else if (since !== undefined) frame = needsYouFrame({ elapsed: (now - since) / 1000, still, meta: a.meta, bursts: !still && a.key === owner })
         else {
           if (stumble) {
             const line = stumble.exit === null ? null : live.current.t('burrow.bubble.exitCode', { code: stumble.exit })
@@ -564,7 +573,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const draw = (): void => {
       lit = live.current.reduced ? [] : lit.filter((f) => flashAlpha(engine.clock - f.t0) > 0 || engine.clock <= f.t0)
       const flashes = lit.map((f) => ({ x: f.x, y: f.y, a: flashAlpha(engine.clock - f.t0) }))
-      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced), flashes, still: live.current.reduced })
+      renderer.render({ showTitles: live.current.showTitles, threads: threads(), letters: live.current.reduced ? [] : letters(), rings, crowns, ringing: telephoneRings(lastRows, live.current.reduced), flashes, still: live.current.reduced, glass })
       placeOverlays()
     }
 
@@ -612,10 +621,13 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const r = view.getBoundingClientRect()
       return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H }
     }
+    /** The agent under a scene point: the close-up at the glass first (it is drawn over everything), then the animals */
+    const keyAt = (p: { x: number; y: number }): string | null =>
+      (glass && glassHit(glass.place, glass.frame, glass.meta, p.x, p.y) ? glass.key : engine.actorAt(p.x, p.y)?.key ?? null)
     let hovered: string | null = null
     const onMove = (e: PointerEvent): void => {
       const p = toScene(e)
-      const hit = engine.actorAt(p.x, p.y)?.key ?? null
+      const hit = keyAt(p)
       view.style.cursor = hit ? 'pointer' : 'default'
       if (hit !== hovered) { hovered = hit; live.current.onAgentHover(hit) }
     }
@@ -625,14 +637,14 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     const onDown = (e: PointerEvent): void => {
       if (e.button !== 0) { pressed = null; return }
       const p = toScene(e)
-      pressed = { key: engine.actorAt(p.x, p.y)?.key ?? null }
+      pressed = { key: keyAt(p) }
     }
     const onUp = (e: PointerEvent): void => {
       const start = pressed
       pressed = null
       if (!start || e.button !== 0) return
       const p = toScene(e)
-      const key = engine.actorAt(p.x, p.y)?.key ?? null
+      const key = keyAt(p)
       if (key === start.key) live.current.onAgentClick(key, { shiftKey: e.shiftKey })
     }
     // a right click on an animal opens its agent menu; on the empty floor the browser's menu is left alone
@@ -640,7 +652,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const open = live.current.onAgentContextMenu
       if (!open) return
       const p = toScene(e as PointerEvent)
-      const key = engine.actorAt(p.x, p.y)?.key ?? null
+      const key = keyAt(p)
       if (!key) return
       e.preventDefault()
       open(key, { clientX: e.clientX, clientY: e.clientY })
