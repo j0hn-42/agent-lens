@@ -151,13 +151,17 @@ test('the legend says the close-up at the glass: its crack and its tape only cou
     render(<BurrowLegend />)
     fireEvent.click(screen.getByRole('button'))
     const text = screen.getByRole('group').textContent ?? ''
-    assert.match(text, /a close-up of the squirrel also knocks on the glass at the bottom of the picture/)
+    // only what the scene does: the one waiting longest, after 8 seconds, where nothing covers the bottom edge
+    assert.match(text, /the one waiting longest also comes to the glass after 8 seconds/)
+    assert.match(text, /only where nothing covers that edge/)
     assert.match(text, /its crack and its tape only count the time it has waited, nothing is broken/)
     cleanup()
     setLocaleChoice('fr')
     render(<BurrowLegend />)
     fireEvent.click(screen.getByRole('button'))
-    assert.match(screen.getByRole('group').textContent ?? '', /un gros plan de l’écureuil frappe aussi à la vitre/)
+    const fr = screen.getByRole('group').textContent ?? ''
+    assert.match(fr, /celui qui attend depuis le plus longtemps vient aussi à la vitre au bout de 8 secondes/)
+    assert.match(fr, /seulement là où rien ne couvre ce bord/)
   } finally {
     setLocaleChoice('auto')
   }
