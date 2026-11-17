@@ -486,16 +486,22 @@ test('an act set by the view is drawn only while the animal stands: its pose rep
   e.setAct('ghost', { sign: null, fx: [] })   // an unknown key is ignored
 })
 
-test('an act is shown on a perched animal too (a seat), never on one outside', () => {
+test('an act is shown on a perched animal too (a seat), only its sign and its line: never a standing pose over the seat; never on one outside', () => {
   const e = make(2)
   e.addActor('h', 'hare', { inside: true })
   e.setPosture('h', 'sit')
   run(e, 40)
   const h = e.actors.find((x) => x.key === 'h')!
   assert.equal(h.mode, 'sit')
-  e.setAct('h', { pose: null, sign: 'alert', fx: [] })
+  const seated = h.pose
+  e.setAct('h', { pose: null, sign: 'alert', fx: [{ name: 'dust', dx: 0, dy: 0 }], line: 'Exit code 1', oy: 2 })
   assert.equal(actShown(h, e.clock)?.sign, 'alert')
-  assert.equal(drawnPose(h, e.clock), null)
+  assert.equal(actShown(h, e.clock)?.line, 'Exit code 1')
+  assert.deepEqual(actShown(h, e.clock)?.fx, [], 'no dust or drop around a seat')
+  assert.equal(actShown(h, e.clock)?.oy, undefined)
+  assert.equal(drawnPose(h, e.clock), seated, 'it stays seated: no standing frame hovering over the cushion')
+  assert.equal(e.hold('h', 3.1), false, 'a seated animal is not held: it has nowhere to stumble')
+  assert.equal(drawnPose(h, e.clock), seated)
   e.setAvailable('h', false)
   e.setPosture('h', 'stroll')
   run(e, 60)

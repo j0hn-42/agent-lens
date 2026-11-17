@@ -81,12 +81,23 @@ export interface BurrowActor {
   heldUntil: number
 }
 
+/** The act of a seated animal, per act: only its sign and its line (see actShown) */
+const seatedActs = new WeakMap<BurrowActFrame, BurrowActFrame>()
+function seatedAct(f: BurrowActFrame): BurrowActFrame {
+  let s = seatedActs.get(f)
+  if (!s) { s = { sign: f.sign, fx: [], ...(f.line !== undefined ? { line: f.line } : {}) }; seatedActs.set(f, s) }
+  return s
+}
+
 /**
  * The act shown now (`clock`: the engine's): only while the animal stands (a pastime included), sits on a seat or is
  * held. An act on an animal that walks, hops or goes through the door would make it slide: it waits until the animal stops.
+ * On a seat only its sign and its line are shown: a standing pose, a lift or effects at the feet would hover over the seat.
  */
 export function actShown(a: Pick<BurrowActor, 'act' | 'mode' | 'heldUntil'>, clock: number): BurrowActFrame | null {
-  return a.act && (a.mode === 'idle' || a.mode === 'sit' || a.mode === 'act' || a.heldUntil > clock) ? a.act : null
+  if (!a.act) return null
+  if (a.mode === 'sit') return seatedAct(a.act)
+  return a.mode === 'idle' || a.mode === 'act' || a.heldUntil > clock ? a.act : null
 }
 
 /** The pose drawn now: the shown act's when it gives one (null = standing frame), else the engine's own */
@@ -497,12 +508,12 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   }
   /**
    * Holds the animal where it is for `seconds` (a tool call of its agent just failed: it stumbles there): no step, no
-   * countdown, its plan, post, seat and bubble kept; it goes on afterwards. Only an animal standing, walking or seated
-   * in the burrow (not in the doorway, mid-hop or outside); false otherwise.
+   * countdown, its plan, post and bubble kept; it goes on afterwards. Only an animal standing or walking in the burrow
+   * (not seated: it shows the sign where it sits; not in the doorway, mid-hop or outside); false otherwise.
    */
   function holdFor(key: string, seconds: number): boolean {
     const a = byKey(key)
-    if (!a || a.leaving || !(a.mode === 'idle' || a.mode === 'walk' || a.mode === 'queue' || a.mode === 'sit' || a.mode === 'act')) return false
+    if (!a || a.leaving || !(a.mode === 'idle' || a.mode === 'walk' || a.mode === 'queue' || a.mode === 'act')) return false
     // a failure ends a pastime (and drops one it walks to): held standing where it is, it decides anew afterwards
     if (a.mode === 'act') { a.pose = null; a.pastime = null; a.mode = 'idle'; a.wait = 0; a.plan = [{ t: 'idle', dur: 0 }] }
     else a.plan = a.plan.filter((s) => s.t !== 'act')
