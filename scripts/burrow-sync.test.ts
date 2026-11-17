@@ -602,3 +602,24 @@ test('a failed tool call: never for a replayed history, a cancelled call, a fini
   const gone = syncBurrow(e, st, [h], { ...opts, now: t0 + 600, toolCalls: calls })
   assert.equal(gone.stumbles.size, 0)
 })
+
+test('a failure or a call that happened while the burrow did not follow (a background tab) is never played as just seen', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const a = agent('a', { state: 'tool_calling', currentTool: 'Bash', lastEventAt: t0, freshnessSource: 'live', toolErrors: 0 })
+  const calls = new Map<string, Call>()
+  const sync = (now: number) => syncBurrow(e, st, [a], { ...opts, now, toolCalls: calls })
+  sync(t0)
+  // a minute without a sync: a call failed and another ran and ended meanwhile
+  a.toolErrors = 1; a.lastEventAt = t0 + 60_000
+  calls.set('f1', failedCall('a', 'Bash', 'Exit code 1', t0 + 1000))
+  calls.set('r1', { agentId: 'a', toolName: 'Read', state: 'complete', startTime: t0 + 2000, completeTime: t0 + 2100 })
+  const r = sync(t0 + 60_000)
+  assert.equal(r.stumbles.size, 0, 'a failure of a minute ago is not "just failed"')
+  assert.equal(r.rows[0].failed, undefined)
+  assert.deepEqual(r.received, [], 'nor are calls of a minute ago received now')
+  // following again: the next failure is seen
+  a.toolErrors = 2; a.lastEventAt = t0 + 61_000
+  calls.set('f2', failedCall('a', 'Bash', 'Exit code 3', t0 + 61_000))
+  assert.deepEqual(sync(t0 + 61_000).stumbles.get('a'), { at: t0 + 61_000, tool: 'Bash', exit: 3 })
+})

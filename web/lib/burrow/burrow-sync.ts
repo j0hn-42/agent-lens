@@ -120,10 +120,12 @@ export interface BurrowSyncState {
   failCredited: Set<string>
   /** The last failure seen per agent, kept FAILED_ROW_MS */
   stumbles: Map<string, BurrowStumble>
+  /** When the burrow last followed the agents (opts.now), null before the first look */
+  lastSyncAt: number | null
 }
 export const createBurrowSyncState = (): BurrowSyncState => ({
   applied: new Map(), started: false, lastRoom: new Map(), callsSeen: new Set(), callsStarted: false, recent: new Map(), dominant: new Map(),
-  waitSince: new Map(), toolErrors: new Map(), failCredited: new Set(), stumbles: new Map(),
+  waitSince: new Map(), toolErrors: new Map(), failCredited: new Set(), stumbles: new Map(), lastSyncAt: null,
 })
 
 /** The animal follows the room of most of its calls of this last stretch of time, not each call */
@@ -132,6 +134,12 @@ const BURROW_CALL_WINDOW_MS = 10_000
 const ROOM_LEAD = 2
 /** Rooms whose calls are counted: the work rooms. The telephone and the front door are waits and take priority */
 const WORK_ROOMS: ReadonlySet<BurrowRoomId> = new Set(['office', 'library', 'workshop', 'lab'])
+
+/**
+ * Longest time between two syncs after which what changed meanwhile is not "just seen": the burrow did not follow (a
+ * background tab draws no frame), so a failure or a call of that gap only becomes the new baseline, like a first look
+ */
+export const SYNC_GAP_MS = FAILED_ROW_MS
 
 /** A tool call seen starting since the last sync: the view flashes an object of its room (nothing on the first look) */
 export interface ReceivedCall { id: string; agentId: string; room: BurrowRoomId }
@@ -142,14 +150,14 @@ export interface ReceivedCall { id: string; agentId: string; room: BurrowRoomId 
  * first seen already finished counts only when its agent is live (`live`): the calls of a sub-agent are read from its
  * transcript in batches, start and end together, so they are never seen running; a replayed history counts for nothing.
  */
-function receiveCalls(st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number, live: (agentId: string) => boolean): ReceivedCall[] {
+function receiveCalls(st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number, live: (agentId: string) => boolean, gap: boolean): ReceivedCall[] {
   const out: ReceivedCall[] = []
   if (toolCalls) {
     for (const [id, c] of toolCalls) {
       if (st.callsSeen.has(id)) continue
       st.callsSeen.add(id)
       const room = burrowRoomOfTool(c.toolName)
-      if (!st.callsStarted || room === null || (c.state !== 'running' && !live(c.agentId))) continue
+      if (!st.callsStarted || gap || room === null || (c.state !== 'running' && !live(c.agentId))) continue
       out.push({ id, agentId: c.agentId, room })
       if (WORK_ROOMS.has(room)) {
         const list = st.recent.get(c.agentId)
@@ -269,13 +277,13 @@ export interface BurrowSyncResult {
  * A tool call of a live agent seen failing now: its failure counter rose since the last sync (a call that starts and
  * fails between two syncs counts too, it is never seen running). Not on the agent's first look (failures already
  * there), not for a replayed history or an imported transcript, an agent away, finished or silent, nor for a cancelled
- * call (not counted as a failure). The call named is its newest failed call not accounted for yet, when there is one.
+ * call (not counted as a failure), nor after a gap of more than SYNC_GAP_MS without a sync (it may be old). The call named is its newest failed call not accounted for yet, when there is one.
  */
-function failureSeen(a: SyncAgent, p: BurrowPlacement, stale: boolean, st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number): void {
+function failureSeen(a: SyncAgent, p: BurrowPlacement, stale: boolean, st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number, gap: boolean): void {
   const cur = a.toolErrors ?? 0
   const prev = st.toolErrors.get(a.id)
   st.toolErrors.set(a.id, cur)
-  if (prev === undefined || cur <= prev || a.freshnessSource !== 'live' || p.presence !== 'in' || stale) return
+  if (prev === undefined || gap || cur <= prev || a.freshnessSource !== 'live' || p.presence !== 'in' || stale) return
   let call: SyncCall | undefined
   let callAt = Number.NEGATIVE_INFINITY
   for (const [id, c] of toolCalls ?? []) {
@@ -310,10 +318,13 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   let changed = false
   // 'Show: active' hides exactly what the graph hides (workflow members, parents and the selected agent stay)
   const shown = visibleAgents(agents as unknown as Map<string, Agent>, opts.hideInactive, [opts.selectedId])
+  // the burrow did not follow for a while (a background tab): what happened meanwhile is not played as just seen
+  const gap = st.lastSyncAt !== null && opts.now - st.lastSyncAt > SYNC_GAP_MS
+  st.lastSyncAt = opts.now
   const received = receiveCalls(st, opts.toolCalls, opts.now, (id) => {
     const a = agents.get(id)
     return a !== undefined && deriveFreshness(a, opts.now) === 'fresh'
-  })
+  }, gap)
   const running = runningCalls(opts.toolCalls)
   const wanted: Array<{ a: SyncAgent; p: BurrowPlacement; filtered: boolean; posture: BurrowPosture }> = []
   for (const a of agents.values()) {
@@ -336,7 +347,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     // an AskUserQuestion call still open); counted from the first sync that sees it there
     if (p.presence === 'in' && p.room === 'door') { if (!st.waitSince.has(a.id)) st.waitSince.set(a.id, opts.now) }
     else st.waitSince.delete(a.id)
-    failureSeen(a, p, stale, st, opts.toolCalls, opts.now)
+    failureSeen(a, p, stale, st, opts.toolCalls, opts.now, gap)
     wanted.push({ a, p, filtered, posture: postureOf(a.state, stale) })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
