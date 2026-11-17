@@ -361,6 +361,23 @@ export function glassDrawList(place: GlassPlace, frame: GlassFrame, meta: Burrow
   return { bust, items }
 }
 
+/** A sound of the close-up per cue at the glass: a knock, a hard one, the knock that marks the glass, the tape and its presses */
+const SOUNDS: Readonly<Record<string, 'knock' | 'thud' | 'crack' | 'pat'>> = { hit: 'knock', thud: 'thud', crack: 'crack', tape: 'pat', pat: 'pat' }
+/** Only the last second of a long gap between two frames is heard (a tab hidden a while): no burst of missed knocks */
+const SOUND_LOOKBACK_S = 1
+
+/**
+ * The sounds of the close-up between two instants of the wait (seconds, `e0` excluded, `e1` included), in order; heard
+ * only with the app's sound on, and only while the scene moves (the view asks for them in its animation frames)
+ */
+export function glassSoundsBetween(e0: number, e1: number): Array<'knock' | 'thud' | 'crack' | 'pat'> {
+  const from = Math.max(e0, e1 - SOUND_LOOKBACK_S)
+  if (!(e1 > from) || from >= END) return []
+  const out: Array<'knock' | 'thud' | 'crack' | 'pat'> = []
+  for (const c of CUES) if (c.t > from && c.t <= e1 && c.part === 'act' && SOUNDS[c.name]) out.push(SOUNDS[c.name])
+  return out
+}
+
 /** True when the scene point (x, y) is on the opaque part of the close-up (it selects its agent, like its animal) */
 export function glassHit(place: GlassPlace, frame: GlassFrame, meta: BurrowSpriteMeta, x: number, y: number): boolean {
   const pose = frame.bust && meta.glass?.poses[frame.bust.pose]

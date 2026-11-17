@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
-import { glassBand, glassDrawList, glassFrame, glassHit, glassPlace } from '../web/lib/burrow/burrow-glass'
+import { glassBand, glassDrawList, glassFrame, glassHit, glassPlace, glassSoundsBetween } from '../web/lib/burrow/burrow-glass'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
 
 const EN = { lounge: 'Lounge', office: 'Office', library: 'Library', workshop: 'Workshop', lab: 'Laboratory', home: 'Home' }
@@ -285,6 +285,28 @@ test('glassDrawList: the bust on the base, its big "?" at its side, the crack an
   const rising = glassDrawList(place, at(8.5), squirrel, rects, 0, false).bust!
   assert.ok(rising.y > 315 - 96)
   assert.deepEqual(glassDrawList(place, at(3), squirrel, rects, 0, false), { bust: null, items: [] })
+})
+
+test('glassSoundsBetween: each knock on the glass once (a knock, a hard one, the crack), the tape and its presses as a pat; nothing at its post, nothing once it waits calmly', () => {
+  const heard: Array<{ t: number; s: string }> = []
+  let prev = 0
+  for (let i = 1; i <= 300 * 60; i++) {
+    const e = i / 60
+    for (const s of glassSoundsBetween(prev, e)) heard.push({ t: e, s })
+    prev = e
+  }
+  const count = (s: string) => heard.filter((h) => h.s === s).length
+  assert.equal(count('crack'), 3)
+  assert.equal(count('thud'), 2)
+  assert.equal(count('pat'), 3, 'the tape and two presses')
+  const bursts = onsets(timeline, (f) => f.marks.some((m) => m.name === 'w_hitL'))
+  assert.equal(count('knock') + count('thud') + count('crack'), bursts.length, 'one sound per knock seen on the glass')
+  assert.equal(heard.filter((h) => h.t > 211).length, 0)
+  for (const h of heard) assert.ok(at(h.t - 1 / 120).bust !== null, `heard at the glass (${h.t})`)
+  assert.deepEqual(glassSoundsBetween(20, 20), [])
+  assert.deepEqual(glassSoundsBetween(30, 20), [])
+  // a long gap (a hidden tab): only the last second is heard, not a burst of every knock missed
+  assert.ok(glassSoundsBetween(0, 120).length <= 2)
 })
 
 test('glassHit: on the opaque part of the bust up, not beside it, not before it rises', () => {

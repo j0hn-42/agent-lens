@@ -155,7 +155,7 @@ export function AgentVisualizer() {
   const { selectedLinkId, setSelectedLinkId, handleLinkClick, handleCanvasAgentClick, labelledSimulationRef } =
     useCanvasSelection(selection, { agents, links, frameRef }, bridge.sessions)
 
-  const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
+  const { isMuted, seekingRef, handleToggleMute, playBurrowSound } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
   const isGuidedDemo = IS_GUIDED_DEMO && bridge.useMockData
@@ -456,6 +456,7 @@ export function AgentVisualizer() {
           health={health.byAgent}
           replayLost={replayLostBySession}
           costTotals={showCostOverlay ? <CostTotalsText visible tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} /> : null}
+          onSound={isReviewing ? undefined : playBurrowSound}
         />
       ) : (
       <AgentCanvas

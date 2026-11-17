@@ -143,6 +143,33 @@ export class AudioEngine {
     osc.stop(now + 0.25)
   }
 
+  /**
+   * The Burrow view's close-up at the glass (Agents' Burrow's own little sounds): a dull knock on glass, a hard one, the
+   * glass giving a little, a gentle press. Quieter than the source, at the level of the other sounds here.
+   */
+  playKnock(kind: 'knock' | 'thud' | 'crack' | 'pat') {
+    this.ensureContext()
+    if (!this.ctx || !this.masterGain) return
+    const now = this.ctx.currentTime
+    const osc = this.ctx.createOscillator()
+    const gain = this.ctx.createGain()
+    const [type, from, to, slide, peak, len]: [OscillatorType, number, number, number, number, number] =
+      kind === 'knock' ? ['triangle', 210, 75, 0.07, 0.1, 0.11]
+        : kind === 'thud' ? ['triangle', 150, 48, 0.12, 0.12, 0.18]
+          : kind === 'crack' ? ['sawtooth', 1500, 260, 0.13, 0.045, 0.17]
+            : ['sine', 300, 300, 0, 0.03, 0.08]
+    osc.type = type
+    osc.frequency.setValueAtTime(from, now)
+    if (slide > 0) osc.frequency.exponentialRampToValueAtTime(to, now + slide)
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(peak, now + 0.005)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + len)
+    osc.connect(gain)
+    gain.connect(this.masterGain)
+    osc.start(now)
+    osc.stop(now + len + 0.03)
+  }
+
   dispose() {
     if (this.ctx) {
       this.ctx.close()

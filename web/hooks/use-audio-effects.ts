@@ -59,5 +59,8 @@ export function useAudioEffects(
     setPref('soundOn', !nowMuted)
   }, [setPref])
 
-  return { isMuted, seekingRef, handleToggleMute }
+  /** A knock of the Burrow view's close-up at the glass: heard with the sound on, like every other sound here */
+  const playBurrowSound = useCallback((kind: 'knock' | 'thud' | 'crack' | 'pat') => { audioRef.current?.playKnock(kind) }, [])
+
+  return { isMuted, seekingRef, handleToggleMute, playBurrowSound }
 }

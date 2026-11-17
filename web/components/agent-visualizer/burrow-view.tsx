@@ -13,7 +13,7 @@ import { BurrowLegend } from './burrow-legend'
 import { actShown, createBurrowEngine, drawnPose, type BurrowActor, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { glassOwner, needsYouFrame, SIGN_LIFT, type BurrowActFrame } from '@/lib/burrow/burrow-acts'
 import { glumFrame, STUMBLE_S, stumbleFrame } from '@/lib/burrow/burrow-failure'
-import { glassBand, glassFrame, glassHit, glassPlace, type GlassFrame, type GlassPlace } from '@/lib/burrow/burrow-glass'
+import { glassBand, glassFrame, glassHit, glassPlace, glassSoundsBetween, type GlassFrame, type GlassPlace } from '@/lib/burrow/burrow-glass'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -58,6 +58,11 @@ export interface BurrowViewProps {
   replayLost?: ReadonlyMap<string, number>
   /** The Cost totals (CostTotalsText, visible) while the Cost panel is on: the burrow draws no panel, it shows them in its corner */
   costTotals?: React.ReactNode
+  /**
+   * Plays a knock of the squirrel's close-up at the glass (the app's sound setting decides whether it is heard); asked
+   * only while the scene moves. Absent = silent (reviewing a recording)
+   */
+  onSound?: (kind: 'knock' | 'thud' | 'crack' | 'pat') => void
 }
 
 /** Seconds a letter takes from one animal to the other; at most this many letters fly at once */
@@ -114,7 +119,7 @@ function styleTag(el: HTMLDivElement, u: number, c: OverlayColors): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals, onSound }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -166,8 +171,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const reduced = osReduced || prefs.freezeMotion
 
   // live values for the frame loop (it never restarts for them)
-  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost })
-  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost }
+  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost, onSound })
+  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost, onSound }
   // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places
   // newcomers at once, a new loop verdict or replay loss changes the rows
   useEffect(() => { resyncRef.current = true; wakeRef.current() }, [selectedAgentId, hideInactive, reduced, health, replayLost])
@@ -277,7 +282,9 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     /** Agents in error (live, in the burrow): glum under "!" */
     let glum = new Set<string>()
     /** The close-up at the glass of the squirrel that waits for you longest, when it has a place (last applyActs) */
-    let glass: { key: string; sprite: string; meta: BurrowActor['meta']; place: GlassPlace; frame: GlassFrame } | null = null
+    let glass: { key: string; sprite: string; meta: BurrowActor['meta']; place: GlassPlace; frame: GlassFrame; elapsed: number } | null = null
+    /** Where the close-up's knocks were last heard: its agent and the time it had waited */
+    let heard: { key: string; elapsed: number } | null = null
     /** What the acts show (pose, sign, line per agent): the still scene is drawn again when it changes */
     let actsSig = ''
     let scale = 1
@@ -448,7 +455,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       engine.setGlassBand(place ? glassBand(place) : null)
       const ownerSince = owner === null ? undefined : waits.get(owner)
       glass = ownerActor && place && ownerSince !== undefined
-        ? { key: ownerActor.key, sprite: ownerActor.sprite, meta: ownerActor.meta, place, frame: glassFrame({ elapsed: (now - ownerSince) / 1000, still, meta: ownerActor.meta, rects: BURROW_DATA.fx.rects }) }
+        ? { key: ownerActor.key, sprite: ownerActor.sprite, meta: ownerActor.meta, place, frame: glassFrame({ elapsed: (now - ownerSince) / 1000, still, meta: ownerActor.meta, rects: BURROW_DATA.fx.rects }), elapsed: (now - ownerSince) / 1000 }
         : null
       // the still scene is drawn again when the close-up rises, its crack grows, its tape is put on or it moves
       let sig = glass ? `glass|${glass.place.cx}|${glass.place.base}|${glass.frame.bust?.pose ?? ''}|${glass.frame.pane}|${glass.frame.taped}\n` : ''
@@ -602,6 +609,9 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         dirtyRef.current = true
         engine.update(dt)
         actsSig = applyActs(Date.now(), live.current.reduced)
+        // the knocks on the glass since the last frame are heard (with the app's sound on); never in the still scene
+        if (glass && heard?.key === glass.key && !live.current.reduced) for (const k of glassSoundsBetween(heard.elapsed, glass.elapsed)) live.current.onSound?.(k)
+        heard = glass ? { key: glass.key, elapsed: glass.elapsed } : null
         draw()
       },
       calm: () => {
@@ -611,6 +621,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         backing()
         // a stage of an act that changes (an agent that waits for you starts calling, then sulks) is drawn again
         const sig = applyActs(Date.now(), true)
+        heard = null
         if (sig !== actsSig) { actsSig = sig; dirtyRef.current = true }
         if (dirtyRef.current) { dirtyRef.current = false; settle() }
       },

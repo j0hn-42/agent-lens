@@ -58,6 +58,16 @@ test('unmuted engine with a user gesture creates one context and plays', () => {
   assert.equal(created, 1)
 })
 
+test('the knocks of the burrow\'s close-up follow the same setting: muted, no context; unmuted, each kind plays', () => {
+  const muted = new AudioEngine()
+  for (const k of ['knock', 'thud', 'crack', 'pat'] as const) muted.playKnock(k)
+  assert.equal(created, 0)
+  const engine = new AudioEngine()
+  engine.setMuted(false)
+  for (const k of ['knock', 'thud', 'crack', 'pat'] as const) assert.doesNotThrow(() => engine.playKnock(k))
+  assert.equal(created, 1)
+})
+
 test('toggling mute without a context does not throw', () => {
   const engine = new AudioEngine()
   assert.doesNotThrow(() => engine.setMuted(true))

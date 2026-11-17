@@ -310,6 +310,33 @@ test('under reduced motion a question of the squirrel unanswered for 3 min: the 
   }
 })
 
+test('the knocks of the close-up at the glass are heard through onSound while the scene moves, never under reduced motion', async () => {
+  const realNow = Date.now
+  let offset = 0
+  Date.now = () => realNow() + offset
+  try {
+    for (const reduced of [false, true]) {
+      prefersReducedMotion(reduced)
+      spyFrames()
+      globalThis.Image = LoadedImage as never
+      const heard: string[] = []
+      const ask = { ...agent('asker4', 'tool_calling'), currentTool: 'AskUserQuestion' } as Agent
+      const sim = simulation(ask)
+      offset = 0
+      const view = render(<BurrowView simulationRef={sim as never} selectedAgentId={null} onAgentClick={() => {}} onAgentHover={() => {}} onSound={(k) => heard.push(k)} />)
+      for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+      await wait(200)
+      // its first visit knocks three times from about 10.4 s, half a second apart
+      for (const at of [10.0, 10.5, 11.0, 11.5, 12.0]) { offset = at * 1000; await wait(120) }
+      if (reduced) assert.deepEqual(heard, [], 'no sound in the still scene')
+      else assert.ok(heard.length >= 2 && heard.every((k) => k === 'knock'), `knocks heard: ${heard}`)
+      cleanup()
+    }
+  } finally {
+    Date.now = realNow
+  }
+})
+
 test('under reduced motion a failed Bash call shows the animal under a still "!" with a bubble giving the received exit code, its row says it, and both go without any animation frame', async () => {
   prefersReducedMotion(true)
   const frames = spyFrames()
