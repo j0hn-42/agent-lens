@@ -95,6 +95,8 @@ export function validateHookPayload(parsed: unknown): HookValidation {
   if (!isSafeId(p.session_id)) { return { ok: false, reason: 'invalid session_id' } }
   if (!isSafeId(p.hook_event_name, 64)) { return { ok: false, reason: 'invalid hook_event_name' } }
   for (const key of ['agent_id', 'agent_type'] as const) {
+    // Claude Code sends agent_type "" on some SubagentStop hooks: empty means absent, not malformed
+    if (p[key] === '') { delete p[key]; continue }
     if (p[key] !== undefined && !isSafeId(p[key], HOOK_AGENT_FIELD_MAX_LENGTH)) { return { ok: false, reason: `invalid ${key}` } }
   }
   if (p.tool_use_id !== undefined && !isSafeId(p.tool_use_id)) { return { ok: false, reason: 'invalid tool_use_id' } }

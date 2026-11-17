@@ -67,6 +67,14 @@ describe('validateHookPayload', () => {
     const r = validateHookPayload({ ...base, agent_id: 'a1b2c3', agent_type: 'general-purpose', tool_name: 'Read', tool_input: { file_path: '/x' }, is_error: false })
     assert.equal(r.ok, true)
   })
+  it('treats an empty agent_id or agent_type as absent (Claude Code sends agent_type "" on SubagentStop)', () => {
+    const r = validateHookPayload({ ...base, hook_event_name: 'SubagentStop', agent_id: '', agent_type: '' })
+    assert.equal(r.ok, true)
+    if (r.ok) {
+      assert.equal('agent_id' in r.payload, false)
+      assert.equal('agent_type' in r.payload, false)
+    }
+  })
   it('isSafeId bounds', () => {
     assert.equal(isSafeId('a'.repeat(128)), true)
     assert.equal(isSafeId('a'.repeat(129)), false)
