@@ -44,12 +44,24 @@ export interface BurrowMap {
   lights: { fire: [number, number]; lanterns: Array<[number, number]>; mushrooms: Array<[number, number]>; furnace: [number, number] }
 }
 
+/**
+ * The close-up of an animal at the window (the glass): one picture, `<sprite>-glass.png`, one pose per column of its
+ * only row. Only the squirrel has one today.
+ */
+export interface BurrowGlassMeta {
+  /** Size of one close-up cell [w, h] (scene px) */
+  cell: [number, number]
+  poses: Record<string, { col: number; h: number; x0: number; x1: number }>
+}
+
 export interface BurrowSpriteMeta {
   cell: number
   anchor: [number, number]
   anims: Record<BurrowDir, { row: number; frames: number }>
   poses: Record<string, { row: number; col: number; h: number }>
   h: number
+  /** The close-up of this animal at the glass, if it has one (only the squirrel today) */
+  glass?: BurrowGlassMeta
 }
 
 export interface BurrowFx {
