@@ -548,6 +548,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       },
       reduced: () => live.current.reduced,
       frame: (dt) => {
+        // the idle squirrel's pastimes play only while the scene moves
+        engine.setPastimes(!live.current.reduced)
         follow()
         backing()
         dirtyRef.current = true
@@ -556,6 +558,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         draw()
       },
       calm: () => {
+        // the still scene plays no pastime: the idle squirrel stands or sits like any idle animal
+        engine.setPastimes(false)
         follow()
         backing()
         // a stage of an act that changes (an agent that waits for you starts calling, then sulks) is drawn again

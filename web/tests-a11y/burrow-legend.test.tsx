@@ -131,3 +131,16 @@ test('the legend says what the "!" means: a failed tool call (the exit code only
     setLocaleChoice('auto')
   }
 })
+
+test('the legend says what a pastime of the squirrel means: only that the agent is idle, never a task', () => {
+  setLocaleChoice('en')
+  try {
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    const text = screen.getByRole('group').textContent ?? ''
+    assert.match(text, /the squirrel of an idle agent may read, have tea, stretch, sweep, poke the fire or polish an acorn/)
+    assert.match(text, /it only means the agent is idle, never a task/)
+  } finally {
+    setLocaleChoice('auto')
+  }
+})
