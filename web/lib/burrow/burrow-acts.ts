@@ -30,7 +30,7 @@ export interface BurrowActFrame {
 }
 
 /** A sequence of poses: [pose, seconds, cue]; a cue fires when its step starts */
-type Seq = ReadonlyArray<readonly [pose: string, seconds: number, cue?: string]>
+export type Seq = ReadonlyArray<readonly [pose: string, seconds: number, cue?: string]>
 
 /** Cues that draw a knock burst. Two of them are at least 0.5 s apart in every sequence: never more than two bursts a second (WCAG 2.3.1) */
 const KNOCKS: ReadonlySet<string> = new Set(['hit', 'thud', 'crack'])
@@ -57,13 +57,13 @@ const BURST_S = 0.13
 const FIST: readonly [number, number] = [-5, -13]
 
 /** The pose if the drawing has it, else null (the standing frame of the animal's direction) */
-function poseOr(meta: Pick<BurrowSpriteMeta, 'poses'>, name: string): string | null {
+export function poseOr(meta: Pick<BurrowSpriteMeta, 'poses'>, name: string): string | null {
   return meta.poses[name] ? name : null
 }
 const length = (seq: Seq): number => seq.reduce((s, x) => s + x[1], 0)
 
 /** The step of `seq` at `t` seconds (looped, or clamped to its end) */
-function seqAt(seq: Seq, t: number, loop: boolean): { i: number; pose: string } {
+export function seqAt(seq: Seq, t: number, loop: boolean): { i: number; pose: string } {
   const L = length(seq)
   const u = loop ? ((t % L) + L) % L : Math.min(Math.max(t, 0), L)
   let start = 0

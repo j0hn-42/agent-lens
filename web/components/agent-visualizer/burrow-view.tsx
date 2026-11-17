@@ -11,7 +11,8 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList, popupAnchor, type PopupAnchor } from './burrow-agent-list'
 import { BurrowLegend } from './burrow-legend'
 import { actShown, createBurrowEngine, drawnPose, type BurrowEngine } from '@/lib/burrow/burrow-engine'
-import { glassOwner, needsYouFrame, SIGN_LIFT } from '@/lib/burrow/burrow-acts'
+import { glassOwner, needsYouFrame, SIGN_LIFT, type BurrowActFrame } from '@/lib/burrow/burrow-acts'
+import { glumFrame, STUMBLE_S, stumbleFrame } from '@/lib/burrow/burrow-failure'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -21,7 +22,7 @@ import { BURROW_DATA } from '@/lib/burrow/burrow-data'
 import { burrowImageNames, burrowImageUrl } from '@/lib/burrow/burrow-assets'
 import { BURROW_ROOM_ORDER } from '@/lib/burrow/burrow-model'
 import type { BurrowBubble } from '@/lib/burrow/burrow-model'
-import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
+import { createBurrowSyncState, syncBurrow, syncDue, simFingerprint, BURROW_MAX_ANIMALS, type BurrowRow, type BurrowStumble, type BurrowSyncState } from '@/lib/burrow/burrow-sync'
 import { burrowRowLabel } from '@/lib/burrow/burrow-row-label'
 import { telephoneRings } from '@/lib/burrow/burrow-telephone'
 import { flashAlpha, flashesOf, type BurrowFlash } from '@/lib/burrow/burrow-flash'
@@ -255,6 +256,12 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let lit: BurrowFlash[] = []
     /** Agents waiting for you at the post beside the front door, since when the burrow saw them there (last sync) */
     let waits: ReadonlyMap<string, number> = new Map()
+    /** Tool calls seen failing, per agent (last sync): the animal stumbles */
+    let stumbles: ReadonlyMap<string, BurrowStumble> = new Map()
+    /** The failure each animal was held for (its time seen): held once per failure */
+    const heldFor = new Map<string, number>()
+    /** Agents in error (live, in the burrow): glum under "!" */
+    let glum = new Set<string>()
     /** What the acts show (pose, sign, line per agent): the still scene is drawn again when it changes */
     let actsSig = ''
     let scale = 1
@@ -343,12 +350,22 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const nextCrowns = orchestratorsOf(agents)
       if (nextCrowns.size !== crowns.size || [...nextCrowns].some((id) => !crowns.has(id))) dirtyRef.current = true
       crowns = nextCrowns
-      const { rows: next, hidden: extra, changed, received, waits: nextWaits } = syncBurrow(engine, sync, agents, {
+      const { rows: next, hidden: extra, changed, received, waits: nextWaits, stumbles: nextStumbles } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
         health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
       })
       if (changed) dirtyRef.current = true
       waits = nextWaits
+      stumbles = nextStumbles
+      // a new failure holds the animal where it is while it stumbles (not one that waits for you: it does not stumble);
+      // the still scene holds nothing, it shows the stumble on the animal at rest
+      for (const [key, s] of stumbles) {
+        if (heldFor.get(key) === s.at) continue
+        heldFor.set(key, s.at)
+        if (!live.current.reduced && !waits.has(key)) engine.hold(key, STUMBLE_S)
+      }
+      for (const key of [...heldFor.keys()]) if (!stumbles.has(key)) heldFor.delete(key)
+      glum = new Set(next.filter((r) => r.state === 'error' && !r.stale && r.presence === 'in').map((r) => r.id))
       lastRows = next
       lit.push(...flashesOf(received, live.current.reduced, engine.clock))
       if (lit.length > MAX_FLASHES) lit = lit.slice(-MAX_FLASHES)
@@ -381,16 +398,27 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     }
 
     /**
-     * Gives each animal the act of its observed state at `now` (wall clock, the sync's): an agent that waits for you
-     * wonders, calls and sulks (burrow-acts). Only the longest-waiting squirrel draws its knock bursts, and none in the
-     * still scene. Returns what the acts show, so the still scene is drawn again when a stage changes.
+     * Gives each animal the act of its observed state at `now` (wall clock, the sync's), first that applies: an agent
+     * that waits for you wonders, calls and sulks (burrow-acts); one whose tool call just failed stumbles, its bubble
+     * giving the exit code when one was received; an agent in error stands glum (burrow-failure). Only the
+     * longest-waiting squirrel draws its knock bursts, and none in the still scene. Returns what the acts show, so the
+     * still scene is drawn again when a stage changes.
      */
     const applyActs = (now: number, still: boolean): string => {
       const owner = glassOwner(waits, (key) => engine.actors.find((a) => a.key === key)?.meta)
       let sig = ''
       for (const a of engine.actors) {
         const since = waits.get(a.key)
-        const frame = since === undefined ? null : needsYouFrame({ elapsed: (now - since) / 1000, still, meta: a.meta, bursts: !still && a.key === owner })
+        const stumble = stumbles.get(a.key)
+        let frame: BurrowActFrame | null = null
+        if (since !== undefined) frame = needsYouFrame({ elapsed: (now - since) / 1000, still, meta: a.meta, bursts: !still && a.key === owner })
+        else {
+          if (stumble) {
+            const line = stumble.exit === null ? null : live.current.t('burrow.bubble.exitCode', { code: stumble.exit })
+            frame = stumbleFrame({ age: (now - stumble.at) / 1000, still, meta: a.meta, line })
+          }
+          if (!frame && glum.has(a.key)) frame = glumFrame({ meta: a.meta })
+        }
         engine.setAct(a.key, frame)
         if (frame) sig += `${a.key}|${frame.pose ?? ''}|${frame.sign ?? ''}|${frame.line ?? ''}\n`
       }
@@ -404,8 +432,9 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const bubbleBoxes: Box[] = []
       for (const a of engine.actors) {
         const act = actShown(a, engine.clock)
-        // an act may say something of its own while it lasts; otherwise the engine's bubble
-        const said = act?.line ?? a.said
+        // an act may say something of its own while it lasts (the exit code of a failed command), even once the animal
+        // walks on (a line is text, not a pose); otherwise the engine's bubble
+        const said = a.act?.line ?? a.said
         if (said === null || a.mode === 'home') continue
         if (!bubbleShown(a.key, stales, live.current.selectedAgentId, live.current.hoveredAgentId)) continue
         seen.add(a.key)
@@ -503,7 +532,13 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
 
     // reduced motion: no continuous animation and no animation frame. A slow timer follows the agents; the scene is
     // brought to its resting state when something changed, then drawn once.
-    const settle = (): void => { engine.fastForward(40); draw() }
+    const settle = (): void => {
+      engine.fastForward(40)
+      // an act on an animal the jump left on its way (a stroller that stumbles) is shown where it stands: nothing moves
+      // until the next jump, so it cannot slide
+      for (const a of engine.actors) if (a.act && !actShown(a, engine.clock)) engine.hold(a.key, STUMBLE_S)
+      draw()
+    }
     const loop = createBurrowLoop({
       host: {
         requestFrame: (cb) => window.requestAnimationFrame(cb),

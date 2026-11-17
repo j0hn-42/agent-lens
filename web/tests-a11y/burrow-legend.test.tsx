@@ -117,3 +117,17 @@ test('the legend says what the signs over a head mean: "?" waits for you, "..." 
     setLocaleChoice('auto')
   }
 })
+
+test('the legend says what the "!" means: a failed tool call (the exit code only when received), or an agent in error', () => {
+  setLocaleChoice('en')
+  try {
+    render(<BurrowLegend />)
+    fireEvent.click(screen.getByRole('button'))
+    const text = screen.getByRole('group').textContent ?? ''
+    assert.match(text, /A tool call that fails makes the animal stumble for three seconds under a "!"/)
+    assert.match(text, /exit code in its bubble when one was received/)
+    assert.match(text, /an agent in error stands glum under a "!"/)
+  } finally {
+    setLocaleChoice('auto')
+  }
+})

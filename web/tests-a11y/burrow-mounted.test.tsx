@@ -251,6 +251,54 @@ test('under reduced motion an agent that waits for you shows its sign still, the
   }
 })
 
+test('under reduced motion a failed Bash call shows the animal under a still "!" with a bubble giving the received exit code, its row says it, and both go without any animation frame', async () => {
+  prefersReducedMotion(true)
+  const frames = spyFrames()
+  // "!" is the rect at (0, 532) of fx.png
+  const sources: string[] = []
+  const real = window.HTMLCanvasElement.prototype.getContext
+  const ctx = new Proxy({}, {
+    get: (_t, prop) => (prop === 'drawImage' ? (...args: unknown[]) => { if (args.length === 9) sources.push(`${args[1]},${args[2]}`) }
+      : prop === 'measureText' ? () => ({ width: 0 }) : prop === 'createLinearGradient' || prop === 'createRadialGradient' ? () => ({ addColorStop() {} }) : () => {}),
+    set: () => true,
+  })
+  window.HTMLCanvasElement.prototype.getContext = (() => ctx) as never
+  const realNow = Date.now
+  let offset = 0
+  Date.now = () => realNow() + offset
+  try {
+    globalThis.Image = LoadedImage as never
+    const sim = simulation({ ...agent('worker', 'idle'), toolErrors: 0 } as Agent)
+    const view = render(<Page sim={sim} picks={[]} />)
+    for (let i = 0; i < 40 && !view.container.querySelector('[data-burrow-agent-list]'); i++) await wait(25)
+    await wait(300)
+    assert.equal(sources.includes('0,532'), false, 'no failure yet')
+    const bubble = () => Array.from(view.container.querySelectorAll('div')).find((d) => d.children.length === 0 && d.textContent === 'Exit code 2')
+    const row = () => view.container.querySelector<HTMLButtonElement>('[data-burrow-agent-list] button[data-burrow-row="worker"]')?.title ?? ''
+    // its Bash call fails: the counter rises and the failed call is in the map, with the text received
+    sim.current.agents.set('worker', { ...agent('worker', 'idle'), awaitingNextEvent: true, toolErrors: 1 } as Agent)
+    ;(sim.current.toolCalls as Map<string, unknown>).set('c1', { id: 'c1', agentId: 'worker', toolName: 'Bash', state: 'error', errorMessage: 'Exit code 2\nboom', result: 'Exit code 2\nboom', startTime: 1, completeTime: 1 })
+    await wait(700)
+    assert.ok(sources.includes('0,532'), 'the "!" is drawn over its head')
+    assert.ok(bubble(), 'its bubble gives the exit code received')
+    assert.equal(bubble()?.closest('[aria-hidden="true"]') !== null, true, 'the bubble is a picture only: the row says it')
+    assert.match(row(), /a Bash call just failed with exit code 2/)
+    // 4 s later the bubble is gone, 10 s later the row no longer says it
+    offset = 4_500
+    sim.current.agents.set('worker', { ...agent('worker', 'idle'), awaitingNextEvent: true, toolErrors: 1 } as Agent)
+    await wait(700)
+    assert.equal(bubble(), undefined)
+    offset = 10_500
+    sim.current.agents.set('worker', { ...agent('worker', 'idle'), awaitingNextEvent: true, toolErrors: 1 } as Agent)
+    await wait(700)
+    assert.doesNotMatch(row(), /failed/)
+    assert.equal(frames.count(), 0, 'no requestAnimationFrame under reduced motion')
+  } finally {
+    Date.now = realNow
+    window.HTMLCanvasElement.prototype.getContext = real
+  }
+})
+
 /** Records every fillStyle the scene sets on its canvases (the setup's context draws nothing either) */
 function spyFills(): { fills: Set<string>; restore: () => void } {
   const fills = new Set<string>()
