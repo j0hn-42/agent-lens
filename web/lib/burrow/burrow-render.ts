@@ -2,7 +2,7 @@
  * Burrow view: drawing. Everything is drawn on a 560 x 315 px canvas (real pixels), then enlarged to the visible canvas
  * without smoothing: decor, woven title mats (pixel font), front door, animals and lights.
  */
-import type { BurrowActor, BurrowEngine } from './burrow-engine'
+import { actShown, drawnPose, type BurrowActor, type BurrowEngine } from './burrow-engine'
 import type { BurrowData } from './burrow-types'
 import type { BurrowPalette } from './burrow-palette'
 import { BURROW_TELEPHONE } from './burrow-telephone'
@@ -173,7 +173,9 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     const c = m.cell
     let row: number
     let col: number
-    const pose = a.pose ? m.poses[a.pose] : undefined
+    // the pose of an act the view shows (an agent that waits for you...), else the engine's own
+    const drawn = drawnPose(a)
+    const pose = drawn ? m.poses[drawn] : undefined
     if (pose) { row = pose.row; col = pose.col }
     else {
       const an = m.anims[a.dir]
@@ -197,8 +199,9 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       for (const [dx, dy] of RING_PIXELS) g.fillRect(x + dx, y + dy, 1, 1)
       g.globalAlpha = alpha
     }
-    g.drawImage(images[a.sprite], col * c, row * c, c, c, x - m.anchor[0], y - m.anchor[1], c, c)
-    if (crowns?.has(a.key)) drawCrown(x, y - ((pose && pose.h) || m.h) - 1)
+    const lift = actShown(a)?.oy ?? 0
+    g.drawImage(images[a.sprite], col * c, row * c, c, c, x - m.anchor[0], y - lift - m.anchor[1], c, c)
+    if (crowns?.has(a.key)) drawCrown(x, y - lift - ((pose && pose.h) || m.h) - 1)
     g.globalAlpha = 1
   }
 

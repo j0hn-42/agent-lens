@@ -10,7 +10,7 @@ import { useLocale, useT } from '@/lib/locale'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { BurrowAgentList, popupAnchor, type PopupAnchor } from './burrow-agent-list'
 import { BurrowLegend } from './burrow-legend'
-import { createBurrowEngine, type BurrowEngine } from '@/lib/burrow/burrow-engine'
+import { createBurrowEngine, drawnPose, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -399,7 +399,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         el.style.cursor = clickable ? 'pointer' : ''
         const half = el.offsetWidth / 2
         const x = a.x * scale
-        const tall = (a.pose && a.meta.poses[a.pose]?.h) || a.meta.h
+        const pose = drawnPose(a)
+        const tall = (pose && a.meta.poses[pose]?.h) || a.meta.h
         const y = (a.y - tall - 4) * scale
         const cx = Math.max(half + 4, Math.min(stageW - half - 4, x))
         el.style.transform = `translate(${cx.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%)`

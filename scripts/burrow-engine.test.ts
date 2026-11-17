@@ -1,7 +1,7 @@
 // Burrow engine: the animals go where the observed state sends them, and nowhere else on their own account.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createBurrowEngine } from '../web/lib/burrow/burrow-engine'
+import { actShown, createBurrowEngine, drawnPose } from '../web/lib/burrow/burrow-engine'
 import { BURROW_DATA } from '../web/lib/burrow/burrow-data'
 import { BURROW_ERROR_PLACE } from '../web/lib/burrow/burrow-error-place'
 
@@ -455,4 +455,64 @@ test('an agent sent to a workshop runs: it reaches the room across the burrow wi
     const a = e.actors.find((x) => x.key === 'a')!
     assert.equal(e.zoneOf(a.x, a.y), room, `in the ${room} after 3.5 s (${Math.round(a.x)},${Math.round(a.y)})`)
   }
+})
+
+test('an act set by the view is drawn only while the animal stands: its pose replaces the engine\'s, the engine\'s own pose is kept', () => {
+  const e = make(3)
+  e.addActor('sq', 'squirrel', { inside: true })
+  e.assign('sq', 'door')
+  run(e, 40)
+  const sq = e.actors.find((x) => x.key === 'sq')!
+  assert.equal(sq.mode, 'idle')
+  assert.equal(drawnPose(sq), null, 'no act: the engine\'s pose (the squirrel has no wave)')
+  e.setAct('sq', { pose: 'knockA', sign: 'ask', fx: [] })
+  assert.equal(actShown(sq)?.sign, 'ask')
+  assert.equal(drawnPose(sq), 'knockA')
+  assert.equal(sq.pose, null, 'the engine\'s pose is unchanged: the act is drawn over it')
+  // a null pose is the standing frame, an undefined one leaves the engine's pose
+  e.setAct('sq', { pose: null, sign: 'ask', fx: [] })
+  assert.equal(drawnPose(sq), null)
+  e.setAct('sq', { sign: null, fx: [] })
+  assert.equal(drawnPose(sq), null)
+  // while it walks, no act is shown (an act on a walking animal would slide)
+  e.setAct('sq', { pose: 'knockA', sign: 'ask', fx: [] })
+  e.release('sq')
+  run(e, 0.2)
+  assert.equal(sq.mode, 'walk')
+  assert.equal(actShown(sq), null)
+  assert.equal(drawnPose(sq), sq.pose)
+  e.setAct('sq', null)
+  assert.equal(sq.act, null)
+  e.setAct('ghost', { sign: null, fx: [] })   // an unknown key is ignored
+})
+
+test('an act is shown on a perched animal too (a seat), never on one outside', () => {
+  const e = make(2)
+  e.addActor('h', 'hare', { inside: true })
+  e.setPosture('h', 'sit')
+  run(e, 40)
+  const h = e.actors.find((x) => x.key === 'h')!
+  assert.equal(h.mode, 'sit')
+  e.setAct('h', { pose: null, sign: 'alert', fx: [] })
+  assert.equal(actShown(h)?.sign, 'alert')
+  assert.equal(drawnPose(h), null)
+  e.setAvailable('h', false)
+  e.setPosture('h', 'stroll')
+  run(e, 60)
+  assert.equal(e.isOutside('h'), true)
+  assert.equal(actShown(h), null)
+})
+
+test('actorAt hits the drawn pose: a taller act pose is hit at its top', () => {
+  const e = make(3)
+  e.addActor('sq', 'squirrel', { inside: true })
+  e.assign('sq', 'door')
+  run(e, 40)
+  const sq = e.actors.find((x) => x.key === 'sq')!
+  const meta = BURROW_DATA.sprites.squirrel
+  const top = sq.y - meta.poses.knockA.h + 1
+  assert.ok(meta.poses.knockA.h > meta.h)
+  assert.equal(e.actorAt(sq.x, top), null, 'standing, the point is above its head')
+  e.setAct('sq', { pose: 'knockA', sign: 'ask', fx: [] })
+  assert.equal(e.actorAt(sq.x, top)?.key, 'sq')
 })

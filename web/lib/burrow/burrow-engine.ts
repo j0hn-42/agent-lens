@@ -10,6 +10,7 @@
 import { BURROW_ANIMALS, type BurrowData, type BurrowDir, type BurrowPoi, type BurrowPosture, type BurrowRoomId, type BurrowSpriteMeta, type BurrowWorkshopId } from './burrow-types'
 import { BURROW_TELEPHONE } from './burrow-telephone'
 import { BURROW_ERROR_PLACE } from './burrow-error-place'
+import type { BurrowActFrame } from './burrow-acts'
 
 const LOUNGE: BurrowRoomId = 'lounge'
 const WORKSHOPS: readonly BurrowWorkshopId[] = ['office', 'library', 'workshop', 'lab', 'phone', 'door']
@@ -64,6 +65,25 @@ export interface BurrowActor {
   wait: number
   /** Finished agent: stands still in the lounge (drawn dimmed), no stroll and no seat */
   resting: boolean
+  /**
+   * What the view shows of an observed state over the plain posture (burrow-acts): set by the view (setAct), never by
+   * the engine's own logic, and drawn only while the animal stands (actShown)
+   */
+  act: BurrowActFrame | null
+}
+
+/**
+ * The act shown now: only while the animal stands or sits on a seat. An act on an animal that walks, hops or goes
+ * through the door would make it slide: it waits until the animal stops.
+ */
+export function actShown(a: Pick<BurrowActor, 'act' | 'mode'>): BurrowActFrame | null {
+  return a.act && (a.mode === 'idle' || a.mode === 'sit') ? a.act : null
+}
+
+/** The pose drawn now: the shown act's when it gives one (null = standing frame), else the engine's own */
+export function drawnPose(a: Pick<BurrowActor, 'act' | 'mode' | 'pose'>): string | null {
+  const act = actShown(a)
+  return act && act.pose !== undefined ? act.pose : a.pose
 }
 
 interface Actor extends BurrowActor {
@@ -344,6 +364,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       x: 0, y: 0, dir: 'down', mode: 'idle', wait: 0, plan: [{ t: 'idle', dur: rnd(0.3, 2.5) }], route: [], animT: rng(), alpha: 1,
       pose: null, poi: null, lastPoi: null, zone: LOUNGE, job: null, tp: 0, dx: 0, hop: null, hopT: 0,
       awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null, posture: 'stroll',
+      act: null,
     }
     actors.push(a)
     index.set(key, a)
@@ -442,6 +463,11 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     a.posture = posture
     if (!a.job && !a.resting && !a.goingHome && !outside(a)) replan(a)
     return true
+  }
+  /** The act the view shows for this agent's observed state (null: none); drawn only while the animal stands */
+  function setAct(key: string, frame: BurrowActFrame | null): void {
+    const a = byKey(key)
+    if (a) a.act = frame
   }
   /** `dur` seconds (Infinity = until said again); null hushes */
   function say(key: string, text: string | null, dur = 6): void {
@@ -740,7 +766,8 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     let best: Actor | null = null
     for (const a of actors) {
       if (a.mode === 'home') continue
-      const tall = (a.pose && a.meta.poses[a.pose]?.h) || a.meta.h
+      const pose = drawnPose(a)
+      const tall = (pose && a.meta.poses[pose]?.h) || a.meta.h
       const half = Math.max(8, Math.round(a.meta.cell / 4))
       if (Math.abs(x - a.x) <= half && y <= a.y + 4 && y >= a.y - tall && (!best || a.y > best.y)) best = a
     }
@@ -755,7 +782,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     ambience,
     get clock() { return clock },
     doorIsOpen,
-    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say,
+    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say, setAct,
     update, fastForward, zoneOf, actorAt,
     /** Room an agent is assigned to now (null = not working) */
     jobOf: (key: string): BurrowWorkshopId | null => byKey(key)?.job?.room ?? null,
