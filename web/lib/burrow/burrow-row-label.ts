@@ -29,6 +29,13 @@ export function burrowRowLabel(r: BurrowRow, rows: readonly BurrowRow[], t: Tran
   // how long it has waited for you at the post beside the front door: a lower bound, counted from when the burrow saw it there
   const waited = r.waited ?? 0
   if (waited > 0) label = waited === 1 ? t('burrow.agent.waited.one', { row: label }) : t('burrow.agent.waited.many', { row: label, n: waited })
+  // a tool call just seen failing (the animal stumbles): its tool and its exit code, each only when received
+  const f = r.failed
+  if (f) {
+    label = f.tool === undefined ? t('burrow.agent.failed.unnamed', { row: label })
+      : f.exit === undefined ? t('burrow.agent.failed', { row: label, tool: f.tool })
+        : t('burrow.agent.failed.code', { row: label, tool: f.tool, code: f.exit })
+  }
   // the team or workflow the floor ring stands for (the ring itself is drawn in the canvas, not read)
   if (r.team) label = t(r.team.kind === 'workflow' ? 'burrow.agent.workflow' : 'burrow.agent.team', { row: label, team: r.team.name })
   if (r.loop) label = t('burrow.agent.loop', { row: label })

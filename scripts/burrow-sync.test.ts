@@ -542,3 +542,63 @@ test('a row says how long its agent has waited for you, in whole minutes, from o
   assert.equal(row(t0 + 60_000).waited, 1)
   assert.equal(row(t0 + 125_000).waited, 2)
 })
+
+type Call = { agentId: string; toolName: string; state: 'running' | 'complete' | 'error' | 'cancelled' | 'expired'; errorMessage?: string; result?: string; startTime: number; completeTime?: number }
+/** A call that ended with an error, `text` received as its error message (as handleToolCallEnd stores it) */
+const failedCall = (agentId: string, toolName: string, text: string, t: number): Call =>
+  ({ agentId, toolName, state: 'error', errorMessage: text, result: text, startTime: t, completeTime: t })
+
+test('a failed tool call: nothing on the first look; a live agent whose failures rise stumbles once, with the tool and the exit code received', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const a = agent('a', { state: 'idle', awaitingNextEvent: true, lastEventAt: t0, freshnessSource: 'live', toolErrors: 1 })
+  const calls = new Map<string, Call>([['old', failedCall('a', 'Bash', 'Exit code 1', 1)]])
+  const sync = (now: number) => syncBurrow(e, st, [a], { ...opts, now, toolCalls: calls })
+  const r0 = sync(t0)
+  assert.equal(r0.stumbles.size, 0, 'a failure already there when the view opens is not played')
+  assert.equal(r0.rows[0].failed, undefined)
+  // a Bash call starts and fails between two syncs: first seen already failed, it still counts
+  a.toolErrors = 2; a.lastEventAt = t0 + 1000
+  calls.set('c2', failedCall('a', 'Bash', 'Exit code 2\nboom', 5))
+  const r1 = sync(t0 + 1000)
+  assert.deepEqual(r1.stumbles.get('a'), { at: t0 + 1000, tool: 'Bash', exit: 2 })
+  assert.deepEqual(r1.rows[0].failed, { tool: 'Bash', exit: 2 })
+  // nothing new: the same stumble, not a new one
+  assert.equal(sync(t0 + 2000).stumbles.get('a')?.at, t0 + 1000)
+  // a second failure picks the new call, not an older one still in the map
+  a.toolErrors = 3; a.lastEventAt = t0 + 3000
+  calls.set('c3', failedCall('a', 'Read', 'File does not exist', 6))
+  const r3 = sync(t0 + 3000)
+  assert.deepEqual(r3.stumbles.get('a'), { at: t0 + 3000, tool: 'Read', exit: null })
+  assert.deepEqual(r3.rows[0].failed, { tool: 'Read' }, 'no exit code: only a shell command has one')
+  // the row says it for 10 s
+  a.lastEventAt = t0 + 12_000
+  assert.deepEqual(sync(t0 + 12_000).rows[0].failed, { tool: 'Read' })
+  const late = sync(t0 + 13_100)
+  assert.equal(late.rows[0].failed, undefined)
+  assert.equal(late.stumbles.has('a'), false)
+})
+
+test('a failed tool call: never for a replayed history, a cancelled call, a finished agent; a failure whose call is not in the map names no tool', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const h = agent('h', { lastEventAt: t0, freshnessSource: 'history', toolErrors: 0 })
+  const c = agent('c', { lastEventAt: t0, freshnessSource: 'live', toolErrors: 0 })
+  const d = agent('d', { state: 'complete', lastEventAt: t0, freshnessSource: 'live', toolErrors: 0 })
+  const u = agent('u', { lastEventAt: t0, freshnessSource: 'live', toolErrors: 0 })
+  const calls = new Map<string, Call>()
+  const sync = (now: number) => syncBurrow(e, st, [h, c, d, u], { ...opts, now, toolCalls: calls })
+  sync(t0)
+  h.toolErrors = 1; calls.set('h1', failedCall('h', 'Bash', 'Exit code 2', 1))
+  calls.set('c1', { agentId: 'c', toolName: 'Bash', state: 'cancelled', result: 'Exit code 130', startTime: 1, completeTime: 2 })
+  d.toolErrors = 1; calls.set('d1', failedCall('d', 'Bash', 'Exit code 2', 1))
+  u.toolErrors = 1; u.lastEventAt = t0 + 500
+  const r = sync(t0 + 500)
+  assert.deepEqual([...r.stumbles.keys()], ['u'], 'only the live agent whose failures rose')
+  assert.deepEqual(r.stumbles.get('u'), { at: t0 + 500, tool: undefined, exit: null })
+  assert.deepEqual(r.rows.find((x) => x.id === 'u')?.failed, {})
+  for (const id of ['h', 'c', 'd']) assert.equal(r.rows.find((x) => x.id === id)?.failed, undefined, id)
+  // an agent gone from the data keeps nothing
+  const gone = syncBurrow(e, st, [h], { ...opts, now: t0 + 600, toolCalls: calls })
+  assert.equal(gone.stumbles.size, 0)
+})

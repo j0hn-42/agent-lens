@@ -55,6 +55,20 @@ test('a row says from one minute on how long its agent has waited for you, as a 
     'kid: Calling tool, Front door, tool AskUserQuestion, has been waiting for you for at least 3 min, team t, loop observed, sub-agent of boss')
 })
 
+test('a row says for a moment that a tool call just failed, with its tool and the exit code only when they were received, before the other notes', () => {
+  assert.equal(burrowRowLabel(row({ failed: { tool: 'Bash', exit: 2 } }), [], tr('en')), 'alpha: Idle, Lounge, a Bash call just failed with exit code 2')
+  assert.equal(burrowRowLabel(row({ failed: { tool: 'Read' } }), [], tr('en')), 'alpha: Idle, Lounge, a Read call just failed')
+  assert.equal(burrowRowLabel(row({ failed: {} }), [], tr('en')), 'alpha: Idle, Lounge, a tool call just failed')
+  assert.equal(burrowRowLabel(row({ failed: { tool: 'Bash', exit: 2 } }), [], tr('fr')), 'alpha : Inactif, Salon, un appel Bash vient d’échouer avec le code de sortie 2')
+  assert.equal(burrowRowLabel(row({ failed: { tool: 'Read' } }), [], tr('fr')), 'alpha : Inactif, Salon, un appel Read vient d’échouer')
+  assert.equal(burrowRowLabel(row({ failed: {} }), [], tr('fr')), 'alpha : Inactif, Salon, un appel d’outil vient d’échouer')
+  // after the wait, before the team, the loop and the parent
+  const parent = row({ id: 'p', name: 'boss' })
+  const child = row({ id: 'c', name: 'kid', parentId: 'p', depth: 1, state: 'tool_calling', room: 'door', tool: 'AskUserQuestion', waited: 1, failed: { tool: 'Bash', exit: 1 }, loop: true })
+  assert.equal(burrowRowLabel(child, [parent, child], tr('en')),
+    'kid: Calling tool, Front door, tool AskUserQuestion, has been waiting for you for at least 1 min, a Bash call just failed with exit code 1, loop observed, sub-agent of boss')
+})
+
 test('the room is where the animal stands (its recent calls), the tool the one running: a row never lets the room pass for the tool', () => {
   // the same room as the tool: as before
   assert.equal(burrowRowLabel(row({ state: 'tool_calling', room: 'library', tool: 'Read' }), [], tr('en')), 'alpha: Calling tool, Library, tool Read')

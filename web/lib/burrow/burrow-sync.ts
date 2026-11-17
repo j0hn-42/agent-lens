@@ -17,6 +17,7 @@ import { replayLostForAgents } from '../event-loss'
 import type { TeamSummary } from '../agent-types'
 import type { GroupKind } from '../ui-glossary'
 import { colourOf, markerContext, teamOf } from './burrow-marker'
+import { exitCodeOf, FAILED_ROW_MS } from './burrow-failure'
 
 /** Most animals drawn at once: more would hide each other in a 560 x 315 px scene */
 export const BURROW_MAX_ANIMALS = 24
@@ -43,7 +44,10 @@ export function syncDue(last: { at: number; fingerprint: string } | null, now: n
 }
 
 export type SyncAgent = Pick<Agent, 'id' | 'displayName' | 'state' | 'archived' | 'activity' | 'currentTool' | 'awaitingNextEvent' | 'kind'>
-  & Pick<Agent, 'sessionId' | 'parentId'> & Partial<Pick<Agent, 'teamName' | 'teamKind' | 'teamColor' | 'clusterKey' | 'lastEventAt' | 'freshnessSource'>>
+  & Pick<Agent, 'sessionId' | 'parentId'> & Partial<Pick<Agent, 'teamName' | 'teamKind' | 'teamColor' | 'clusterKey' | 'lastEventAt' | 'freshnessSource' | 'toolErrors'>>
+
+/** What the burrow reads of a tool call: its agent, tool and state; for a failed one its text and times */
+type SyncCall = Pick<ToolCallNode, 'agentId' | 'toolName' | 'state'> & Partial<Pick<ToolCallNode, 'errorMessage' | 'result' | 'startTime' | 'completeTime'>>
 
 /** List order: the agents that wait for the user or failed first, then the ones running a tool, then the rest */
 const attentionRank = (state: Agent['state']): number =>
@@ -82,7 +86,15 @@ export interface BurrowRow {
    * saw it there (a lower bound), from one minute on
    */
   waited?: number
+  /**
+   * A tool call of this agent was seen failing in the last FAILED_ROW_MS: its tool and its exit code, each only when
+   * received (the animal stumbles, the bubble is aria-hidden)
+   */
+  failed?: { tool?: string; exit?: number }
 }
+
+/** A tool call seen failing: when the burrow saw it (opts.now), its tool and its exit code when received */
+export interface BurrowStumble { at: number; tool: string | undefined; exit: number | null }
 
 export interface BurrowSyncState {
   /** Last placement applied per agent id: what changed since is what the engine is told */
@@ -102,10 +114,16 @@ export interface BurrowSyncState {
    * when the view opened). Dropped as soon as it no longer stands there.
    */
   waitSince: Map<string, number>
+  /** Failure counter (Agent.toolErrors) of each agent at the last sync; absent = not seen yet (its first look) */
+  toolErrors: Map<string, number>
+  /** Ids of the failed calls already accounted for: a later failure never names one of them */
+  failCredited: Set<string>
+  /** The last failure seen per agent, kept FAILED_ROW_MS */
+  stumbles: Map<string, BurrowStumble>
 }
 export const createBurrowSyncState = (): BurrowSyncState => ({
   applied: new Map(), started: false, lastRoom: new Map(), callsSeen: new Set(), callsStarted: false, recent: new Map(), dominant: new Map(),
-  waitSince: new Map(),
+  waitSince: new Map(), toolErrors: new Map(), failCredited: new Set(), stumbles: new Map(),
 })
 
 /** The animal follows the room of most of its calls of this last stretch of time, not each call */
@@ -223,7 +241,7 @@ export interface BurrowSyncOptions {
   /** Per orchestrator: sub-agents it sent that have not returned yet (burrow-links openDelegations) */
   delegations?: ReadonlyMap<string, number>
   /** Tool calls of the simulation: the running call of an agent that runs a tool gives its row the id to open */
-  toolCalls?: ReadonlyMap<string, Pick<ToolCallNode, 'agentId' | 'toolName' | 'state'>>
+  toolCalls?: ReadonlyMap<string, SyncCall>
   /** Loop verdict per agent id, the graph's `health.byAgent` */
   health?: ReadonlyMap<string, HealthVerdict>
   /** Events the relay could not replay, per session id */
@@ -243,6 +261,29 @@ export interface BurrowSyncResult {
   changed: boolean
   /** Agents waiting for you at the post beside the front door, and since when the burrow saw them there (wall clock ms) */
   waits: ReadonlyMap<string, number>
+  /** The tool calls seen failing in the last FAILED_ROW_MS, per agent (the animal stumbles) */
+  stumbles: ReadonlyMap<string, BurrowStumble>
+}
+
+/**
+ * A tool call of a live agent seen failing now: its failure counter rose since the last sync (a call that starts and
+ * fails between two syncs counts too, it is never seen running). Not on the agent's first look (failures already
+ * there), not for a replayed history or an imported transcript, an agent away, finished or silent, nor for a cancelled
+ * call (not counted as a failure). The call named is its newest failed call not accounted for yet, when there is one.
+ */
+function failureSeen(a: SyncAgent, p: BurrowPlacement, stale: boolean, st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number): void {
+  const cur = a.toolErrors ?? 0
+  const prev = st.toolErrors.get(a.id)
+  st.toolErrors.set(a.id, cur)
+  if (prev === undefined || cur <= prev || a.freshnessSource !== 'live' || p.presence !== 'in' || stale) return
+  let call: SyncCall | undefined
+  let callAt = Number.NEGATIVE_INFINITY
+  for (const [id, c] of toolCalls ?? []) {
+    if (c.agentId !== a.id || c.state !== 'error' || st.failCredited.has(id)) continue
+    const t = c.completeTime ?? c.startTime ?? 0
+    if (t >= callAt) { call = c; callAt = t }
+  }
+  st.stumbles.set(a.id, { at: now, tool: call?.toolName, exit: call ? exitCodeOf(call) : null })
 }
 
 /** A state has no other proof on the floor than its bubble: it lasts as long as the state. A tool is proven by its room, so its bubble may end */
@@ -295,6 +336,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     // an AskUserQuestion call still open); counted from the first sync that sees it there
     if (p.presence === 'in' && p.room === 'door') { if (!st.waitSince.has(a.id)) st.waitSince.set(a.id, opts.now) }
     else st.waitSince.delete(a.id)
+    failureSeen(a, p, stale, st, opts.toolCalls, opts.now)
     wanted.push({ a, p, filtered, posture: postureOf(a.state, stale) })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
@@ -305,6 +347,12 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   for (const key of [...st.dominant.keys()]) if (!ids.has(key)) st.dominant.delete(key)
   for (const key of [...st.recent.keys()]) if (!ids.has(key)) st.recent.delete(key)
   for (const key of [...st.waitSince.keys()]) if (!ids.has(key)) st.waitSince.delete(key)
+  for (const key of [...st.toolErrors.keys()]) if (!ids.has(key)) st.toolErrors.delete(key)
+  for (const [key, s] of [...st.stumbles]) if (!ids.has(key) || opts.now - s.at >= FAILED_ROW_MS) st.stumbles.delete(key)
+  // every failed call there now is accounted for: a later failure never names an older call (gone calls are forgotten)
+  const calls = opts.toolCalls ?? new Map<string, SyncCall>()
+  for (const [id, c] of calls) if (c.state === 'error') st.failCredited.add(id)
+  for (const id of st.failCredited) if (!calls.has(id)) st.failCredited.delete(id)
 
   // already drawn first, then the busiest: the cap never takes an animal away from an agent that works
   const order = wanted.slice().sort((x, y) => Number(engine.has(y.a.id)) - Number(engine.has(x.a.id)) || rank(y) - rank(x))
@@ -370,15 +418,18 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const toolCallId = calls.length === 1 ? calls[0].id : undefined
     const since = st.waitSince.get(a.id)
     const waited = since === undefined ? 0 : Math.floor((opts.now - since) / 60_000)
+    const stumble = st.stumbles.get(a.id)
+    const failed = stumble ? { ...(stumble.tool !== undefined ? { tool: stumble.tool } : {}), ...(stumble.exit !== null ? { exit: stumble.exit } : {}) } : undefined
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), ...(toolCallId ? { toolCallId } : {}), stale: p.bubble?.kind === 'stale',
       parentId: a.parentId ?? null, sessionId: a.sessionId, ...(delegating > 0 ? { delegating } : {}),
       ...(marks?.get(a.id)?.kind === 'loop' ? { loop: true as const } : {}), ...(lost > 0 ? { replayLost: lost } : {}),
       ...(marker !== null ? { marker } : {}), ...(team ? { team } : {}), ...(waited >= 1 ? { waited } : {}),
+      ...(failed ? { failed } : {}),
     })
   }
   // attention first (stable: the order among equals is kept); the tree then puts each sub-agent under its parent
   flat.sort((x, y) => attentionRank(x.state) - attentionRank(y.state))
-  return { rows: treeOrder(flat), hidden, changed, received, waits: new Map(st.waitSince) }
+  return { rows: treeOrder(flat), hidden, changed, received, waits: new Map(st.waitSince), stumbles: new Map(st.stumbles) }
 }

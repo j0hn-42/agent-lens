@@ -352,7 +352,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       lastRows = next
       lit.push(...flashesOf(received, live.current.reduced, engine.clock))
       if (lit.length > MAX_FLASHES) lit = lit.slice(-MAX_FLASHES)
-      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.toolCallId ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}|${r.waited ?? 0}`).join('\n')
+      const sig = next.map((r) => `${r.id}|${r.name}|${r.presence}|${r.room}|${r.state}|${r.tool ?? ''}|${r.toolCallId ?? ''}|${r.stale}|${r.parentId ?? ''}|${r.depth}|${r.delegating ?? 0}|${r.loop ? 1 : 0}|${r.replayLost ?? 0}|${r.marker ?? ''}|${r.team?.kind ?? ''}|${r.team?.name ?? ''}|${r.waited ?? 0}|${r.failed ? `${r.failed.tool ?? ''}:${r.failed.exit ?? ''}` : ''}`).join('\n')
       if (sig !== rowsSig) {
         rowsSig = sig
         setRows(next)
