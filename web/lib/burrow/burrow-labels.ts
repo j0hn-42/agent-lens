@@ -72,3 +72,14 @@ export function nextTagNames(prev: ReadonlyMap<string, string>, rows: readonly {
 export function bubbleShown(key: string, stale: ReadonlySet<string>, selected: string | null, hovered: string | null): boolean {
   return !stale.has(key) || key === selected || key === hovered
 }
+
+/**
+ * What an animal's bubble says and which tool call a click on it opens. An act may say a line of its own while it lasts
+ * (the exit code of a failed command), even once the animal walks on; that line is about the failed call, not the
+ * running one the row names, so such a bubble opens nothing. Otherwise the engine's bubble, which opens `toolCallId`.
+ */
+export function bubbleSays(a: { said: string | null; act: { line?: string } | null }, toolCallId: string | undefined): { text: string | null; opens: string | undefined } {
+  const line = a.act?.line
+  if (line !== undefined) return { text: line, opens: undefined }
+  return { text: a.said, opens: a.said === null ? undefined : toolCallId }
+}

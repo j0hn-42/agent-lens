@@ -29,7 +29,7 @@ import { telephoneRings } from '@/lib/burrow/burrow-telephone'
 import { flashAlpha, flashesOf, type BurrowFlash } from '@/lib/burrow/burrow-flash'
 import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
-import { bubbleShown, cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
+import { bubbleSays, bubbleShown, cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 import { burrowLayout, controlColumn, type BurrowLayout, type StageInsets } from '@/lib/burrow/burrow-fit'
 import { measureCanvasCovers, measureOverlayInsets } from './canvas/overlay-insets'
 
@@ -262,6 +262,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     let names = new Map<string, string>()
     /** Running tool call each agent's tool bubble names (rows' toolCallId): only such a bubble is clickable */
     let toolIds = new Map<string, string>()
+    /** The tool call each shown bubble opens (bubbleSays): none for a bubble that says an act's own line */
+    const opens = new Map<string, string>()
     /** Agents with a proven loop: their tag carries the graph's loop badge */
     let loops = new Set<string>()
     // agents whose bubble is a "last known state": shown only on hover or selection (bubbleShown)
@@ -490,8 +492,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       for (const a of engine.actors) {
         const act = actShown(a, engine.clock)
         // an act may say something of its own while it lasts (the exit code of a failed command), even once the animal
-        // walks on (a line is text, not a pose); otherwise the engine's bubble
-        const said = a.act?.line ?? a.said
+        // walks on (a line is text, not a pose), and that bubble opens nothing; otherwise the engine's bubble
+        const { text: said, opens: callId } = bubbleSays(a, toolIds.get(a.key))
         if (said === null || a.mode === 'home') continue
         if (!bubbleShown(a.key, stales, live.current.selectedAgentId, live.current.hoveredAgentId)) continue
         seen.add(a.key)
@@ -500,13 +502,15 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
           el = document.createElement('div'); el.setAttribute('aria-hidden', 'true'); styleBubble(el, u, colors); overlay.appendChild(el); bubbles.set(a.key, el)
           // a tool bubble opens its running call (the keyboard path is the agent list row); the press must not reach the stage's own pick
           const key = a.key
-          el.addEventListener('pointerdown', (e) => { if (toolIds.has(key)) e.stopPropagation() })
-          el.addEventListener('pointerup', (e) => { if (toolIds.has(key)) e.stopPropagation() })
-          el.addEventListener('click', (e) => { const id = toolIds.get(key); if (id && e.currentTarget instanceof Element) live.current.onToolCallClick?.(id, popupAnchor(e.currentTarget)) })
+          el.addEventListener('pointerdown', (e) => { if (opens.has(key)) e.stopPropagation() })
+          el.addEventListener('pointerup', (e) => { if (opens.has(key)) e.stopPropagation() })
+          el.addEventListener('click', (e) => { const id = opens.get(key); if (id && e.currentTarget instanceof Element) live.current.onToolCallClick?.(id, popupAnchor(e.currentTarget)) })
         }
         if (el.textContent !== said) el.textContent = said
         // only a bubble that names a proven running call is clickable: the other bubbles stay transparent to the pointer
-        const clickable = live.current.onToolCallClick !== undefined && toolIds.has(a.key)
+        if (callId) opens.set(a.key, callId)
+        else opens.delete(a.key)
+        const clickable = live.current.onToolCallClick !== undefined && callId !== undefined
         el.style.pointerEvents = clickable ? 'auto' : 'none'
         el.style.cursor = clickable ? 'pointer' : ''
         const half = el.offsetWidth / 2
@@ -519,7 +523,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         el.style.transform = `translate(${cx.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%,-100%)`
         bubbleBoxes.push({ x: cx - half, y: y - el.offsetHeight, w: el.offsetWidth, h: el.offsetHeight })
       }
-      for (const [key, el] of bubbles) if (!seen.has(key)) { el.remove(); bubbles.delete(key) }
+      for (const [key, el] of bubbles) if (!seen.has(key)) { el.remove(); bubbles.delete(key); opens.delete(key) }
       // name tags under the feet (the bubble is above the head): hidden when they would cover another tag or a bubble
       const stageH = H * scale
       const boxes: TagBox[] = []

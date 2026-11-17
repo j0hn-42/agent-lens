@@ -3,7 +3,7 @@
 // agent always keep theirs, and an animal outside the burrow or in the doorway has none.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { truncateName, cullTags, showsTag, nextTagNames, bubbleShown, type TagBox } from '../web/lib/burrow/burrow-labels'
+import { truncateName, cullTags, showsTag, nextTagNames, bubbleShown, bubbleSays, type TagBox } from '../web/lib/burrow/burrow-labels'
 
 test('truncateName: a short name is kept as is', () => {
   assert.equal(truncateName('alpha'), 'alpha')
@@ -87,4 +87,12 @@ test('bubbleShown: a "last known state" bubble shows only on the hovered or sele
   assert.equal(bubbleShown('s1:old', stale, 's1:old', null), true, 'selected')
   assert.equal(bubbleShown('s1:old', stale, 's1:x', 's1:y'), false, 'another agent picked')
   assert.equal(bubbleShown('s1:live', stale, null, null), true, 'a live state or a tool bubble is not hidden')
+})
+
+test('bubbleSays: an act that says its own line (an exit code) shows it, and that bubble opens no tool call', () => {
+  assert.deepEqual(bubbleSays({ said: 'Read', act: null }, 'call-1'), { text: 'Read', opens: 'call-1' })
+  assert.deepEqual(bubbleSays({ said: 'Read', act: { line: 'Exit code 1' } }, 'call-1'), { text: 'Exit code 1', opens: undefined },
+    'the line is about the failed call, not the running one')
+  assert.deepEqual(bubbleSays({ said: 'Thinking', act: { pose: 'sheepish' } }, undefined), { text: 'Thinking', opens: undefined })
+  assert.deepEqual(bubbleSays({ said: null, act: null }, 'call-1'), { text: null, opens: undefined })
 })
