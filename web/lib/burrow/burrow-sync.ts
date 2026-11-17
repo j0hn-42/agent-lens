@@ -109,17 +109,18 @@ export interface ReceivedCall { id: string; agentId: string; room: BurrowRoomId 
 
 /**
  * Takes note of the calls received since the last sync: each new named call joins its agent's recent calls (its time
- * is when it was first seen), and a new call seen running is returned for the flash. The first look only takes note
- * of what is there; a call first seen already finished (a replayed history) is counted for nothing and not flashed.
+ * is when it was first seen), and is returned for the flash. The first look only takes note of what is there. A call
+ * first seen already finished counts only when its agent is live (`live`): the calls of a sub-agent are read from its
+ * transcript in batches, start and end together, so they are never seen running; a replayed history counts for nothing.
  */
-function receiveCalls(st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number): ReceivedCall[] {
+function receiveCalls(st: BurrowSyncState, toolCalls: BurrowSyncOptions['toolCalls'], now: number, live: (agentId: string) => boolean): ReceivedCall[] {
   const out: ReceivedCall[] = []
   if (toolCalls) {
     for (const [id, c] of toolCalls) {
       if (st.callsSeen.has(id)) continue
       st.callsSeen.add(id)
       const room = burrowRoomOfTool(c.toolName)
-      if (!st.callsStarted || room === null || c.state !== 'running') continue
+      if (!st.callsStarted || room === null || (c.state !== 'running' && !live(c.agentId))) continue
       out.push({ id, agentId: c.agentId, room })
       if (WORK_ROOMS.has(room)) {
         const list = st.recent.get(c.agentId)
@@ -152,9 +153,12 @@ function dominantRoom(p: BurrowPlacement, a: SyncAgent, st: BurrowSyncState, run
     const room = burrowRoomOfTool(c.toolName)
     if (room && WORK_ROOMS.has(room) && !recent.some((x) => x.id === c.id)) add(room)
   }
-  if (!counts.get(p.room)) add(p.room)       // the tool it runs is observed, even when its call is not in the map
+  const working = WORK_ROOMS.has(p.room)
+  if (working && !counts.get(p.room)) add(p.room)       // the tool it runs is observed, even when its call is not in the map
+  // between two steps (p is the lounge): only the calls received count; with none, it stays where the state puts it
+  if (counts.size === 0) return p
   const n = (room: BurrowRoomId | undefined): number => (room ? counts.get(room) ?? 0 : 0)
-  let best: BurrowRoomId = p.room
+  let best: BurrowRoomId = working ? p.room : [...counts.keys()][0]
   for (const [room] of counts) if (n(room) > n(best)) best = room
   const current = st.dominant.get(a.id)
   const room = current && n(current) > 0 && n(best) < n(current) + ROOM_LEAD ? current : best
@@ -177,13 +181,20 @@ function silentOnly(a: SyncAgent, now: number): boolean {
   return typeof a.lastEventAt === 'number' && now - a.lastEventAt < OPEN_CALL_MAX_MS
 }
 
-/** The placement with the room of the last tool held while a thinking agent is between two calls (see ROOM_HOLD_MS) */
+/**
+ * Between two steps of a turn: thinking, a tool call whose name was not received, or idle while its next event is
+ * awaited (the state the simulation gives an agent whose call just ended). Idle at rest is not between two steps.
+ */
+const betweenSteps = (a: SyncAgent): boolean =>
+  a.state === 'thinking' || (a.state === 'tool_calling' && !a.currentTool) || (a.state === 'idle' && a.awaitingNextEvent === true)
+
+/** The placement with the room of the last tool held while an agent is between two calls (see ROOM_HOLD_MS) */
 function holdRoom(p: BurrowPlacement, a: SyncAgent, stale: boolean, st: BurrowSyncState, now: number): BurrowPlacement {
   if (p.presence !== 'in' || stale) { st.lastRoom.delete(a.id); return p }
   // the post beside the front door is for an agent that waits for the user: never kept once it thinks again
   if (p.room === 'door') { st.lastRoom.delete(a.id); return p }
   if (p.room !== 'lounge') { st.lastRoom.set(a.id, { room: p.room, at: now }); return p }
-  const between = a.state === 'thinking' || (a.state === 'tool_calling' && !a.currentTool)
+  const between = betweenSteps(a)
   const last = st.lastRoom.get(a.id)
   if (!between || !last || now - last.at > ROOM_HOLD_MS) { st.lastRoom.delete(a.id); return p }
   return { ...p, room: last.room }
@@ -245,7 +256,10 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   let changed = false
   // 'Show: active' hides exactly what the graph hides (workflow members, parents and the selected agent stay)
   const shown = visibleAgents(agents as unknown as Map<string, Agent>, opts.hideInactive, [opts.selectedId])
-  const received = receiveCalls(st, opts.toolCalls, opts.now)
+  const received = receiveCalls(st, opts.toolCalls, opts.now, (id) => {
+    const a = agents.get(id)
+    return a !== undefined && deriveFreshness(a, opts.now) === 'fresh'
+  })
   const running = runningCalls(opts.toolCalls)
   const wanted: Array<{ a: SyncAgent; p: BurrowPlacement; filtered: boolean; posture: BurrowPosture }> = []
   for (const a of agents.values()) {
@@ -258,6 +272,9 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
       // at work (a named call in a work room, live): the room of most of its recent calls, not of each call
       if (p.presence === 'in' && !stale && WORK_ROOMS.has(p.room)) p = dominantRoom(p, a, st, running)
       p = holdRoom(p, a, stale, st, opts.now)
+      // between two steps with calls received in the window but never seen running (a sub-agent's, read in batches):
+      // the room of most of them, for as long as the window holds them
+      if (p.presence === 'in' && !stale && p.room === 'lounge' && betweenSteps(a)) p = dominantRoom(p, a, st, running)
     }
     // the room is kept only while it works there, or thinks there for a moment: anything else decides afresh next time
     if (!WORK_ROOMS.has(p.room) || p.presence !== 'in') st.dominant.delete(a.id)

@@ -148,8 +148,9 @@ test('received: each call seen starting since the last sync, once, with the room
   assert.deepEqual(s.sync(T0 + 1100).received, [], 'not twice')
   const two = s.start('b', 'Agent', T0 + 1200).result.received
   assert.deepEqual(two.map((x) => x.room), ['phone'])
-  // a call first seen already finished (a replayed history) is not a call starting now
-  s.calls.set('late', { id: 'late', agentId: 'b', toolName: 'Bash', state: 'complete' })
+  // a call first seen already finished of a replayed agent is not a call received now
+  s.agent('h', { freshnessSource: 'history' })
+  s.calls.set('late', { id: 'late', agentId: 'h', toolName: 'Bash', state: 'complete' })
   assert.deepEqual(s.sync(T0 + 1300).received, [])
   // an unnamed or empty tool name claims no room
   s.calls.set('anon', { id: 'anon', agentId: 'b', toolName: '', state: 'running' })
@@ -166,4 +167,36 @@ test('a stale agent (replayed, or silent) keeps the rule of its last known state
   // silent long past the staleness limit, the call still open: the room of the tool it runs, as before
   s.sync(T0 + 2000 + 5 * 60_000)
   assert.equal(s.e.jobOf('a'), 'workshop')
+})
+
+test('a call received already finished (a sub-agent whose start and end arrive together) counts and flashes, when its agent is live', () => {
+  const s = session()
+  s.agent('sub', { kind: 'subagent', parentId: 'main' })
+  s.sync(T0)
+  // the transcript of a sub-agent is read in batches: the call is first seen complete, its agent idle between two steps
+  s.calls.set('x1', { id: 'x1', agentId: 'sub', toolName: 'Read', state: 'complete' })
+  const r = s.set('sub', { state: 'idle', awaitingNextEvent: true }, T0 + 500)
+  assert.deepEqual(r.received.map((c) => [c.id, c.room]), [['x1', 'library']])
+  assert.equal(r.rows.find((x) => x.id === 'sub')?.room, 'library')
+  // ten seconds without another call: back to the lounge
+  assert.equal(s.sync(T0 + 500 + 10_001).rows.find((x) => x.id === 'sub')?.room, 'lounge')
+})
+
+test('a call first seen finished of a replayed agent counts for nothing', () => {
+  const s = session()
+  s.agent('old', { freshnessSource: 'history' })
+  s.sync(T0)
+  s.calls.set('x1', { id: 'x1', agentId: 'old', toolName: 'Read', state: 'complete' })
+  const r = s.set('old', { state: 'idle', awaitingNextEvent: true }, T0 + 500)
+  assert.deepEqual(r.received, [])
+  assert.equal(r.rows.find((x) => x.id === 'old')?.room, 'lounge')
+})
+
+test('idle between two steps of a turn (awaiting its next event) keeps the room like a short think; idle at rest does not', () => {
+  const s = session()
+  s.agent('a')
+  s.sync(T0)
+  s.start('a', 'Bash', T0 + 100)
+  assert.equal(s.set('a', { state: 'idle', currentTool: undefined, awaitingNextEvent: true }, T0 + 200).rows[0].room, 'workshop')
+  assert.equal(s.set('a', { state: 'idle', awaitingNextEvent: undefined }, T0 + 300).rows[0].room, 'lounge')
 })
