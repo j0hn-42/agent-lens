@@ -457,6 +457,7 @@ export function AgentVisualizer() {
           replayLost={replayLostBySession}
           costTotals={showCostOverlay ? <CostTotalsText visible tokens={shownUsage.tokens} cost={shownUsage.cost} agents={agents.values()} unattributed={unattributed.values()} /> : null}
           onSound={isReviewing ? undefined : playBurrowSound}
+          reviewing={isReviewing}
         />
       ) : (
       <AgentCanvas

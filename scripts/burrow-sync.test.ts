@@ -623,3 +623,18 @@ test('a failure or a call that happened while the burrow did not follow (a backg
   calls.set('f2', failedCall('a', 'Bash', 'Exit code 3', t0 + 61_000))
   assert.deepEqual(sync(t0 + 61_000).stumbles.get('a'), { at: t0 + 61_000, tool: 'Bash', exit: 3 })
 })
+
+test('reviewing a recording: an agent at the door still wonders, but no wait is counted (the wall clock of a pause proves nothing)', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const q = agent('q', { state: 'tool_calling', currentTool: 'AskUserQuestion', lastEventAt: t0 })
+  const sync = (now: number) => syncBurrow(e, st, [q], { ...opts, now, reviewing: true })
+  assert.equal(sync(t0).waits.get('q'), t0)
+  for (let now = t0; now <= t0 + 125_000; now += 5000) sync(now)
+  const r = sync(t0 + 125_000)
+  assert.equal(r.waits.get('q'), t0 + 125_000, 'its wait starts again at every sync: never past the wonder stage')
+  assert.equal(r.rows[0].waited, undefined, 'its row says no time')
+  // back to live: counted from then
+  const live = syncBurrow(e, st, [q], { ...opts, now: t0 + 126_000 })
+  assert.equal(live.waits.get('q'), t0 + 125_000)
+})

@@ -256,6 +256,12 @@ export interface BurrowSyncOptions {
   replayLost?: ReadonlyMap<string, number>
   /** Teams of the simulation: a team colour missing on its members is read there, as the graph's halo does */
   teams?: ReadonlyMap<string, TeamSummary>
+  /**
+   * A recording is being reviewed: the wall clock (a pause on a past moment) proves no time waited, so the wait of an
+   * agent at the door starts again at every sync (it only wonders, never calls, sulks or comes to the glass) and its row
+   * says no time
+   */
+  reviewing?: boolean
   max?: number
 }
 
@@ -345,7 +351,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     if (!WORK_ROOMS.has(p.room) || p.presence !== 'in') st.dominant.delete(a.id)
     // waiting for you: exactly the agents the placement sends to the post beside the front door (a fresh permission wait,
     // an AskUserQuestion call still open); counted from the first sync that sees it there
-    if (p.presence === 'in' && p.room === 'door') { if (!st.waitSince.has(a.id)) st.waitSince.set(a.id, opts.now) }
+    if (p.presence === 'in' && p.room === 'door') { if (opts.reviewing || !st.waitSince.has(a.id)) st.waitSince.set(a.id, opts.now) }
     else st.waitSince.delete(a.id)
     failureSeen(a, p, stale, st, opts.toolCalls, opts.now, gap)
     wanted.push({ a, p, filtered, posture: postureOf(a.state, stale) })

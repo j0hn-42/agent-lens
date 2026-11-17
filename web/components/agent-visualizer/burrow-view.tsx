@@ -63,6 +63,8 @@ export interface BurrowViewProps {
    * only while the scene moves. Absent = silent (reviewing a recording)
    */
   onSound?: (kind: 'knock' | 'thud' | 'crack' | 'pat') => void
+  /** A recording is being reviewed: no time waited for you is counted (burrow-sync `reviewing`) */
+  reviewing?: boolean
 }
 
 /** Seconds a letter takes from one animal to the other; at most this many letters fly at once */
@@ -119,7 +121,7 @@ function styleTag(el: HTMLDivElement, u: number, c: OverlayColors): void {
   s.fontFamily = 'inherit'; s.pointerEvents = 'none'; s.willChange = 'transform'
 }
 
-export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals, onSound }: BurrowViewProps) {
+export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = null, hideInactive = false, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, announceLevel = 'all', links, focusTargetId, health, replayLost, costTotals, onSound, reviewing = false }: BurrowViewProps) {
   const t = useT()
   const { locale } = useLocale()
   const { prefs, setPref } = useUiPreferences()
@@ -171,11 +173,11 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const reduced = osReduced || prefs.freezeMotion
 
   // live values for the frame loop (it never restarts for them)
-  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost, onSound })
-  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost, onSound }
+  const live = useRef({ selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost, onSound, reviewing })
+  live.current = { selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles, onAgentClick, onAgentHover, onAgentContextMenu, onToolCallClick, t, health, replayLost, onSound, reviewing }
   // what the scene follows depends on these too: the selected agent stays drawn under Show: active, reduced motion places
   // newcomers at once, a new loop verdict or replay loss changes the rows
-  useEffect(() => { resyncRef.current = true; wakeRef.current() }, [selectedAgentId, hideInactive, reduced, health, replayLost])
+  useEffect(() => { resyncRef.current = true; wakeRef.current() }, [selectedAgentId, hideInactive, reduced, health, replayLost, reviewing])
   // reduced motion draws again only when something changed (selection, hover, titles, hiding, motion setting); a motion
   // setting change also switches the loop between animation frames and the slow timer
   useEffect(() => { dirtyRef.current = true; wakeRef.current() }, [selectedAgentId, hoveredAgentId, hideInactive, reduced, showTitles])
@@ -379,6 +381,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const { rows: next, hidden: extra, changed, received, waits: nextWaits, stumbles: nextStumbles } = syncBurrow(engine, sync, agents, {
         hideInactive: live.current.hideInactive, selectedId: live.current.selectedAgentId, bubbleText, instant: live.current.reduced, now, delegations,
         health: live.current.health, replayLost: live.current.replayLost, teams: sim?.teams, toolCalls: sim?.toolCalls,
+        reviewing: live.current.reviewing,
       })
       if (changed) dirtyRef.current = true
       waits = nextWaits
