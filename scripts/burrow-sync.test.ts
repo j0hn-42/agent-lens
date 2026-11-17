@@ -481,3 +481,64 @@ test('between two tool calls a thinking agent stays in the room of its last tool
   syncBurrow(e, st, [a, b], { ...opts, now: t0 + 12_500 })
   assert.equal(e.jobOf('b'), 'door', 'not the office: the post of the agents that wait for the user')
 })
+
+test('waits: an agent at the post beside the front door is counted from the first sync that sees it there, and only while it stays', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const p = agent('p', { state: 'waiting_permission', lastEventAt: t0 })
+  const q = agent('q', { state: 'tool_calling', currentTool: 'AskUserQuestion', lastEventAt: t0 })
+  const w = agent('w', { state: 'tool_calling', currentTool: 'Edit', lastEventAt: t0 })
+  // first look included: then it only says "since the view opened"
+  const r1 = syncBurrow(e, st, [p, q, w], { ...opts, now: t0 })
+  assert.deepEqual([...r1.waits].sort(), [['p', t0], ['q', t0]])
+  // the first instant is kept while the wait lasts
+  const r2 = syncBurrow(e, st, [p, q, w], { ...opts, now: t0 + 5000 })
+  assert.equal(r2.waits.get('p'), t0)
+  // it thinks again: no longer waiting
+  p.state = 'thinking'; p.lastEventAt = t0 + 6000
+  const r3 = syncBurrow(e, st, [p, q, w], { ...opts, now: t0 + 6000 })
+  assert.equal(r3.waits.has('p'), false)
+  // a new wait starts a new count
+  p.state = 'waiting_permission'; p.lastEventAt = t0 + 7000
+  const r4 = syncBurrow(e, st, [p, q, w], { ...opts, now: t0 + 7000 })
+  assert.equal(r4.waits.get('p'), t0 + 7000)
+  assert.equal(r4.waits.has('w'), false, 'an agent at work does not wait for you')
+})
+
+test('waits: a permission wait silent for 30 s is a last known state and stops counting; a silent AskUserQuestion call keeps its post and its count', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const p = agent('p', { state: 'waiting_permission', lastEventAt: t0 })
+  const q = agent('q', { state: 'tool_calling', currentTool: 'AskUserQuestion', lastEventAt: t0 })
+  syncBurrow(e, st, [p, q], { ...opts, now: t0 })
+  const r = syncBurrow(e, st, [p, q], { ...opts, now: t0 + 31_000 })
+  assert.equal(r.waits.has('p'), false, 'stale: it is no longer proven to wait')
+  assert.equal(r.waits.get('q'), t0, 'a question still open, silent for less than 10 minutes')
+  // a replayed question is never a wait
+  const h = setup()
+  const old = agent('old', { state: 'tool_calling', currentTool: 'AskUserQuestion', lastEventAt: t0, freshnessSource: 'history' })
+  assert.equal(syncBurrow(h.e, h.st, [old], { ...opts, now: t0 }).waits.has('old'), false)
+})
+
+test('waits: a filtered agent, or one gone from the data, is not counted', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const p = agent('p', { state: 'waiting_permission', lastEventAt: t0 })
+  const sel = agent('sel', { state: 'waiting_permission', lastEventAt: t0, archived: true })
+  const r0 = syncBurrow(e, st, [p, sel, agent('x')], { ...opts, now: t0, hideInactive: true })
+  assert.equal(r0.waits.has('sel'), false, 'archived and hidden by Show: active: not drawn, not counted')
+  const r = syncBurrow(e, st, [agent('x')], { ...opts, now: t0 + 1000 })
+  assert.equal(r.waits.has('p'), false)
+  assert.equal(st.waitSince.size, 0, 'nothing kept for an agent that is gone')
+})
+
+test('a row says how long its agent has waited for you, in whole minutes, from one minute on', () => {
+  const { e, st } = setup()
+  const t0 = opts.now
+  const p = agent('p', { state: 'tool_calling', currentTool: 'AskUserQuestion', lastEventAt: t0 })
+  const row = (now: number) => { p.lastEventAt = now; return syncBurrow(e, st, [p], { ...opts, now }).rows[0] }
+  assert.equal(row(t0).waited, undefined)
+  assert.equal(row(t0 + 59_000).waited, undefined, 'nothing before a minute')
+  assert.equal(row(t0 + 60_000).waited, 1)
+  assert.equal(row(t0 + 125_000).waited, 2)
+})

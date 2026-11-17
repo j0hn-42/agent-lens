@@ -44,6 +44,17 @@ test('the team or workflow the ring stands for is named right after the state, i
   assert.doesNotMatch(burrowRowLabel(row(), [], tr('en')), /team|workflow/)
 })
 
+test('a row says from one minute on how long its agent has waited for you, as a lower bound, before the other notes', () => {
+  const waiting = row({ state: 'waiting_permission', room: 'door' })
+  assert.equal(burrowRowLabel(waiting, [], tr('en')), 'alpha: Waiting for permission, Front door')
+  assert.equal(burrowRowLabel({ ...waiting, waited: 1 }, [], tr('en')), 'alpha: Waiting for permission, Front door, has been waiting for you for at least 1 min')
+  assert.equal(burrowRowLabel({ ...waiting, waited: 2 }, [], tr('fr')), 'alpha : En attente d’autorisation, Porte d’entrée, vous attend depuis au moins 2 min')
+  const parent = row({ id: 'p', name: 'boss' })
+  const child = row({ id: 'c', name: 'kid', parentId: 'p', depth: 1, state: 'tool_calling', room: 'door', tool: 'AskUserQuestion', waited: 3, loop: true, team: { name: 't', kind: 'team' } })
+  assert.equal(burrowRowLabel(child, [parent, child], tr('en')),
+    'kid: Calling tool, Front door, tool AskUserQuestion, has been waiting for you for at least 3 min, team t, loop observed, sub-agent of boss')
+})
+
 test('the room is where the animal stands (its recent calls), the tool the one running: a row never lets the room pass for the tool', () => {
   // the same room as the tool: as before
   assert.equal(burrowRowLabel(row({ state: 'tool_calling', room: 'library', tool: 'Read' }), [], tr('en')), 'alpha: Calling tool, Library, tool Read')

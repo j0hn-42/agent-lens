@@ -77,6 +77,11 @@ export interface BurrowRow {
   marker?: string
   /** Team or workflow whose halo holds the agent in the graph (its own, or the one its session hosts), when the rings are drawn */
   team?: { name: string; kind: GroupKind }
+  /**
+   * Whole minutes this agent has waited for you at the post beside the front door, counted from when the burrow first
+   * saw it there (a lower bound), from one minute on
+   */
+  waited?: number
 }
 
 export interface BurrowSyncState {
@@ -92,9 +97,15 @@ export interface BurrowSyncState {
   recent: Map<string, Array<{ id: string; room: BurrowRoomId; at: number }>>
   /** Room the animal stands in while it works: the dominant room of its recent calls (see dominantRoom) */
   dominant: Map<string, BurrowRoomId>
+  /**
+   * When the burrow first saw each agent waiting for you at the post beside the front door (opts.now; on the first look:
+   * when the view opened). Dropped as soon as it no longer stands there.
+   */
+  waitSince: Map<string, number>
 }
 export const createBurrowSyncState = (): BurrowSyncState => ({
   applied: new Map(), started: false, lastRoom: new Map(), callsSeen: new Set(), callsStarted: false, recent: new Map(), dominant: new Map(),
+  waitSince: new Map(),
 })
 
 /** The animal follows the room of most of its calls of this last stretch of time, not each call */
@@ -230,6 +241,8 @@ export interface BurrowSyncResult {
   hidden: number
   /** An animal was added, moved, sent out or given a bubble by this call: reduced motion draws again only then */
   changed: boolean
+  /** Agents waiting for you at the post beside the front door, and since when the burrow saw them there (wall clock ms) */
+  waits: ReadonlyMap<string, number>
 }
 
 /** A state has no other proof on the floor than its bubble: it lasts as long as the state. A tool is proven by its room, so its bubble may end */
@@ -278,6 +291,10 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     }
     // the room is kept only while it works there, or thinks there for a moment: anything else decides afresh next time
     if (!WORK_ROOMS.has(p.room) || p.presence !== 'in') st.dominant.delete(a.id)
+    // waiting for you: exactly the agents the placement sends to the post beside the front door (a fresh permission wait,
+    // an AskUserQuestion call still open); counted from the first sync that sees it there
+    if (p.presence === 'in' && p.room === 'door') { if (!st.waitSince.has(a.id)) st.waitSince.set(a.id, opts.now) }
+    else st.waitSince.delete(a.id)
     wanted.push({ a, p, filtered, posture: postureOf(a.state, stale) })
   }
   const ids = new Set(wanted.map((w) => w.a.id))
@@ -287,6 +304,7 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
   for (const key of [...st.lastRoom.keys()]) if (!ids.has(key)) st.lastRoom.delete(key)
   for (const key of [...st.dominant.keys()]) if (!ids.has(key)) st.dominant.delete(key)
   for (const key of [...st.recent.keys()]) if (!ids.has(key)) st.recent.delete(key)
+  for (const key of [...st.waitSince.keys()]) if (!ids.has(key)) st.waitSince.delete(key)
 
   // already drawn first, then the busiest: the cap never takes an animal away from an agent that works
   const order = wanted.slice().sort((x, y) => Number(engine.has(y.a.id)) - Number(engine.has(x.a.id)) || rank(y) - rank(x))
@@ -350,15 +368,17 @@ export function syncBurrow(engine: BurrowEngine, st: BurrowSyncState, agents: Re
     const bubbleTool = p.bubble?.kind === 'tool' ? p.bubble.tool : undefined
     const calls = bubbleTool !== undefined ? (running.get(a.id) ?? []).filter((c) => c.toolName === bubbleTool) : []
     const toolCallId = calls.length === 1 ? calls[0].id : undefined
+    const since = st.waitSince.get(a.id)
+    const waited = since === undefined ? 0 : Math.floor((opts.now - since) / 60_000)
     flat.push({
       id: a.id, name: a.displayName, presence: p.presence, room: p.room, state: a.state,
       ...(p.bubble?.kind === 'tool' ? { tool: p.bubble.tool } : {}), ...(toolCallId ? { toolCallId } : {}), stale: p.bubble?.kind === 'stale',
       parentId: a.parentId ?? null, sessionId: a.sessionId, ...(delegating > 0 ? { delegating } : {}),
       ...(marks?.get(a.id)?.kind === 'loop' ? { loop: true as const } : {}), ...(lost > 0 ? { replayLost: lost } : {}),
-      ...(marker !== null ? { marker } : {}), ...(team ? { team } : {}),
+      ...(marker !== null ? { marker } : {}), ...(team ? { team } : {}), ...(waited >= 1 ? { waited } : {}),
     })
   }
   // attention first (stable: the order among equals is kept); the tree then puts each sub-agent under its parent
   flat.sort((x, y) => attentionRank(x.state) - attentionRank(y.state))
-  return { rows: treeOrder(flat), hidden, changed, received }
+  return { rows: treeOrder(flat), hidden, changed, received, waits: new Map(st.waitSince) }
 }
