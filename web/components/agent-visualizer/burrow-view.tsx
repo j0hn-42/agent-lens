@@ -403,7 +403,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const seen = new Set<string>()
       const bubbleBoxes: Box[] = []
       for (const a of engine.actors) {
-        const act = actShown(a)
+        const act = actShown(a, engine.clock)
         // an act may say something of its own while it lasts; otherwise the engine's bubble
         const said = act?.line ?? a.said
         if (said === null || a.mode === 'home') continue
@@ -425,7 +425,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
         el.style.cursor = clickable ? 'pointer' : ''
         const half = el.offsetWidth / 2
         const x = a.x * scale
-        const pose = drawnPose(a)
+        const pose = drawnPose(a, engine.clock)
         const tall = (pose && a.meta.poses[pose]?.h) || a.meta.h
         // raised above the sign over its head, which it would hide for as long as the state lasts
         const y = (a.y - (act?.oy ?? 0) - tall - 4 - (act?.sign ? SIGN_LIFT : 0)) * scale

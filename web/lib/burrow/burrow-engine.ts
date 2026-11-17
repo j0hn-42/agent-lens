@@ -70,19 +70,24 @@ export interface BurrowActor {
    * the engine's own logic, and drawn only while the animal stands (actShown)
    */
   act: BurrowActFrame | null
+  /**
+   * Engine clock until which the animal is held where it is (hold: a tool call of its agent just failed, it stumbles):
+   * it does not move, its plan, post and seat are kept, and its act is shown even mid-walk
+   */
+  heldUntil: number
 }
 
 /**
- * The act shown now: only while the animal stands or sits on a seat. An act on an animal that walks, hops or goes
- * through the door would make it slide: it waits until the animal stops.
+ * The act shown now (`clock`: the engine's): only while the animal stands, sits on a seat or is held. An act on an
+ * animal that walks, hops or goes through the door would make it slide: it waits until the animal stops.
  */
-export function actShown(a: Pick<BurrowActor, 'act' | 'mode'>): BurrowActFrame | null {
-  return a.act && (a.mode === 'idle' || a.mode === 'sit') ? a.act : null
+export function actShown(a: Pick<BurrowActor, 'act' | 'mode' | 'heldUntil'>, clock: number): BurrowActFrame | null {
+  return a.act && (a.mode === 'idle' || a.mode === 'sit' || a.heldUntil > clock) ? a.act : null
 }
 
 /** The pose drawn now: the shown act's when it gives one (null = standing frame), else the engine's own */
-export function drawnPose(a: Pick<BurrowActor, 'act' | 'mode' | 'pose'>): string | null {
-  const act = actShown(a)
+export function drawnPose(a: Pick<BurrowActor, 'act' | 'mode' | 'pose' | 'heldUntil'>, clock: number): string | null {
+  const act = actShown(a, clock)
   return act && act.pose !== undefined ? act.pose : a.pose
 }
 
@@ -364,7 +369,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
       x: 0, y: 0, dir: 'down', mode: 'idle', wait: 0, plan: [{ t: 'idle', dur: rnd(0.3, 2.5) }], route: [], animT: rng(), alpha: 1,
       pose: null, poi: null, lastPoi: null, zone: LOUNGE, job: null, tp: 0, dx: 0, hop: null, hopT: 0,
       awaySince: null, goingHome: false, leaving: false, gone: false, said: null, sayUntil: 0, resting: false, post: null, posture: 'stroll',
-      act: null,
+      act: null, heldUntil: 0,
     }
     actors.push(a)
     index.set(key, a)
@@ -468,6 +473,17 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   function setAct(key: string, frame: BurrowActFrame | null): void {
     const a = byKey(key)
     if (a) a.act = frame
+  }
+  /**
+   * Holds the animal where it is for `seconds` (a tool call of its agent just failed: it stumbles there): no step, no
+   * countdown, its plan, post, seat and bubble kept; it goes on afterwards. Only an animal standing, walking or seated
+   * in the burrow (not in the doorway, mid-hop or outside); false otherwise.
+   */
+  function holdFor(key: string, seconds: number): boolean {
+    const a = byKey(key)
+    if (!a || a.leaving || !(a.mode === 'idle' || a.mode === 'walk' || a.mode === 'queue' || a.mode === 'sit')) return false
+    a.heldUntil = clock + seconds
+    return true
   }
   /** `dur` seconds (Infinity = until said again); null hushes */
   function say(key: string, text: string | null, dur = 6): void {
@@ -632,6 +648,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   }
   function tick(a: Actor, dt: number): void {
     if (a.said !== null && clock > a.sayUntil) a.said = null
+    if (a.heldUntil > clock) return                  // held where it is: nothing moves or counts down until the end
     // time to go home: as soon as the way to the door is clear and what the agent is doing can be interrupted
     if (dueHome(a) && !a.goingHome && !outside(a) && wayClear(a)) replan(a)
     const done = (): void => { a.plan.shift(); begin(a) }
@@ -766,7 +783,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     let best: Actor | null = null
     for (const a of actors) {
       if (a.mode === 'home') continue
-      const pose = drawnPose(a)
+      const pose = drawnPose(a, clock)
       const tall = (pose && a.meta.poses[pose]?.h) || a.meta.h
       const half = Math.max(8, Math.round(a.meta.cell / 4))
       if (Math.abs(x - a.x) <= half && y <= a.y + 4 && y >= a.y - tall && (!best || a.y > best.y)) best = a
@@ -782,7 +799,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     ambience,
     get clock() { return clock },
     doorIsOpen,
-    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say, setAct,
+    addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say, setAct, hold: holdFor,
     update, fastForward, zoneOf, actorAt,
     /** Room an agent is assigned to now (null = not working) */
     jobOf: (key: string): BurrowWorkshopId | null => byKey(key)?.job?.room ?? null,

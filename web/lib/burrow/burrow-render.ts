@@ -176,12 +176,13 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
     let row: number
     let col: number
     // the pose of an act the view shows (an agent that waits for you...), else the engine's own
-    const drawn = drawnPose(a)
+    const drawn = drawnPose(a, engine.clock)
     const pose = drawn ? m.poses[drawn] : undefined
     if (pose) { row = pose.row; col = pose.col }
     else {
       const an = m.anims[a.dir]
-      const waiting = (a.mode === 'doorOut' || a.mode === 'doorIn') && a.wait > 0   // standing still while the door opens
+      // standing still while the door opens, or held where it is (it stumbles)
+      const waiting = ((a.mode === 'doorOut' || a.mode === 'doorIn') && a.wait > 0) || a.heldUntil > engine.clock
       const rate = (a.fps * an.frames) / m.anims.down.frames                          // same loop duration in every direction
       row = an.row
       col = MOVING.has(a.mode) && !waiting ? Math.floor(a.animT * rate) % an.frames : 0
@@ -201,7 +202,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       for (const [dx, dy] of RING_PIXELS) g.fillRect(x + dx, y + dy, 1, 1)
       g.globalAlpha = alpha
     }
-    const lift = actShown(a)?.oy ?? 0
+    const lift = actShown(a, engine.clock)?.oy ?? 0
     g.drawImage(images[a.sprite], col * c, row * c, c, c, x - m.anchor[0], y - lift - m.anchor[1], c, c)
     if (crowns?.has(a.key)) drawCrown(x, y - lift - ((pose && pose.h) || m.h) - 1)
     g.globalAlpha = 1
@@ -312,7 +313,7 @@ export function createBurrowRenderer(data: BurrowData, images: BurrowImages, eng
       // the signs over the heads and the effects of the acts the view shows ("?" of an agent that waits for you...):
       // after every animal and light, so no animal hides them and no lantern tints them
       for (const a of list) {
-        const act = actShown(a)
+        const act = actShown(a, clock)
         if (!act) continue
         for (const it of actDrawList({ x: a.x, y: a.y, meta: a.meta, pose: a.pose }, act, FX.rects, clock, still)) {
           g.globalAlpha = clamp01(it.alpha)
