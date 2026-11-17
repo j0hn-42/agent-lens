@@ -185,7 +185,10 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   const hidesTitle = (x: number, y: number): boolean => mats.some((m) => x > m.x - 10 && x < m.x + m.w + 10 && y > m.y - 2 && y < m.y + m.h + 30)
   // floor kept for a place of its own (the telephone's callers): an animal walks over it but stops there only to hold that place
   const KEPT: ReadonlyArray<readonly [number, number, number, number]> = [BURROW_TELEPHONE.reserved, BURROW_ERROR_PLACE.reserved]
-  const kept = (x: number, y: number): boolean => KEPT.some((r) => x >= r[0] && x < r[2] && y >= r[1] && y < r[3])
+  /** The floor over which the squirrel's close-up stands at the glass (setGlassBand): kept too, while it may show */
+  let glassBand: readonly [number, number, number, number] | null = null
+  const inRect = (r: readonly [number, number, number, number], x: number, y: number): boolean => x >= r[0] && x < r[2] && y >= r[1] && y < r[3]
+  const kept = (x: number, y: number): boolean => KEPT.some((r) => inRect(r, x, y)) || (glassBand !== null && inRect(glassBand, x, y))
   const zoneCells: Partial<Record<BurrowRoomId, Array<[number, number]>>> = {}
   const cellsOf = (room: BurrowRoomId): Array<[number, number]> => zoneCells[room] ?? zoneCells[LOUNGE] ?? [[Math.floor(GW / 2), Math.floor(GH / 2)]]
   // Posts: at the telephone (burrow-telephone), a row beside the front door, facing it, and the place of errors
@@ -195,16 +198,7 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
   function layTitles(titles: Readonly<Record<string, string>>): void {
     mats.length = 0
     mats.push(...layoutMats(data, titles))
-    for (const k of Object.keys(zoneCells)) delete zoneCells[k as BurrowRoomId]
-    for (let gy = 0; gy < GH; gy++) {
-      for (let gx = 0; gx < GW; gx++) {
-        if (!cellOk(gx, gy)) continue
-        const c = cellPoint([gx, gy])
-        if (hidesTitle(c.x, c.y) || kept(c.x, c.y)) continue
-        const z = zoneOf(c.x, c.y)
-        ;(zoneCells[z] ??= []).push([gx, gy])
-      }
-    }
+    layCells()
     // a row level with the doormat, a step in front of the office desks: first the places nearest the door and between
     // two desks (a waiter does not hide an agent working at a desk), then the places in front of the desks
     posts.door.length = 0
@@ -217,6 +211,19 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     for (const p of BURROW_TELEPHONE.posts) if (pointOk(p.x, p.y) && !hidesTitle(p.x, p.y)) posts.phone.push({ x: p.x, y: p.y })
     posts.error.length = 0
     for (const p of BURROW_ERROR_PLACE.spots) if (pointOk(p.x, p.y) && !hidesTitle(p.x, p.y)) posts.error.push({ x: p.x, y: p.y })
+  }
+  /** The cells where an animal may stop, per room: walkable, hiding no title, not kept for a place of its own */
+  function layCells(): void {
+    for (const k of Object.keys(zoneCells)) delete zoneCells[k as BurrowRoomId]
+    for (let gy = 0; gy < GH; gy++) {
+      for (let gx = 0; gx < GW; gx++) {
+        if (!cellOk(gx, gy)) continue
+        const c = cellPoint([gx, gy])
+        if (hidesTitle(c.x, c.y) || kept(c.x, c.y)) continue
+        const z = zoneOf(c.x, c.y)
+        ;(zoneCells[z] ??= []).push([gx, gy])
+      }
+    }
   }
   layTitles(opts.titles)
 
@@ -837,6 +844,24 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     }
   }
 
+  /**
+   * The floor the squirrel's close-up stands over at the glass (burrow-glass glassBand), kept free while it may show
+   * (null: given back). Like the floor of the telephone: animals walk over it but never stop there, and one that stands,
+   * sits or was about to stop there decides again now.
+   */
+  function setGlassBand(rect: readonly [number, number, number, number] | null): void {
+    if (rect === glassBand || (rect && glassBand && rect.every((v, i) => v === glassBand?.[i]))) return
+    glassBand = rect ? [rect[0], rect[1], rect[2], rect[3]] : null
+    layCells()
+    if (!glassBand) return
+    for (const a of actors) {
+      if (outside(a) || a.leaving || a.goingHome) continue
+      const step = a.plan[0]
+      const goal = a.mode === 'walk' && step?.t === 'walk' ? step : a
+      if ((a.mode === 'idle' || a.mode === 'walk' || a.mode === 'act' || a.mode === 'sit') && inRect(glassBand, goal.x, goal.y)) replan(a)
+    }
+  }
+
   function fastForward(seconds: number): void {
     // the time left of each bubble is read before the jump: update() would end a timed one on its way
     const left = new Map(actors.filter((a) => a.said !== null).map((a) => [a, { said: a.said, left: a.sayUntil - clock }] as const))
@@ -866,7 +891,10 @@ export function createBurrowEngine(opts: BurrowEngineOptions) {
     get clock() { return clock },
     doorIsOpen,
     addActor, removeActor, assign, release, setAvailable, setResting, setPosture, say, setAct, hold: holdFor, setPastimes,
+    setGlassBand,
     update, fastForward, zoneOf, actorAt,
+    /** The feet of the posts of a kind (laid again with the titles): the close-up at the glass keeps clear of them */
+    postsOf: (kind: PostKind): ReadonlyArray<Readonly<Pt>> => posts[kind],
     /** Room an agent is assigned to now (null = not working) */
     jobOf: (key: string): BurrowWorkshopId | null => byKey(key)?.job?.room ?? null,
     /** The pastime the agent's animal plays now (an idle squirrel), null when none */

@@ -13,6 +13,7 @@ import { BurrowLegend } from './burrow-legend'
 import { actShown, createBurrowEngine, drawnPose, type BurrowEngine } from '@/lib/burrow/burrow-engine'
 import { glassOwner, needsYouFrame, SIGN_LIFT, type BurrowActFrame } from '@/lib/burrow/burrow-acts'
 import { glumFrame, STUMBLE_S, stumbleFrame } from '@/lib/burrow/burrow-failure'
+import { glassBand, glassPlace } from '@/lib/burrow/burrow-glass'
 import { createBurrowLoop } from '@/lib/burrow/burrow-loop'
 import { overlayColors, readBurrowPalette, type OverlayColors } from '@/lib/burrow/burrow-palette'
 import { createBurrowRenderer, type BurrowRenderer, type BurrowLetter, type BurrowThread } from '@/lib/burrow/burrow-render'
@@ -30,7 +31,7 @@ import { fillTag } from './burrow-tag'
 import type { HealthVerdict } from '@/lib/loop-detection'
 import { bubbleShown, cullTags, nextTagNames, showsTag, truncateName, type Box, type TagBox } from '@/lib/burrow/burrow-labels'
 import { burrowLayout, controlColumn, type BurrowLayout, type StageInsets } from '@/lib/burrow/burrow-fit'
-import { measureOverlayInsets } from './canvas/overlay-insets'
+import { measureCanvasCovers, measureOverlayInsets } from './canvas/overlay-insets'
 
 export interface BurrowViewProps {
   simulationRef: React.RefObject<SimulationState>
@@ -137,6 +138,13 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
   const [column, setColumn] = useState<{ right: number; room: number | null }>({ right: 8, room: null })
   /** The area the top bar, the control bar and the docked panels leave free (the graph's measure): the picture is fitted to it */
   const insetsRef = useRef<StageInsets>({ top: 0, right: 0, bottom: 0, left: 0 })
+  /** The burrow's controls column: the squirrel's close-up at the glass keeps clear of it */
+  const columnRef = useRef<HTMLDivElement>(null)
+  /**
+   * What else lies over the picture, in px of the container: the controls column and the elements tagged
+   * data-canvas-cover (measured with the insets): the close-up at the glass keeps clear of them
+   */
+  const coversRef = useRef<ReadonlyArray<{ x: number; y: number; w: number; h: number }>>([])
   /** Portrait (narrow, tall free area): where the always-shown agent list goes under the stage; null in landscape */
   const [listBox, setListBox] = useState<BurrowLayout['list']>(null)
   /** Agent row that had the focus at the last fit: focused again when the list moved to the other layout */
@@ -181,6 +189,12 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       const width = container.getBoundingClientRect().width
       const col = width > 0 ? controlColumn(width, next.right) : { right: Math.round(Math.max(0, next.right)) + 8, room: null }
       setColumn((c) => (c.right === col.right && c.room === col.room ? c : col))
+      const box = container.getBoundingClientRect()
+      const own = columnRef.current?.getBoundingClientRect()
+      coversRef.current = [
+        ...(own && own.width > 0 && own.height > 0 ? [{ x: own.left - box.left, y: own.top - box.top, w: own.width, h: own.height }] : []),
+        ...measureCanvasCovers(container),
+      ]
       if (same(insetsRef.current, next)) return
       insetsRef.current = next
     }
@@ -265,6 +279,8 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
     /** What the acts show (pose, sign, line per agent): the still scene is drawn again when it changes */
     let actsSig = ''
     let scale = 1
+    /** Where the stage lies in the container (px), and the container's size: null until laid out */
+    let stageBox: { left: number; top: number; width: number; height: number; cw: number; ch: number } | null = null
     let rowsSig = ''
     let hiddenShown = -1
 
@@ -280,6 +296,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       refocusRowRef.current = active instanceof HTMLElement && container.contains(active) ? active.dataset.burrowRow ?? null : null
       setListBox((b) => (b === box || (b && box && b.left === box.left && b.top === box.top && b.width === box.width && b.height === box.height) ? b : box))
       scale = fit.scale
+      stageBox = { left: fit.left, top: fit.top, width: fit.width, height: fit.height, cw: container.clientWidth, ch: container.clientHeight }
       stage.style.width = `${fit.width}px`
       stage.style.height = `${fit.height}px`
       stage.style.left = `${fit.left}px`
@@ -404,9 +421,30 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
      * longest-waiting squirrel draws its knock bursts, and none in the still scene. Returns what the acts show, so the
      * still scene is drawn again when a stage changes.
      */
+    /**
+     * The edges of the picture covered by the panels, the top bar and the timeline (the measured insets), and what else
+     * lies over it (the controls column, data-canvas-cover), in scene px: where the close-up at the glass may stand
+     */
+    const glassCovers = (): Pick<Parameters<typeof glassPlace>[0], 'covers' | 'coveredBottom' | 'coveredLeft' | 'coveredRight'> => {
+      const b = stageBox
+      if (!b || !(scale > 0)) return { covers: [], coveredBottom: 0, coveredLeft: 0, coveredRight: 0 }
+      const ins = insetsRef.current
+      return {
+        coveredBottom: Math.max(0, b.top + b.height - (b.ch - ins.bottom)) / scale,
+        coveredLeft: Math.max(0, ins.left - b.left) / scale,
+        coveredRight: Math.max(0, b.left + b.width - (b.cw - ins.right)) / scale,
+        covers: coversRef.current.map((r) => ({ x0: (r.x - b.left) / scale, x1: (r.x + r.w - b.left) / scale, y0: (r.y - b.top) / scale, y1: (r.y + r.h - b.top) / scale })),
+      }
+    }
     const applyActs = (now: number, still: boolean): string => {
       const owner = glassOwner(waits, (key) => engine.actors.find((a) => a.key === key)?.meta)
-      let sig = ''
+      // the squirrel that waits longest also comes to the glass, in a free gap of the bottom edge: no animal stops behind it
+      const ownerActor = owner === null ? undefined : engine.actors.find((a) => a.key === owner)
+      const place = ownerActor?.meta.glass && ownerActor.mode !== 'home'
+        ? glassPlace({ agentX: ownerActor.x, mats: engine.mats, posts: [...engine.postsOf('door'), ...engine.postsOf('phone'), ...engine.postsOf('error')], ...glassCovers() })
+        : null
+      engine.setGlassBand(place ? glassBand(place) : null)
+      let sig = place ? `glass|${place.cx}|${place.base}\n` : ''
       for (const a of engine.actors) {
         const since = waits.get(a.key)
         const stumble = stumbles.get(a.key)
@@ -698,6 +736,7 @@ export function BurrowView({ simulationRef, selectedAgentId, hoveredAgentId = nu
       {/* Below the top bar (drawn over the top of <main>), on the right but left of a docked panel: the collapsed Conversation pill holds the left */}
       {/* --burrow-room: the width left of the column's right edge, which the agent list hanging from it keeps to as well */}
       <div
+        ref={columnRef}
         className="absolute flex flex-col items-end gap-1 text-2xs font-mono"
         style={{
           top: 'calc(var(--topbar-h, 60px) + 8px)', right: column.right, color: 'var(--lens-ink-muted)',
