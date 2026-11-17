@@ -93,6 +93,6 @@ test('bubbleSays: an act that says its own line (an exit code) shows it, and tha
   assert.deepEqual(bubbleSays({ said: 'Read', act: null }, 'call-1'), { text: 'Read', opens: 'call-1' })
   assert.deepEqual(bubbleSays({ said: 'Read', act: { line: 'Exit code 1' } }, 'call-1'), { text: 'Exit code 1', opens: undefined },
     'the line is about the failed call, not the running one')
-  assert.deepEqual(bubbleSays({ said: 'Thinking', act: { pose: 'sheepish' } }, undefined), { text: 'Thinking', opens: undefined })
+  assert.deepEqual(bubbleSays({ said: 'Thinking', act: {} }, undefined), { text: 'Thinking', opens: undefined })
   assert.deepEqual(bubbleSays({ said: null, act: null }, 'call-1'), { text: null, opens: undefined })
 })
