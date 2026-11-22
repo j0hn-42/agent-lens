@@ -295,7 +295,7 @@ export function freeAngle(angles: number[], seed: string): number {
     const hash = seed.split('').reduce((h, c) => ((h << 5) - h) + c.charCodeAt(0), 0)
     return (Math.abs(hash) % 360) * (Math.PI / 180)
   }
-  const sorted = [...angles].sort((a, b) => a - b)
+  const sorted = angles.toSorted((a, b) => a - b)
   let bestGap = 0
   let bestMid = 0
   for (let i = 0; i < sorted.length; i++) {

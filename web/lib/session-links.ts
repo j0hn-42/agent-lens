@@ -55,8 +55,8 @@ function uniqueSessions(sessions: ReadonlyArray<LinkSession>): LinkSession[] {
 
 export function deriveSessionLinks(sessionsIn: ReadonlyArray<LinkSession>): SessionLink[] {
   const all = uniqueSessions(sessionsIn)
-  const sessions = [...all]
-    .sort((a, b) => b.lastActivityTime - a.lastActivityTime || (a.id < b.id ? -1 : 1))
+  const sessions = all
+    .toSorted((a, b) => b.lastActivityTime - a.lastActivityTime || (a.id < b.id ? -1 : 1))
     .slice(0, MAX_LINK_SESSIONS)
   const known = new Set(sessions.map(x => x.id))
   // Candidates are counted over the whole list, not the bounded one: a root session cut by the bound

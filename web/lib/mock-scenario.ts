@@ -275,7 +275,7 @@ const WORKFLOW83_EVENTS: SimulationEvent[] = [
   ...WORKFLOW83_MEMBERS.slice(0, 30).map((m, i): SimulationEvent => ({ time: 3.0 + i * 0.01, type: 'agent_activity', payload: { name: m.name, activity: 'done' } })),
   ...WORKFLOW83_MEMBERS.slice(30).map((m, i): SimulationEvent => ({ time: 3.4 + i * 0.01, type: 'agent_activity', payload: { name: m.name, activity: 'working' } })),
 ]
-const WORKFLOW83_MOCK_SCENARIO: SimulationEvent[] = [...WORKFLOW83_EVENTS].sort((a, b) => a.time - b.time)
+const WORKFLOW83_MOCK_SCENARIO: SimulationEvent[] = WORKFLOW83_EVENTS.toSorted((a, b) => a.time - b.time)
 
 /** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
 const SCENARIO_NAME = getScenarioName()

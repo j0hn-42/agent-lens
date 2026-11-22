@@ -145,7 +145,7 @@ export function buildSessionRows(
 ): SessionRow[] {
   const byId = new Map(sessions.map(s => [s.id, s]))
   const rank = (s: SessionInfo) => (s.status !== 'active' ? 2 : isObserved && !isObserved(s) ? 1 : 0)
-  const sortedSessions = [...sessions].sort((a, b) => rank(a) - rank(b) || b.lastActivityTime - a.lastActivityTime)
+  const sortedSessions = sessions.toSorted((a, b) => rank(a) - rank(b) || b.lastActivityTime - a.lastActivityTime)
   const items = buildTabModel(sortedSessions, teamNames, teamMeta, opts)
   // buildTabModel keeps the input order inside each block, which is the sorted order
   const rows: SessionRow[] = []
