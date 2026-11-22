@@ -120,7 +120,7 @@ export async function loadSessionWork(
 }
 
 export function sortPrsByBranch(prs: ReadonlyArray<SessionPr>): SessionPr[] {
-  return [...prs].sort((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : a.number - b.number))
+  return prs.toSorted((a, b) => (a.branch < b.branch ? -1 : a.branch > b.branch ? 1 : a.number - b.number))
 }
 
 /** A PR belongs to the session only when the session recorded its branch and it is exactly the PR's head branch. */

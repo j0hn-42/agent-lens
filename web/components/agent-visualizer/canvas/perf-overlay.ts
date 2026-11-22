@@ -70,7 +70,7 @@ export function drawPerfOverlay(ctx: CanvasRenderingContext2D, perf: PerfStats, 
     perf.fps = perf.frames
     perf.frames = 0
     perf.lastFpsUpdate = frameEnd
-    const sorted = [...perf.frameTimes].sort((a, b) => a - b)
+    const sorted = perf.frameTimes.toSorted((a, b) => a - b)
     perf.p95 = sorted[Math.floor(sorted.length * 0.95)] || 0
   }
   const po = PERF_OVERLAY
